@@ -1,0 +1,21 @@
+#!/bin/bash
+if [[ ! -d ./bin ]]; then
+    mkdir ./bin
+fi
+
+clang++ -std=c++11 -Wno-return-type-c-linkage -DINCLUDE_UTF8_LOOKUP_TABLE \
+    -nodefaultlibs -g3 -Wl,--gc-sections \
+    -fno-rtti -ffunction-sections -fno-exceptions \
+    -nostdlib -std=c++17 -masm=intel -I. \
+    **/*.s **/*.cpp main.cpp -o bin/clover
+
+rm cclover.o lib/*.o core/*.o
+for f in cclover.cpp lib/malloc.cpp lib/io.cpp lib/init.cpp lib/utf.cpp core/*.s core/*.cpp; do
+    clang++ -std=c++11 -Wno-return-type-c-linkage -DINCLUDE_UTF8_LOOKUP_TABLE \
+        -nodefaultlibs -g3 \
+        -fno-rtti -ffunction-sections -fno-exceptions \
+        -nostdlib -std=c++17 -masm=intel -I. \
+        -fPIE -c $f -o ${f%.cpp}.o
+done
+ar crs bin/libcclover.a cclover.o lib/*.o core/*.o
+rm cclover.o lib/*.o core/*.o

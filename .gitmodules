@@ -1,0 +1,3 @@
+[submodule "mdtest"]
+	path = mdtest
+	url = https://github.com/elucent/mdtest
