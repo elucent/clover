@@ -125,15 +125,6 @@ using InsnVec = vec<Insn, 16, arena>;
 
 struct JasmineModule;
 
-enum SlotType {
-    SLOT_NONE, SLOT_STACK, SLOT_GPREG, SLOT_FPREG
-};
-
-struct Slot {
-    SlotType type;
-    i64 payload;
-};
-
 struct Function {
     JasmineModule* obj;
     typeidx type;

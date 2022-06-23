@@ -205,8 +205,8 @@ Depending on the opcode, instructions also have one of several arities, which mu
 | `conv` | Unary | `conv a : b -> a` | Converts its operand to the desired type. |
 | `zxt` | Unary | `zxt a : b -> a` | Zero-extends its operand to the desired type. |
 | `sxt` | Unary | `sxt a : b -> a` | Sign-extends its operand to the desired type. |
-| `ret` | Unary | `ret a : a -> void | Returns from the current function with the first operand as a return value. |
-| `par` | Unary | `par a : iword -> a | Loads the nth parameter into the result. |
+| `ret` | Unary | `ret a : a -> void` | Returns from the current function with the first operand as a return value. |
+| `par` | Unary | `par a : iword -> a` | Loads the nth parameter into the result. |
 | `jump` | Unary | `jump : ptr -> void` | Jumps unconditionally to the provided address. |
 | `label` | Unary | `label : iword -> void` | Defines the label with the provided index. |
 | `mov` | Unary | `mov a : a -> a` | Defines the result as equal to the operand. |

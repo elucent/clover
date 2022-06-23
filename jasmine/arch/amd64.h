@@ -10,7 +10,14 @@ struct AMD64Target {
         XMM0 = 0, XMM1 = 1, XMM2 = 2, XMM3 = 3, XMM4 = 4, XMM5 = 5, XMM6 = 6, XMM7 = 7,
         XMM8 = 8, XMM9 = 9, XMM10 = 10, XMM11 = 11, XMM12 = 12, XMM13 = 13, XMM14 = 14, XMM15 = 15;
     static const mreg GP_REGS[14], FP_REGS[16];
-    static const const_slice<i8> GP_REG_NAMES[16], FP_REG_NAMES[16];
+    static constexpr const i8* GP_REG_NAMES[16] = {
+        "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", 
+        "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"
+    };
+    static constexpr const i8* FP_REG_NAMES[16] = {
+        "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", 
+        "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15" 
+    };
 
     static inline const_slice<mreg> gpregs() {
         return { GP_REGS, 14 };
@@ -21,11 +28,11 @@ struct AMD64Target {
     }
 
     static inline const_slice<i8> gpreg_name(mreg r) {
-        return GP_REG_NAMES[r];
+        return { GP_REG_NAMES[r], cidx(GP_REG_NAMES[r], 0) };
     }
 
     static inline const_slice<i8> fpreg_name(mreg r) {
-        return FP_REG_NAMES[r];
+        return { FP_REG_NAMES[r], cidx(FP_REG_NAMES[r], 0) };
     }
 
     static inline u32 primsize(typeidx t) {
@@ -48,14 +55,10 @@ struct AMD64Target {
 
 struct AMD64LinuxTarget : public AMD64Target {
     static const mreg GP_ARGS[6], FP_ARGS[8];
+    static const TargetDesc DESC;
 
-    static inline const_slice<mreg> gpargs() {
-        return { GP_ARGS, 6 };
-    }
-
-    static inline const_slice<mreg> fpargs() {
-        return { FP_ARGS, 8 };
-    }
+    static Placement place_ret(const TypeTable& tab, typeidx t);
+    static Placement place_arg(const TypeTable& tab, typeidx t, UsageState usage);
 };
 
 #endif

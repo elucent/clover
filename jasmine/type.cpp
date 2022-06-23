@@ -80,8 +80,6 @@ void format_type(const TypeTable& table, typeidx t, stream& io) {
 TypeTable::TypeTable(JasmineModule* obj_in): obj(obj_in) {
     types.alloc = &obj->modspace;
     table.alloc = &obj->modspace;
-    sizes.alloc = &obj->modspace;
-    aligns.alloc = &obj->modspace;
 }
 
 u32 TypeTable::size() const {
@@ -161,27 +159,25 @@ void TypeTable::format(stream& io) const {
 
 u32 TypeTable::native_sizeof(const Target& t, typeidx i) const {
     if (i < 0) return t.primsize(i);
-    else return sizes[i];
+    else return types[i].size;
 }
 
 u32 TypeTable::native_alignof(const Target& t, typeidx i) const {
     if (i < 0) return t.primsize(i);
-    else return aligns[i];
+    else return types[i].align;
 }
 
 void TypeTable::compute_native_sizes(const Target& arch) {
-    sizes.clear();
-    aligns.clear();
     for (u32 i = 0; i < types.size(); i ++) {
-        const Type& t = types[i];
+        Type& t = types[i];
         switch (t.kind) {
             case TK_ARR: 
-                sizes.push(t.nelts * native_sizeof(arch, t.elt)); 
-                aligns.push(native_alignof(arch, t.elt));
+                t.size = t.nelts * native_sizeof(arch, t.elt);
+                t.align = native_alignof(arch, t.elt);
                 break;
             case TK_FUN:
-                sizes.push(0);
-                aligns.push(0);
+                t.size = 0;
+                t.align = 0;
                 break;
             case TK_TUP: {
                 u32 size = 0, align = 0;
@@ -191,13 +187,13 @@ void TypeTable::compute_native_sizes(const Target& arch) {
                     align = a > align ? a : align;
                     size += native_sizeof(arch, t.members[i]);
                 }
-                sizes.push(size);
-                aligns.push(align);
+                t.size = size;
+                t.align = align;
                 break;
             }
             case TK_VEC:
-                sizes.push(t.nvelts * native_sizeof(arch, t.velt)); 
-                aligns.push(native_alignof(arch, t.nvelts * t.velt));
+                t.size = t.nvelts * native_sizeof(arch, t.velt); 
+                t.align = native_alignof(arch, t.nvelts * t.velt);
                 break;
         }
     }

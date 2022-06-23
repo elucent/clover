@@ -29,6 +29,15 @@ enum TypeKind : u8 {
     TK_ARR = 0, TK_TUP = 1, TK_FUN = 2, TK_VEC = 3
 };
 
+enum TypeFlags : u8 {
+    NO_TYPE_FLAGS = 0, TF_HAS_FLOAT = 1, TF_HAS_INT = 2
+};
+
+inline TypeFlags& operator|=(TypeFlags& a, TypeFlags b) {
+    a = TypeFlags(a | b);
+    return a;
+}
+
 using TypeVec = vec<typeidx, 4, arena>;
 
 struct Type {
@@ -42,6 +51,9 @@ struct Type {
     TypeVec members;
     u64 h;
     TypeKind kind;
+    TypeFlags flags = NO_TYPE_FLAGS;
+    u16 align;
+    u32 size;
 
     bool operator==(const Type& other) const;
 };
@@ -55,8 +67,6 @@ struct TypeTable {
     JasmineModule* obj;
     TypeTableVec types;
     TypeTableMap table;
-    vec<u32, 16, arena> sizes;
-    vec<u32, 16, arena> aligns;
 
     TypeTable(JasmineModule* obj_in);
 
@@ -86,11 +96,19 @@ inline u64 try_insert(TypeTable& tab, const Type& t) {
     else return it->value;
 }
 
+inline TypeFlags tflags(TypeTable& tab, typeidx elt) {
+    if (elt < 0) 
+        if (elt == T_F32 || elt == T_F64) return TF_HAS_FLOAT;
+        else return TF_HAS_INT;
+    else return tab.types[elt].flags;
+}
+
 inline typeidx t_array(TypeTable& tab, typeidx elt, u32 len) {
     Type t;
     t.kind = TK_ARR;
     t.elt = elt;
     t.nelts = len;
+    t.flags = tflags(tab, elt);   
     t.h = 6797967129370127093ul
         ^ t.elt * 5905731549298544443ul
         ^ t.nelts * 4976826848160358721ul;
@@ -104,7 +122,10 @@ inline typeidx t_tuple(TypeTable& tab, const TypeVec& elts) {
     t.members = elts;
     t.h = 5149859601856040891ul 
         ^ t.len * 9423393794836913413ul;
-    for (typeidx u : elts) t.h *= 4774041982370940107ul, t.h ^= 7518032075298356371ul * u;
+    for (typeidx u : elts) {
+        t.h *= 4774041982370940107ul, t.h ^= 7518032075298356371ul * u;
+        t.flags |= tflags(tab, u);
+    }
     return try_insert(tab, t);
 }
 
@@ -125,6 +146,7 @@ inline typeidx t_vec(TypeTable& tab, typeidx elt, u32 len) {
     Type t;
     t.kind = TK_VEC;
     t.velt = elt;
+    t.flags = tflags(tab, elt);
     t.nvelts = len;
     t.h = 3377704524053732311ul
         ^ t.velt * 747909389925611777ul
