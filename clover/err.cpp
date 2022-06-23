@@ -1,5 +1,6 @@
 #include "clover/err.h"
 #include "clover/lex.h"
+#include "clover/ast.h"
 
 ErrorKind err_kind = NO_CLOVER_ERROR;
 
@@ -38,6 +39,7 @@ enum ErrorType : i8 {
     ERR_NO_TYPEDECL_NAME,   // Incorrect identifier in type declaration.
     ERR_NO_CASE_COLON_NL,   // No colon or newline in case declaration.
     ERR_NO_MODULE_NAME,     // No identifier in module declaration.
+    ERR_NON_IDENT_IN_TVAR,  // No identifier in named type variable.
 };
 
 #define CODE static constexpr ErrorType CODE
@@ -92,6 +94,7 @@ struct Error {
         struct NoTypeDeclName   { CODE = ERR_NO_TYPEDECL_NAME; Token tk; } no_typedecl_name;
         struct NoCaseColonNl    { CODE = ERR_NO_CASE_COLON_NL; Token tk; } no_case_colon_nl;
         struct NoModuleName     { CODE = ERR_NO_MODULE_NAME; Token tk; } no_module_name;
+        struct NonIdentInTvar   { CODE = ERR_NON_IDENT_IN_TVAR; AST* ast; } non_ident_in_tvar;
         
         ErrorData(NoParamListSep e): no_param_list_sep(e) {}
         ErrorData(NoDeclNewline e): no_decl_newline(e) {}
@@ -118,6 +121,7 @@ struct Error {
         ErrorData(NoTypeDeclName e): no_typedecl_name(e) {}
         ErrorData(NoCaseColonNl e): no_case_colon_nl(e) {}
         ErrorData(NoModuleName e): no_module_name(e) {}
+        ErrorData(NonIdentInTvar e): non_ident_in_tvar(e) {}
     } data;
 };
 
@@ -306,6 +310,11 @@ void no_case_colon_nl_error(Module* mod, const Token& tk) {
 void no_module_name_error(Module* mod, const Token& tk) {
     parse_error();
     push_error<Error::ErrorData::NoModuleName>(mod, tk);
+}
+
+void non_ident_in_tvar_error(Module* mod, AST* ast) {
+    parse_error();
+    push_error<Error::ErrorData::NonIdentInTvar>(mod, ast);
 }
 
 static const i8* RED = "\e[1;31m";
@@ -515,6 +524,14 @@ void print_error(stream& io, bool verbose, const Error& e) {
         print_loc(mod, io, e.data.no_module_name.tk);
         write(io, RED, "Error", RESET, ": Expected identifier in module declaration.\n");
         print_line(mod, io, e.data.no_module_name.tk);
+        break;
+    case ERR_NON_IDENT_IN_TVAR:
+        print_loc(mod, io, e.data.non_ident_in_tvar.ast->pos);
+        write(io, RED, "Error", RESET, ": Expected identifier in named type variable.\n");
+        print_line(mod, io, e.data.non_ident_in_tvar.ast->pos);
+        break;
+    default:
+        unreachable("Unknown error kind.");
         break;
     }
 }

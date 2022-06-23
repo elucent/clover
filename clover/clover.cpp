@@ -202,7 +202,7 @@ const i8* find_cc() {
     const i8* cmd = "which ";
 #endif
     iptr len = cidx(cmd, '\0');
-    for (i8* cc_opt : slice{ccs, n_ccs}) {
+    for (i8* cc_opt : slice<i8[16]>{ccs, n_ccs}) {
         args[0] = cc_opt;
         args[1] = nullptr;
         mset(buf, 0, 64);
@@ -210,7 +210,7 @@ const i8* find_cc() {
         cur = mcpy(cur, cmd, cidx(cmd, '\0'));
         cur = mcpy(cur, cc_opt, cidx(cc_opt, '\0'));
         cur = mcpy(cur, " 1> /dev/null 2> /dev/null", 27);
-        iptr result = system(buf);
+        iptr result = sysrun(buf);
         if (!result) return cc_opt;
     }
     return nullptr;
@@ -272,18 +272,18 @@ void invoke_cc(Clover& clover, const i8* cc, vec<i8>& cmdbuf) {
     if (!cc_verbose) add_flag_cc("1> /dev/null 2> /dev/null", cmdbuf);
     cmdbuf.push('\0');
 
-    if (cc_verbose) print(const_slice{&cmdbuf[0], cmdbuf.size()});
-    iptr result = system(&cmdbuf[0]);
+    if (cc_verbose) print(const_slice<i8>{&cmdbuf[0], cmdbuf.size()});
+    iptr result = sysrun(&cmdbuf[0]);
     if (result) fatal("C Compiler error.");
     if (target == PROD_RUN) {
-        system("./a.out");
-        system("rm -f ./a.out");
+        sysrun("./a.out");
+        sysrun("rm -f ./a.out");
     }
     else if (target == PROD_EXEC) {
         i8 buf[65536];
         void* cur = mcpy(buf, "mv ./a.out ", 11);
         mcpy(cur, out_path, cidx(out_path, '\0') + 1);
-        system(buf);
+        sysrun(buf);
     }
 }
 

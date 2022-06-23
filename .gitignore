@@ -7,4 +7,3 @@ example/*.h
 clover/std/*.c
 clover/std/*.h
 bin/
-jasmine/

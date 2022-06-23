@@ -1,6 +1,14 @@
 #include "clover/type.h"
 #include "clover/lex.h"
 
+TypeTuple::TypeTuple(slice<Type*> types_in): types(types_in) {
+    h = 3958494954898279007ul;
+    for (Type* type : types) {
+        h *= 11366591388032581423ul;
+        h ^= ::hash(type);
+    }
+}
+
 void PtrType::init_env(TypeContext* typectx) {
     Env* tenv = type_env(target);
     const auto& tname = typectx->interner->str(tenv->name);

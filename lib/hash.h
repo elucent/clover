@@ -10,7 +10,7 @@ template<typename T>
 struct prehash {
     u64 h;
     T t;
-    prehash(const T& t_in): t(t_in), h(hash(t_in)) {}
+    prehash(const T& t_in): h(hash(t_in)), t(t_in)  {}
 
     inline bool operator==(const prehash& other) const {
         return t == other.t;
@@ -335,13 +335,11 @@ public:
     }
 
     const_iterator find(const T& t) const {
-        lookups ++;
         u64 h = hash(t);
         u64 _mask = _capacity - 1;
         u64 i = h & _mask;
         u64 dist = 0;
         while (true) {
-            scans ++;
             if (data[i].status == EMPTY) return end();
             if (data[i].status != GHOST) {
                 u64 oh = hash(data[i].value());
@@ -357,13 +355,11 @@ public:
     }
 
     iterator find(const T& t) {
-        lookups ++;
         u64 h = hash(t);
         u64 _mask = _capacity - 1;
         u64 i = h & _mask;
         u64 dist = 0;
         while (true) {
-            scans ++;
             if (data[i].status == EMPTY) return end();
             if (data[i].status != GHOST) {
                 u64 dist = (i - h) & _mask;
@@ -421,7 +417,7 @@ public:
         if (it == entryset::end()) {
             fatal("Tried to access nonexistent map key!");
         }
-        return set<entry<K, V>>::find(dummy)->value;
+        return set<entry<K, V>, N, Alloc>::find(dummy)->value;
     }
 
     typename entryset::const_iterator find(const K& key) const {

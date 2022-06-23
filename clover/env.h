@@ -7,7 +7,7 @@
 #include "clover/clover.h"
 
 enum EntryKind : i8 {
-    E_GLOBAL, E_VAR, E_FUN, E_MOD, E_TYPE, E_ALIAS, E_CASE
+    E_GLOBAL, E_VAR, E_FUN, E_GENFUN, E_MOD, E_TYPE, E_GENTYPE, E_ALIAS, E_CASE
 };
 
 enum EnvKind : i8 {
@@ -35,8 +35,16 @@ inline Entry e_fun(Type* type, AST* decl) {
     return { decl, type, E_FUN };
 }
 
+inline Entry e_genfun(AST* decl) {
+    return { decl, nullptr, E_GENFUN };
+}
+
 inline Entry e_type(Type* type, AST* decl) {
     return { decl, type, E_TYPE };
+}
+
+inline Entry e_gentype(AST* decl) {
+    return { decl, nullptr, E_GENTYPE };
 }
 
 inline Entry e_case(Type* type, AST* decl) {
@@ -98,16 +106,21 @@ struct Env {
     void format(stream& io, Module* mod, i32 indent);
 };
 
+struct FunDecl;
+
 struct EnvContext {
     arena envspace;
     Env* root;
     map<i32, vec<pair<Type*, Env*>, 16, arena>, 256, arena> methods;
+    map<i32, FunDecl*, 256, arena> generic_methods;
 
     inline EnvContext() {
         methods.alloc = &envspace;
+        generic_methods.alloc = &envspace;
     }
 
     void add_method(i32 name, Type* type, Env* decl);
+    void add_generic_method(i32 name, FunDecl* decl);
     pair<Type*, Env*>* find_method(i32 name, Type* type);
 
     inline Env* create(EnvKind kind, Env* parent, i32 name) {

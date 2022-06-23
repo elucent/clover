@@ -28,7 +28,7 @@ static constexpr const ASTKind TOKEN_TO_UNOP[NUM_TOKEN_KINDS] = {
     AST_NONE, AST_NONE,
     AST_NONE,
     AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
-    AST_NONE, AST_NONE, AST_NONE,
+    AST_NONE, AST_NONE, AST_NONE, AST_NONE, 
     AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_INCR, AST_DECR,
     AST_PLUS, AST_NEG, AST_DEREF, AST_NONE, AST_NONE, AST_NONE,
     AST_BITAND, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_BITNOT,
@@ -46,7 +46,7 @@ static constexpr const ASTKind TOKEN_TO_BINOP[NUM_TOKEN_KINDS] = {
     AST_NONE, AST_NONE,
     AST_NONE,
     AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
-    AST_NONE, AST_NONE, AST_DOT,
+    AST_NONE, AST_NONE, AST_DOT, AST_NONE, 
     AST_LESS, AST_LEQUAL, AST_GREATER, AST_GEQUAL, AST_EQUAL, AST_INEQUAL, AST_NONE, AST_NONE,
     AST_ADD, AST_SUB, AST_STAR, AST_DIV, AST_MOD, AST_EXP,
     AST_BITAND, AST_BITOR, AST_BITXOR, AST_BITLEFT, AST_BITRIGHT, AST_NONE,
@@ -375,12 +375,21 @@ void parse_post_primary(Lexer& lexer, Parser& parser, Module* mod, Token& next) 
             return;
         case TK_INCR:
             parser.consume(lexer)
-                  .tailrec(parse_post_primary, new(parser.astspace) Unary(AST_POSTINCR, parser.endpos(next), parser.pop()));
+                  .tailrec(parse_post_primary, new(parser.astspace) Unary(AST_POSTINCR, parser.back()->pos + next, parser.back()))
+                  .pop();
             return;
         case TK_DECR:
             parser.consume(lexer)
-                  .tailrec(parse_post_primary, new(parser.astspace) Unary(AST_POSTDECR, parser.endpos(next), parser.pop()));
+                  .tailrec(parse_post_primary, new(parser.astspace) Unary(AST_POSTDECR, parser.back()->pos + next, parser.back()))
+                  .pop();
             return;
+        case TK_QUESTION: {
+            if (parser.back()->kind != AST_VAR) non_ident_in_tvar_error(mod, parser.back());
+            AST* var = parser.pop();
+            parser.consume(lexer)
+                  .tailrec(parse_post_primary, new(parser.astspace) Unary(AST_TYPEVAR, var->pos + next, var));
+            return;
+        }
         default: parser.leave();
     }
 }
@@ -618,7 +627,7 @@ void parse_primary(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
                   .nest();
             return;
         default:
-            expected_primary_error(mod, next), parser.consume(lexer).leave(new(parser.astspace) Error());
+            expected_primary_error(mod, next), parser.consume(lexer).leave(new(parser.astspace) IllFormed());
     }
 }
 
@@ -1050,7 +1059,7 @@ void advance_parser(Module* mod) {
     Lexer& lexer = *mod->lexer;
     Parser& parser = *mod->parser;
     arena& astspace = parser.astspace;
-    bindlocal space(&astspace);
+    bindlocal<arena> space(&astspace);
     if (parser.check_indent && lexer.tokens && lexer.tokens.peek().kind != TK_NEWLINE)
         parser.check_indent = false, parser.indent = lexer.tokens.peek().column;
     while (lexer.tokens && parser.prods.size()) {
@@ -1086,7 +1095,7 @@ void format(stream& io, Module* mod, const AST* const& ast) {
     casematch(AST_ICONST, Const*, c) write(io, c->iconst); endmatch
     casematch(AST_FCONST, Const*, c) write(io, c->fconst); endmatch
     casematch(AST_CHCONST, Const*, c) write(io, '\'', c->chconst, '\''); endmatch
-    casematch(AST_STRCONST, Const*, c) write(io, '"', const_slice{mod->bytes.text + c->strconst.byteidx, c->strconst.len}, '"'); endmatch
+    casematch(AST_STRCONST, Const*, c) write(io, '"', const_slice<i8>{mod->bytes.text + c->strconst.byteidx, c->strconst.len}, '"'); endmatch
     casematch(AST_BOOL, Const*, c) write(io, c->bconst ? "true" : "false"); endmatch
     casematch(AST_UNIT, Const*, c) write(io, "()"); endmatch
     casematch(AST_VAR, Var*, v) write(io, mod->interner->intern_data[v->name].t); endmatch
@@ -1144,6 +1153,7 @@ void format(stream& io, Module* mod, const AST* const& ast) {
     casematch(AST_BITRIGHTEQ, Binary*, b) write_binary(io, mod, b, ">>="); endmatch
     
     casematch(AST_TYPENAME, Var*, v) write(io, '<', mod->interner->intern_data[v->name].t, '>'); endmatch
+    casematch(AST_TYPECONST, Expr*, e) write(io, '<'), format(io, mod, e->type), write(io, '>'); endmatch
     casematch(AST_MODULENAME, Var*, v) write(io, mod->interner->intern_data[v->name].t); endmatch
     casematch(AST_PTRTYPE, Unary*, u) write_unary(io, mod, u, "*"); endmatch
     casematch(AST_SLICETYPE, Binary*, i) 
@@ -1168,6 +1178,7 @@ void format(stream& io, Module* mod, const AST* const& ast) {
         write(io, ')');
         endmatch
     casematch(AST_TYPEDOT, Binary*, b) write_binary(io, mod, b, "."); endmatch
+    casematch(AST_TYPEVAR, Unary*, u) write(io, '<'), format(io, mod, u->child), write(io, "?>"); endmatch
 
     casematch(AST_INDEX, Binary*, i) 
         format(io, mod, i->left); 
@@ -1193,6 +1204,17 @@ void format(stream& io, Module* mod, const AST* const& ast) {
             format(io, mod, a->args[i]);
         }
         write(io, ')');
+        endmatch
+    casematch(AST_TYPEINST, Apply*, a) 
+        format(io, mod, a->fn); 
+        write(io, '<');
+        bool first = true;
+        for (iptr i = 0; i < a->args.n; i ++) {
+            if (!first) write(io, ", ");
+            first = false;
+            format(io, mod, a->args[i]);
+        }
+        write(io, '>');
         endmatch
     casematch(AST_CTOR, Apply*, a) 
         format(io, mod, a->fn); 
@@ -1247,6 +1269,10 @@ void format(stream& io, Module* mod, const AST* const& ast) {
         write(io, ' ');
         if (d->body) format(io, mod, d->body);
         write(io, ')');
+        for (const auto& e : d->insts) {
+            write(io, '\n');
+            format(stdout, mod, e.value);
+        }
         endmatch
     casematch(AST_ARGS, List*, d) 
         write(io, "(args:");  
@@ -1373,7 +1399,7 @@ void format(stream& io, Module* mod, const AST* const& ast) {
 
 Env* anon_namespace(Module* mod, Env* env) {
     i8 buf[16];
-    i8 len = 0;
+    i32 len = 0;
 
     i32 id = env->anon ++;
     if (!id) buf[len ++] = '0';
@@ -1423,11 +1449,23 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
     casematch(AST_SET, List*, l)
         endmatch
     casematch(AST_VARDECL, VarDecl*, d)
+        if (d->ann) compute_envs(mod, env, d->ann);
         env->def(d->basename = basename(mod, d->name), e_var(nullptr, d));
+        endmatch
+    casematch(AST_DEREF, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_INDEX, Binary*, u) 
+        compute_envs(mod, env, u->left); 
+        if (u->right) compute_envs(mod, env, u->right); 
+        endmatch
+    casematch(AST_SLICE, Slice*, s) 
+        compute_envs(mod, env, s->array); 
+        compute_envs(mod, env, s->low); 
+        compute_envs(mod, env, s->high); 
         endmatch
     casematch(AST_FUNDECL, FunDecl*, d)
         i32 name = d->basename = basename(mod, d->proto);
         d->env = mod->envctx->create(ENV_FUN, env, name);
+        if (d->returned) compute_envs(mod, d->env, d->returned);
 
         slice<AST*>& args = ((Apply*)d->proto)->args;
         if (args.size() > 0 && args[0]->kind != AST_VARDECL) { // Assume it's a this parameter
@@ -1506,7 +1544,7 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
         compute_envs(mod, w->env, w->body);
         endmatch
     casematch(AST_USE, Binary*, b)
-        Env* modenv;
+        Env* modenv = nullptr;
         i32 modname;
         if (b->left->kind == AST_STRCONST) {
             auto c = ((Const*)b->left)->strconst;
@@ -1550,9 +1588,21 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
         i32 name = d->basename = basename(mod, d->name);
         d->env = mod->envctx->create(ENV_TYPE, env, name);
         d->env->decl = d;
-        compute_envs(mod, d->env, d->name); // Declare type arguments, if any.
-        if (d->body) compute_envs(mod, d->env, d->body);
-        env->def(name, e_type(nullptr, d));
+        if (d->name->kind == AST_APPLY) { // Generic
+            for (AST* ast : ((Apply*)d->name)->args) {
+                if (ast->kind != AST_VAR) 
+                    fatal("Expected type parameter name.");
+                else d->env->def(((Var*)ast)->name, e_type(VOID, nullptr)); // Placeholder
+            }
+            d->generic = true;
+        }
+        else if (d->name->kind == AST_DOT || d->kind == AST_TYPEDOT) 
+            fatal("Dots are not permitted in type names.");
+        else if (d->name->kind != AST_VAR)
+            fatal("Expected type name.");
+        if (!d->generic && d->body) compute_envs(mod, d->env, d->body);
+        if (d->generic) env->def(name, e_gentype(d));
+        else env->def(name, e_type(nullptr, d));
         endmatch
     casematch(AST_CASEDECL, CaseDecl*, d)
         i32 name = basename(mod, d->pattern);
@@ -1574,6 +1624,20 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
         d->env->decl = d;
         compute_envs(mod, d->env, d->body);
         env->def(name, e_mod(d));
+        endmatch
+    casematch(AST_TYPEVAR, Unary*, u)
+        i32 name = ((Var*)u->child)->name;
+        Entry* existing = env->lookup(name);
+        if (!existing || env->find(name) != env) {
+            Type* var = mod->typectx->defvar(mod, env);
+            env->def(((Var*)u->child)->name, e_type(var, nullptr));
+            u->type = var;
+        }
+        else if (existing) {
+            if (existing->kind == E_TYPE && existing->type->kind == T_VAR)
+                u->type = existing->type;
+            else fatal("Can't redefine name as type var.");
+        }
         endmatch
     default:
         break;
@@ -1732,6 +1796,12 @@ Env* ast_env(Env* env, AST* ast) {
         casematch(AST_TYPEDOT, Binary*, b)
             return type_env(b->type);
             endmatch
+        casematch(AST_TYPEVAR, Unary*, u)
+            return type_env(concrete(u->type));
+            endmatch
+        casematch(AST_TYPEINST, Apply*, b)
+            return type_env(b->type);
+            endmatch
         casematch(AST_MODULENAME, Var*, v)
             Entry* e = env->lookup(v->name);
             if (e && e->kind == E_MOD) return ((ModuleDecl*)e->ast)->env;
@@ -1770,6 +1840,83 @@ Env* call_parent(Module* mod, Apply* a) {
     return nullptr;
 }
 
+Symbol inst_symbol(Module* mod, Symbol name, const TypeTuple& params) {
+    const_slice<i8> prev = mod->interner->str(name);
+    iptr len = prev.n + 1;
+    for (Type* t : params.types) len += mod->interner->str(concrete(t)->env->name).n + 1;
+    i8* name_space = new(mod->parser->astspace) i8[len];
+    i8* writer = (i8*)mcpy(name_space, prev.ptr, prev.n);
+    *writer ++ = '$';
+    for (Type* t : params.types) {
+        *writer ++ = '$';
+        const_slice<i8> tname = mod->interner->str(concrete(t)->env->name);
+        writer = (i8*)mcpy(writer, tname.ptr, tname.n);
+    }
+    return mod->interner->intern({{ name_space, len }});
+}
+
+TypeDecl* inst_type(Module* mod, Env* env, TypeDecl* d, slice<AST*> params) {
+    slice<AST*> vars = ((Apply*)d->name)->args;
+    slice<Type*> types = { new(mod->typectx->typespace) Type*[params.n], params.n };
+    for (int i = 0; i < params.n; i ++) types[i] = params[i]->type;
+    TypeTuple tup(types);
+
+    auto it = d->insts.find(tup);
+    if (it != d->insts.end()) return it->value;
+    else {
+        TypeDecl* inst = (TypeDecl*)d->clone(mod->parser->astspace);
+        inst->name = new(mod->parser->astspace) Var(d->name->pos, inst_symbol(mod, d->basename, tup));
+        compute_envs(mod, d->env->parent, inst);
+        for (iptr i = 0; i < vars.n; i ++)
+            inst->env->def(((Var*)vars[i])->name, e_type(types[i], nullptr));
+        detect_types(mod, inst->env->parent, inst);
+        d->insts.put(tup, inst);
+        return inst;
+    }
+}
+
+FunDecl* inst_fun(Module* mod, Env* env, FunDecl* d, slice<AST*> params) {
+    slice<AST*> vars = ((Apply*)d->proto)->args;
+    int n_generic = 0;
+    for (int i = 0; i < params.n; i ++) if (vars[i]->kind == AST_VAR
+        || (vars[i]->kind == AST_VARDECL && !isconcrete(vars[i]->type))) n_generic ++;
+    slice<Type*> types = { new(mod->typectx->typespace) Type*[n_generic], n_generic };
+    int written = 0;
+    for (int i = 0; i < params.n; i ++) if (vars[i]->kind == AST_VAR
+        || (vars[i]->kind == AST_VARDECL && !isconcrete(vars[i]->type))) types[written ++] = params[i]->type;
+    TypeTuple tup(types);
+
+    auto it = d->insts.find(tup);
+    if (it != d->insts.end()) return it->value;
+    else {
+        FunDecl* inst = (FunDecl*)d->clone(mod->parser->astspace);
+        inst->isinst = true;
+        ((Apply*)inst->proto)->fn = new(mod->parser->astspace) Var(d->proto->pos, inst_symbol(mod, d->basename, tup));
+        for (iptr i = 0; i < vars.n; i ++) {
+            if (vars[i]->kind == AST_VAR) {
+                AST* ann = new(mod->parser->astspace) Expr(AST_TYPECONST, params[i]->pos);
+                ann->type = params[i]->type;
+                ((Apply*)inst->proto)->args[i] = new(mod->parser->astspace) VarDecl(
+                    vars[i]->pos, 
+                    ann,
+                    ((Apply*)inst->proto)->args[i],
+                    nullptr
+                );
+            }
+        }
+        compute_envs(mod, d->env->parent, inst);
+        detect_types(mod, inst->env->parent, inst);
+        for (iptr i = 0; i < vars.n; i ++) {
+            slice<AST*>& args = ((Apply*)inst->proto)->args;
+            if (args[i]->kind == AST_VARDECL && !isconcrete(args[i]->type))
+                unify(args[i]->type, params[i]->type);
+        }
+        detect_types(mod, inst->env->parent, inst);
+        d->insts.put(tup, inst);
+        return inst;
+    }
+}
+
 void detect_types(Module* mod, Env* env, AST* ast) {
     switch (ast->kind) {
     casematch(AST_PROGRAM, ASTProgram*, p)
@@ -1783,7 +1930,7 @@ void detect_types(Module* mod, Env* env, AST* ast) {
     casematch(AST_UNIT, Const*, c) endmatch
     casematch(AST_VAR, Var*, v)         // Handle typenames (T).
         Entry* e = env->lookup(v->name);
-        if (!e) print(mod->interner->str(v->name), '\n'), fatal("Undefined variable.");
+        if (!e) fatal("Undefined variable.");
         else if (e->kind == E_TYPE || e->kind == E_ALIAS || (e->kind == E_CASE && env->kind == ENV_TYPE)) {
             Type* t = lookup_type(mod, env, v->name);
             v->kind = AST_TYPENAME;
@@ -1888,6 +2035,19 @@ void detect_types(Module* mod, Env* env, AST* ast) {
         if (a->fn->kind != AST_VAR || env->lookup(((Var*)a->fn)->name)) // Defer undefined function checks until later,
             detect_types(mod, env, a->fn);                              // we need the type of the first arg to check if it's
                                                                         // a method.
+        if (a->fn->kind == AST_VAR) {
+            Entry* e = env->lookup(((Var*)a->fn)->name);
+            if (e && e->kind == E_GENTYPE) {
+                TypeDecl* d = (TypeDecl*)e->ast;
+                if (a->args.n != ((Apply*)d->name)->args.n)
+                    fatal("Incorrect number of type arguments for generic type.");
+                for (iptr i = 0; i < a->args.n; i ++) if (!is_type(a->args[i])) 
+                    fatal("Non-type parameter passed to generic type.");
+                TypeDecl* inst = inst_type(mod, env, d, a->args);
+                if (inst) a->type = inst->type, a->kind = AST_TYPEINST;
+                return;
+            }
+        }
         if (is_type(a->fn)) {
             ASTKind newast = AST_APPLY;
             vec<Type*, 256, arena> types;
@@ -1942,12 +2102,43 @@ void detect_types(Module* mod, Env* env, AST* ast) {
         }
         else rettype = mod->typectx->defvar(mod, env);
 
-        detect_types(mod, d->env, d->proto);
-        vec<Type*, 256, arena> argtypes;
-        argtypes.alloc = &mod->parser->astspace;
         AST* proto = d->proto;
         if (proto->kind == AST_APPLY) {
             slice<AST*> args = ((Apply*)proto)->args;
+            for (iptr i = 0; i < args.n; i ++) {
+                AST* ast = args[i];
+                if (ast->kind == AST_VAR) {
+                    Entry* e = env->lookup(((Var*)ast)->name);
+                    if (!e || e->kind != E_TYPE) d->generic = true;
+                    else detect_types(mod, d->env, ast);
+                }
+                else if (ast->kind == AST_VARDECL && i == 0 && ((VarDecl*)ast)->basename == mod->interner->intern("this")
+                    && ((VarDecl*)ast)->ann->kind == AST_VAR) {
+                    AST* ann = ((VarDecl*)ast)->ann;
+                    Entry* e = env->lookup(((Var*)ann)->name);
+                    if (!e || e->kind != E_TYPE) {
+                        d->generic = true, args[i] = ann;
+                        env->def(d->basename, e_fun(nullptr, d)); // Non-method now needs to be properly defined.
+                    }
+                    else detect_types(mod, d->env, ast);
+                }
+                else detect_types(mod, d->env, ast);
+            }
+        }
+
+        vec<Type*, 256, arena> argtypes;
+        argtypes.alloc = &mod->parser->astspace;
+        if (proto->kind == AST_APPLY) {
+            slice<AST*> args = ((Apply*)proto)->args;
+
+            for (AST* ast : args) if (ast->kind == AST_VAR 
+                || (ast->kind == AST_VARDECL && !isconcrete(ast->type) && !d->isinst)) { // At least one generic parameter.
+                d->generic = true;
+                Entry* e = d->env->parent->lookup(d->basename);
+                if (e) e->kind = E_GENFUN;
+                else unreachable("Somehow didn't find definition.");
+                return;
+            }
 
             if (args.n && args[0]->kind == AST_VARDECL && ((VarDecl*)args[0])->basename == mod->interner->intern("this")) {
                 Env* tenv = type_env(((VarDecl*)args[0])->type);
@@ -2014,7 +2205,8 @@ void detect_types(Module* mod, Env* env, AST* ast) {
         lookup_type(mod, env, d->basename);
         endmatch
     casematch(AST_TYPEDECL, TypeDecl*, d) 
-        lookup_type(mod, env, d->basename);
+        if (d->generic) for (const auto& e : d->insts) detect_types(mod, env, e.value);
+        else lookup_type(mod, env, d->basename);
         endmatch
     casematch(AST_CASEDECL, CaseDecl*, d) 
         lookup_type(mod, env, d->basename);
@@ -2050,7 +2242,7 @@ void check_arithmetic(Module* mod, Env* env, Binary* ast) {
     typecheck(mod, env, ast->right);
     Type* result = concrete(unify(ast->left->type, ast->right->type));
     if (result->kind != T_NUMERIC) 
-        fatal("Expected numeric type in arithmetic expression.");
+        format(stdout, mod, result), fatal("Expected numeric type in arithmetic expression.");
     ast->left = coerce(mod, env, ast->left, result), ast->right = coerce(mod, env, ast->right, result);
     ast->type = result;
 }
@@ -2156,22 +2348,32 @@ void check_bitwise_assign(Module* mod, Env* env, Binary* ast) {
     ast->type = UNIT;
 }
 
-void add_implicit_returns(Module* mod, Env* env, AST*& ast) {
+bool add_implicit_returns(Module* mod, Env* env, Type* dst, AST*& ast) {
     switch (ast->kind) {
     casematch(AST_DO, List*, l)
-        if (l->items.n == 0) return;
-        else add_implicit_returns(mod, env, l->items[l->items.n - 1]);
+        if (l->items.n == 0) return true;
+        else return add_implicit_returns(mod, env, dst, l->items[l->items.n - 1]);
         endmatch
     casematch(AST_IF, If*, i)
-        if (!i->ifFalse) return; // if statement must have both branches for implicit return to be valid.
-        add_implicit_returns(mod, env, i->ifTrue);
-        if (i->ifFalse) add_implicit_returns(mod, env, i->ifFalse);
+        if (!i->ifFalse) return true; // if statement must have both branches for implicit return to be valid.
+        bool branch = add_implicit_returns(mod, env, dst, i->ifTrue);
+        if (i->ifFalse) branch = branch && add_implicit_returns(mod, env, dst, i->ifFalse);
+        return branch;
         endmatch
-    case AST_FIRST_EXPR ... AST_LAST_EXPR - 1:
-        ast = new(mod->parser->astspace) Unary(AST_RETURN, ast->pos, ast);
-        break;
+    casematch(AST_RETURN, Unary*, u)
+        AST* retexpr = coerce(mod, env, u->child, dst);
+        if (!retexpr) return false;
+        u->child = retexpr;
+        return true;
+        endmatch
+    case AST_FIRST_EXPR ... AST_LAST_EXPR - 1: {
+        AST* retexpr = coerce(mod, env, ast, dst);
+        if (!retexpr) return false;
+        ast = new(mod->parser->astspace) Unary(AST_RETURN, ast->pos, retexpr);
+        return true;
+    }
     default:
-        return;
+        return true;
     }
 }
 
@@ -2190,6 +2392,7 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         Entry* e = env->lookup(v->name);
         if (!e) fatal("Undefined variable.");
         v->type = e->type;
+        v->type->referenced_by_name = true;
         endmatch
     
     casematch(AST_PLUS, Unary*, u) check_arithmetic(mod, env, u); endmatch
@@ -2214,6 +2417,7 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         typecheck(mod, env, u->child);
         u->type = mod->typectx->def<PtrType>(u->child->type);
         mod->cnew_types.insert(u->child->type);
+        concrete(u->child->type)->gen_placement_new = true;
         endmatch
     casematch(AST_PAREN, Unary*, u) 
         typecheck(mod, env, u->child);
@@ -2283,6 +2487,7 @@ void typecheck(Module* mod, Env* env, AST* ast) {
     casematch(AST_TYPENAME, Var*, b) b->type = TYPE; endmatch
     casematch(AST_FUNTYPE, Apply*, b) b->type = TYPE; endmatch
     casematch(AST_TYPEDOT, Binary*, b) b->type = TYPE; endmatch
+    casematch(AST_TYPEINST, Apply*, a) a->type = TYPE; endmatch
     casematch(AST_PTRTYPE, Unary*, b) b->type = TYPE; endmatch
 
     casematch(AST_INDEX, Binary*, b)    // Handle array types (T[N]) and slice types (T[])
@@ -2318,8 +2523,21 @@ void typecheck(Module* mod, Env* env, AST* ast) {
             if (!ast->type) typecheck(mod, env, ast);
             argv.push(ast->type);
         }
-        if (Env* e = call_parent(mod, a)) typecheck(mod, e, a->fn);
-        else typecheck(mod, env, a->fn);
+        
+        Env* e = call_parent(mod, a);
+        if (!e) e = env;
+        if (a->fn->kind == AST_VAR) {
+            Entry* en = e->lookup(((Var*)a->fn)->name);
+            if (en && en->kind == E_GENFUN) {
+                FunDecl* d = (FunDecl*)en->ast;
+                if (((Apply*)d->proto)->args.n != a->args.size()) 
+                    fatal("Incorrect number of arguments for generic function.");
+                FunDecl* inst = inst_fun(mod, env, d, a->args);
+                typecheck(mod, env, inst);
+                ((Var*)a->fn)->name = inst->basename;
+            }
+        }
+        typecheck(mod, e, a->fn);
         if (concrete(a->fn->type)->kind != T_FUN) fatal("Expected function type in call expression.");
         if (argv.size() == 0) argv.push(UNIT);
         slice<Type*>& argt = ((FunType*)concrete(a->fn->type))->arg;
@@ -2349,6 +2567,7 @@ void typecheck(Module* mod, Env* env, AST* ast) {
             }
             l->type = mod->typectx->def<ArrayType>(elt, l->items.n);
         }
+        concrete(l->type)->ctor_called = true;
         endmatch
     casematch(AST_SET, List*, l) 
         for (AST* ast : l->items) typecheck(mod, env, ast);
@@ -2368,14 +2587,17 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         }
         endmatch
     casematch(AST_FUNDECL, FunDecl*, d) 
-        slice<AST*>& args = ((Apply*)d->proto)->args;
-        for (AST* ast : args) typecheck(mod, d->env, ast);
-        if (d->body) {
-            typecheck(mod, d->env, d->body); 
-            d->body = coerce(mod, env, d->body, ((FunType*)d->type)->ret);
-            if (!d->body) fatal("Incompatible function body for return type.");
-            add_implicit_returns(mod, env, d->body);
+        if (!d->generic) {
+            slice<AST*>& args = ((Apply*)d->proto)->args;
+            for (AST* ast : args) typecheck(mod, d->env, ast);
+            if (d->body) {
+                typecheck(mod, d->env, d->body); 
+                if (!add_implicit_returns(mod, env, ((FunType*)d->type)->ret, d->body))
+                    fatal("Incompatible function body for return type.");
+            }
         }
+        else d->type = TYPE;
+        for (const auto& e : d->insts) typecheck(mod, env, e.value);
         endmatch
     casematch(AST_CTOR, Apply*, a)
         if (!is_type(a->fn)) unreachable("Expected typename in constructor call.");
@@ -2408,6 +2630,7 @@ void typecheck(Module* mod, Env* env, AST* ast) {
                 typecheck(mod, env, a->args[0]);
                 a->args[0] = coerce(mod, env, a->args[0], inner);
                 if (!a->args[0]) fatal("Cannot construct named type from argument.");
+                t->ctor_called = true;
                 break;
             }
             case T_STRUCT: {
@@ -2418,6 +2641,7 @@ void typecheck(Module* mod, Env* env, AST* ast) {
                     a->args[i] = coerce(mod, env, a->args[i], fields[i].second);
                     if (!a->args[i]) fatal("Incompatible field in struct constructor.");
                 }
+                t->ctor_called = true;
                 break;
             }
             case T_UNION:
@@ -2510,7 +2734,11 @@ void typecheck(Module* mod, Env* env, AST* ast) {
     casematch(AST_ALIASDECL, AliasDecl*, d) 
         endmatch
     casematch(AST_TYPEDECL, TypeDecl*, d) 
-        typecheck(mod, d->env, d->body);
+        if (d->generic) {
+            d->type = TYPE;
+            for (const auto& e : d->insts) typecheck(mod, env, e.value);
+        }
+        else typecheck(mod, d->env, d->body);
         endmatch
     casematch(AST_CASEDECL, CaseDecl*, d) 
         typecheck(mod, d->env, d->body);
@@ -2680,7 +2908,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             mcpy(name + element_name.size(), "$S", 2);
             t->mangled = mod->interner->intern(const_slice<i8>{name, newlen});
 
-            if (!is_subtype_generic(element, I8)) { // Byte slices are defined in cclover.h
+            if (concrete(element) != I8) { // Byte slices are defined in cclover.h
                 write(ctx.h, "$clover_slice_def(");
                 emit_fqsym(ctx.h, mod, type_env(element), type_env(element)->name, ctx);
                 write(ctx.h, ", ");
@@ -2709,10 +2937,11 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
                 while (p <= u) p *= 10, ++ c;
                 d = c;
                 while (c) {
-                    name[array_name_len ++] = "0123456789"[u % 10];
+                    name[array_name_len + c - 1] = "0123456789"[u % 10];
                     u /= 10;
                     c --;
                 }
+                array_name_len += d;
             }
             t->mangled = mod->interner->intern(const_slice<i8>{name, array_name_len});
 
@@ -2721,23 +2950,25 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             write(ctx.h, ", ");
             emit_c_typename(ctx.h, mod, element, ctx);
             write(ctx.h, ", ", ((ArrayType*)t)->size, ");\n");
-            write(ctx.h, "inline ");
-            write_sym(ctx.h, mod, t->mangled);
-            write(ctx.h, " ");
-            write_sym(ctx.h, mod, t->mangled);
-            write(ctx.h, "_new(");
-            for (i32 i = 0; i < ((ArrayType*)t)->size; i ++) {
-                if (i > 0) write(ctx.h, ", ");
-                emit_c_typename(ctx.h, mod, element, ctx);
-                write(ctx.h, " _p", i);
+            if (t->ctor_called) {
+                write(ctx.h, "inline ");
+                write_sym(ctx.h, mod, t->mangled);
+                write(ctx.h, " ");
+                write_sym(ctx.h, mod, t->mangled);
+                write(ctx.h, "_new(");
+                for (i32 i = 0; i < ((ArrayType*)t)->size; i ++) {
+                    if (i > 0) write(ctx.h, ", ");
+                    emit_c_typename(ctx.h, mod, element, ctx);
+                    write(ctx.h, " _p", i);
+                }
+                write(ctx.h, ") {\n");
+                write(ctx.h, "    "), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " acc;\n");
+                for (i32 i = 0; i < ((ArrayType*)t)->size; i ++) {
+                    write(ctx.h, "    acc.ptr[", i, "] = _p", i, ";\n");
+                }
+                write(ctx.h, "    return acc;\n");
+                write(ctx.h, "}\n\n");
             }
-            write(ctx.h, ") {\n");
-            write(ctx.h, "    "), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " acc;\n");
-            for (i32 i = 0; i < ((ArrayType*)t)->size; i ++) {
-                write(ctx.h, "    acc.ptr[", i, "] = _p", i, ";\n");
-            }
-            write(ctx.h, "    return acc;\n");
-            write(ctx.h, "}\n\n");
             break;
         }
         case T_STRUCT: {
@@ -2757,29 +2988,31 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             indent(ctx.h, ctx.h_indent);write(ctx.h, "} ");
             write_sym(ctx.h, mod, t->mangled);
             write(ctx.h, ";\n");
-            write(ctx.h, "inline ");
-            emit_c_typename(ctx.h, mod, t, ctx);
-            write(ctx.h, ' ');
-            write_sym(ctx.h, mod, t->mangled);
-            write(ctx.h, "$_new(");
-            for (const auto& p : ((StructType*)t)->fields) {
-                if (&p != &((StructType*)t)->fields[0]) write(ctx.h, ", ");
-                emit_c_typename(ctx.h, mod, p.second, ctx);
+            if (t->ctor_called) {
+                write(ctx.h, "inline ");
+                emit_c_typename(ctx.h, mod, t, ctx);
                 write(ctx.h, ' ');
-                write_sym(ctx.h, mod, p.first);
-                write(ctx.h, "_in");
+                write_sym(ctx.h, mod, t->mangled);
+                write(ctx.h, "$_new(");
+                for (const auto& p : ((StructType*)t)->fields) {
+                    if (&p != &((StructType*)t)->fields[0]) write(ctx.h, ", ");
+                    emit_c_typename(ctx.h, mod, p.second, ctx);
+                    write(ctx.h, ' ');
+                    write_sym(ctx.h, mod, p.first);
+                    write(ctx.h, "_in");
+                }
+                write(ctx.h, ") {\n");
+                write(ctx.h, "    "), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " out;\n");
+                for (const auto& p : ((StructType*)t)->fields) {
+                    write(ctx.h, "    out.");
+                    emit_fqsym(ctx.h, mod, t->env, p.first, ctx);
+                    write(ctx.h, " = ");
+                    write_sym(ctx.h, mod, p.first);
+                    write(ctx.h, "_in;\n");
+                }
+                write(ctx.h, "    return out;\n");
+                write(ctx.h, "}\n\n");
             }
-            write(ctx.h, ") {\n");
-            write(ctx.h, "    "), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " out;\n");
-            for (const auto& p : ((StructType*)t)->fields) {
-                write(ctx.h, "    out.");
-                emit_fqsym(ctx.h, mod, t->env, p.first, ctx);
-                write(ctx.h, " = ");
-                write_sym(ctx.h, mod, p.first);
-                write(ctx.h, "_in;\n");
-            }
-            write(ctx.h, "    return out;\n");
-            write(ctx.h, "}\n\n");
             break;
         }
         case T_UNION: {
@@ -2874,6 +3107,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             break;
         }
         case T_FUN: {
+            if (!t->referenced_by_name) break;
             if (((FunType*)t)->ret->mangled == -1)
                 emit_c_typedef(mod, ((FunType*)t)->ret, ctx);
             int arg_lens = 0;
@@ -2928,6 +3162,8 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
 
             break;
         }
+        default:
+            break;
     }
 }
 
@@ -2935,8 +3171,23 @@ void emit_c_types(Module* mod, Env* env, CContext& ctx) {
     for (Module* dep : mod->deps) {
         write(ctx.h, "#include \"", (const i8*)dep->hpath, "\"\n");
     }
-    for (auto& entry : mod->typectx->typemap) if (entry.value->mangled == -1) emit_c_typedef(mod, entry.value, ctx);
-    for (Type* t : mod->cnew_types) emit_c_placement_new(mod, t, ctx);
+    map<TypeKey, Type*> concrete_types;
+    map<TypeKey, Type*> type_manglings;
+    for (auto& entry : mod->typectx->typemap) {
+        Type* t = fullconcrete(*mod->typectx, entry.value);
+        t->ctor_called = entry.value->ctor_called;
+        t->referenced_by_name = entry.value->referenced_by_name;
+        t->gen_placement_new = entry.value->gen_placement_new;
+        auto it = concrete_types.find(t);
+        if (concrete_types.find(t) == concrete_types.end()) {
+            concrete_types.put(t, t); 
+            type_manglings.put(entry.value, t);
+        }
+        else type_manglings.put(entry.value, it->value);
+    }
+    for (auto& entry : concrete_types) if (entry.value->mangled == -1) emit_c_typedef(mod, entry.value, ctx);
+    for (auto& entry : type_manglings) if (entry.key.type->mangled == -1) entry.key.type->mangled = entry.value->mangled;
+    for (Type* t : mod->cnew_types) if (t->gen_placement_new) emit_c_placement_new(mod, t, ctx);
 }
 
 void emit_c_member(Module* mod, Env* env, AST* ast, CContext& ctx) {
@@ -2956,6 +3207,10 @@ void emit_c_member(Module* mod, Env* env, AST* ast, CContext& ctx) {
         emit_fqsym(ctx.h, mod, env, d->basename, ctx);
         endmatch
     casematch(AST_FUNDECL, FunDecl*, d) 
+        if (d->generic) {
+            for (const auto& e : d->insts) emit_c(mod, env, e.value, ctx);
+            return;
+        }
         // Prototype
         if (!d->body) write(ctx.h, "extern ");
         emit_c_typename(ctx.h, mod, ((FunType*)d->type)->ret, ctx);
@@ -3001,6 +3256,10 @@ void emit_c_member(Module* mod, Env* env, AST* ast, CContext& ctx) {
 
 void emit_c_toplevel(Module* mod, Env* env, AST* ast, CContext& ctx, vec<AST*, 512, arena>& main) {
     if (ast->kind >= AST_FIRST_DECL && ast->kind < AST_LAST_DECL) {
+        if (ast->kind == AST_FUNDECL && ((FunDecl*)ast)->generic) {
+            for (const auto& e : ((FunDecl*)ast)->insts) emit_c_toplevel(mod, env, e.value, ctx, main);
+            return;
+        }
         emit_c(mod, env, ast, ctx), write(ctx.c, ";\n"), write(ctx.h, ";\n");
         if (ast->kind == AST_VARDECL && ((VarDecl*)ast)->init) {
             AST* assign = new(mod->parser->astspace) Binary(AST_ASSIGN, ast->pos, ((VarDecl*)ast)->name, ((VarDecl*)ast)->init);
@@ -3034,7 +3293,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
     casematch(AST_FCONST, Const*, c) write(ctx.c, c->fconst); endmatch
     casematch(AST_BOOL, Const*, c) write(ctx.c, c->bconst ? '1' : '0'); endmatch
     casematch(AST_CHCONST, Const*, c) write(ctx.c, (i32)c->chconst); endmatch
-    casematch(AST_STRCONST, Const*, c) write(ctx.c, "(string){\"", const_slice{ mod->bytes.text + c->strconst.byteidx, c->strconst.len }, "\", ", c->strconst.len, "}"); endmatch
+    casematch(AST_STRCONST, Const*, c) write(ctx.c, "(string){\"", const_slice<i8>{ mod->bytes.text + c->strconst.byteidx, c->strconst.len }, "\", ", c->strconst.len, "}"); endmatch
     casematch(AST_UNIT, Const*, c) write(ctx.c, '0'); endmatch
     casematch(AST_MODULENAME, Var*, v)
         emit_fqsym(ctx.c, mod, env, v->name, ctx);
@@ -3356,7 +3615,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         endmatch
     casematch(AST_USE, Binary*, b)
         endmatch
-    casematch(AST_FUNDECL, FunDecl*, d) 
+    casematch(AST_FUNDECL, FunDecl*, d)
         // Prototype
         if (!d->body) write(ctx.h, "extern ");
         emit_c_typename(ctx.h, mod, ((FunType*)d->type)->ret, ctx);

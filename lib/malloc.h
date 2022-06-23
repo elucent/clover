@@ -22,7 +22,7 @@ struct arena {
     u8* top;
     iptr size;
 
-    arena(iptr size = 16);
+    arena(iptr size = 256);
     ~arena();
     arena(const arena& other) = delete;
     arena& operator=(const arena& other) = delete;
@@ -32,11 +32,11 @@ struct arena {
     inline void free() {
         page* prev = *(page**)pages.ptr;
         while (prev) {
-            munmap(pages);
+            mfree(pages);
             pages.ptr = prev;
             prev = *(page**)pages.ptr;
         }
-        munmap(pages);
+        mfree(pages);
     }
 
     iptr alloc_block(iptr bytes);
@@ -60,7 +60,7 @@ struct arena {
 
     inline void empty() {
         free();
-        pages = mmap(size);
+        pages = mreq(size);
         top = (u8*)pages.ptr;
         *(page**)top = nullptr;
         *((u8**)top + 1) = nullptr;
@@ -102,7 +102,7 @@ struct allocator {
 
     inline iptr* new_block(uptr size) {
         iptr* list = nullptr;
-        slice<page> region = mmap(block_size / PAGESIZE);
+        slice<page> region = mreq(block_size / PAGESIZE);
         u8* uptr_region = (u8*)region.ptr;
         for (u8* p = (u8*)region.ptr + block_size - size; p >= (u8*)region.ptr; p -= size) {
             *(iptr**)p = list;
@@ -118,7 +118,7 @@ struct allocator {
         while (size < bytes) size *= 2, i ++;
         iptr* val;
         if (i >= N_SIZES) {
-            slice<page> block = mmap(size / PAGESIZE);
+            slice<page> block = mreq(size / PAGESIZE);
             val = (iptr*)block.ptr;
         }
         else {
@@ -135,7 +135,7 @@ struct allocator {
         iptr bytes = *((iptr*)ptr - 1);
         iptr size = 16, i = 0;
         while (size < bytes) size *= 2, i ++;
-        if (i >= N_SIZES) return munmap({ (page*)((iptr*)ptr - 1), size / PAGESIZE });
+        if (i >= N_SIZES) return mfree({ (page*)((iptr*)ptr - 1), size / PAGESIZE });
         
         iptr* list = free_lists[i];
         *((iptr**)ptr - 1) = list;

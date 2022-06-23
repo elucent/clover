@@ -14,6 +14,7 @@ struct const_slice {
     const T* ptr;
     iptr n;
 
+    const_slice() {}
     const_slice(const T* ptr_in, iptr n_in): ptr(ptr_in), n(n_in) {}
     const_slice(const T* start, const T* end): ptr(start), n(end - start) {}
 
@@ -56,6 +57,7 @@ struct slice {
     T* ptr;
     iptr n;
 
+    slice() {}
     slice(T* ptr_in, iptr n_in): ptr(ptr_in), n(n_in) {}
     slice(T* start, T* end): ptr(start), n(end - start) {}
 

@@ -155,7 +155,7 @@ extern "C" void char$print(i32 i) {
 }
 
 extern "C" void string$print(string s) {
-    print(const_slice{s.data, s.size}, '\n');
+    print(const_slice<i8>{s.data, s.size}, '\n');
 }
 
 extern "C" iptr $strlen(string s) {
@@ -165,11 +165,11 @@ extern "C" iptr $strlen(string s) {
 static allocator* alloc;
 
 extern "C" void $init() {
-    alloc = new((allocator*)mmap(1).ptr) allocator;
+    alloc = new((allocator*)mreq(1).ptr) allocator;
 }
 
 extern "C" void $deinit() {
-    munmap({(page*)alloc, 1});
+    mfree({(page*)alloc, 1});
 }
 
 extern "C" iword $malloc(iword size) {

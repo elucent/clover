@@ -1,7 +1,7 @@
 #include "malloc.h"
 #include "core/sys.h"
 
-arena::arena(iptr size_in): pages(mmap(size_in)), top((u8*)pages.ptr), size(size_in) { 
+arena::arena(iptr size_in): pages(mreq(size_in)), top((u8*)pages.ptr), size(size_in) { 
     *(page**)top = nullptr;
     *((u8**)top + 1) = nullptr;
     top += sizeof(iptr) * 2; 
@@ -16,7 +16,7 @@ arena* arena::instance = nullptr;
 iptr arena::alloc_block(iptr bytes) {
     slice<page> old_pages = pages;
     u8* old_top = top - bytes;
-    pages = mmap(size);
+    pages = mreq(size);
     top = (u8*)pages.ptr;
     *((page**)top) = old_pages.ptr;
     *((u8**)top + 1) = old_top;
@@ -28,7 +28,7 @@ iptr arena::alloc_huge(iptr bytes) {
     iptr n_pages = (bytes + sizeof(iptr) * 2 + PAGESIZE - 1) / PAGESIZE;
     slice<page> old_pages = pages;
     u8* old_top = top - bytes;
-    pages = mmap(n_pages);
+    pages = mreq(n_pages);
     top = (u8*)pages.ptr;
     *((page**)top) = old_pages.ptr;
     *((u8**)top + 1) = old_top;
@@ -38,7 +38,7 @@ iptr arena::alloc_huge(iptr bytes) {
     bytes = 0;  // Allocate new empty arena after big block.
     old_pages = pages;
     old_top = top;
-    pages = mmap(size);
+    pages = mreq(size);
     top = (u8*)pages.ptr;
     *((page**)top) = old_pages.ptr;
     *((u8**)top + 1) = old_top;
@@ -48,7 +48,7 @@ iptr arena::alloc_huge(iptr bytes) {
 }
 
 page_freeing_ptr::~page_freeing_ptr() {
-    if (ptr.ptr) munmap(ptr);
+    if (ptr.ptr) mfree(ptr);
 }
 
 allocator::allocator(iptr block_size_in): block_size(block_size_in), blocks(1) {

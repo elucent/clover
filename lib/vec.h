@@ -3,6 +3,7 @@
 
 #include "core/def.h"
 #include "lib/slice.h"
+#include "lib/malloc.h"
 
 template<typename T, u32 N = 8, typename Alloc = allocator>
 struct vec {
@@ -56,10 +57,6 @@ struct vec {
 
     inline vec() {
         init(N);
-    }
-
-    inline vec(const const_slice<T>& init): vec() {
-        for (const T& t : init) push(t);
     }
 
     inline ~vec() {
@@ -164,5 +161,21 @@ struct vec {
         return ((T*)data)[_size - 1];
     }
 };
+
+template<typename T, u32 N = 8, typename Alloc = allocator>
+inline void vec_fill(vec<T, N, Alloc>& v) {}
+
+template<typename T, u32 N = 8, typename Alloc = allocator, typename... Args>
+inline void vec_fill(vec<T, N, Alloc>& v, const T& arg, const Args&... args) {
+    v.push(arg);
+    vec_fill(v, args...);
+}
+
+template<typename T, u32 N = 8, typename Alloc = allocator, typename... Args>
+inline vec<T, N, Alloc> vec_of(const Args&... args) {
+    vec<T, N, Alloc> v;
+    vec_fill(v, args...);
+    return v;
+}
 
 #endif

@@ -3,11 +3,9 @@
 
 #include "clover/lex.h"
 #include "lib/tuple.h"
+#include "clover/type.h"
 
 struct Env;
-struct Type;
-
-extern Type* ERROR;
 
 enum ASTKind : u8 {
     AST_NONE, 
@@ -31,7 +29,7 @@ enum ASTKind : u8 {
     AST_LAST_EXPR, AST_IF = AST_LAST_EXPR, AST_WHILE, AST_UNTIL, AST_FOR, AST_WITH, AST_USE, AST_MATCH,
     AST_RETURN, AST_DEFER, AST_DO, AST_BREAK, AST_CONTINUE,
     // types
-    AST_FIRST_TYPE, AST_TYPENAME = AST_FIRST_TYPE, AST_PTRTYPE, AST_ARRAYTYPE, AST_SLICETYPE, AST_FUNTYPE, AST_TYPEDOT, AST_LAST_TYPE,
+    AST_FIRST_TYPE, AST_TYPENAME = AST_FIRST_TYPE, AST_PTRTYPE, AST_ARRAYTYPE, AST_SLICETYPE, AST_FUNTYPE, AST_TYPEDOT, AST_TYPEINST, AST_TYPECONST, AST_TYPEVAR, AST_LAST_TYPE,
     // decls
     AST_FIRST_DECL = AST_LAST_TYPE, AST_VARDECL = AST_FIRST_DECL, AST_TYPEDECL, AST_FUNDECL, AST_MODULEDECL, AST_ALIASDECL, AST_CASEDECL, AST_PTRDECL, // ptrdecl is needed for the case 'T* ptr', which is ambiguous with multiplication until typechecking
     // misc
@@ -48,18 +46,37 @@ struct AST {
                   // of the declared entity.
 
     inline AST(ASTKind kind_in, SourcePos pos_in): kind(kind_in), pos(pos_in), type(nullptr) {}
+
+    virtual AST* clone(arena& alloc) = 0;
 };
+
+inline AST* try_clone(AST* ast, arena& alloc) {
+    if (ast) return ast->clone(alloc);
+    else return nullptr;
+}
 
 struct Statement : public AST {
     inline Statement(ASTKind kind, SourcePos pos): AST(kind, pos) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) Statement(kind, pos);
+    }
 };
 
 struct Expr : public Statement {
     inline Expr(ASTKind kind, SourcePos pos): Statement(kind, pos) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) Expr(kind, pos);
+    }
 };
 
 struct Decl : public Statement {
     inline Decl(ASTKind kind, SourcePos pos): Statement(kind, pos) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) Decl(kind, pos);
+    }
 };
 
 struct VarDecl : public Decl {
@@ -68,6 +85,10 @@ struct VarDecl : public Decl {
     AST* init;
     Symbol basename;
     inline VarDecl(SourcePos pos, AST* ann_in, AST* name_in, AST* init_in): Decl(AST_VARDECL, pos), ann(ann_in), name(name_in), init(init_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) VarDecl(pos, try_clone(ann, alloc), try_clone(name, alloc), try_clone(init, alloc));
+    }
 };
 
 struct FunDecl : public Decl {
@@ -76,11 +97,15 @@ struct FunDecl : public Decl {
     AST* body;
     Env* env;
     Symbol basename;
-    map<Type*, FunDecl*, 8, arena> insts;
-    bool generic;
+    map<TypeTuple, FunDecl*, 8, arena> insts;
+    bool generic = false, isinst = false;
     inline FunDecl(SourcePos pos, AST* returned_in, AST* proto_in): FunDecl(pos, returned_in, proto_in, nullptr) {}
     inline FunDecl(SourcePos pos, AST* returned_in, AST* proto_in, AST* body_in): 
         Decl(AST_FUNDECL, pos), returned(returned_in), proto(proto_in), body(body_in), env(nullptr) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) FunDecl(pos, try_clone(returned, alloc), try_clone(proto, alloc), try_clone(body, alloc));
+    }
 };
 
 struct ModuleDecl : public Decl {
@@ -89,6 +114,10 @@ struct ModuleDecl : public Decl {
     Env* env;
     Symbol basename;
     inline ModuleDecl(SourcePos pos, AST* name_in, AST* body_in): Decl(AST_MODULEDECL, pos), name(name_in), body(body_in), env(nullptr) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) ModuleDecl(pos, try_clone(name, alloc), try_clone(body, alloc));
+    }
 };
 
 struct CaseDecl : public Decl {
@@ -97,6 +126,10 @@ struct CaseDecl : public Decl {
     Env* env;
     Symbol basename;
     inline CaseDecl(SourcePos pos, AST* pattern_in, AST* body_in): Decl(AST_CASEDECL, pos), pattern(pattern_in), body(body_in), env(nullptr) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) CaseDecl(pos, try_clone(pattern, alloc), try_clone(body, alloc));
+    }
 };
 
 struct TypeDecl : public Decl {
@@ -104,7 +137,13 @@ struct TypeDecl : public Decl {
     AST* body;
     Env* env;
     Symbol basename;
+    map<TypeTuple, TypeDecl*, 8, arena> insts;
+    bool generic = false;
     inline TypeDecl(SourcePos pos, AST* name_in, AST* body_in): Decl(AST_TYPEDECL, pos), name(name_in), body(body_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) TypeDecl(pos, try_clone(name, alloc), try_clone(body, alloc));
+    }
 };
 
 struct AliasDecl : public Decl {
@@ -112,17 +151,29 @@ struct AliasDecl : public Decl {
     AST* body;
     Symbol basename;
     inline AliasDecl(SourcePos pos, AST* name_in, AST* body_in): Decl(AST_ALIASDECL, pos), name(name_in), body(body_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) TypeDecl(pos, try_clone(name, alloc), try_clone(body, alloc));
+    }
 };
 
 struct Unary : public Expr {
     AST* child;
     inline Unary(ASTKind kind, SourcePos pos, AST* child_in): Expr(kind, pos), child(child_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) Unary(kind, pos, try_clone(child, alloc));
+    }
 };
 
 struct Binary : public Expr {
     AST* left;
     AST* right;
     inline Binary(ASTKind kind, SourcePos pos, AST* left_in, AST* right_in): Expr(kind, pos), left(left_in), right(right_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) Binary(kind, pos, try_clone(left, alloc), try_clone(right, alloc));
+    }
 };
 
 struct Slice : public Expr {
@@ -130,10 +181,18 @@ struct Slice : public Expr {
     AST* low;
     AST* high;
     inline Slice(SourcePos pos, AST* array_in, AST* low_in, AST* high_in): Expr(AST_SLICE, pos), array(array_in), low(low_in), high(high_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) Slice(pos, try_clone(array, alloc), try_clone(low, alloc), try_clone(high, alloc));
+    }
 };
 
-struct Error : public Expr {
-    inline Error(): Expr(AST_ERROR, {}) { type = ERROR; }
+struct IllFormed : public Expr {
+    inline IllFormed(): Expr(AST_ERROR, {}) { type = ERROR; }
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) IllFormed;
+    }
 };
 
 struct Const : public Expr {
@@ -151,22 +210,46 @@ struct Const : public Expr {
         rune chconst;
         struct { i32 byteidx, len; } strconst;
     };
+
+    static_assert(sizeof(strconst) == sizeof(iconst), "Constant fields in AST node aren't sized the same.");
+
+    inline AST* clone(arena& alloc) override {
+        Const* c = new(alloc) Const(pos, iconst);
+        c->kind = kind;
+        return c;
+    }
 };
 
 struct Apply : public Expr {
     AST* fn;
     slice<AST*> args;
     inline Apply(SourcePos pos, AST* fn_in, slice<AST*> args_in): Expr(AST_APPLY, pos), fn(fn_in), args(args_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        AST** argspace = new(alloc) AST*[args.n];
+        for (int i = 0; i < args.n; i ++) argspace[i] = try_clone(args[i], alloc);
+        return new(alloc) Apply(pos, try_clone(fn, alloc), slice<AST*>(argspace, args.n));
+    }
 };
 
 struct List : public Expr {
     slice<AST*> items;
     inline List(ASTKind kind, SourcePos pos, slice<AST*> items_in): Expr(kind, pos), items(items_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        AST** itemspace = new(alloc) AST*[items.n];
+        for (int i = 0; i < items.n; i ++) itemspace[i] = try_clone(items[i], alloc);
+        return new(alloc) List(kind, pos, slice<AST*>(itemspace, items.n));
+    }
 };
 
 struct Var : public Expr {
     Symbol name;
     inline Var(SourcePos pos, Symbol name_in): Expr(AST_VAR, pos), name(name_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) Var(pos, name);
+    }
 };
 
 struct If : public Expr {
@@ -174,6 +257,10 @@ struct If : public Expr {
     AST* ifTrue;
     AST* ifFalse; // Null if else omitted.
     inline If(SourcePos pos, AST* cond_in, AST* ifTrue_in, AST* ifFalse_in): Expr(AST_IF, pos), cond(cond_in), ifTrue(ifTrue_in), ifFalse(ifFalse_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) If(pos, try_clone(cond, alloc), try_clone(ifTrue, alloc), try_clone(ifFalse, alloc));
+    }
 };
 
 struct For : public Statement {
@@ -182,6 +269,10 @@ struct For : public Statement {
     AST* body;
     Env* env;
     inline For(SourcePos pos, AST* binding_in, AST* items_in, AST* body_in): Statement(AST_FOR, pos), binding(binding_in), items(items_in), body(body_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) For(pos, try_clone(binding, alloc), try_clone(items, alloc), try_clone(body, alloc));
+    }
 };
 
 struct With : public Statement {
@@ -189,12 +280,22 @@ struct With : public Statement {
     AST* body;
     Env* env;
     inline With(SourcePos pos, AST* bound_in, AST* body_in): Statement(AST_WITH, pos), bound(bound_in), body(body_in), env(nullptr) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) With(pos, try_clone(bound, alloc), try_clone(body, alloc));
+    }
 };
 
 struct ASTProgram : public AST {
     vec<Statement*, 128, arena> toplevel;
     Env* env;
     inline ASTProgram(): AST(AST_PROGRAM, {}), env(nullptr) {}
+    
+    inline AST* clone(arena& alloc) override {
+        ASTProgram* new_prog = new(alloc) ASTProgram;
+        new_prog->toplevel.alloc = &alloc;
+        return new_prog;
+    }
 };
 
 using Production = void(*)(Lexer&, Parser&, Module*, Token&);

@@ -21,10 +21,12 @@ void Env::format(stream& io, Module* mod, i32 indent) {
             space(io, indent);
             write(io, " - VAR ", mod->interner->str(p.key), '\n');
             break;
+        case E_GENFUN:
         case E_FUN:
             if (p.value.ast) ((FunDecl*)p.value.ast)->env->format(io, mod, indent + 3);
             else space(io, indent), write(io, " - FUN ", mod->interner->str(p.key), '\n');
             break;
+        case E_GENTYPE:
         case E_TYPE:
             if (p.value.ast) ((TypeDecl*)p.value.ast)->env->format(io, mod, indent + 3);
             else if (Env* tenv = type_env(p.value.type)) tenv->format(io, mod, indent + 3);
@@ -132,11 +134,17 @@ void EnvContext::add_method(i32 name, Type* type, Env* env) {
     else it->value.push({type, env});
 }
 
+void EnvContext::add_generic_method(i32 name, FunDecl* decl) {
+    auto it = generic_methods.find(name);
+    if (it == generic_methods.end()) generic_methods.put(name, decl);
+}
+
 pair<Type*, Env*>* EnvContext::find_method(i32 name, Type* type) {
     type = concrete(type);
     auto it = methods.find(name);
-    if (it == methods.end()) return nullptr;
-    for (auto& p : it->value) if (type == p.first) return &p;
-    for (auto& p : it->value) if (is_subtype(type, p.first)) return &p;
+    if (it != methods.end()) {
+        for (auto& p : it->value) if (type == p.first) return &p;
+        for (auto& p : it->value) if (is_subtype(type, p.first)) return &p;
+    }
     return nullptr;
 }

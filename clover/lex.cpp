@@ -7,23 +7,23 @@
 #define TAB_SPACE 4
 
 inline bool is_letter(rune r) {
-    return r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || utf8_is_letter(r);
+    return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || utf8_is_letter(r);
 }
 
 inline bool is_digit(rune r) {
-    return r >= '0' && r <= '9' || utf8_is_digit(r);
+    return (r >= '0' && r <= '9') || utf8_is_digit(r);
 }
 
 inline bool is_ident(rune r) {
 #ifdef INCLUDE_UTF8_LOOKUP_TABLE
-    if (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') return true;
+    if ((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') return true;
     if (r == ' ') return false;
     UnicodeCategory cat = utf8_category(r);
     if (cat > UNICODE_PUNCTUATION_CONNECTOR) return false;
-    return cat >= UNICODE_CASED_LETTER && cat <= UNICODE_UPPERCASE_LETTER 
+    return (cat >= UNICODE_CASED_LETTER && cat <= UNICODE_UPPERCASE_LETTER) 
         || cat == UNICODE_DECIMAL_NUMBER || cat == UNICODE_NONSPACING_MARK || cat == UNICODE_SPACING_COMBINING_MARK || cat == UNICODE_PUNCTUATION_CONNECTOR;
 #else
-    return r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' 
+    return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' 
         || utf8_is_letter(r) || utf8_is_digit(r) || utf8_is_nonspacing_mark(r) || utf8_is_spacing_combining_mark(r) || utf8_is_connector(r);
 #endif
 }
@@ -149,7 +149,7 @@ void advance_lexer(Module* mod, UnicodeBuf& iter) {
             else buf.push(acc), acc.kind = TK_NONE;
             break;
         case TK_NONE:
-            switch (r) {
+            switch ((u32)r) {
             case '\n':
                 buf.push({ TK_NEWLINE, col, line, idx, idx + rlen });
                 col = -1;
@@ -181,6 +181,9 @@ void advance_lexer(Module* mod, UnicodeBuf& iter) {
                 break;
             case ':': 
                 buf.push({ TK_COLON, col, line, idx, idx + rlen });
+                break;
+            case '?': 
+                buf.push({ TK_QUESTION, col, line, idx, idx + rlen });
                 break;
             case '~':
                 buf.push({ TK_BITNOT, col, line, idx, idx + rlen });

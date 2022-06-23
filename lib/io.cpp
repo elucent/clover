@@ -2,7 +2,7 @@
 #include "lib/utf.h"
 
 stream* new_stream(i32 fd) {
-    stream* s = (stream*)mmap(STREAM_SIZE / PAGESIZE).ptr;
+    stream* s = (stream*)mreq(STREAM_SIZE / PAGESIZE).ptr;
     s->fd = fd;
     s->start = 0;
     s->end = 0;
@@ -11,8 +11,8 @@ stream* new_stream(i32 fd) {
 
 static stream* streams[N_STREAMS];
 
-static_assert(STREAM_SIZE % PAGESIZE == 0);      // Streams should be a clean multiple of the page size.
-static_assert(sizeof(stream) == STREAM_SIZE);    // Stream objects should be exactly the desired size.
+static_assert(STREAM_SIZE % PAGESIZE == 0, "Stream is not a multiple of the page size.");
+static_assert(sizeof(stream) == STREAM_SIZE, "Stream is different from constant stream size.");
 
 stream& io_for_fd(i64 i) {
     return *streams[i];
@@ -21,7 +21,7 @@ stream& io_for_fd(i64 i) {
 static void flush_input(stream& io) {
     mcpy(io.buf, io.buf + io.start, io.end - io.start);
     io.end -= io.start, io.start = 0;
-    i64 amt = fdread(io.fd, { io.buf + io.end, 4096 - (io.end - io.start) });
+    i64 amt = fdread(io.fd, { io.buf + io.end, STREAMBUF_SIZE - (io.end - io.start) });
     io.end += amt;
 }
 
@@ -51,7 +51,7 @@ void close(stream* file) {
     if (i < 0 || i >= N_STREAMS || !streams[i]) return;
     if (streams[i]->end != streams[i]->start) flush_output(*streams[i]);
     fdclose(streams[i]->fd);
-    munmap({ (page*)streams[i], sizeof(stream) / PAGESIZE });
+    mfree({ (page*)streams[i], sizeof(stream) / PAGESIZE });
     streams[i] = nullptr;
 }
 
@@ -69,7 +69,7 @@ extern "C" void io_deinit() {
         if (streams[i]) flush(*streams[i]);
 
     for (u32 i = 3; i < N_STREAMS; i ++)
-        if (streams[i]) munmap({ (page*)streams[i], sizeof(stream) / PAGESIZE });
+        if (streams[i]) mfree({ (page*)streams[i], sizeof(stream) / PAGESIZE });
         else break;
 }
 
@@ -142,10 +142,11 @@ void write_float(stream& io, double f) {
 
 void write_hex(stream& io, u64 u) {
     push_if_necessary(io, 16);
-    if (!u) write_byte(io, '0');
+    if (!u) write_byte(io, '0'), write_byte(io, '0');
     else {
         u64 digits = 0, mask = 15;
         while (mask << digits < u) mask <<= 4, digits ++;
+        if (digits % 2 == 0) digits ++;
         for (i64 i = digits * 4; i >= 0; i -= 4) {
             u8 digit = u >> i & 15;
             put(io, "0123456789abcdef"[digit]);
@@ -212,16 +213,17 @@ i64 read_int(stream& io) {
     pull_if_necessary(io);
     i64 i = 1;
     if (io.buf[io.start] == '-') i = -1, io.start ++;
+    pull_if_necessary(io);
     return i * read_digits(io);
 }
 
 void read_string(stream& io, i8* str, uptr n) {
-    while (n >= 8192) {
-        pull_if_necessary(io, (n + 63) / 64 * 64);
-        mcpy(str, io.buf + io.start, n);
-        n -= 8192;
+    while (n >= STREAMBUF_SIZE) {
+        flush_input(io);
+        mcpy(str, io.buf + io.start, io.end - io.start);
+        n -= STREAMBUF_SIZE;
     }
-    pull_if_necessary(io, (n + 63) / 64 * 64);
+    pull_if_necessary(io, n);
     mcpy(str, io.buf + io.start, n);
 }
 

@@ -14,7 +14,7 @@ struct thread {
     context ctx;
 };
 
-extern "C" iptr clone(i32(*function)(void*), void* stack, void* arg);
+extern "C" iptr pclone(i32(*function)(void*), void* stack, void* arg);
 
 static iptr waiting_queue_size;
 static thread** waiting_queue_base;
@@ -27,14 +27,14 @@ static inline thread** wrap_waiting_queue(thread** ptr) {
 
 static void grow_waiting_queue() {
     iptr new_size = waiting_queue_size * 2;
-    thread** new_base = (thread**)mmap(new_size * sizeof(thread*) / PAGESIZE).ptr;
+    thread** new_base = (thread**)mreq(new_size * sizeof(thread*) / PAGESIZE).ptr;
     thread** new_end = new_base;
     while (waiting_queue_start != waiting_queue_end) {
         *new_end = *waiting_queue_start;
         waiting_queue_start = wrap_waiting_queue(waiting_queue_start + 1);
         new_end ++;
     }
-    munmap({ (page*)waiting_queue_base, waiting_queue_size * (iptr)sizeof(thread*) / PAGESIZE });
+    mfree({ (page*)waiting_queue_base, waiting_queue_size * (iptr)sizeof(thread*) / PAGESIZE });
     waiting_queue_base = waiting_queue_start = new_base;
     waiting_queue_end = new_end;
     waiting_queue_size = new_size;
@@ -78,7 +78,7 @@ static thread* create_thread(void (*function)(void*), void* data) {
         thread_heap_top ++;
     }
 
-    t->stack = mmap(1);
+    t->stack = mreq(1);
     t->ctx.gp_regs[5] /* rbp */ = (iptr)t->stack.ptr;
     t->ctx.gp_regs[4] /* rsp */ = (iptr)t->stack.ptr;
     t->ctx.rip = (void(*)())function;
@@ -87,7 +87,7 @@ static thread* create_thread(void (*function)(void*), void* data) {
 }
 
 static void destroy_thread(thread* t) {
-    munmap(t->stack);
+    mfree(t->stack);
     *(thread**)t = thread_free_list;
     thread_free_list = (thread*)t;
 }
@@ -145,7 +145,7 @@ static i32 os_thread_run(void* id_in) {
     }
 
     psignal(10, os_tids[0]); // signal main thread
-    exit(0);
+    pexit(0);
     return 0;
 }
 
@@ -156,8 +156,8 @@ extern "C" void _start_impl(i32 argc, i8** argv) {
 
     if (threaded) {
         waiting_queue_size = 4 * PAGESIZE / sizeof(thread*);
-        waiting_queue_base = waiting_queue_start = waiting_queue_end = (thread**)mmap(4).ptr;
-        thread_heap = thread_heap_top = (thread*)mmap(sizeof(thread)).ptr;
+        waiting_queue_base = waiting_queue_start = waiting_queue_end = (thread**)mreq(4).ptr;
+        thread_heap = thread_heap_top = (thread*)mreq(sizeof(thread)).ptr;
         thread_free_list = nullptr;
 
         _tgid = getpid();
@@ -171,10 +171,10 @@ extern "C" void _start_impl(i32 argc, i8** argv) {
         active_threads[0] = nullptr; // scheduler thread never has a task
         for (iptr i = 1; i < N_OS_THREADS; i ++) alive[i] = true;
         for (iptr i = 1; i < N_OS_THREADS; i ++) {
-            iptr stack = (iptr)mmap(256).ptr;
+            iptr stack = (iptr)mreq(256).ptr;
             os_stacks[i] = (page*)stack;
             os_tids[i] = -1;
-            clone(os_thread_run, (void*)((u8*)stack + 256 * PAGESIZE), (void*)i);
+            pclone(os_thread_run, (void*)((u8*)stack + 256 * PAGESIZE), (void*)i);
         }
         
         bool still_running = true;
@@ -198,8 +198,8 @@ extern "C" void _start_impl(i32 argc, i8** argv) {
         main(argc, argv);
     }
 
-    munmap({ (page*)thread_heap, sizeof(thread) });
-    exit(0);
+    mfree({ (page*)thread_heap, sizeof(thread) });
+    pexit(0);
 }
 
 extern "C" void __cxa_pure_virtual() {}

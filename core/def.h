@@ -20,11 +20,21 @@ typedef i64 iword;
 typedef u64 uword;
 
 #ifdef __linux__
-#define CLOVER_LINUX
+#define LIBCORE_LINUX
 #elif defined(__APPLE__)
-#define CLOVER_OSX
+#define LIBCORE_OSX
 #elif defined(_WIN64) || defined(_WIN32)
-#define CLOVER_WINDOWS
+#define LIBCORE_WINDOWS
+#endif
+
+#ifdef __x86__
+#define LIBCORE_X86
+#elif defined(__amd64__) || defined(__x86_64__)
+#define LIBCORE_AMD64
+#elif defined(__arm64__) || defined(__aarch64__)
+#define LIBCORE_ARM64
+#elif defined(__wasm__)
+#define LIBCORE_WASM
 #endif
 
 #endif

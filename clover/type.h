@@ -65,6 +65,7 @@ struct Type {
     Env* env = nullptr;
     i32 mangled = -1;
     TypeKind kind;
+    bool referenced_by_name = false, ctor_called = false, gen_placement_new = false;
 
     inline Type(TypeKind kind_in): kind(kind_in) {}
 
@@ -77,6 +78,23 @@ inline Type* simplify(Type* t) {
     if (t == ICONST) return INT;
     else if (t == FCONST) return FLOAT;
     return t;
+}
+
+struct TypeTuple {
+    slice<Type*> types;
+    u64 h;
+
+    TypeTuple(slice<Type*> types_in);
+};
+
+inline u64 hash(const TypeTuple& tup) {
+    return tup.h;
+}
+
+inline bool operator==(const TypeTuple& a, const TypeTuple& b) {
+    if (a.types.n != b.types.n) return false;
+    for (iptr i = 0; i < a.types.n; i ++) if (a.types[i] != b.types[i]) return false;
+    return true;
 }
 
 struct NumericType : Type {
@@ -100,7 +118,7 @@ struct ArrayType : Type {
     i32 size;
     Type* element;
 
-    inline ArrayType(Type* element_in, i32 size_in): Type(T_ARRAY), element(simplify(element_in)), size(size_in) {}
+    inline ArrayType(Type* element_in, i32 size_in): Type(T_ARRAY), size(size_in), element(simplify(element_in))  {}
     
     void init_env(TypeContext* typectx);
 };
@@ -198,6 +216,71 @@ inline Type* concrete(Type* type) {
     if (!type) return type;
     while (type->kind == T_VAR) type = *((VarType*)type)->binding;
     return simplify(type);
+}
+
+inline bool isconcrete(Type* type) {
+    switch (type->kind) {
+        case T_NUMERIC:
+        case T_UNIT:
+        case T_STRING:
+        case T_CHAR:
+        case T_BOOL:
+        case T_VOID:
+        case T_ERROR:
+        case T_TYPE:
+        case T_NAMED:
+        case T_STRUCT:
+        case T_UNION:
+            return true;
+        case T_VAR:
+            return false;
+        case T_PTR:
+            return isconcrete(((PtrType*)type)->target);
+        case T_SLICE:
+            return isconcrete(((SliceType*)type)->element);
+        case T_ARRAY:
+            return isconcrete(((ArrayType*)type)->element);
+        case T_FUN:
+            if (!isconcrete(((FunType*)type)->ret)) return false;
+            for (Type* t : ((FunType*)type)->arg) if (!isconcrete(t)) return false;
+            return true;
+    }   
+}
+
+inline Type* fullconcrete(TypeContext& ctx, Type* type) {
+    switch (type->kind) {
+        case T_NUMERIC:
+            return simplify(type);
+        case T_UNIT:
+        case T_STRING:
+        case T_CHAR:
+        case T_BOOL:
+        case T_VOID:
+        case T_ERROR:
+        case T_TYPE:
+        case T_NAMED:
+        case T_STRUCT:
+        case T_UNION:
+            return type;
+        case T_VAR:
+            return fullconcrete(ctx, *((VarType*)type)->binding);
+        case T_PTR:
+            return ctx.def<PtrType>(fullconcrete(ctx, ((PtrType*)type)->target));
+        case T_SLICE:
+            return ctx.def<SliceType>(fullconcrete(ctx, ((SliceType*)type)->element));
+        case T_ARRAY:
+            return ctx.def<ArrayType>(
+                fullconcrete(ctx, ((ArrayType*)type)->element),
+                ((ArrayType*)type)->size
+            );
+        case T_FUN: {
+            slice<Type*> concreted = { new(ctx.typespace) Type*[((FunType*)type)->arg.n], ((FunType*)type)->arg.n};
+            for (iptr i = 0; i < concreted.n; i ++) {
+                concreted[i] = fullconcrete(ctx, ((FunType*)type)->arg[i]);
+            }
+            return ctx.def<FunType>(concreted, fullconcrete(ctx, ((FunType*)type)->ret));
+        }
+    }   
 }
 
 #endif

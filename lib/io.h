@@ -7,9 +7,14 @@
 constexpr const u32 STREAMBUF_SIZE = STREAM_SIZE - sizeof(u32) * 3 - sizeof(i32);
 #define N_STREAMS 65536
 
+enum StreamType {
+    ST_STD = 0, ST_FILE = 1, ST_BUF = 2
+};
+
 struct stream {
     i32 fd;
-    u32 start, end, unused;
+    u32 start, end;
+    StreamType type;
     i8 buf[STREAMBUF_SIZE];
 };
 
@@ -32,7 +37,7 @@ void write_int(stream& io, i64 i);
 void write_float(stream& io, double f);
 void write_hex(stream& io, u64 u);
 void read_string(stream& io, i8* str, uptr n);
-// rune read_char(stream& io);
+rune read_char(stream& io);
 i8 read_byte(stream& io);
 u64 read_uint(stream& io);
 i64 read_int(stream& io);
@@ -45,6 +50,10 @@ void close(stream* file);
 extern stream stdin, stdout, stderr;
 
 inline void write(stream& io, const i8* const& str) {
+    write_string(io, str, cidx(str, '\0'));
+}
+
+inline void write(stream& io, i8* const& str) {
     write_string(io, str, cidx(str, '\0'));
 }
 

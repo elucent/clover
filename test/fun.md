@@ -34,6 +34,21 @@ int times(int x, int y): x * y
 print(times(2, 3))          # 6
 ```
 
+## Inferred Return
+
+If the type annotation of the function is omitted, the return type will be inferred from the function body. If the function
+contains one or more `return` statements, the return type will be inferred from the expressions they return. Otherwise, the
+function returns the type of whatever the last expression is.
+
+```cl
+fun one(): 1
+print(one())                # 1
+
+fun remainder(int x, int y): 
+    x - x / y * y
+print(remainder(153, 20))   # 13
+```
+
 ## Function Types
 
 Functions have function types, made up of a return type and the types of its arguments. Function types aren't convertible
