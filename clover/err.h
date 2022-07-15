@@ -52,6 +52,8 @@ void no_typedecl_name_error(Module* mod, const Token& tk);
 void no_case_colon_nl_error(Module* mod, const Token& tk);
 void no_module_name_error(Module* mod, const Token& tk);
 void non_ident_in_tvar_error(Module* mod, AST* var);
+void empty_sizeof_expr_error(Module* mod, const Token& tk);
+void no_closing_sizeof_error(Module* mod, const Token& tk);
 
 // Typechecker
 void for_loop_var_inited_error(Module* mod, AST* var);

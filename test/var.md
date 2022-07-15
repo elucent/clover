@@ -39,6 +39,10 @@ x = 1
 y = x / 2.
 print(x)            # 1
 print(y)            # 0.5
+
+int* p
+p = &x
+print(*p)
 ```
 
 ## Type Inference

@@ -16,15 +16,15 @@ enum ASTKind : u8 {
     AST_ADD, AST_SUB, AST_STAR, AST_DIV, AST_MOD, AST_EXP, AST_NEG, AST_PLUS,
     AST_BITAND, AST_BITOR, AST_BITXOR, AST_BITNOT, AST_BITLEFT, AST_BITRIGHT,
     AST_AND, AST_OR, AST_XOR, AST_NOT,
-    AST_EQUAL, AST_INEQUAL, AST_LESS, AST_LEQUAL, AST_GREATER, AST_GEQUAL,
-    AST_DEREF, AST_ADDROF, AST_DOT, AST_APPLY, AST_INDEX, AST_SLICE, AST_CTOR, 
-    AST_NEW, AST_POSTINCR, AST_POSTDECR, AST_INCR, AST_DECR,
+    AST_EQUAL, AST_INEQUAL, AST_LESS, AST_LEQUAL, AST_GREATER, AST_GEQUAL, AST_IS, 
+    AST_DEREF, AST_ADDROF, AST_DOT, AST_APPLY, AST_INDEX, AST_SLICE, AST_CTOR,
+    AST_NEW, AST_NEWARRAY, AST_DEL, AST_POSTINCR, AST_POSTDECR, AST_INCR, AST_DECR,
     AST_ARRAY, AST_SET,
     AST_ASSIGN,
     AST_ADDEQ, AST_SUBEQ, AST_STAREQ, AST_DIVEQ, AST_MODEQ, AST_EXPEQ,
     AST_BITANDEQ, AST_BITOREQ, AST_BITXOREQ, AST_BITLEFTEQ, AST_BITRIGHTEQ,
     AST_PAREN,
-    AST_CONV, 
+    AST_CONV, AST_SIZEOF,
     // statements
     AST_LAST_EXPR, AST_IF = AST_LAST_EXPR, AST_WHILE, AST_UNTIL, AST_FOR, AST_WITH, AST_USE, AST_MATCH,
     AST_RETURN, AST_DEFER, AST_DO, AST_BREAK, AST_CONTINUE,
@@ -125,7 +125,8 @@ struct CaseDecl : public Decl {
     AST* body;
     Env* env;
     Symbol basename;
-    inline CaseDecl(SourcePos pos, AST* pattern_in, AST* body_in): Decl(AST_CASEDECL, pos), pattern(pattern_in), body(body_in), env(nullptr) {}
+    bool reachable;
+    inline CaseDecl(SourcePos pos, AST* pattern_in, AST* body_in): Decl(AST_CASEDECL, pos), pattern(pattern_in), body(body_in), env(nullptr), reachable(true) {}
 
     inline AST* clone(arena& alloc) override {
         return new(alloc) CaseDecl(pos, try_clone(pattern, alloc), try_clone(body, alloc));
@@ -252,10 +253,22 @@ struct Var : public Expr {
     }
 };
 
+struct Loop : public Statement {
+    AST* cond;
+    AST* body;
+    Env* env;
+    inline Loop(ASTKind kind, SourcePos pos, AST* cond_in, AST* body_in): Statement(kind, pos), cond(cond_in), body(body_in), env(nullptr) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) Loop(kind, pos, try_clone(cond, alloc), try_clone(body, alloc));
+    }
+};
+
 struct If : public Expr {
     AST* cond;
     AST* ifTrue;
     AST* ifFalse; // Null if else omitted.
+    Env* env;
     inline If(SourcePos pos, AST* cond_in, AST* ifTrue_in, AST* ifFalse_in): Expr(AST_IF, pos), cond(cond_in), ifTrue(ifTrue_in), ifFalse(ifFalse_in) {}
 
     inline AST* clone(arena& alloc) override {
@@ -268,10 +281,13 @@ struct For : public Statement {
     AST* items;
     AST* body;
     Env* env;
-    inline For(SourcePos pos, AST* binding_in, AST* items_in, AST* body_in): Statement(AST_FOR, pos), binding(binding_in), items(items_in), body(body_in) {}
+    bool transformed;
+    inline For(SourcePos pos, AST* binding_in, AST* items_in, AST* body_in): Statement(AST_FOR, pos), binding(binding_in), items(items_in), body(body_in), transformed(false) {}
 
     inline AST* clone(arena& alloc) override {
-        return new(alloc) For(pos, try_clone(binding, alloc), try_clone(items, alloc), try_clone(body, alloc));
+        For* f = new(alloc) For(pos, try_clone(binding, alloc), try_clone(items, alloc), try_clone(body, alloc));
+        f->transformed = transformed;
+        return f;
     }
 };
 
@@ -486,10 +502,19 @@ void compute_envs(Module* mod, Env* env, AST* ast);
 void detect_types(Module* mod, Env* env, AST* ast);
 
 /*
+ * infer(mod, env, ast)
+ *
+ * Traverses the provided AST and computes a type for every node. If a type cannot be computed for
+ * a node without violating other expressions, an error is reported.
+ */
+void infer(Module* mod, Env* env, AST* ast);
+
+/*
  * typecheck(mod, env, ast)
  *
- * Traverses the provided AST and computes a type for every node. Verifies that types are used
- * correctly in each node, and reports an error if incorrect usage is found.
+ * Verifies that all inferred types across the AST are used correctly. If incorrect usage is encountered,
+ * an error is reported. Otherwise, types are replaced with their concrete variants. Generic type and
+ * function instantiation is done at this phase.
  */
 void typecheck(Module* mod, Env* env, AST* ast);
 

@@ -8,10 +8,10 @@
 #include "jasmine/arch.h"
 
 struct OpMeta {
-    bool hasoutput, hastype;
+    bool hasoutput, hastype, isjump;
 };
 
-constexpr OpMeta HAS_OUTPUT = { true, true }, NO_OUTPUT = { false, true }, JUMP = { false, false };
+constexpr OpMeta HAS_OUTPUT = { true, true, false }, NO_OUTPUT = { false, true, false }, JUMP = { false, false, true }, RETURN = { false, true, true };
 
 enum Arity : u8 {
     NULLARY, UNARY, VUNARY, BINARY, VBINARY
@@ -19,8 +19,8 @@ enum Arity : u8 {
 
 enum Op : u8 {
     /* Nullary */   OP_NOP, OP_VAR, OP_LAST_NULLARY = OP_VAR,
-    /* Unary */     OP_NEG, OP_NOT, OP_LOAD, OP_FIND, OP_NEW, OP_CAST, OP_CONV, OP_ZXT, OP_SXT,
-                    OP_RET, OP_PAR, OP_JUMP, OP_LABEL, OP_MOV,
+    /* Unary */     OP_NEG, OP_NOT, OP_LOAD, OP_FIND, OP_NEW, OP_CAST, OP_CONV, 
+                    OP_ZXT, OP_SXT, OP_RET, OP_PAR, OP_JUMP, OP_LABEL, OP_MOV,
     /* Unary* */    OP_PHI, OP_LAST_UNARY = OP_PHI,
     /* Binary */    OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_REM, 
                     OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR,
@@ -61,7 +61,7 @@ constexpr Arity OP_ARITIES[] = {
 constexpr OpMeta OP_META[] = {
     NO_OUTPUT, HAS_OUTPUT,
     HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, 
-    HAS_OUTPUT, HAS_OUTPUT, NO_OUTPUT, HAS_OUTPUT, JUMP, NO_OUTPUT, 
+    HAS_OUTPUT, HAS_OUTPUT, RETURN, HAS_OUTPUT, JUMP, NO_OUTPUT, 
     HAS_OUTPUT,
     HAS_OUTPUT,
     HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT,
@@ -113,6 +113,10 @@ struct Insn {
 
     inline bool has_output() const {
         return OP_META[op].hasoutput;
+    }
+
+    inline bool is_jump() const {
+        return OP_META[op].isjump;
     }
 
     inline typeidx result_type(const TypeTable& tab) const {
@@ -241,7 +245,7 @@ namespace jasm {
 
     void ret(typeidx t, const ParamArg& param);
     localidx par(typeidx t, i64 idx);
-    localidx jump(typeidx t, const ParamArg& param);
+    localidx jump(const ParamArg& param);
     void label(labelidx lbl);
     localidx phi(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
 

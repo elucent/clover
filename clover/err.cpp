@@ -40,6 +40,8 @@ enum ErrorType : i8 {
     ERR_NO_CASE_COLON_NL,   // No colon or newline in case declaration.
     ERR_NO_MODULE_NAME,     // No identifier in module declaration.
     ERR_NON_IDENT_IN_TVAR,  // No identifier in named type variable.
+    ERR_EMPTY_SIZEOF_EXPR,  // Sizeof expr with no expr inside.
+    ERR_NO_CLOSING_SIZEOF,  // No closing pipe in sizeof expr.
 };
 
 #define CODE static constexpr ErrorType CODE
@@ -95,6 +97,8 @@ struct Error {
         struct NoCaseColonNl    { CODE = ERR_NO_CASE_COLON_NL; Token tk; } no_case_colon_nl;
         struct NoModuleName     { CODE = ERR_NO_MODULE_NAME; Token tk; } no_module_name;
         struct NonIdentInTvar   { CODE = ERR_NON_IDENT_IN_TVAR; AST* ast; } non_ident_in_tvar;
+        struct EmptySizeofExpr  { CODE = ERR_EMPTY_SIZEOF_EXPR; Token tk; } empty_sizeof_expr;
+        struct NoClosingSizeof  { CODE = ERR_NO_CLOSING_SIZEOF; Token tk; } no_closing_sizeof;
         
         ErrorData(NoParamListSep e): no_param_list_sep(e) {}
         ErrorData(NoDeclNewline e): no_decl_newline(e) {}
@@ -122,6 +126,8 @@ struct Error {
         ErrorData(NoCaseColonNl e): no_case_colon_nl(e) {}
         ErrorData(NoModuleName e): no_module_name(e) {}
         ErrorData(NonIdentInTvar e): non_ident_in_tvar(e) {}
+        ErrorData(EmptySizeofExpr e): empty_sizeof_expr(e) {}
+        ErrorData(NoClosingSizeof e): no_closing_sizeof(e) {}
     } data;
 };
 
@@ -315,6 +321,16 @@ void no_module_name_error(Module* mod, const Token& tk) {
 void non_ident_in_tvar_error(Module* mod, AST* ast) {
     parse_error();
     push_error<Error::ErrorData::NonIdentInTvar>(mod, ast);
+}
+
+void empty_sizeof_expr_error(Module* mod, const Token& tk) {
+    parse_error();
+    push_error<Error::ErrorData::EmptySizeofExpr>(mod, tk);
+}
+
+void no_closing_sizeof_error(Module* mod, const Token& tk) {
+    parse_error();
+    push_error<Error::ErrorData::NoClosingSizeof>(mod, tk);
 }
 
 static const i8* RED = "\e[1;31m";
@@ -529,6 +545,16 @@ void print_error(stream& io, bool verbose, const Error& e) {
         print_loc(mod, io, e.data.non_ident_in_tvar.ast->pos);
         write(io, RED, "Error", RESET, ": Expected identifier in named type variable.\n");
         print_line(mod, io, e.data.non_ident_in_tvar.ast->pos);
+        break;
+    case ERR_EMPTY_SIZEOF_EXPR:
+        print_loc(mod, io, e.data.no_module_name.tk);
+        write(io, RED, "Error", RESET, ": Expected expression within size operator.\n");
+        print_line(mod, io, e.data.no_module_name.tk);
+        break;
+    case ERR_NO_CLOSING_SIZEOF:
+        print_loc(mod, io, e.data.no_module_name.tk);
+        write(io, RED, "Error", RESET, ": Expected closing pipe ('|') after size operator.\n");
+        print_line(mod, io, e.data.no_module_name.tk);
         break;
     default:
         unreachable("Unknown error kind.");

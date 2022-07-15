@@ -80,6 +80,11 @@ void Function::read(bytebuf<arena>& buf) {
                     insn.nparams = 1;
                     params.push(Param(buf.read<u8>() >> 4 & 15));
                     args.push(buf.readLEB());
+                    if (insn.op == OP_LABEL) {
+                        while (labels.size() <= args.back().lbl) labels.push(-1);
+                        labels[args.back().lbl] = i;
+                        print("! set label ", args.back().lbl, " to ", i, '\n');
+                    }
                     break;
                 case VUNARY:
                     buf.read<u8>();
@@ -320,7 +325,7 @@ namespace jasm {
     void ret(typeidx t, const ParamArg& param) { unary(OP_RET, t, param); }
     localidx par(typeidx t, i64 idx) { return unary(OP_PAR, t, imm(idx)); }
     localidx jump(const ParamArg& param) { return unary(OP_JUMP, T_PTR, param); }
-    void label(labelidx l) { unary(OP_LABEL, T_PTR, lbl(l)); }
+    void label(labelidx l) { targetfn->labels[l] = targetfn->insns.size(), unary(OP_LABEL, T_PTR, lbl(l)); }
     localidx phi(typeidx t, const ParamArg& lhs, const ParamArg& rhs) { return binary(OP_PHI, t, lhs, rhs); }
 
     localidx eq(typeidx t, const ParamArg& lhs, const ParamArg& rhs) { return binary(OP_EQ, t, lhs, rhs); }

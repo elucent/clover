@@ -63,9 +63,9 @@ enum TypeKind : i8 {
 
 struct Type {
     Env* env = nullptr;
-    i32 mangled = -1;
+    i32 mangled = -1, caseid = -1;
     TypeKind kind;
-    bool referenced_by_name = false, ctor_called = false, gen_placement_new = false;
+    bool referenced_by_name = false, ctor_called = false, gen_placement_new = false, is_case = false;
 
     inline Type(TypeKind kind_in): kind(kind_in) {}
 
@@ -118,7 +118,7 @@ struct ArrayType : Type {
     i32 size;
     Type* element;
 
-    inline ArrayType(Type* element_in, i32 size_in): Type(T_ARRAY), size(size_in), element(simplify(element_in))  {}
+    inline ArrayType(Type* element_in, i32 size_in): Type(T_ARRAY), size(size_in), element(element_in)  {}
     
     void init_env(TypeContext* typectx);
 };
@@ -171,7 +171,8 @@ struct UnionType : Type {
 
     inline UnionType(i32 name_in, Env* env_in, slice<pair<i32, Type*>> fields_in): Type(T_UNION), name(name_in), fields(fields_in) { 
         env = env_in;
-        for (auto& p : fields) p.second = simplify(p.second);
+        i32 i = 0;
+        for (auto& p : fields) p.second = simplify(p.second), p.second->caseid = i ++;
     }
 
     inline void init_env(TypeContext* typectx) {}
@@ -279,6 +280,37 @@ inline Type* fullconcrete(TypeContext& ctx, Type* type) {
                 concreted[i] = fullconcrete(ctx, ((FunType*)type)->arg[i]);
             }
             return ctx.def<FunType>(concreted, fullconcrete(ctx, ((FunType*)type)->ret));
+        }
+    }   
+}
+
+inline void unbind(Type* type) {
+    switch (type->kind) {
+        case T_NUMERIC:
+        case T_UNIT:
+        case T_STRING:
+        case T_CHAR:
+        case T_BOOL:
+        case T_VOID:
+        case T_ERROR:
+        case T_TYPE:
+        case T_NAMED:
+        case T_STRUCT:
+        case T_UNION:
+            return;
+        case T_VAR:
+            *((VarType*)type)->binding = VOID;
+            return;
+        case T_PTR:
+            return unbind(((PtrType*)type)->target);
+        case T_SLICE:
+            return unbind(((SliceType*)type)->element);
+        case T_ARRAY:
+            return unbind(((ArrayType*)type)->element);
+        case T_FUN: {
+            unbind(((FunType*)type)->ret);
+            for (Type* t : ((FunType*)type)->arg) unbind(t);
+            return;
         }
     }   
 }

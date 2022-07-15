@@ -35,8 +35,8 @@ static constexpr const ASTKind TOKEN_TO_UNOP[NUM_TOKEN_KINDS] = {
     AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
     AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
     AST_NONE, AST_NONE, AST_NOT, 
-    AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
-    AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
+    AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
+    AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
     AST_NONE, AST_NONE,
     AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE
 };
@@ -53,8 +53,8 @@ static constexpr const ASTKind TOKEN_TO_BINOP[NUM_TOKEN_KINDS] = {
     AST_ASSIGN, AST_ADDEQ, AST_SUBEQ, AST_STAREQ, AST_DIVEQ, AST_MODEQ, AST_EXPEQ,
     AST_BITANDEQ, AST_BITOREQ, AST_BITXOREQ, AST_BITLEFTEQ, AST_BITRIGHTEQ,
     AST_AND, AST_OR, AST_NONE, 
-    AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
-    AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
+    AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_IS,
+    AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE,
     AST_NONE, AST_NONE,
     AST_NONE, AST_NONE, AST_NONE, AST_NONE, AST_NONE
 };
@@ -219,6 +219,13 @@ void parse_maybe_vardecl(Lexer& lexer, Parser& parser, Module* mod, Token& next)
               .push(b->right)
               .tailrec(parse_var_or_fundecl);
     }
+    else if (next.kind == TK_COMMA && parser.nodes.back()->kind == AST_STAR) {
+        Binary* b = (Binary*)parser.pop();
+        parser.push(new(parser.astspace) Unary(AST_DEREF, b->left->pos, b->left))
+              .push(b->right)
+              .tailrec(parse_vardecl_typed_init, nullptr)
+              .begincount();
+    }
     else parser.tailrec(parse_var_or_fundecl).rec(parse_binary);
 }
 
@@ -256,6 +263,10 @@ void parse_unary_predecr(Lexer& lexer, Parser& parser, Module* mod, Token& next)
 
 void parse_unary_new(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
     parser.leave(new(parser.astspace) Unary(AST_NEW, parser.endpos(next), parser.pop()));
+}
+
+void parse_unary_del(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
+    parser.leave(new(parser.astspace) Unary(AST_DEL, parser.endpos(next), parser.pop()));
 }
 
 void parse_maybe_argdecl(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
@@ -356,7 +367,7 @@ void parse_post_primary(Lexer& lexer, Parser& parser, Module* mod, Token& next) 
         parser.push(new(parser.astspace) Binary(AST_DOT, parser.lhs()->pos + parser.rhs()->pos, parser.lhs(), parser.rhs())) // This is necessary to ensure left-associativity.
               .poplr()
               .popop();
-
+    AST* back = parser.back();
     switch (next.kind) {
         case TK_LPAREN: // Function call/type application.
             parser.consume(lexer)
@@ -375,13 +386,11 @@ void parse_post_primary(Lexer& lexer, Parser& parser, Module* mod, Token& next) 
             return;
         case TK_INCR:
             parser.consume(lexer)
-                  .tailrec(parse_post_primary, new(parser.astspace) Unary(AST_POSTINCR, parser.back()->pos + next, parser.back()))
-                  .pop();
+                  .tailrec(parse_post_primary, new(parser.astspace) Unary(AST_POSTINCR, back->pos + next, parser.pop()));
             return;
         case TK_DECR:
             parser.consume(lexer)
-                  .tailrec(parse_post_primary, new(parser.astspace) Unary(AST_POSTDECR, parser.back()->pos + next, parser.back()))
-                  .pop();
+                  .tailrec(parse_post_primary, new(parser.astspace) Unary(AST_POSTDECR, back->pos + next, parser.pop()));
             return;
         case TK_QUESTION: {
             if (parser.back()->kind != AST_VAR) non_ident_in_tvar_error(mod, parser.back());
@@ -514,6 +523,25 @@ void parse_maybe_unit(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
                .rec(parse_binary);
 }
 
+void parse_sizeof_end(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
+    if (next.kind == TK_BITOR) {
+        parser.consume(lexer)
+              .leave(new(parser.astspace) Unary(AST_SIZEOF, parser.endpos(next), parser.pop()))
+              .unnest();
+    }
+    else no_closing_sizeof_error(mod, next), parser.leave().unnest().endpos({});
+}
+
+void parse_sizeof_expr(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
+    if (next.kind == TK_BITOR) {
+        empty_sizeof_expr_error(mod, next);
+        parser.consume(lexer)
+              .leave().unnest().endpos({});
+    }
+    else parser.tailrec(parse_sizeof_end)
+               .rec(parse_primary);
+}
+
 void parse_primary(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
     switch (next.kind) {
         case TK_ICONST: // Integer constant.
@@ -602,6 +630,12 @@ void parse_primary(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
                   .tailrec(parse_unary_new)
                   .rec(parse_binary); 
             return;
+        case TK_DEL: 
+            parser.consume(lexer)
+                  .startpos(next)
+                  .tailrec(parse_unary_del)
+                  .rec(parse_binary); 
+            return;
         case TK_LPAREN:
             parser.consume(lexer)
                   .startpos(next)
@@ -624,6 +658,12 @@ void parse_primary(Lexer& lexer, Parser& parser, Module* mod, Token& next) {
             parser.consume(lexer)
                   .startpos(next)
                   .tailrec(parse_maybe_empty_set)
+                  .nest();
+            return;
+        case TK_BITOR:
+            parser.consume(lexer)
+                  .startpos(next)
+                  .tailrec(parse_sizeof_expr)
                   .nest();
             return;
         default:
@@ -1088,6 +1128,7 @@ inline void write_binary(stream& io, Module* mod, Binary* node, const char* op) 
 }
 
 void format(stream& io, Module* mod, const AST* const& ast) {
+    // if (ast->type) write(io, '<'), format(io, mod, fullconcrete(*mod->typectx, ast->type)), write(io, '>');
     switch (ast->kind) {
     casematch(AST_PROGRAM, ASTProgram*, p)
         for (Statement* stmt : p->toplevel) format(io, mod, stmt), write(io, '\n');
@@ -1111,6 +1152,8 @@ void format(stream& io, Module* mod, const AST* const& ast) {
     casematch(AST_POSTINCR, Unary*, u) write(io, '('); format(io, mod, u->child); write(io, " ++)"); endmatch
     casematch(AST_POSTDECR, Unary*, u) write(io, '('); format(io, mod, u->child); write(io, " --)"); endmatch
     casematch(AST_NEW, Unary*, u) write_unary(io, mod, u, "new"); endmatch
+    casematch(AST_NEWARRAY, Unary*, u) write(io, "new "), format(io, mod, ((Binary*)u->child)->left), write(io, '['), write(io, ((Binary*)u->child)->right), write(io, ']'); endmatch
+    casematch(AST_DEL, Unary*, u) write_unary(io, mod, u, "del"); endmatch
     casematch(AST_PAREN, Unary*, u) write(io, '('); format(io, mod, u->child); write(io, ")"); endmatch
     casematch(AST_CONV, Unary*, u) 
         write(io, "cast<"); 
@@ -1119,6 +1162,7 @@ void format(stream& io, Module* mod, const AST* const& ast) {
         format(io, mod, u->child); 
         write(io, ")"); 
         endmatch
+    casematch(AST_SIZEOF, Unary*, u) write(io, "|"); format(io, mod, u->child); write(io, "|"); endmatch
     casematch(AST_ADD, Binary*, b) write_binary(io, mod, b, "+"); endmatch
     casematch(AST_SUB, Binary*, b) write_binary(io, mod, b, "-"); endmatch
     casematch(AST_STAR, Binary*, b) write_binary(io, mod, b, "*"); endmatch
@@ -1151,6 +1195,7 @@ void format(stream& io, Module* mod, const AST* const& ast) {
     casematch(AST_BITXOREQ, Binary*, b) write_binary(io, mod, b, "^="); endmatch
     casematch(AST_BITLEFTEQ, Binary*, b) write_binary(io, mod, b, "<<="); endmatch
     casematch(AST_BITRIGHTEQ, Binary*, b) write_binary(io, mod, b, ">>="); endmatch
+    casematch(AST_IS, Binary*, b) write_binary(io, mod, b, "is"); endmatch
     
     casematch(AST_TYPENAME, Var*, v) write(io, '<', mod->interner->intern_data[v->name].t, '>'); endmatch
     casematch(AST_TYPECONST, Expr*, e) write(io, '<'), format(io, mod, e->type), write(io, '>'); endmatch
@@ -1402,20 +1447,23 @@ Env* anon_namespace(Module* mod, Env* env) {
     i32 len = 0;
 
     i32 id = env->anon ++;
+    buf[len ++] = '_';
     if (!id) buf[len ++] = '0';
     else {
-        i32 c = 0, d = 0;
+        u32 olen = len;
+        u32 c = 0, d = 0;
         u64 p = 1;
         while (p <= id) p *= 10, ++ c;
         d = c;
         while (c >= 1) {
-            buf[c - 1] = "0123456789"[id % 10]; 
+            buf[-- c + olen] = "0123456789"[id % 10];
             id /= 10;
-            c -= 1;
         }
-        len = d;
+        len += d;
     }
-    i32 name = mod->interner->intern({{buf, len}});
+    slice<i8> sl = slice<i8>{new(mod->envctx->envspace) i8[len], len};
+    mcpy(sl.ptr, buf, len);
+    i32 name = mod->interner->intern({sl});
     return mod->envctx->create(ENV_LOCAL, env, name);
 }
 
@@ -1439,9 +1487,66 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
         for (Statement* ast : p->toplevel) if (ast->kind != AST_MODULEDECL) compute_envs(mod, p->env, ast);
         endmatch
 
-    // All constants, unary ops, and binary ops are omitted because they cannot contain decls.
+    casematch(AST_PLUS, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_NEG, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_DEREF, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_ADDROF, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_NOT, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_BITNOT, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_INCR, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_DECR, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_POSTINCR, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_POSTDECR, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_NEW, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_PAREN, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_SIZEOF, Unary*, u) compute_envs(mod, env, u->child); endmatch
 
+    casematch(AST_ADD, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_SUB, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_STAR, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_DIV, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_MOD, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_EXP, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITAND, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITOR, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITXOR, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITLEFT, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITRIGHT, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_LESS, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_LEQUAL, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_GREATER, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_GEQUAL, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_EQUAL, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_INEQUAL, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_AND, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_OR, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_DOT, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_ASSIGN, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_ADDEQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_SUBEQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_STAREQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_DIVEQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_MODEQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_EXPEQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITANDEQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITOREQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITXOREQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITLEFTEQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    casematch(AST_BITRIGHTEQ, Binary*, b) compute_envs(mod, env, b->left); compute_envs(mod, env, b->right); endmatch
+    
+    casematch(AST_IS, Binary*, b) 
+        compute_envs(mod, env, b->left);
+        endmatch
+    
+    casematch(AST_ARRAYTYPE, Binary*, b) compute_envs(mod, env, b->left); endmatch
+    casematch(AST_SLICETYPE, Binary*, b) compute_envs(mod, env, b->left); endmatch
+    casematch(AST_PTRTYPE, Unary*, u) compute_envs(mod, env, u->child); endmatch
+    casematch(AST_FUNTYPE, Apply*, a)
+        compute_envs(mod, env, a->fn);
+        for (AST* ast : a->args) compute_envs(mod, env, ast);
+        endmatch
     casematch(AST_APPLY, Apply*, a)
+        compute_envs(mod, env, a->fn);
         for (AST* ast : a->args) compute_envs(mod, env, ast);
         endmatch
     casematch(AST_ARRAY, List*, l)
@@ -1452,15 +1557,14 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
         if (d->ann) compute_envs(mod, env, d->ann);
         env->def(d->basename = basename(mod, d->name), e_var(nullptr, d));
         endmatch
-    casematch(AST_DEREF, Unary*, u) compute_envs(mod, env, u->child); endmatch
     casematch(AST_INDEX, Binary*, u) 
         compute_envs(mod, env, u->left); 
         if (u->right) compute_envs(mod, env, u->right); 
         endmatch
     casematch(AST_SLICE, Slice*, s) 
         compute_envs(mod, env, s->array); 
-        compute_envs(mod, env, s->low); 
-        compute_envs(mod, env, s->high); 
+        if (s->low) compute_envs(mod, env, s->low); 
+        if (s->high) compute_envs(mod, env, s->high); 
         endmatch
     casematch(AST_FUNDECL, FunDecl*, d)
         i32 name = d->basename = basename(mod, d->proto);
@@ -1468,7 +1572,7 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
         if (d->returned) compute_envs(mod, d->env, d->returned);
 
         slice<AST*>& args = ((Apply*)d->proto)->args;
-        if (args.size() > 0 && args[0]->kind != AST_VARDECL) { // Assume it's a this parameter
+        if (args.size() > 0 && args[0]->kind != AST_VARDECL && args[0]->kind != AST_STAR) { // Assume it's a this parameter
             args[0] = new(mod->parser->astspace) VarDecl(
                 args[0]->pos,
                 args[0], 
@@ -1489,45 +1593,52 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
         for (AST* ast : l->items) compute_envs(mod, env, ast);
         endmatch
     casematch(AST_IF, If*, i)
-        compute_envs(mod, env, i->ifTrue);
-        if (i->ifFalse) compute_envs(mod, env, i->ifFalse);
+        i->env = mod->envctx->create(ENV_LOCAL, env, mod->interner->intern("if"));
+        compute_envs(mod, i->env, i->cond);
+        compute_envs(mod, i->env, i->ifTrue);
+        if (i->ifFalse) compute_envs(mod, i->env, i->ifFalse);
         endmatch
-    casematch(AST_WHILE, Binary*, b)
-        compute_envs(mod, env, b->right);
+    casematch(AST_WHILE, Loop*, l)
+        l->env = mod->envctx->create(ENV_LOCAL, env, mod->interner->intern("while"));
+        compute_envs(mod, l->env, l->cond);
+        compute_envs(mod, l->env, l->body);
         endmatch
-    casematch(AST_UNTIL, Binary*, b)
-        compute_envs(mod, env, b->right);
+    casematch(AST_UNTIL, Loop*, l)
+        l->env = mod->envctx->create(ENV_LOCAL, env, mod->interner->intern("until"));
+        compute_envs(mod, l->env, l->cond);
+        compute_envs(mod, l->env, l->body);
         endmatch
     casematch(AST_FOR, For*, f)
         f->env = mod->envctx->create(ENV_LOCAL, env, mod->interner->intern("for"));
-        AST* binding = f->binding;
-        AST* container = new(mod->parser->astspace) VarDecl(f->binding->pos, nullptr, new(mod->parser->astspace) Var(f->binding->pos, mod->interner->intern("_items")), f->items);
-        slice<AST*> container_slice = { new(mod->parser->astspace) AST*(new(mod->parser->astspace) Var(f->items->pos, mod->interner->intern("_items"))), 1 };
-        AST* iter = new(mod->parser->astspace) VarDecl(f->binding->pos, nullptr, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("_iter")), 
-            new(mod->parser->astspace) Apply(f->binding->pos, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("iter")), container_slice)
-        );
-        slice<AST*> iter_slice = { new(mod->parser->astspace) AST*(new(mod->parser->astspace) Var(f->pos, mod->interner->intern("_iter"))), 1 };
-        if (binding->kind == AST_VAR) binding = new(mod->parser->astspace) VarDecl(f->binding->pos, nullptr, binding, 
-            new(mod->parser->astspace) Apply(f->pos, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("read")), iter_slice)
-        );
-        else if (binding->kind == AST_VARDECL) {
-            if (((VarDecl*)binding)->init) fatal("Cannot initialize iteration variable in for loop.");
-            ((VarDecl*)binding)->init = new(mod->parser->astspace) Apply(f->pos, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("read")), iter_slice);
+        if (!f->transformed) {
+            f->transformed = true;
+            AST* binding = f->binding;
+            AST* container = new(mod->parser->astspace) VarDecl(f->binding->pos, nullptr, new(mod->parser->astspace) Var(f->binding->pos, mod->interner->intern("_items")), f->items);
+            slice<AST*> container_slice = { new(mod->parser->astspace) AST*(new(mod->parser->astspace) Var(f->items->pos, mod->interner->intern("_items"))), 1 };
+            AST* iter = new(mod->parser->astspace) VarDecl(f->binding->pos, nullptr, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("_iter")), 
+                new(mod->parser->astspace) Apply(f->binding->pos, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("iter")), container_slice)
+            );
+            slice<AST*> iter_slice = { new(mod->parser->astspace) AST*(new(mod->parser->astspace) Var(f->pos, mod->interner->intern("_iter"))), 1 };
+            AST* item = new(mod->parser->astspace) Apply(f->pos, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("read")), iter_slice);
+            AST* match = new(mod->parser->astspace) If(f->pos,
+                new(mod->parser->astspace) Binary(AST_IS, f->binding->pos, item, f->binding),
+                f->body, nullptr
+            );
+            AST* incr = new(mod->parser->astspace) Binary(AST_ASSIGN, f->pos, iter_slice[0], new(mod->parser->astspace) Apply(f->pos, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("next")), iter_slice));
+            AST* cond = new(mod->parser->astspace) Apply(f->pos, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("empty")), iter_slice);
+            slice<AST*> body_block = { new(mod->parser->astspace) AST*[3], 3 };
+            body_block[0] = binding;
+            body_block[1] = match;
+            body_block[2] = incr;
+            f->body = new(mod->parser->astspace) Binary(AST_UNTIL, f->pos, cond, 
+                new(mod->parser->astspace) List(AST_DO, f->pos, body_block)
+            );
+            slice<AST*> outer_block = { new(mod->parser->astspace) AST*[3], 3 };
+            outer_block[0] = container;
+            outer_block[1] = iter;
+            outer_block[2] = f->body;
+            f->body = new(mod->parser->astspace) List(AST_DO, f->pos, outer_block);
         }
-        AST* incr = new(mod->parser->astspace) Binary(AST_ASSIGN, f->pos, iter_slice[0], new(mod->parser->astspace) Apply(f->pos, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("next")), iter_slice));
-        AST* cond = new(mod->parser->astspace) Apply(f->pos, new(mod->parser->astspace) Var(f->pos, mod->interner->intern("empty")), iter_slice);
-        slice<AST*> body_block = { new(mod->parser->astspace) AST*[3], 3 };
-        body_block[0] = binding;
-        body_block[1] = f->body;
-        body_block[2] = incr;
-        f->body = new(mod->parser->astspace) Binary(AST_UNTIL, f->pos, cond, 
-            new(mod->parser->astspace) List(AST_DO, f->body->pos, body_block)
-        );
-        slice<AST*> outer_block = { new(mod->parser->astspace) AST*[3], 3 };
-        outer_block[0] = container;
-        outer_block[1] = iter;
-        outer_block[2] = f->body;
-        f->body = new(mod->parser->astspace) List(AST_DO, f->pos, outer_block);
         compute_envs(mod, f->env, f->body);
         endmatch
     casematch(AST_DEFER, Unary*, u)
@@ -1606,17 +1717,22 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
         endmatch
     casematch(AST_CASEDECL, CaseDecl*, d)
         i32 name = basename(mod, d->pattern);
-        if (name != -1) {
-            d->env = mod->envctx->create(env->kind == ENV_TYPE ? ENV_TYPE : ENV_LOCAL, env, name);
+        if (env->kind == ENV_TYPE && name != -1) {
+            d->env = mod->envctx->create(ENV_TYPE, env, name);
             env->def(name, e_case(nullptr, d));
         }
-        else d->env = anon_namespace(mod, env);
+        else if (env->kind != ENV_TYPE) d->env = anon_namespace(mod, env);
+        else fatal("Type cases must be named.");
         d->env->decl = d;
         d->basename = name;
-        compute_envs(mod, d->env, d->pattern);
-        if (d->body) compute_envs(mod, d->env, d->body);
+        if (d->env->kind == ENV_TYPE) {
+            compute_envs(mod, d->env, d->pattern); 
+            if (d->body) compute_envs(mod, d->env, d->body);
+        }
         endmatch
     casematch(AST_MATCH, Binary*, b)
+        compute_envs(mod, env, b->left);
+        compute_envs(mod, env, b->right);
         endmatch
     casematch(AST_MODULEDECL, ModuleDecl*, d)
         i32 name = d->basename = basename(mod, d->name);
@@ -1630,7 +1746,7 @@ void compute_envs(Module* mod, Env* env, AST* ast) {
         Entry* existing = env->lookup(name);
         if (!existing || env->find(name) != env) {
             Type* var = mod->typectx->defvar(mod, env);
-            env->def(((Var*)u->child)->name, e_type(var, nullptr));
+            env->def(((Var*)u->child)->name, e_alias(var, nullptr));
             u->type = var;
         }
         else if (existing) {
@@ -1714,7 +1830,7 @@ Type* compute_decl_type(Module* mod, Env* env, AST* ast) {
             break;
         case HAS_CASE:
             arr = (pair<i32, Type*>*)mod->typectx->typespace.alloc(sizeof(pair<i32, Type*>) * n_members);
-            for (i32 i = 0; i < n_members; i ++) arr[i] = member_stack[init_size + i];
+            for (i32 i = 0; i < n_members; i ++) arr[i] = member_stack[init_size + i], arr[i].second->is_case = true;;
             result = mod->typectx->def<UnionType>(d->basename, d->env, slice<pair<i32, Type*>>{ arr, n_members });
             break;
         case NO_FIELDS_OR_CASES:
@@ -1752,7 +1868,7 @@ Type* compute_decl_type(Module* mod, Env* env, AST* ast) {
             break;
         case HAS_CASE:
             arr = (pair<i32, Type*>*)mod->typectx->typespace.alloc(sizeof(pair<i32, Type*>) * n_members);
-            for (i32 i = 0; i < n_members; i ++) arr[i] = member_stack[init_size + i];
+            for (i32 i = 0; i < n_members; i ++) arr[i] = member_stack[init_size + i], arr[i].second->is_case = true;
             result = mod->typectx->def<UnionType>(d->basename, d->env, slice<pair<i32, Type*>>{ arr, n_members });
             break;
         case NO_FIELDS_OR_CASES:
@@ -1833,8 +1949,11 @@ Type* method_parent(Module* mod, Apply* a) {
 }
 
 Env* call_parent(Module* mod, Apply* a) {
+    // print("resolving "), format(stdout, mod, a), print('\n');
     if (a->args.n && a->args[0]->type && a->fn->kind == AST_VAR) {
-        pair<Type*, Env*>* ast = mod->envctx->find_method(((Var*)a->fn)->name, a->args[0]->type);
+        Type* conc = fullconcrete(*mod->typectx, a->args[0]->type);
+        // print("method ", mod->interner->str(((Var*)a->fn)->name), " : "), format(stdout, mod, conc), print('\n');
+        pair<Type*, Env*>* ast = mod->envctx->find_method(((Var*)a->fn)->name, conc);
         if (ast) return ast->second;
     }
     return nullptr;
@@ -1877,13 +1996,21 @@ TypeDecl* inst_type(Module* mod, Env* env, TypeDecl* d, slice<AST*> params) {
 
 FunDecl* inst_fun(Module* mod, Env* env, FunDecl* d, slice<AST*> params) {
     slice<AST*> vars = ((Apply*)d->proto)->args;
-    int n_generic = 0;
-    for (int i = 0; i < params.n; i ++) if (vars[i]->kind == AST_VAR
+    i64 n_generic = 0;
+    for (i64 i = 0; i < params.n; i ++) if (vars[i]->kind == AST_VAR
         || (vars[i]->kind == AST_VARDECL && !isconcrete(vars[i]->type))) n_generic ++;
     slice<Type*> types = { new(mod->typectx->typespace) Type*[n_generic], n_generic };
-    int written = 0;
-    for (int i = 0; i < params.n; i ++) if (vars[i]->kind == AST_VAR
-        || (vars[i]->kind == AST_VARDECL && !isconcrete(vars[i]->type))) types[written ++] = params[i]->type;
+    i64 written = 0;
+    for (i64 i = 0; i < params.n; i ++) if (vars[i]->kind == AST_VAR
+        || (vars[i]->kind == AST_VARDECL && !isconcrete(vars[i]->type))) {
+        bool unifiable = unify(vars[i]->type, params[i]->type);
+        if (!unifiable) return unbind(vars[i]->type), nullptr;
+    }
+    for (i64 i = 0; i < params.n; i ++) if (vars[i]->kind == AST_VAR
+        || (vars[i]->kind == AST_VARDECL && !isconcrete(vars[i]->type))) {
+        types[written ++] = fullconcrete(*mod->typectx, vars[i]->type);
+        unbind(vars[i]->type);
+    }
     TypeTuple tup(types);
 
     auto it = d->insts.find(tup);
@@ -1906,6 +2033,7 @@ FunDecl* inst_fun(Module* mod, Env* env, FunDecl* d, slice<AST*> params) {
         }
         compute_envs(mod, d->env->parent, inst);
         detect_types(mod, inst->env->parent, inst);
+
         for (iptr i = 0; i < vars.n; i ++) {
             slice<AST*>& args = ((Apply*)inst->proto)->args;
             if (args[i]->kind == AST_VARDECL && !isconcrete(args[i]->type))
@@ -1914,6 +2042,98 @@ FunDecl* inst_fun(Module* mod, Env* env, FunDecl* d, slice<AST*> params) {
         detect_types(mod, inst->env->parent, inst);
         d->insts.put(tup, inst);
         return inst;
+    }
+}
+
+void detect_types_pattern(Module* mod, Env* env, AST* ast) {
+    switch (ast->kind) {
+    casematch(AST_ICONST, Const*, c) c->type = ICONST; endmatch
+    casematch(AST_FCONST, Const*, c) c->type = FCONST; endmatch
+    casematch(AST_STRCONST, Const*, c) c->type = STRING; endmatch
+    casematch(AST_CHCONST, Const*, c) c->type = CHAR; endmatch
+    casematch(AST_BOOL, Const*, c) c->type = BOOL; endmatch
+    casematch(AST_UNIT, Const*, c) c->type = UNIT; endmatch
+    casematch(AST_VAR, Var*, v)
+        Entry* e = env->lookup(v->name);
+        if (e) { // Might be typename.
+            // format(stdout, mod, v), print('\n');
+            if (e->kind == E_TYPE || e->kind == E_CASE) detect_types(mod, env, v);
+            if (!is_type(v) && env->find(v->name) == env) fatal("Redefinition of pattern variable.");
+        }
+        v->type = mod->typectx->defvar(mod, env);
+        env->def(v->name, e_var(v->type, nullptr));
+        endmatch
+    casematch(AST_VARDECL, VarDecl*, d)
+        detect_types(mod, env, d->ann);
+        if (!is_type(d->ann)) fatal("Expected typename in pattern.");
+        detect_types_pattern(mod, env, d->name);
+        d->type = unify(d->ann->type, d->type);
+        endmatch
+    casematch(AST_APPLY, Apply*, a)
+        for (AST* ast : a->args) detect_types_pattern(mod, env, ast);
+        // print("a0: "), format(stdout, mod, a->args[0]), print('\n');
+        if (a->args.n > 0 && is_type(a->args[0]) && a->fn->kind == AST_VAR) {
+            Env* tenv = type_env(a->args[0]->type);
+            Entry* e = tenv ? tenv->lookup(((Var*)a->fn)->name) : nullptr;
+            if (e && (e->kind == E_TYPE || e->kind == E_CASE)) {
+                a->fn = new(mod->parser->astspace) Binary(AST_DOT, a->fn->pos + a->args[0]->pos, a->args[0], a->fn);
+                for (iptr i = 0; i < a->args.n - 1; i ++) a->args[i] = a->args[i + 1];
+                a->args.n --;
+            }
+        }
+        // print("fn: "), format(stdout, mod, a->fn), print('\n');
+        detect_types(mod, env, a->fn);
+        if (!is_type(a->fn)) fatal("Expected typename in pattern.");
+        Type* match_type = a->fn->type;
+        switch (match_type->kind) {
+            case T_NAMED:
+                if (a->args.n != 1) fatal("Too many parameters in named type match.");
+                if (!a->args[0]->type || !unify(((NamedType*)match_type)->inner, a->args[0]->type))
+                    fatal("Incompatible pattern type.");
+                a->type = match_type;
+                break;
+            case T_STRUCT:
+                if (a->args.n != ((StructType*)match_type)->fields.n) fatal("Incorrect number of parameters in struct match.");
+                for (u32 i = 0; i < ((StructType*)match_type)->fields.n; i ++) {
+                    Type* ft = ((StructType*)match_type)->fields[i].second;
+                    AST* f = a->args[i];
+                    if (!f->type || !unify(ft, f->type)) fatal("Incompatible pattern type.");
+                }
+                a->type = match_type;
+                break;
+            default:
+                fatal("Can only match named or struct type.");
+                break;
+        }
+        endmatch
+    casematch(AST_ARRAY, List*, l)
+        Type* elt = nullptr;
+        for (AST* n : l->items) {
+            if (n->kind == AST_BITOR) {
+                detect_types_pattern(mod, env, ((Binary*)n)->left);
+                detect_types_pattern(mod, env, ((Binary*)n)->right);
+                elt = elt ? unify(elt, ((Binary*)n)->left->type) : ((Binary*)n)->left->type;
+                if (!elt) fatal("Incompatible type in slice pattern.");
+            }
+            else {
+                detect_types_pattern(mod, env, n);
+                elt = elt ? unify(elt, n->type) : n->type;
+                if (!elt) fatal("Incompatible type in slice pattern.");
+            }
+        }
+        Type* slice = mod->typectx->def<SliceType>(elt);
+        if (l->items.n && l->items[l->items.n - 1]->kind == AST_BITOR) {
+            AST* tail = ((Binary*)l->items[l->items.n - 1])->right;
+            slice = unify(slice, tail->type);
+            if (!slice) fatal("Incompatible type in slice pattern.");
+            tail->type = slice;
+        }
+        ast->type = slice;
+        endmatch
+    default:
+        detect_types(mod, env, ast);
+        if (!is_type(ast)) fatal("Expected typename in pattern.");
+        break;
     }
 }
 
@@ -1931,7 +2151,7 @@ void detect_types(Module* mod, Env* env, AST* ast) {
     casematch(AST_VAR, Var*, v)         // Handle typenames (T).
         Entry* e = env->lookup(v->name);
         if (!e) fatal("Undefined variable.");
-        else if (e->kind == E_TYPE || e->kind == E_ALIAS || (e->kind == E_CASE && env->kind == ENV_TYPE)) {
+        else if (e->kind == E_TYPE || e->kind == E_ALIAS || e->kind == E_CASE) {
             Type* t = lookup_type(mod, env, v->name);
             v->kind = AST_TYPENAME;
             v->type = t;
@@ -1957,8 +2177,26 @@ void detect_types(Module* mod, Env* env, AST* ast) {
     casematch(AST_DECR, Unary*, u) detect_types(mod, env, u->child); endmatch
     casematch(AST_POSTINCR, Unary*, u) detect_types(mod, env, u->child); endmatch
     casematch(AST_POSTDECR, Unary*, u) detect_types(mod, env, u->child); endmatch
-    casematch(AST_NEW, Unary*, u) detect_types(mod, env, u->child); endmatch
+    casematch(AST_NEW, Unary*, u) 
+        if (u->child->kind == AST_INDEX) {
+            Binary* idx = (Binary*)u->child;
+            detect_types(mod, env, idx->left);
+            if (is_type(idx->left)) {
+                u->kind = AST_NEWARRAY;
+                detect_types(mod, env, idx->right);
+                break;
+            }
+        }
+        else detect_types(mod, env, u->child); 
+        endmatch
+    casematch(AST_NEWARRAY, Unary*, u) 
+        Binary* idx = (Binary*)u->child;
+        detect_types(mod, env, idx->left);
+        detect_types(mod, env, idx->right);
+        endmatch
+    casematch(AST_DEL, Unary*, u) detect_types(mod, env, u->child); endmatch
     casematch(AST_PAREN, Unary*, u) detect_types(mod, env, u->child); endmatch
+    casematch(AST_SIZEOF, Unary*, u) detect_types(mod, env, u->child); endmatch
 
     casematch(AST_ADD, Binary*, b) detect_types(mod, env, b->left); detect_types(mod, env, b->right); endmatch
     casematch(AST_SUB, Binary*, b) detect_types(mod, env, b->left); detect_types(mod, env, b->right); endmatch
@@ -1966,10 +2204,34 @@ void detect_types(Module* mod, Env* env, AST* ast) {
         detect_types(mod, env, b->left); 
         if (is_type(b->left)) {
             b->kind = AST_PTRDECL;
-            b->left = new(mod->parser->astspace) Unary(AST_DEREF, b->left->pos, b->left);
-            detect_types(mod, env, b->left);
-            b->type = b->left->type;
-            env->def(basename(mod, b->right), e_var(b->type, b));
+            if (b->right->kind == AST_PAREN) {
+                slice<AST*> args = { new(mod->parser->astspace) AST*[1], 1 };
+                args[0] = b->right;
+                b->left = new(mod->parser->astspace) Apply(b->pos, new(mod->parser->astspace) Unary(AST_DEREF, b->left->pos, b->left), args);
+                detect_types(mod, env, b->left);
+            }
+            else if (b->right->kind == AST_APPLY) {
+                b->left = new(mod->parser->astspace) FunDecl(
+                    b->pos,
+                    new(mod->parser->astspace) Unary(AST_DEREF, b->left->pos, b->left),
+                    b->right,
+                    nullptr
+                );
+                compute_envs(mod, env, b->left);
+                detect_types(mod, env, b->left);
+            }
+            else if (b->right->kind == AST_VAR) {
+                b->left = new(mod->parser->astspace) VarDecl(
+                    b->pos,
+                    new(mod->parser->astspace) Unary(AST_DEREF, b->left->pos, b->left),
+                    b->right,
+                    nullptr
+                );
+                compute_envs(mod, env, b->left);
+                detect_types(mod, env, b->left);
+                b->type = b->left->type;
+            }
+            else fatal("Expected pointer cast or declaration.");
         } 
         else detect_types(mod, env, b->right);
         endmatch
@@ -2009,6 +2271,54 @@ void detect_types(Module* mod, Env* env, AST* ast) {
     casematch(AST_BITXOREQ, Binary*, b) detect_types(mod, env, b->left); detect_types(mod, env, b->right); endmatch
     casematch(AST_BITLEFTEQ, Binary*, b) detect_types(mod, env, b->left); detect_types(mod, env, b->right); endmatch
     casematch(AST_BITRIGHTEQ, Binary*, b) detect_types(mod, env, b->left); detect_types(mod, env, b->right); endmatch
+    casematch(AST_IS, Binary*, b) 
+        detect_types(mod, env, b->left);
+        detect_types_pattern(mod, env, b->right); 
+        endmatch
+
+    casematch(AST_ARRAYTYPE, Binary*, b)
+        if (b->type) return;
+        detect_types(mod, env, b->left);
+        if (is_type(b->left)) {
+            if (b->right && b->right->kind != AST_ICONST)
+                fatal("Size of array type must be an integer constant.");
+            b->type = mod->typectx->def<ArrayType>(b->left->type, ((Const*)b->right)->iconst);
+        }
+        else fatal("Expected type in array type expression.");
+        endmatch
+    casematch(AST_SLICETYPE, Binary*, b)
+        if (b->type) return;
+        detect_types(mod, env, b->left);
+        if (is_type(b->left)) {
+            b->type = mod->typectx->def<SliceType>(b->left->type);
+        }
+        else fatal("Expected type in slice type expression.");
+        endmatch
+    casematch(AST_PTRTYPE, Unary*, u)
+        if (u->type) return;
+        detect_types(mod, env, u->child);
+        if (is_type(u->child)) {
+            u->type = mod->typectx->def<PtrType>(u->child->type);
+        }
+        else fatal("Expected type in pointer type expression.");
+        endmatch
+    casematch(AST_FUNTYPE, Apply*, a)
+        if (a->type) return;
+        detect_types(mod, env, a->fn);
+        if (is_type(a->fn)) {
+            slice<Type*> argts = { new(mod->typectx->typespace) Type*[a->args.n], a->args.n };
+            for (u32 i = 0; i < a->args.n; i ++) detect_types(mod, env, a->args[i]), argts[i] = a->args[i]->type;
+            a->type = mod->typectx->def<FunType>(argts, a->fn->type);
+        }
+        else fatal("Expected type in function type expression.");
+        endmatch
+    casematch(AST_TYPENAME, Var*, v)
+        if (v->type) return;
+        auto e = env->lookup(v->name);
+        if (!e) fatal("Undefined typename.");
+        else if (e->kind != E_TYPE && e->kind != E_CASE && e->kind != E_ALIAS) fatal("Expected type in typename expression.");
+        else v->type = e->type;
+        endmatch
 
     casematch(AST_INDEX, Binary*, b)    // Handle array types (T[N]) and slice types (T[])
         detect_types(mod, env, b->left);
@@ -2031,7 +2341,15 @@ void detect_types(Module* mod, Env* env, AST* ast) {
         //     a->fn = new(mod->parser->astspace) Binary(AST_DOT, a->args[0], a->fn);
         //     a->args = { a->args.ptr + 1, a->args.n - 1 }; // Skip first argument.
         // }
-        
+        if (a->args.n > 0 && is_type(a->args[0]) && a->fn->kind == AST_VAR) {
+            Env* tenv = type_env(a->args[0]->type);
+            Entry* e = tenv ? tenv->lookup(((Var*)a->fn)->name) : nullptr;
+            if (e && (e->kind == E_TYPE || e->kind == E_CASE)) {
+                a->fn = new(mod->parser->astspace) Binary(AST_DOT, a->fn->pos + a->args[0]->pos, a->args[0], a->fn);
+                for (iptr i = 0; i < a->args.n - 1; i ++) a->args[i] = a->args[i + 1];
+                a->args.n --;
+            }
+        }
         if (a->fn->kind != AST_VAR || env->lookup(((Var*)a->fn)->name)) // Defer undefined function checks until later,
             detect_types(mod, env, a->fn);                              // we need the type of the first arg to check if it's
                                                                         // a method.
@@ -2125,38 +2443,36 @@ void detect_types(Module* mod, Env* env, AST* ast) {
                 else detect_types(mod, d->env, ast);
             }
         }
+        else fatal("Expected function parameter list in declaration.");
 
         vec<Type*, 256, arena> argtypes;
         argtypes.alloc = &mod->parser->astspace;
-        if (proto->kind == AST_APPLY) {
-            slice<AST*> args = ((Apply*)proto)->args;
+        slice<AST*> args = ((Apply*)proto)->args;
 
-            for (AST* ast : args) if (ast->kind == AST_VAR 
-                || (ast->kind == AST_VARDECL && !isconcrete(ast->type) && !d->isinst)) { // At least one generic parameter.
-                d->generic = true;
-                Entry* e = d->env->parent->lookup(d->basename);
-                if (e) e->kind = E_GENFUN;
-                else unreachable("Somehow didn't find definition.");
-                return;
-            }
-
-            if (args.n && args[0]->kind == AST_VARDECL && ((VarDecl*)args[0])->basename == mod->interner->intern("this")) {
-                Env* tenv = type_env(((VarDecl*)args[0])->type);
-                if (tenv) {
-                    d->env->siblings.push(d->env->parent), d->env->parent = tenv; // Switch parent to type env, add
-                                                                                  // prev. parent as sibling.
-                    tenv->def(d->basename, e_fun(nullptr, d));
-                    mod->envctx->add_method(d->basename, ((VarDecl*)args[0])->type, tenv);
-                }
-            }
-
-            for (AST* ast : args) if (ast->kind == AST_VARDECL || ast->kind == AST_PTRDECL) argtypes.push(ast->type);
-            if (argtypes.size() == 0) argtypes.push(UNIT);
-            Type** argslice = (Type**)mod->parser->astspace.alloc(sizeof(Type*) * argtypes.size());
-            for (i32 i = 0; i < argtypes.size(); i ++) argslice[i] = argtypes[i];
-            d->type = mod->typectx->def<FunType>(slice<Type*>{ argslice, argtypes.size() }, rettype);
+        for (AST* ast : args) if (ast->kind == AST_VAR 
+            || (ast->kind == AST_VARDECL && !isconcrete(ast->type) && !d->isinst)) { // At least one generic parameter.
+            d->generic = true;
+            Entry* e = d->env->parent->lookup(d->basename);
+            if (e) e->kind = E_GENFUN;
+            else unreachable("Somehow didn't find definition.");
+            return;
         }
-        else fatal("Expected function parameter list in declaration.");
+
+        if (args.n && args[0]->kind == AST_VARDECL && ((VarDecl*)args[0])->basename == mod->interner->intern("this")) {
+            Env* tenv = type_env(((VarDecl*)args[0])->type);
+            if (tenv) {
+                d->env->siblings.push(d->env->parent), d->env->parent = tenv; // Switch parent to type env, add
+                                                                              // prev. parent as sibling.
+                tenv->def(d->basename, e_fun(nullptr, d));
+                mod->envctx->add_method(d->basename, ((VarDecl*)args[0])->type, tenv);
+            }
+        }
+
+        for (AST* ast : args) if (ast->kind == AST_VARDECL || ast->kind == AST_PTRDECL) argtypes.push(ast->type);
+        if (argtypes.size() == 0) argtypes.push(UNIT);
+        Type** argslice = (Type**)mod->parser->astspace.alloc(sizeof(Type*) * argtypes.size());
+        for (i32 i = 0; i < argtypes.size(); i ++) argslice[i] = argtypes[i];
+        d->type = mod->typectx->def<FunType>(slice<Type*>{ argslice, argtypes.size() }, rettype);
 
         Entry* e = d->env->parent->lookup(d->basename);
         if (e) e->type = d->type;
@@ -2170,17 +2486,17 @@ void detect_types(Module* mod, Env* env, AST* ast) {
         for (AST* ast : d->items) detect_types(mod, env, ast);
         endmatch
     casematch(AST_IF, If*, i) 
-        detect_types(mod, env, i->cond);
-        detect_types(mod, env, i->ifTrue);
-        if (i->ifFalse) detect_types(mod, env, i->ifFalse);
+        detect_types(mod, i->env, i->cond);
+        detect_types(mod, i->env, i->ifTrue);
+        if (i->ifFalse) detect_types(mod, i->env, i->ifFalse);
         endmatch
-    casematch(AST_WHILE, Binary*, b) 
-        detect_types(mod, env, b->left);
-        detect_types(mod, env, b->right);
+    casematch(AST_WHILE, Loop*, l) 
+        detect_types(mod, l->env, l->cond);
+        detect_types(mod, l->env, l->body);
         endmatch
-    casematch(AST_UNTIL, Binary*, b) 
-        detect_types(mod, env, b->left);
-        detect_types(mod, env, b->right);
+    casematch(AST_UNTIL, Loop*, l) 
+        detect_types(mod, l->env, l->cond);
+        detect_types(mod, l->env, l->body);
         endmatch
     casematch(AST_FOR, For*, f) 
         detect_types(mod, f->env, f->body);
@@ -2209,9 +2525,15 @@ void detect_types(Module* mod, Env* env, AST* ast) {
         else lookup_type(mod, env, d->basename);
         endmatch
     casematch(AST_CASEDECL, CaseDecl*, d) 
-        lookup_type(mod, env, d->basename);
+        if (d->env->kind == ENV_TYPE) lookup_type(mod, env, d->basename);
+        else {
+            detect_types_pattern(mod, d->env, d->pattern);
+            if (d->body) compute_envs(mod, d->env, d->body);
+            detect_types(mod, d->env, d->body);
+        }
         endmatch
     casematch(AST_MATCH, Binary*, b) 
+        detect_types(mod, env, b->left);
         endmatch
     casematch(AST_MODULEDECL, ModuleDecl*, b) 
         detect_types(mod, b->env, b->body);
@@ -2222,6 +2544,7 @@ void detect_types(Module* mod, Env* env, AST* ast) {
 }
 
 AST* coerce(Module* mod, Env* env, AST* ast, Type* dest) {
+    // print("coercing "), format(stdout, mod, ast), print(" : "), format(stdout, mod, ast->type), print(" to "), format(stdout, mod, dest), print('\n');
     if (!is_subtype(ast->type, dest)) return nullptr;
     if (is_subtype_generic(ast->type, dest)) return ast;
     
@@ -2240,8 +2563,8 @@ void check_arithmetic(Module* mod, Env* env, Unary* ast) {
 void check_arithmetic(Module* mod, Env* env, Binary* ast) {
     typecheck(mod, env, ast->left);
     typecheck(mod, env, ast->right);
-    Type* result = concrete(unify(ast->left->type, ast->right->type));
-    if (result->kind != T_NUMERIC) 
+    Type* result = unify(ast->left->type, ast->right->type);
+    if (concrete(result)->kind != T_NUMERIC) 
         format(stdout, mod, result), fatal("Expected numeric type in arithmetic expression.");
     ast->left = coerce(mod, env, ast->left, result), ast->right = coerce(mod, env, ast->right, result);
     ast->type = result;
@@ -2258,8 +2581,8 @@ void check_bitwise(Module* mod, Env* env, Unary* ast) {
 void check_bitwise(Module* mod, Env* env, Binary* ast) {
     typecheck(mod, env, ast->left);
     typecheck(mod, env, ast->right);
-    Type* result = concrete(unify(ast->left->type, ast->right->type));
-    if (result->kind != T_NUMERIC || ((NumericType*)result)->floating) 
+    Type* result = unify(ast->left->type, ast->right->type);
+    if (concrete(result)->kind != T_NUMERIC || ((NumericType*)result)->floating) 
         fatal("Expected integer type in bitwise expression.");
     ast->left = coerce(mod, env, ast->left, result), ast->right = coerce(mod, env, ast->right, result);
     ast->type = result;
@@ -2276,7 +2599,7 @@ void check_logic(Module* mod, Env* env, Binary* ast) {
     typecheck(mod, env, ast->left);
     typecheck(mod, env, ast->right);
     Type* result = unify(ast->left->type, ast->right->type);
-    if (result->kind != T_BOOL)
+    if (concrete(result)->kind != T_BOOL)
         fatal("Expected boolean type in logical expression.");
     ast->left = coerce(mod, env, ast->left, result), ast->right = coerce(mod, env, ast->right, result);
     ast->type = BOOL;
@@ -2348,6 +2671,7 @@ void check_bitwise_assign(Module* mod, Env* env, Binary* ast) {
     ast->type = UNIT;
 }
 
+// Returns true if coercion works, false if a type error occurred.
 bool add_implicit_returns(Module* mod, Env* env, Type* dst, AST*& ast) {
     switch (ast->kind) {
     casematch(AST_DO, List*, l)
@@ -2365,6 +2689,14 @@ bool add_implicit_returns(Module* mod, Env* env, Type* dst, AST*& ast) {
         if (!retexpr) return false;
         u->child = retexpr;
         return true;
+        endmatch
+    casematch(AST_CASEDECL, CaseDecl*, c)
+        return add_implicit_returns(mod, env, dst, c->body);
+        endmatch
+    casematch(AST_MATCH, Binary*, b)
+        bool worked = true;
+        for (AST* ast : ((List*)b->right)->items) worked = worked && add_implicit_returns(mod, env, dst, ast);
+        return worked;
         endmatch
     case AST_FIRST_EXPR ... AST_LAST_EXPR - 1: {
         AST* retexpr = coerce(mod, env, ast, dst);
@@ -2417,11 +2749,31 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         typecheck(mod, env, u->child);
         u->type = mod->typectx->def<PtrType>(u->child->type);
         mod->cnew_types.insert(u->child->type);
-        concrete(u->child->type)->gen_placement_new = true;
+        u->child->type->gen_placement_new = true;
+        endmatch
+    casematch(AST_DEL, Unary*, u)
+        typecheck(mod, env, u->child);
+        if (concrete(u->child->type)->kind != T_PTR && concrete(u->child->type)->kind != T_SLICE)
+            fatal("Can only delete pointer or slice.");
+        u->type = VOID;
+        endmatch
+    casematch(AST_NEWARRAY, Unary*, u)
+        Binary* idx = (Binary*)u->child;
+        typecheck(mod, env, idx->left);
+        typecheck(mod, env, idx->right);
+        u->type = mod->typectx->def<SliceType>(idx->left->type);
+        mod->cnew_types.insert(u->child->type);
+        u->child->type->gen_placement_new = true;
         endmatch
     casematch(AST_PAREN, Unary*, u) 
         typecheck(mod, env, u->child);
         u->type = u->child->type;
+        endmatch
+    casematch(AST_SIZEOF, Unary*, u) 
+        typecheck(mod, env, u->child);
+        if (concrete(u->child->type)->kind == T_ARRAY) u->type = ICONST;
+        else if (concrete(u->child->type)->kind == T_SLICE) u->type = INT;
+        else fatal("Expected array or slice in size expression.");
         endmatch
 
     casematch(AST_ADD, Binary*, b) check_arithmetic(mod, env, b); endmatch
@@ -2481,6 +2833,10 @@ void typecheck(Module* mod, Env* env, AST* ast) {
     casematch(AST_BITXOREQ, Binary*, b) check_bitwise_assign(mod, env, b); endmatch
     casematch(AST_BITLEFTEQ, Binary*, b) check_bitwise_assign(mod, env, b); endmatch
     casematch(AST_BITRIGHTEQ, Binary*, b) check_bitwise_assign(mod, env, b); endmatch
+    casematch(AST_IS, Binary*, b) 
+        typecheck(mod, env, b->left);
+        b->type = BOOL;
+        endmatch
 
     casematch(AST_ARRAYTYPE, Binary*, b) b->type = TYPE; endmatch // This prevents type expressions from validly mixing with normal expressions.
     casematch(AST_SLICETYPE, Binary*, b) b->type = TYPE; endmatch
@@ -2490,13 +2846,20 @@ void typecheck(Module* mod, Env* env, AST* ast) {
     casematch(AST_TYPEINST, Apply*, a) a->type = TYPE; endmatch
     casematch(AST_PTRTYPE, Unary*, b) b->type = TYPE; endmatch
 
+    casematch(AST_PTRDECL, Binary*, b) 
+        typecheck(mod, env, b->left);
+        b->type = b->left->type;
+        endmatch
+
     casematch(AST_INDEX, Binary*, b)    // Handle array types (T[N]) and slice types (T[])
         typecheck(mod, env, b->left);
         typecheck(mod, env, b->right);
-        if (b->right->type->kind != T_NUMERIC || ((NumericType*)b->right->type)->floating)
+        Type* lt = concrete(b->left->type);
+        Type* rt = concrete(b->right->type);
+        if (rt->kind != T_NUMERIC || ((NumericType*)rt)->floating)
             fatal("Expected integer type in index expression.");
-        if (b->left->type->kind == T_ARRAY) b->type = ((ArrayType*)b->left->type)->element;
-        else if (b->left->type->kind == T_SLICE) b->type = ((SliceType*)b->left->type)->element;
+        if (lt->kind == T_ARRAY) b->type = ((ArrayType*)b->left->type)->element;
+        else if (lt->kind == T_SLICE) b->type = ((SliceType*)b->left->type)->element;
         else fatal("Expected array or slice type in index expression.");
         endmatch
     casematch(AST_SLICE, Slice*, s)
@@ -2558,8 +2921,8 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         for (AST* ast : l->items) typecheck(mod, env, ast);
         if (l->items.size() == 0) l->type = mod->typectx->def<ArrayType>(mod->typectx->defvar(mod, env), 0);
         else {
-            Type* elt = l->items[0]->type;
-            for (i32 i = 1; i < l->items.n; i ++)
+            Type* elt = mod->typectx->defvar(mod, env);
+            for (i32 i = 0; i < l->items.n; i ++)
                 elt = unify(elt, l->items[i]->type);
             for (i32 i = 0; i < l->items.n; i ++) {
                 l->items[i] = coerce(mod, env, l->items[i], elt);
@@ -2567,12 +2930,10 @@ void typecheck(Module* mod, Env* env, AST* ast) {
             }
             l->type = mod->typectx->def<ArrayType>(elt, l->items.n);
         }
-        concrete(l->type)->ctor_called = true;
+        l->type->ctor_called = true;
         endmatch
     casematch(AST_SET, List*, l) 
         for (AST* ast : l->items) typecheck(mod, env, ast);
-        endmatch
-    casematch(AST_PTRDECL, Binary*, d)
         endmatch
     casematch(AST_VARDECL, VarDecl*, d)
         if (d->init) {
@@ -2603,6 +2964,18 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         if (!is_type(a->fn)) unreachable("Expected typename in constructor call.");
         Type* t = concrete(a->fn->type); // We assume it's a typename.
         switch (t->kind) {
+            case T_NUMERIC:
+                if (a->args.n != 1) fatal("Expected single parameter in casting constructor.");
+                typecheck(mod, env, a->args[0]);
+                if (concrete(a->args[0]->type)->kind == T_PTR && t == IPTR) break;
+                break;
+            case T_PTR:
+                if (a->args.n != 1) fatal("Expected single parameter in casting constructor.");
+                typecheck(mod, env, a->args[0]);
+                if (concrete(a->args[0]->type) == IPTR) break;
+                a->args[0] = coerce(mod, env, a->args[0], t);
+                if (!a->args[0]) fatal("Cannot cast value to desired type.");
+                break;
             case T_CHAR:
                 if (a->args.n != 1) fatal("Expected single parameter in casting constructor.");
                 typecheck(mod, env, a->args[0]);
@@ -2665,34 +3038,34 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         d->type = d->items[d->items.n - 1]->type;
         endmatch
     casematch(AST_IF, If*, i) 
-        typecheck(mod, env, i->cond);
-        i->cond = coerce(mod, env, i->cond, BOOL);
+        typecheck(mod, i->env, i->cond);
+        i->cond = coerce(mod, i->env, i->cond, BOOL);
         if (!i->cond) fatal("Condition in if statement is not convertible to bool.");
-        typecheck(mod, env, i->ifTrue);
+        typecheck(mod, i->env, i->ifTrue);
         if (i->ifFalse) {
-            typecheck(mod, env, i->ifFalse);
+            typecheck(mod, i->env, i->ifFalse);
             Type* unified = unify(i->ifTrue->type, i->ifFalse->type);
-            i->ifTrue = coerce(mod, env, i->ifTrue, unified);
-            i->ifFalse = coerce(mod, env, i->ifFalse, unified);
+            i->ifTrue = coerce(mod, i->env, i->ifTrue, unified);
+            i->ifFalse = coerce(mod, i->env, i->ifFalse, unified);
             if (!i->ifTrue || !i->ifFalse)
                 fatal("Incompatible types in branches of if statement.");
             else i->type = unified;
         }
         else i->type = VOID;
         endmatch
-    casematch(AST_WHILE, Binary*, b) 
-        typecheck(mod, env, b->left);
-        b->left = coerce(mod, env, b->left, BOOL);
-        if (!b->left) fatal("Condition in while statement is not convertible to bool.");
-        typecheck(mod, env, b->right);
-        b->type = VOID;
+    casematch(AST_WHILE, Loop*, l) 
+        typecheck(mod, l->env, l->cond);
+        l->cond = coerce(mod, l->env, l->cond, BOOL);
+        if (!l->cond) fatal("Condition in while statement is not convertible to bool.");
+        typecheck(mod, l->env, l->body);
+        l->type = VOID;
         endmatch
-    casematch(AST_UNTIL, Binary*, b) 
-        typecheck(mod, env, b->left);
-        b->left = coerce(mod, env, b->left, BOOL);
-        if (!b->left) fatal("Condition in until statement is not convertible to bool.");
-        typecheck(mod, env, b->right);
-        b->type = UNIT;
+    casematch(AST_UNTIL, Loop*, l) 
+        typecheck(mod, l->env, l->cond);
+        l->cond = coerce(mod, l->env, l->cond, BOOL);
+        if (!l->cond) fatal("Condition in until statement is not convertible to bool.");
+        typecheck(mod, l->env, l->body);
+        l->type = VOID;
         endmatch
     casematch(AST_FOR, For*, f) 
         typecheck(mod, f->env, f->body);
@@ -2721,9 +3094,12 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         e->type = VOID;
         endmatch
     casematch(AST_WITH, With*, w) 
+        detect_types(mod, env, w->bound);
+        Env* env = nullptr;
+        if (is_type(w->bound)) env = type_env(w->bound->type);
         typecheck(mod, env, w->bound);
-        Env* env = type_env(w->bound->type);
-        w->env->siblings.push(env);
+        if (!env) env = type_env(w->bound->type);
+        if (env) w->env->siblings.push(env);
         detect_types(mod, w->env, w->body);
         typecheck(mod, w->env, w->body);
         w->type = w->body->type;
@@ -2740,10 +3116,32 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         }
         else typecheck(mod, d->env, d->body);
         endmatch
-    casematch(AST_CASEDECL, CaseDecl*, d) 
-        typecheck(mod, d->env, d->body);
+    casematch(AST_CASEDECL, CaseDecl*, d)
         endmatch
     casematch(AST_MATCH, Binary*, b) 
+        typecheck(mod, env, b->left);
+        List* body = ((List*)b->right);
+        if (fullconcrete(*mod->typectx, b->left->type)->kind == T_UNION) for (AST* a : body->items) {
+            CaseDecl* c = (CaseDecl*)a;
+            c->env->siblings.push(type_env(b->left->type));
+        }
+        Type* result = nullptr;
+        for (AST* a : body->items) {
+            CaseDecl* c = (CaseDecl*)a;
+            detect_types_pattern(mod, c->env, c->pattern);
+            // print("b = "), format(stdout, mod, b->left->type), print('\n');
+            Type* unified = unify(c->pattern->type, b->left->type);
+            if (!unified) {
+                c->reachable = false;
+                continue;
+            }
+            // print("pat = "), format(stdout, mod, c->pattern->type), print('\n');
+            // for (const auto& e : c->env->entries) {
+            //     print("  ", mod->interner->str(e.key), " : "); format(stdout, mod, e.value.type), print('\n');
+            // }
+            typecheck(mod, c->env, c->body);
+        }
+        b->type = VOID;
         endmatch
     casematch(AST_MODULEDECL, ModuleDecl*, b) 
         typecheck(mod, b->env, b->body);
@@ -2868,6 +3266,12 @@ void emit_c_placement_new(Module* mod, Type* t, CContext& ctx) {
 void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
     i32 len = 0;
     t = simplify(t);
+    Env* tenv = type_env(t);
+    bool is_case = t->is_case;
+    if (is_case && tenv->parent->decl && tenv->parent->decl->type->mangled == -1) {
+        emit_c_typedef(mod, tenv->parent->decl->type, ctx);
+        if (t->mangled != -1) return;
+    }
     switch (t->kind) {
         case T_UNIT:    // All primitives can only be defined in root and are given names in the prelude.
         case T_VOID:
@@ -2972,12 +3376,19 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             break;
         }
         case T_STRUCT: {
+            t->mangled = env_fq_name(mod, t->env, ctx);
+            indent(ctx.h, ctx.h_indent), write(ctx.h, "typedef struct ");
+            write_sym(ctx.h, mod, t->mangled);
+            write(ctx.h, ' ');
+            write_sym(ctx.h, mod, t->mangled);
+            write(ctx.h, ";\n");
             for (const auto& p : ((StructType*)t)->fields) {
                 if (p.second->mangled == -1) emit_c_typedef(mod, p.second, ctx);
             }
-            t->mangled = env_fq_name(mod, t->env, ctx);
-            indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef struct {\n");
+            indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef struct ");
+            write_sym(ctx.h, mod, t->mangled), write(ctx.h, " {\n");
             ctx.h_indent += 4;
+            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "i32 $tag;\n");
             if (AST* ast = ((TypeDecl*)t->env->decl)->body) {
                 if (ast->kind == AST_DO) for (AST* a : ((List*)ast)->items) {
                     indent(ctx.h, ctx.h_indent), emit_c_member(mod, t->env, a, ctx), write(ctx.h, ";\n");
@@ -3002,15 +3413,18 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
                     write(ctx.h, "_in");
                 }
                 write(ctx.h, ") {\n");
-                write(ctx.h, "    "), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " out;\n");
+                ctx.h_indent += 4;
+                indent(ctx.h, ctx.h_indent), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " out;\n");
+                if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.$tag = ", t->caseid, ";\n");
                 for (const auto& p : ((StructType*)t)->fields) {
-                    write(ctx.h, "    out.");
+                    indent(ctx.h, ctx.h_indent), write(ctx.h, "out.");
                     emit_fqsym(ctx.h, mod, t->env, p.first, ctx);
                     write(ctx.h, " = ");
                     write_sym(ctx.h, mod, p.first);
                     write(ctx.h, "_in;\n");
                 }
-                write(ctx.h, "    return out;\n");
+                indent(ctx.h, ctx.h_indent), write(ctx.h, "return out;\n");
+                ctx.h_indent -= 4;
                 write(ctx.h, "}\n\n");
             }
             break;
@@ -3018,36 +3432,46 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
         case T_UNION: {
             vec<i32, 256, arena> cases;
             cases.alloc = &ctx.textspace;
+            i32 i = 0;
+            t->mangled = env_fq_name(mod, t->env, ctx);
+            indent(ctx.h, ctx.h_indent), write(ctx.h, "typedef struct ");
+            write_sym(ctx.h, mod, t->mangled);
+            write(ctx.h, ' ');
+            write_sym(ctx.h, mod, t->mangled);
+            write(ctx.h, ";\n");
             for (auto& e : t->env->entries) {
                 if (e.value.kind == E_CASE) {
                     if (e.value.type->mangled == -1) emit_c_typedef(mod, e.value.type, ctx);
                     cases.push(e.value.type->mangled);
                 }
             }
-            t->mangled = env_fq_name(mod, t->env, ctx);
             indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef enum {\n");
             ctx.h_indent += 4;
             for (i32 i : cases) 
                 indent(ctx.h, ctx.h_indent), emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "$_tag,\n");
+            indent(ctx.h, ctx.h_indent), write(ctx.h, "$MAX_TAG = ", 0x7fffffff, '\n'); // Force size to int.
             ctx.h_indent -= 4;
             indent(ctx.h, ctx.h_indent); write(ctx.h, "} ");
             write_sym(ctx.h, mod, env_fq_name(mod, t->env, ctx));
             write(ctx.h, "$_tag;\n");
-            indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef struct {\n");
+            indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef struct ");
+            write_sym(ctx.h, mod, t->mangled), write(ctx.h, " {\n");
+            ctx.h_indent += 4;
+            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "i32 $tag;\n");
+            indent(ctx.h, ctx.h_indent); write(ctx.h, "union {\n");
             ctx.h_indent += 4;
             indent(ctx.h, ctx.h_indent);
             write_sym(ctx.h, mod, env_fq_name(mod, t->env, ctx));
-            write(ctx.h, "$_tag $tag;\n");
-            indent(ctx.h, ctx.h_indent); write(ctx.h, "union {\n");
-            ctx.h_indent += 4;
+            write(ctx.h, "$_tag $case;\n");
             for (i32 i : cases) {
                 indent(ctx.h, ctx.h_indent), emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, " ");
                 emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "$_var;\n");
-            }
+            } 
             ctx.h_indent -= 4;
             indent(ctx.h, ctx.h_indent); write(ctx.h, "};\n");
             ctx.h_indent -= 4;
-            indent(ctx.h, ctx.h_indent);write(ctx.h, "} ");
+            indent(ctx.h, ctx.h_indent);
+            write(ctx.h, "} ");
             write_sym(ctx.h, mod, t->mangled);
             write(ctx.h, ";\n");
             for (auto& e : t->env->entries) {
@@ -3064,7 +3488,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
                     ctx.h_indent += 4;
                     indent(ctx.h, ctx.h_indent), emit_c_typename(ctx.h, mod, t, ctx);
                     write(ctx.h, " out;\n");
-                    indent(ctx.h, ctx.h_indent), write(ctx.h, "out.$tag = "), emit_c_typename(ctx.h, mod, e.value.type, ctx), write(ctx.h, "$_tag;\n");
+                    if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.$case = ", t->caseid, ";\n");
                     indent(ctx.h, ctx.h_indent), write(ctx.h, "out."), emit_c_typename(ctx.h, mod, e.value.type, ctx), write(ctx.h, "$_var = in;\n");
                     indent(ctx.h, ctx.h_indent), write(ctx.h, "return out;\n");
                     ctx.h_indent -= 4;
@@ -3076,12 +3500,19 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             break;
         }
         case T_NAMED: {
+            t->mangled = env_fq_name(mod, t->env, ctx);
+            indent(ctx.h, ctx.h_indent), write(ctx.h, "typedef struct ");
+            write_sym(ctx.h, mod, t->mangled);
+            write(ctx.h, ' ');
+            write_sym(ctx.h, mod, t->mangled);
+            write(ctx.h, ";\n");
             if (((NamedType*)t)->inner->mangled == -1)
                 emit_c_typedef(mod, ((NamedType*)t)->inner, ctx);
-            t->mangled = env_fq_name(mod, t->env, ctx);
-            indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef struct {\n");
+            indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef struct ");
+            write_sym(ctx.h, mod, t->mangled), write(ctx.h, " {\n");
 
             ctx.h_indent += 4;
+            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "i32 $tag;\n");
             indent(ctx.h, ctx.h_indent);
             emit_c_typename(ctx.h, mod, ((NamedType*)t)->inner, ctx);
             write(ctx.h, ' ');
@@ -3099,10 +3530,13 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             write(ctx.h, "$_new(");
             emit_c_typename(ctx.h, mod, ((NamedType*)t)->inner, ctx);
             write(ctx.h, " in) {\n");
-            write(ctx.h, "    "), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " out;\n");
-            write(ctx.h, "    "), write(ctx.h, "out."), emit_fqsym(ctx.h, mod, t->env, mod->interner->intern("this"), ctx);
+            ctx.h_indent += 4;
+            indent(ctx.h, ctx.h_indent), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " out;\n");
+            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.$tag = ", t->caseid, ";\n");
+            indent(ctx.h, ctx.h_indent), write(ctx.h, "out."), emit_fqsym(ctx.h, mod, t->env, mod->interner->intern("this"), ctx);
             write(ctx.h, " = in;\n");
-            write(ctx.h, "    return out;\n");
+            indent(ctx.h, ctx.h_indent), write(ctx.h, "return out;\n");
+            ctx.h_indent -= 4;
             write(ctx.h, "}\n\n");
             break;
         }
@@ -3175,6 +3609,7 @@ void emit_c_types(Module* mod, Env* env, CContext& ctx) {
     map<TypeKey, Type*> type_manglings;
     for (auto& entry : mod->typectx->typemap) {
         Type* t = fullconcrete(*mod->typectx, entry.value);
+
         t->ctor_called = entry.value->ctor_called;
         t->referenced_by_name = entry.value->referenced_by_name;
         t->gen_placement_new = entry.value->gen_placement_new;
@@ -3185,7 +3620,7 @@ void emit_c_types(Module* mod, Env* env, CContext& ctx) {
         }
         else type_manglings.put(entry.value, it->value);
     }
-    for (auto& entry : concrete_types) if (entry.value->mangled == -1) emit_c_typedef(mod, entry.value, ctx);
+    for (auto& entry : concrete_types) if (entry.value->mangled == -1 && !entry.value->is_case) emit_c_typedef(mod, entry.value, ctx);
     for (auto& entry : type_manglings) if (entry.key.type->mangled == -1) entry.key.type->mangled = entry.value->mangled;
     for (Type* t : mod->cnew_types) if (t->gen_placement_new) emit_c_placement_new(mod, t, ctx);
 }
@@ -3273,6 +3708,213 @@ void emit_c_toplevel(Module* mod, Env* env, AST* ast, CContext& ctx, vec<AST*, 5
     else if (mod == ctx.main) main.push(ast);
 }
 
+void emit_c_type_pattern(Module* mod, Env* env, Type* match, AST* val, CContext& ctx) {
+    Type* vt = fullconcrete(*mod->typectx, val->type);
+    if (is_subtype_generic(match, vt)) {
+        write(ctx.c, "1");
+    }
+    else if (vt->kind == T_UNION) {
+        i64 i = -1;
+        for (const auto& f : ((UnionType*)vt)->fields) {
+            // format(stdout, mod, f.second), print(' '), format(stdout, mod, match), print('\n');
+            if (is_subtype_generic(f.second, match)) {
+                i = &f - ((UnionType*)vt)->fields.ptr;
+                break;
+            }
+        }
+        if (i < 0) write(ctx.c, "0");
+        else {
+            write(ctx.c, '('), emit_c(mod, env, val, ctx), write(ctx.c, '.'), write(ctx.c, "$case == ", i, ')');
+        }
+    }
+    else write(ctx.c, "0");
+}
+
+void emit_c_pattern_match(Module* mod, Env* env, AST* ast, AST* val, CContext& ctx) {
+    switch (ast->kind) {
+    case AST_ICONST:
+    case AST_FCONST:
+    case AST_CHCONST:
+        write(ctx.c, '(');
+        emit_c(mod, env, ast, ctx);
+        write(ctx.c, " == ");
+        emit_c(mod, env, val, ctx);
+        write(ctx.c, ')');
+        break;
+    casematch(AST_STRCONST, Const*, c)
+        write(ctx.c, "!strcmp(");
+        emit_c(mod, env, ast, ctx);
+        write(ctx.c, ", ");
+        emit_c(mod, env, val, ctx);
+        write(ctx.c, ')');
+        endmatch
+    casematch(AST_BOOL, Const*, c)
+        write(ctx.c, c->bconst ? "" : "!");
+        emit_c(mod, env, val, ctx);
+        endmatch
+    casematch(AST_UNIT, Const*, c)
+        write(ctx.c, "1");
+        endmatch
+    casematch(AST_VAR, Var*, v)
+        write(ctx.c, "1");
+        endmatch
+    casematch(AST_VARDECL, VarDecl*, d)
+        emit_c_type_pattern(mod, env, d->type, val, ctx);
+        endmatch
+    casematch(AST_APPLY, Apply*, a)
+        Type* match_type = a->fn->type;
+        write(ctx.c, '(');
+        emit_c_type_pattern(mod, env, match_type, val, ctx);
+        switch (match_type->kind) {
+            case T_NAMED:
+                write(ctx.c, " && ");
+                emit_c_pattern_match(mod, env, a->args[0], val, ctx);
+                break;
+            case T_STRUCT:
+                for (u32 i = 0; i < ((StructType*)match_type)->fields.n; i ++) {
+                    write(ctx.c, " && ");
+                    emit_c_pattern_match(mod, env, a->args[i], val, ctx);
+                }
+                break;
+            default:
+                fatal("Can only match named or struct type.");
+                break;
+        }
+        write(ctx.c, ')');
+        endmatch
+    casematch(AST_ARRAY, List*, l)
+        Type* match_type = l->type;
+        Type* vt = fullconcrete(*mod->typectx, val->type);
+        bool endslice = l->items.n && l->items[l->items.n - 1]->kind == AST_BITOR;
+        write(ctx.c, '(');
+        if (vt->kind == T_ARRAY) {
+            bool valid = endslice ? ((ArrayType*)vt)->size >= l->items.n : ((ArrayType*)vt)->size == l->items.n;
+            write(ctx.c, valid ? "1" : "0");
+        }
+        else if (vt->kind == T_SLICE) {
+            write(ctx.c, '(');
+            emit_c(mod, env, val, ctx);
+            write(ctx.c, ".size", endslice ? " == " : " >= ", l->items.n, ')');
+        }
+        Binary* idx = new(mod->parser->astspace) Binary(AST_INDEX, val->pos, val, new(mod->parser->astspace) Const(val->pos, (i64)0));
+        for (AST* n : l->items) {
+            if (n->kind == AST_BITOR) {
+                write(ctx.c, " && ");
+                emit_c_pattern_match(mod, env, ((Binary*)n)->left, idx, ctx);
+                ((Const*)idx->right)->iconst ++;
+                Slice* slice = new(mod->parser->astspace) Slice(val->pos, val, idx->right, nullptr);
+                write(ctx.c, " && ");
+                emit_c_pattern_match(mod, env, ((Binary*)n)->right, slice, ctx);
+            }
+            else {
+                write(ctx.c, " && ");
+                emit_c_pattern_match(mod, env, n, idx, ctx);
+                ((Const*)idx->right)->iconst ++;
+            }
+        }
+        write(ctx.c, ')');
+        endmatch
+    default:
+        if (!is_type(ast)) unreachable("Unexpected non-type match expression.");
+        emit_c_type_pattern(mod, env, ast->type, val, ctx);
+        break;
+    }
+}
+
+void emit_c_pattern_defs(Module* mod, Env* env, AST* ast, AST* val, CContext& ctx) {
+    switch (ast->kind) {
+    case AST_ICONST:
+    case AST_FCONST:
+    case AST_CHCONST:
+    case AST_STRCONST:
+    case AST_BOOL:
+    case AST_UNIT:
+        break;
+    casematch(AST_VAR, Var*, v)
+        emit_c_typename(ctx.c, mod, ast->type, ctx);
+        write(ctx.c, ' ');
+        emit_c(mod, env, v, ctx);
+        write(ctx.c, " = ");
+        emit_c(mod, env, val, ctx);
+        endmatch
+    casematch(AST_VARDECL, VarDecl*, d)
+        emit_c_typename(ctx.c, mod, d->type, ctx);
+        write(ctx.c, ' ');
+        emit_c(mod, env, d->name, ctx);
+        write(ctx.c, " = ");
+        emit_c(mod, env, val, ctx);
+        endmatch
+    casematch(AST_APPLY, Apply*, a)
+        Type* match_type = a->fn->type;
+
+        const_slice<i8> casename = mod->interner->str(match_type->mangled);
+        slice<i8> newname = { new(mod->envctx->envspace) i8[casename.n + 5], casename.n + 5 };
+        mcpy(newname.ptr, casename.ptr, casename.n);
+        mcpy(newname.ptr + casename.n, "$_var", 5);
+        i32 newfield = mod->interner->intern({newname});
+        Binary* casefield = new(mod->parser->astspace) Binary(
+            AST_DOT, val->pos,
+            val->clone(mod->parser->astspace),
+            new(mod->parser->astspace) Var(val->pos, newfield)
+        );
+        casefield->type = casefield->left->type = match_type;
+        casefield->right->type = match_type;
+        switch (match_type->kind) {
+            case T_NAMED: {
+                Binary* dot = new(mod->parser->astspace) Binary(
+                    AST_DOT, val->pos, 
+                    casefield, 
+                    new(mod->parser->astspace) Var(val->pos, mod->interner->intern("this"))
+                );
+                dot->right->type = ((NamedType*)match_type)->inner;
+                // format(stdout, mod, dot), print('\n');
+                emit_c_pattern_defs(mod, env, a->args[0], dot, ctx);
+                break;
+            }
+            case T_STRUCT:
+                for (u32 i = 0; i < ((StructType*)match_type)->fields.n; i ++) {
+                    if (i > 0) write(ctx.c, ";\n"), indent(ctx.c, ctx.c_indent);
+                    Binary* dot = new(mod->parser->astspace) Binary(
+                        AST_DOT, val->pos, 
+                        casefield, 
+                        new(mod->parser->astspace) Var(val->pos, ((StructType*)match_type)->fields[i].first)
+                    );
+                    dot->type = dot->right->type = ((StructType*)match_type)->fields[i].second;
+                    emit_c_pattern_defs(mod, env, a->args[i], dot, ctx);
+                }
+                break;
+            default:
+                fatal("Can only match named or struct type.");
+                break;
+        }
+        endmatch
+    casematch(AST_ARRAY, List*, l)
+        Type* match_type = l->type;
+        Type* vt = fullconcrete(*mod->typectx, val->type);
+        if (vt->kind == T_ARRAY && ((ArrayType*)vt)->size < l->items.n) break;
+        bool endslice = l->items.n && l->items[l->items.n - 1]->kind == AST_BITOR;
+        Binary* idx = new(mod->parser->astspace) Binary(AST_INDEX, val->pos, val, new(mod->parser->astspace) Const(val->pos, (i64)0));
+        for (AST* n : l->items) {
+            if (n != l->items[0]) write(ctx.c, ";\n"), indent(ctx.c, ctx.c_indent);
+            if (n->kind == AST_BITOR) {
+                emit_c_pattern_defs(mod, env, ((Binary*)n)->left, idx, ctx);
+                ((Const*)idx->right)->iconst ++;
+                Slice* slice = new(mod->parser->astspace) Slice(val->pos, val, idx->right, nullptr);
+                write(ctx.c, ";\n"), indent(ctx.c, ctx.c_indent);
+                emit_c_pattern_defs(mod, env, ((Binary*)n)->right, slice, ctx);
+            }
+            else {
+                emit_c_pattern_defs(mod, env, n, idx, ctx);
+                ((Const*)idx->right)->iconst ++;
+            }
+        }
+        endmatch
+    default:
+        if (!is_type(ast)) unreachable("Unexpected non-type match expression.");
+        break;
+    }
+}
+
 void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
     switch (ast->kind) {
     casematch(AST_PROGRAM, ASTProgram*, p)
@@ -3320,6 +3962,13 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         emit_c_typename(ctx.c, mod, ((PtrType*)u->type)->target, ctx);
         write(ctx.c, ", ");
         emit_c(mod, env, u->child, ctx);
+        write(ctx.c, ')');
+        endmatch
+    casematch(AST_DEL, Unary*, u)
+        write(ctx.c, "$del(");
+        if (concrete(u->child->type)->kind == T_SLICE) write(ctx.c, '(');
+        emit_c(mod, env, u->child, ctx);
+        if (concrete(u->child->type)->kind == T_SLICE) write(ctx.c, ").ptr");
         write(ctx.c, ')');
         endmatch
     casematch(AST_PAREN, Unary*, u) 
@@ -3377,11 +4026,13 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         }
         endmatch
     casematch(AST_CONV, Unary*, u)
-        Type* dest = concrete(u->type);
-        if (dest == concrete(u->child->type)) return emit_c(mod, env, u->child, ctx);
+        Type* dest = fullconcrete(*mod->typectx, u->type);
+        Type* src = concrete(u->child->type);
+        // print("casting "), format(stdout, mod, u->child), print(" : "), format(stdout, mod, src), print(" to "), format(stdout, mod, dest), print('\n');
+        if (is_subtype_generic(u->child->type, dest)) return emit_c(mod, env, u->child, ctx);
         switch(dest->kind) {
         case T_SLICE:
-            if (u->child->type->kind == T_ARRAY) {
+            if (src->kind == T_ARRAY) {
                 write(ctx.c, '('); emit_c_typename(ctx.c, mod, dest, ctx); write(ctx.c, "){(");
                 emit_c(mod, env, u->child, ctx);
                 write(ctx.c, ").ptr, ", ((ArrayType*)u->child->type)->size, '}');
@@ -3395,13 +4046,23 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
             emit_c(mod, env, u->child, ctx);
             write(ctx.c, ')');
             break;
+        case T_NUMERIC:
+        case T_PTR:
         default:
             write(ctx.c, "((");
             emit_c_typename(ctx.c, mod, dest, ctx);
-            write(ctx.c, ')');
+            write(ctx.c, ")(");
             emit_c(mod, env, u->child, ctx);
-            write(ctx.c, ')');
+            write(ctx.c, "))");
             break;
+        }
+        endmatch
+    casematch(AST_SIZEOF, Unary*, u)
+        Type* ct = concrete(u->child->type);
+        if (ct->kind == T_ARRAY) write(ctx.c, ((ArrayType*)ct)->size);
+        else if (ct->kind == T_SLICE) {
+            emit_c(mod, env, u->child, ctx);
+            write(ctx.c, ".size");
         }
         endmatch
 
@@ -3526,9 +4187,9 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         default:
             write(ctx.c, "((");
             emit_c_typename(ctx.c, mod, t, ctx);
-            write(ctx.c, ')');
+            write(ctx.c, ")(");
             emit_c(mod, env, a->args[0], ctx);
-            write(ctx.c, ')');
+            write(ctx.c, "))");
             break;
         }
         endmatch
@@ -3539,6 +4200,10 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
             if (ast != l->items[l->items.n - 1]) write(ctx.c, ";\n");
         }
         endmatch
+    casematch(AST_WITH, With*, w)
+        if (is_type(w->bound) || w->bound->kind == AST_MODULENAME) emit_c(mod, w->env, w->body, ctx);
+        else fatal("with expressions are not fully supported yet.");
+        endmatch
     casematch(AST_IF, If*, i)
         write(ctx.c, "if (");
         emit_c(mod, env, i->cond, ctx);
@@ -3548,12 +4213,14 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         write(ctx.c, ";\n");
         ctx.c_indent -= 4;
         indent(ctx.c, ctx.c_indent), write(ctx.c, "}\n");
-        indent(ctx.c, ctx.c_indent), write(ctx.c, "else {\n");
-        ctx.c_indent += 4;
-        indent(ctx.c, ctx.c_indent), emit_c(mod, env, i->ifFalse, ctx);
-        write(ctx.c, ";\n");
-        ctx.c_indent -= 4;
-        indent(ctx.c, ctx.c_indent), write(ctx.c, "}");
+        if (i->ifFalse) {
+            indent(ctx.c, ctx.c_indent), write(ctx.c, "else {\n");
+            ctx.c_indent += 4;
+            indent(ctx.c, ctx.c_indent), emit_c(mod, env, i->ifFalse, ctx);
+            write(ctx.c, ";\n");
+            ctx.c_indent -= 4;
+            indent(ctx.c, ctx.c_indent), write(ctx.c, "}");
+        }
         endmatch
     casematch(AST_WHILE, Binary*, b)
         write(ctx.c, "while (");
@@ -3563,7 +4230,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         indent(ctx.c, ctx.c_indent), emit_c(mod, env, b->right, ctx);
         write(ctx.c, ";\n");
         ctx.c_indent -= 4;
-        indent(ctx.c, ctx.c_indent), write(ctx.c, "}\n");
+        indent(ctx.c, ctx.c_indent), write(ctx.c, "}");
         endmatch
     casematch(AST_FOR, For*, f)
         write(ctx.c, "{\n");
@@ -3571,7 +4238,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         indent(ctx.c, ctx.c_indent), emit_c(mod, f->env, f->body, ctx);
         write(ctx.c, ";\n");
         ctx.c_indent -= 4;
-        indent(ctx.c, ctx.c_indent), write(ctx.c, "}\n");
+        indent(ctx.c, ctx.c_indent), write(ctx.c, "}");
         endmatch
     casematch(AST_UNTIL, Binary*, b)
         write(ctx.c, "while (!(");
@@ -3581,7 +4248,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         indent(ctx.c, ctx.c_indent), emit_c(mod, env, b->right, ctx);
         write(ctx.c, ";\n");
         ctx.c_indent -= 4;
-        indent(ctx.c, ctx.c_indent), write(ctx.c, "}\n");
+        indent(ctx.c, ctx.c_indent), write(ctx.c, "}");
         endmatch
     casematch(AST_BREAK, AST*, a)
         write(ctx.c, "break");
@@ -3615,6 +4282,9 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         endmatch
     casematch(AST_USE, Binary*, b)
         endmatch
+    casematch(AST_PTRDECL, Binary*, b)
+        emit_c(mod, env, b->left, ctx);
+        endmatch
     casematch(AST_FUNDECL, FunDecl*, d)
         // Prototype
         if (!d->body) write(ctx.h, "extern ");
@@ -3629,6 +4299,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
             first = false;
             emit_c_typename(ctx.h, mod, p->type, ctx);
             write(ctx.h, " ");
+            if (p->kind == AST_PTRDECL) p = ((Binary*)p)->left;
             emit_fqsym(ctx.h, mod, d->env, ((VarDecl*)p)->basename, ctx);
         }
         write(ctx.h, ")");
@@ -3645,6 +4316,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
                 first = false;
                 emit_c_typename(ctx.c, mod, p->type, ctx);
                 write(ctx.c, " ");
+                if (p->kind == AST_PTRDECL) p = ((Binary*)p)->left;
                 emit_fqsym(ctx.c, mod, d->env, ((VarDecl*)p)->basename, ctx);
             }
             write(ctx.c, ") {\n");
@@ -3658,6 +4330,34 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         endmatch
     casematch(AST_MODULEDECL, ModuleDecl*, d)
         emit_c(mod, d->env, d->body, ctx);
+        endmatch
+    casematch(AST_MATCH, Binary*, b)
+        AST* patn = b->left;
+        List* l = ((List*)b->right);
+        bool first = true;
+        write(ctx.c, "{\n");
+        ctx.c_indent += 4;
+        indent(ctx.c, ctx.c_indent), emit_c_typename(ctx.c, mod, patn->type, ctx); 
+        write(ctx.c, " $match = "), emit_c(mod, env, patn, ctx), write(ctx.c, ";\n");
+        Var* v = new(mod->parser->astspace) Var(patn->pos, mod->interner->intern("$match"));
+        v->type = patn->type;
+        for (AST* a : l->items) if (((CaseDecl*)a)->reachable) {
+            CaseDecl* d = (CaseDecl*)a;
+            indent(ctx.c, ctx.c_indent);
+            write(ctx.c, first ? "if (" : "else if (");
+            first = false;
+            emit_c_pattern_match(mod, d->env, d->pattern, v, ctx);
+            write(ctx.c, ") {\n");
+            ctx.c_indent += 4;
+            indent(ctx.c, ctx.c_indent), emit_c_pattern_defs(mod, d->env, d->pattern, v, ctx);
+            write(ctx.c, ";\n");
+            indent(ctx.c, ctx.c_indent), emit_c(mod, d->env, d->body, ctx);
+            write(ctx.c, ";\n");
+            ctx.c_indent -= 4;
+            indent(ctx.c, ctx.c_indent), write(ctx.c, "}\n");
+        }
+        ctx.c_indent -= 4;
+        indent(ctx.c, ctx.c_indent), write(ctx.c, '}');
         endmatch
     default:
         fatal("Unsupported expr!");

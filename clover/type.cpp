@@ -185,26 +185,12 @@ void format(stream& io, Module* mod, Type* type) {
                 format(io, mod, arg);
             } 
             write(io, ')'); break;
-        case T_NAMED: write(io, mod->interner->str(((NamedType*)type)->name), '('); format(io, mod, ((NamedType*)type)->inner); write(io, ')'); break;
+        case T_NAMED: write(io, mod->interner->str(((NamedType*)type)->name)); break;
         case T_STRUCT:
-            write(io, mod->interner->str(((StructType*)type)->name), '(');
-            for (auto& field : ((StructType*)type)->fields) {
-                if (!first) write(io, ", ");
-                first = false;
-                format(io, mod, field.second);
-                write(io, ' ', mod->interner->str(field.first));
-            } 
-            write(io, ')');
+            write(io, mod->interner->str(((StructType*)type)->name));
             break;
         case T_UNION:
-            write(io, mod->interner->str(((UnionType*)type)->name), '(');
-            for (auto& field : ((UnionType*)type)->fields) {
-                if (!first) write(io, ", ");
-                first = false;
-                write(io, "case ");
-                format(io, mod, field.second);
-            } 
-            write(io, ')');
+            write(io, mod->interner->str(((UnionType*)type)->name));
             break;
         case T_VAR:
             write(io, '$', ((VarType*)type)->id, '(');
@@ -241,14 +227,13 @@ bool occurs(Type* t, Type* var) {
             else for (Type* a : ((FunType*)t)->arg) if (occurs(a, var)) return true;
             return false;
         }
-        case T_NAMED: return occurs(((NamedType*)t)->inner, var);
+        case T_NAMED: 
         case T_STRUCT:
-            for (const auto& p : ((StructType*)t)->fields) if (occurs(p.second, var)) return true;
-            return false;
         case T_UNION:
-            for (const auto& p : ((UnionType*)t)->fields) if (occurs(p.second, var)) return true;
             return false;
-        case T_VAR: return occurs(*((VarType*)t)->binding, var);
+        case T_VAR: 
+            if (((VarType*)t)->id == ((VarType*)var)->id) return true;
+            return occurs(*((VarType*)t)->binding, var);
         default: return false;
     }
 }
@@ -331,8 +316,11 @@ bool is_subtype(Type* src, Type* dest) {
                 return ((NumericType*)dest)->floating 
                     && (((NumericType*)src)->literal || ((NumericType*)src)->bytes <= ((NumericType*)dest)->bytes);
             else return ((NumericType*)src)->literal || ((NumericType*)src)->bytes <= ((NumericType*)dest)->bytes || ((NumericType*)dest)->floating;
-        case T_PTR: // Pointers, slices, and functions have no non-generic coercions.
-        case T_SLICE:
+        case T_PTR:
+            if (dest->kind != T_PTR) return false;
+            if (concrete(((PtrType*)dest)->target)->kind != T_UNION) return false;
+            return is_subtype(((PtrType*)src)->target, ((PtrType*)dest)->target);
+        case T_SLICE: // Slices and functions have no non-generic coercions.
         case T_FUN:
             return false;
         case T_ARRAY:

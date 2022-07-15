@@ -195,9 +195,6 @@ const Target& TargetProps<T>::INSTANCE = TargetProps<T>::INSTANCE_VALUE;
 template<typename T>
 const TargetDesc TargetProps<T>::DESC = T::DESC;
 
-#if defined(LIBCORE_LINUX) && defined(LIBCORE_AMD64)
-#include "jasmine/arch/amd64.h"
 extern const Target& DEFAULT_TARGET;
-#endif
 
 #endif

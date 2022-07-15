@@ -3,7 +3,7 @@
 #include "jasmine/jasmine.h"
 
 i32 main(i32 argc, i8** argv) {
-    // JasmineObject o;
+    JasmineObject o;
     
     // auto start = nanotime();
     // for (i32 i = 0; i < 1; i ++) {
@@ -13,17 +13,17 @@ i32 main(i32 argc, i8** argv) {
     //     obj->data.def(
     //         T_I64,
     //         obj->strings.intern({ "a_constant", 10 }),
-    //         42l
+    //         42ll
     //     );
     //     obj->data.def(
     //         T_PTR,
     //         obj->strings.intern({ "a_pointer", 9 }),
-    //         0l
+    //         0ll
     //     );
     //     obj->stat.deftup(
     //         t_tuple(obj->types, tvec(obj->types, T_I64, T_F32)),
     //         obj->strings.intern({ "a_tuple", 7 }),
-    //         1l, 2.0f
+    //         1ll, 2.0f
     //     );
     //     obj->stat.defarr(
     //         t_array(obj->types, T_I32, 3),
@@ -61,7 +61,28 @@ i32 main(i32 argc, i8** argv) {
     //     o.moduleseq.push(obj);
     // }
 
-    // stream* out = open("fib.o", FP_WRITE);
+    // {
+    //     JasmineModule* obj = new(o.objspace) JasmineModule(Version(1, 0, 0), {"loop", 4});
+    //     using namespace jasm;
+
+    //     funcidx loop = beginfunc(*obj, obj->makestr(4, "loop"), t_fun(obj->types, T_VOID, tvec(obj->types, T_I64)));
+    //     labelidx bb0 = obj->funcs[loop]->label();
+    //     labelidx bb1 = obj->funcs[loop]->label();
+    //     localidx n = par(T_I64, 0);
+    //     label(bb0);
+    //     localidx np = phi(T_I64, reg(n), reg(5));
+    //     localidx cmp = eq(T_I64, reg(np), imm(0));
+    //     jnz(lbl(bb1), reg(cmp));
+    //     localidx ndec = sub(T_I64, reg(np), imm(1));
+    //     jump(lbl(bb0));
+    //     label(bb1);
+    //     ret(T_I64, reg(np));
+    //     endfunc();
+    //     o.modules.put(obj->strings.strings[obj->meta.modname], obj);
+    //     o.moduleseq.push(obj);
+    // }
+
+    // stream* out = open("loop.o", FP_WRITE);
     // o.write(*out);
     // close(out);
     return jasmine_main(argc, argv);

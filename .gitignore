@@ -1,9 +1,8 @@
 .vscode/
 *.o
-main
-syntax
 example/*.c
 example/*.h
 clover/std/*.c
 clover/std/*.h
 bin/
+secret/

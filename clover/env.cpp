@@ -28,7 +28,11 @@ void Env::format(stream& io, Module* mod, i32 indent) {
             break;
         case E_GENTYPE:
         case E_TYPE:
-            if (p.value.ast) ((TypeDecl*)p.value.ast)->env->format(io, mod, indent + 3);
+            if (p.value.type && p.value.type->kind == T_VAR) {
+                space(io, indent);
+                write(io, " - TYPE ", mod->interner->str(p.key), '\n');
+            }
+            else if (p.value.ast) ((TypeDecl*)p.value.ast)->env->format(io, mod, indent + 3);
             else if (Env* tenv = type_env(p.value.type)) tenv->format(io, mod, indent + 3);
             break;
         case E_CASE:
@@ -46,6 +50,7 @@ void Env::format(stream& io, Module* mod, i32 indent) {
             break;
         }
     }
+    for (auto loc : locals) loc->format(io, mod, indent + 3);
 }
 
 void EnvContext::create_root_env(Interner& syms, TypeContext& types) {

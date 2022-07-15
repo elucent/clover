@@ -11,6 +11,10 @@
 .PATH:
     .quad 0
 
+.global _initial_sp
+_initial_sp:
+    .quad 0
+
 .section .rodata
 .shell:
     .asciz "/bin/sh"
@@ -26,6 +30,9 @@ _start:
     mov rsi, rsp
     lea rdx, [rsp + rdi * 8 + 8]
     mov [rip + .PATH], rdx
+    and rsp, -16
+    sub rsp, 8
+    mov [_initial_sp], rsp
     jmp _start_impl
 
 .global mreq

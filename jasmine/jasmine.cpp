@@ -2,7 +2,7 @@
 #include "jasmine/obj.h"
 #include "core/util.h"
 
-bool startswith(const i8* str, const i8* prefix) {
+static bool startswith(const i8* str, const i8* prefix) {
     iptr n = cidx(prefix, '\0');
     for (iptr i = 0; i < n; i ++) {
         if (str[i] != prefix[i]) return false;
@@ -39,7 +39,7 @@ Path parse_path(i8* path) {
     return p;
 }
 
-i32 help(const i8* cmd) {
+static i32 help(const i8* cmd) {
     print("Usage: ", cmd, " [options...] <subcommand> files...\n");
     print("\n");
     print("Subcommands:\n");
@@ -56,7 +56,7 @@ i32 help(const i8* cmd) {
     return 1;
 }
 
-i32 run(i32 argc, i8** argv) {
+static i32 run(i32 argc, i8** argv) {
     if (argc == 0) {
         print("Expected object path.\n\n");
         return help(CMD);
@@ -101,15 +101,15 @@ i32 run(i32 argc, i8** argv) {
     return 0;
 }
 
-i32 setmain(i32 argc, i8** argv) {
+static i32 setmain(i32 argc, i8** argv) {
     //
 }
 
-i32 info(i32 argc, i8** argv) {
+static i32 info(i32 argc, i8** argv) {
     //
 }
 
-i32 ls(i32 argc, i8** argv) {
+static i32 ls(i32 argc, i8** argv) {
     if (argc == 0) {
         print("Expected object path.\n\n");
         return help(CMD);
@@ -165,7 +165,7 @@ i32 ls(i32 argc, i8** argv) {
     return 0;
 }
 
-i32 cat(i32 argc, i8** argv) {
+static i32 cat(i32 argc, i8** argv) {
     vec<JasmineObject*> objs;
     for (i32 i = 0; i < argc; i ++) {
         stream* s = open(argv[i], FP_READ);
@@ -206,7 +206,7 @@ i32 cat(i32 argc, i8** argv) {
     return 0;
 }
 
-i32 rm(i32 argc, i8** argv) {
+static i32 rm(i32 argc, i8** argv) {
     if (argc == 0) {
         print("Expected object path.\n\n");
         return help(CMD);

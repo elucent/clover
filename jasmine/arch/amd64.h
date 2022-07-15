@@ -61,4 +61,6 @@ struct AMD64LinuxTarget : public AMD64Target {
     static Placement place_arg(const TypeTable& tab, typeidx t, UsageState usage);
 };
 
+struct AMD64DarwinTarget : public AMD64LinuxTarget {};
+
 #endif

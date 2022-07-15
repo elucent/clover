@@ -175,3 +175,7 @@ extern "C" void $deinit() {
 extern "C" iword $malloc(iword size) {
     return alloc->alloc(size);
 }
+
+extern "C" void $del(void* ptr) {
+    return alloc->free(ptr);
+}

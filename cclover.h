@@ -65,5 +65,6 @@ extern CLINKAGE f64 f64$$pow(f64, f64);
 
 extern CLINKAGE void exit(iword);
 extern CLINKAGE iword $malloc(iword);
+extern CLINKAGE void $del(void*);
 
 #endif

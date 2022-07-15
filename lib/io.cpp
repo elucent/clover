@@ -102,7 +102,7 @@ const i8* digits[] = {
 void write_uint(stream& io, u64 u) {
     push_if_necessary(io, 24);
     if (!u) return put(io, '0');
-    int c = 0, d = 0;
+    u32 c = 0, d = 0;
     u64 p = 1;
     while (p <= u) p *= 10, ++ c;
     d = c;
@@ -128,15 +128,18 @@ inline double abs(double f) {
 void write_float(stream& io, double f) {
     push_if_necessary(io, 1);
     if (f < 0) f = -f, put(io, '-');
-    i64 ipart = i64(f + 0.0000001);
+    i64 ipart = i64(f + 0.00000001);
     write_int(io, ipart);
     write_byte(io, '.');
-    push_if_necessary(io, FP_PRECISION + 1);
     double frac = f - ipart;
     if (frac < 0) frac = -frac;
-    i64 ndigits = 0;
-    while (abs(frac - i64(frac)) >= 0.000001 && abs(frac - i64(frac)) <= 0.999999 && ndigits < FP_PRECISION) ndigits ++, frac *= 10;
-    if (frac - i64(frac) > 0.999999) frac ++;
+    i64 ndigits = 0, nzeroes = -1;
+    while (frac - i64(frac) >= 0.0000001 && frac - i64(frac) <= 0.9999999 && ndigits < FP_PRECISION) {
+        if (i64(frac) == 0) nzeroes ++;
+        ndigits ++, frac *= 10;
+    }
+    if (frac - i64(frac) > 0.9999999) frac ++;
+    for (i64 i = 0; i < nzeroes; i ++) write_byte(io, '0');
     write_uint(io, i64(frac));
 }
 

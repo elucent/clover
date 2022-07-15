@@ -65,6 +65,7 @@ inline Entry e_global(AST* decl) {
 
 struct Env {
     map<i32, Entry, 8, arena> entries;
+    vec<Env*, 8, arena> locals;
     Env* parent;
     vec<Env*, 8, arena> siblings;
     i32 name, anon = 0, tvar = 0, fqname = -1;
@@ -126,12 +127,16 @@ struct EnvContext {
     inline Env* create(EnvKind kind, Env* parent, i32 name) {
         Env* env = new(envspace) Env;
         env->kind = kind;
+        env->locals.alloc = &envspace;
         env->entries.alloc = &envspace;
         env->parent = parent;
         env->siblings.alloc = &envspace;
         env->name = name;
         env->hash = env->name;
-        if (parent) env->hash ^= parent->hash * 7039452210068278519ul;
+        if (parent) {
+            env->hash ^= parent->hash * 7039452210068278519ul;
+            if (env->kind == ENV_LOCAL) parent->locals.push(env);
+        }
         return env;
     }
 
