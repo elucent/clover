@@ -287,7 +287,7 @@ void advance_interner(Module* mod) {
     for (iptr i = 0; i < mod->lexer->tokens.size(); i ++) {
         Token& tok = mod->lexer->tokens[i];
         if (tok.kind == TK_IDENT) {
-            prehash<const_slice<i8>> str = const_slice<i8>{ mod->bytes.text + tok.start, tok.end - tok.start };
+            const_slice<i8> str = const_slice<i8>{ mod->bytes.text + tok.start, tok.end - tok.start };
             Symbol id = mod->interner->intern(str);
             if (mod->interner->is_keyword(id)) tok.kind = TokenKind(TK_FIRST_KEYWORD + id);
             else tok.end = id; // end is unnecessary if we know the length of the interned string

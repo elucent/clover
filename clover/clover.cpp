@@ -9,6 +9,30 @@
 #include "core/util.h"
 #include "lib/io.h"
 
+#define CLOVER_VERSION_MAJOR 0
+#define CLOVER_VERSION_MINOR 1
+#define CLOVER_VERSION_PATCH 0
+
+#ifdef LIBCORE_LINUX
+    #define CLOVER_VERSION_OS "linux"
+#elif defined(LIBCORE_OSX)
+    #define CLOVER_VERSION_OS "darwin"
+#elif defined(LIBCORE_WINDOWS)
+    #define CLOVER_VERSION_OS "windows"
+#elif defined(LIBCORE_WASI)
+    #define CLOVER_VERSION_OS ""
+#endif
+
+#ifdef LIBCORE_AMD64
+    #define CLOVER_VERSION_ARCH "amd64"
+#elif defined(LIBCORE_X86)
+    #define CLOVER_VERSION_ARCH "x86"
+#elif defined(LIBCORE_ARM64)
+    #define CLOVER_VERSION_ARCH "arm64"
+#elif defined(LIBCORE_WASM)
+    #define CLOVER_VERSION_ARCH "wasm"
+#endif
+
 enum CompilerFamily {
     CC_CLANG,
     CC_GCC,
@@ -43,7 +67,7 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     i8* pathstr = (i8*)envctx->envspace.alloc(dotidx + 1);
     mcpy(pathstr, path.ptr, dotidx);
     pathstr[dotidx] = '\0';
-    i32 basename = interner->intern({{ pathstr, dotidx }});
+    i32 basename = interner->intern({ pathstr, dotidx });
     auto it = clover->modules.find(basename);
     if (it != clover->modules.end()) return it->value; // Don't reopen module.
 
@@ -70,6 +94,11 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     mod->typectx = typectx;
     mod->envctx = envctx;
     mod->cloverinst = clover;
+
+    mod->defers.alloc = &mod->parser->astspace;
+    mod->ndefers.alloc = &mod->parser->astspace;
+    mod->ndefers.push(0);
+    mod->automethods.alloc = &mod->parser->astspace;
     iptr timer;
     iptr decns = 0, lexns = 0, parsens = 0, envns = 0, typns = 0, chkns = 0, cycles = 0;
 
@@ -125,6 +154,7 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     if (show_envs) {
         print("\nEnv tree:\n\n");
         mod->envctx->root->format(stdout, mod, 0);
+        format(stdout, mod, mod->parser->program);
     }
 
     timer = nanotime();
@@ -139,6 +169,20 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     }
 
     timer = nanotime();
+    infer(mod, mod->envctx->root, mod->parser->program);
+    if (get_error()) return print_errors(stderr, verbose), nullptr; // Typechecker checking error.
+    
+    if (show_types) {
+        print("\nInferred types:\n\n");
+        for (AST* ast : mod->parser->program->toplevel) {
+            format(stdout, mod, ast);
+            write(stdout, " : ");
+            format(stdout, mod, ast->type);
+            write(stdout, "\n");
+        }
+        print("\n\n");
+    }
+
     typecheck(mod, mod->envctx->root, mod->parser->program);
     chkns = nanotime() - timer, timer = nanotime();
 
@@ -245,6 +289,11 @@ i32 help(const i8* cmd) {
     return 1;
 }
 
+i32 version() {
+    print("Clover version ", CLOVER_VERSION_MAJOR, '.', CLOVER_VERSION_MINOR, '.', CLOVER_VERSION_PATCH, " for ", CLOVER_VERSION_ARCH, ' ', CLOVER_VERSION_OS, '\n');
+    return 0;
+}
+
 void visit_module_cc(Module* mod, vec<i8>& cmdbuf) {
     for (Module* m : mod->deps) {
         if (!m->visited) m->visited = true, visit_module_cc(m, cmdbuf); 
@@ -294,6 +343,9 @@ i32 clover_main(i32 argc, i8** argv) {
         i8* arg = argv[i + 1];
         if (!mcmp(arg, "-h", 3) || !mcmp(arg, "--help", 7)) {
             return help(argv[0]);
+        }
+        if (!mcmp(arg, "--version", 10)) {
+            return version();
         }
         else if (!mcmp(arg, "-o", 3)) {
             i ++;

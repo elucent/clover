@@ -164,11 +164,11 @@ extern "C" iptr $strlen(string s) {
 
 static allocator* alloc;
 
-extern "C" void $init() {
+extern "C" void $core_init() {
     alloc = new((allocator*)mreq(1).ptr) allocator;
 }
 
-extern "C" void $deinit() {
+extern "C" void $core_deinit() {
     mfree({(page*)alloc, 1});
 }
 
@@ -178,4 +178,18 @@ extern "C" iword $malloc(iword size) {
 
 extern "C" void $del(void* ptr) {
     return alloc->free(ptr);
+}
+
+// Libcore bindings.
+
+extern CLINKAGE slice<page> memory$map(i64 n) {
+    return mreq(n);
+}
+
+extern CLINKAGE void memory$unmap(slice<page> pages) {
+    mfree(pages);
+}
+
+extern CLINKAGE void memory$tag(slice<page> pages, i8 flags) {
+    mpermit(pages, flags);
 }

@@ -122,7 +122,8 @@ struct EnvContext {
 
     void add_method(i32 name, Type* type, Env* decl);
     void add_generic_method(i32 name, FunDecl* decl);
-    pair<Type*, Env*>* find_method(i32 name, Type* type);
+    AST* create_method(i32 name, Type* type, Module* mod, vec<pair<Type*, Env*>*, 64, arena> methods);
+    pair<Type*, Env*>* find_method(i32 name, Type* type, Module* mod);
 
     inline Env* create(EnvKind kind, Env* parent, i32 name) {
         Env* env = new(envspace) Env;

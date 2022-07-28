@@ -58,6 +58,7 @@ struct TypeContext {
 enum TypeKind : i8 {
     T_UNIT, T_NUMERIC, T_PTR, T_ARRAY, T_SLICE, T_FUN, T_VAR,
     T_CHAR, T_STRING, T_BOOL, T_VOID, T_NAMED, T_STRUCT, T_UNION,
+    T_ANY_NUMERIC, T_ANY,
     T_TYPE, T_ERROR
 };
 
@@ -72,7 +73,8 @@ struct Type {
     inline void init_env(TypeContext* typectx) {}
 };
 
-extern Type *VOID, *UNIT, *I8, *I16, *I32, *I64, *INT, *IPTR, *ICONST, *F32, *F64, *FLOAT, *FCONST, *BOOL, *CHAR, *STRING, *TYPE, *ERROR;
+extern Type *VOID, *UNIT, *I8, *I16, *I32, *I64, *INT, *IPTR, *ICONST, *F32, *F64, *FLOAT, *FCONST, *BOOL, *CHAR, *STRING, *TYPE, *ERROR,
+    *ANY, *ANY_NUMERIC, *ANY_ARRAY, *ANY_PTR, *ANY_SLICE, *ANY_FUNCTION;
 
 inline Type* simplify(Type* t) {
     if (t == ICONST) return INT;
@@ -118,7 +120,8 @@ struct ArrayType : Type {
     i32 size;
     Type* element;
 
-    inline ArrayType(Type* element_in, i32 size_in): Type(T_ARRAY), size(size_in), element(element_in)  {}
+    inline ArrayType(Type* element_in, i32 size_in): Type(T_ARRAY), size(size_in), element(element_in) {}
+    inline ArrayType(Type* element_in): Type(T_ARRAY), size(-1), element(element_in) {}
     
     void init_env(TypeContext* typectx);
 };
@@ -134,9 +137,15 @@ struct SliceType : Type {
 struct FunType : Type {
     slice<Type*> arg;
     Type* ret;
+    bool nary;
     u64 hash;
 
-    inline FunType(slice<Type*> arg_in, Type* ret_in): Type(T_FUN), arg(arg_in), ret(simplify(ret_in)) {
+    inline FunType(Type* ret_in): Type(T_FUN), arg({nullptr, (iptr)0}), ret(simplify(ret_in)), nary(true) {
+        hash = 4318138567807710449ul * ::hash(ret);
+        hash ^= 10126270993744429001ul;
+    }
+
+    inline FunType(slice<Type*> arg_in, Type* ret_in): Type(T_FUN), arg(arg_in), ret(simplify(ret_in)), nary(false) {
         hash = 4318138567807710449ul * ::hash(ret);
         for (Type*& t : arg) t = simplify(t), hash *= 10126270993744429001ul, hash ^= ::hash(t);
     }
@@ -207,16 +216,7 @@ inline bool is_named(Type* type) {
 }
 
 inline Env* type_env(Type* type) {
-    while (type->kind == T_VAR) {
-        type = *((VarType*)type)->binding;
-    }
     return type->env;
-}
-
-inline Type* concrete(Type* type) {
-    if (!type) return type;
-    while (type->kind == T_VAR) type = *((VarType*)type)->binding;
-    return simplify(type);
 }
 
 inline bool isconcrete(Type* type) {
@@ -227,20 +227,22 @@ inline bool isconcrete(Type* type) {
         case T_CHAR:
         case T_BOOL:
         case T_VOID:
-        case T_ERROR:
         case T_TYPE:
         case T_NAMED:
         case T_STRUCT:
         case T_UNION:
             return true;
         case T_VAR:
+        case T_ANY:
+        case T_ANY_NUMERIC:
+        case T_ERROR:
             return false;
         case T_PTR:
             return isconcrete(((PtrType*)type)->target);
         case T_SLICE:
             return isconcrete(((SliceType*)type)->element);
         case T_ARRAY:
-            return isconcrete(((ArrayType*)type)->element);
+            return isconcrete(((ArrayType*)type)->element) && ((ArrayType*)type)->size >= 0;
         case T_FUN:
             if (!isconcrete(((FunType*)type)->ret)) return false;
             for (Type* t : ((FunType*)type)->arg) if (!isconcrete(t)) return false;
@@ -249,6 +251,46 @@ inline bool isconcrete(Type* type) {
 }
 
 inline Type* fullconcrete(TypeContext& ctx, Type* type) {
+    switch (type->kind) {
+        case T_NUMERIC:
+            return type;
+        case T_UNIT:
+        case T_STRING:
+        case T_CHAR:
+        case T_BOOL:
+        case T_VOID:
+        case T_ERROR:
+        case T_TYPE:
+        case T_NAMED:
+        case T_STRUCT:
+        case T_UNION:
+            return type;
+        case T_VAR:
+            return fullconcrete(ctx, *((VarType*)type)->binding);
+        case T_PTR:
+            return ctx.def<PtrType>(fullconcrete(ctx, ((PtrType*)type)->target));
+        case T_SLICE:
+            return ctx.def<SliceType>(fullconcrete(ctx, ((SliceType*)type)->element));
+        case T_ARRAY:
+            if (((ArrayType*)type)->size < 0) return ERROR;
+            return ctx.def<ArrayType>(
+                fullconcrete(ctx, ((ArrayType*)type)->element),
+                ((ArrayType*)type)->size
+            );
+        case T_FUN: {
+            slice<Type*> concreted = { new(ctx.typespace) Type*[((FunType*)type)->arg.n], ((FunType*)type)->arg.n};
+            for (iptr i = 0; i < concreted.n; i ++) {
+                concreted[i] = fullconcrete(ctx, ((FunType*)type)->arg[i]);
+            }
+            return ctx.def<FunType>(concreted, fullconcrete(ctx, ((FunType*)type)->ret));
+        }
+        case T_ANY:
+        case T_ANY_NUMERIC:
+            return ERROR;
+    }   
+}
+
+inline Type* fullsimplify(TypeContext& ctx, Type* type) {
     switch (type->kind) {
         case T_NUMERIC:
             return simplify(type);
@@ -270,6 +312,7 @@ inline Type* fullconcrete(TypeContext& ctx, Type* type) {
         case T_SLICE:
             return ctx.def<SliceType>(fullconcrete(ctx, ((SliceType*)type)->element));
         case T_ARRAY:
+            if (((ArrayType*)type)->size < 0) return ERROR;
             return ctx.def<ArrayType>(
                 fullconcrete(ctx, ((ArrayType*)type)->element),
                 ((ArrayType*)type)->size
@@ -281,6 +324,9 @@ inline Type* fullconcrete(TypeContext& ctx, Type* type) {
             }
             return ctx.def<FunType>(concreted, fullconcrete(ctx, ((FunType*)type)->ret));
         }
+        case T_ANY:
+        case T_ANY_NUMERIC:
+            return ERROR;
     }   
 }
 
@@ -297,6 +343,8 @@ inline void unbind(Type* type) {
         case T_NAMED:
         case T_STRUCT:
         case T_UNION:
+        case T_ANY:
+        case T_ANY_NUMERIC:
             return;
         case T_VAR:
             *((VarType*)type)->binding = VOID;

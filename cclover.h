@@ -36,6 +36,7 @@ inline i64 $strcmp(string a, string b) {
 }
 
 #define $new(T, x) T ## $_pnew((T*)$malloc(sizeof(T)), x)
+#define $newarray(T, x, n) T ## $_anew(x, n)
 #define $clover_array_def(T, CT, n) typedef struct { CT ptr[n]; } CT ## $A$ ## n ;
 #define $clover_slice_def(T, CT) typedef struct { CT* ptr; intptr_t size; } CT ## $S ; \
 inline CT ## $S T ## $S ## $iter(CT ## $S sl) { return sl; } \
@@ -47,8 +48,11 @@ $clover_slice_def(i8, i8)
 inline string $bytes_to_str(i8$S bytes) { return (string){ bytes.ptr, bytes.size }; }
 inline i8$S $str_to_bytes(string str) { return (i8$S){ (i8*)str.data, str.size }; }
 
-extern CLINKAGE void $init();
-extern CLINKAGE void $deinit();
+// Init and deinit of libcore.
+extern CLINKAGE void $core_init();
+extern CLINKAGE void $core_deinit();
+
+// Formatting for various values.
 extern CLINKAGE void int$print(iword);
 extern CLINKAGE void float$print(double);
 extern CLINKAGE void unit$print(unit);
@@ -56,6 +60,7 @@ extern CLINKAGE void bool$print(bool_t);
 extern CLINKAGE void char$print(i32);
 extern CLINKAGE void string$print(string);
 
+// Exponent function.
 extern CLINKAGE i8 i8$$pow(i8, i8);
 extern CLINKAGE i16 i16$$pow(i16, i16);
 extern CLINKAGE i32 i32$$pow(i32, i32);
@@ -63,7 +68,8 @@ extern CLINKAGE i64 i64$$pow(i64, i64);
 extern CLINKAGE f32 f32$$pow(f32, f32);
 extern CLINKAGE f64 f64$$pow(f64, f64);
 
-extern CLINKAGE void exit(iword);
+// Control and memory management.
+extern CLINKAGE void pexit(iword);
 extern CLINKAGE iword $malloc(iword);
 extern CLINKAGE void $del(void*);
 

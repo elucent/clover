@@ -33,7 +33,7 @@ enum ASTKind : u8 {
     // decls
     AST_FIRST_DECL = AST_LAST_TYPE, AST_VARDECL = AST_FIRST_DECL, AST_TYPEDECL, AST_FUNDECL, AST_MODULEDECL, AST_ALIASDECL, AST_CASEDECL, AST_PTRDECL, // ptrdecl is needed for the case 'T* ptr', which is ambiguous with multiplication until typechecking
     // misc
-    AST_LAST_DECL, AST_MODULENAME = AST_LAST_DECL,
+    AST_LAST_DECL, AST_MODULENAME = AST_LAST_DECL, AST_MODULEDOT,
     // structure
     AST_PROGRAM, AST_ARGS,
 };
@@ -177,6 +177,15 @@ struct Binary : public Expr {
     }
 };
 
+struct Is : public Binary {
+    bool reachable = true;
+    inline Is(SourcePos pos, AST* left, AST* right): Binary(AST_IS, pos, left, right) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) Is(pos, try_clone(left, alloc), try_clone(right, alloc));
+    }
+};
+
 struct Slice : public Expr {
     AST* array;
     AST* low;
@@ -235,7 +244,18 @@ struct Apply : public Expr {
 
 struct List : public Expr {
     slice<AST*> items;
-    inline List(ASTKind kind, SourcePos pos, slice<AST*> items_in): Expr(kind, pos), items(items_in) {}
+    i32 cap;
+    inline List(ASTKind kind, SourcePos pos, slice<AST*> items_in): Expr(kind, pos), items(items_in), cap(items_in.n) {}
+
+    inline void push(arena& space, AST* ast) {
+        if (items.n + 1 >= cap) {
+            auto old = items;
+            cap *= 2;
+            items = { new(space) AST*[cap], old.n };
+            for (u32 i = 0; i < old.n; i ++) items[i] = old[i];
+        }
+        items[items.n ++] = ast;
+    }
 
     inline AST* clone(arena& alloc) override {
         AST** itemspace = new(alloc) AST*[items.n];
@@ -304,12 +324,14 @@ struct With : public Statement {
 
 struct ASTProgram : public AST {
     vec<Statement*, 128, arena> toplevel;
+    vec<AST*, 128, arena> defers;
     Env* env;
-    inline ASTProgram(): AST(AST_PROGRAM, {}), env(nullptr) {}
+    Env* deferred;
+    inline ASTProgram(): AST(AST_PROGRAM, {}), env(nullptr), deferred(nullptr) {}
     
     inline AST* clone(arena& alloc) override {
         ASTProgram* new_prog = new(alloc) ASTProgram;
-        new_prog->toplevel.alloc = &alloc;
+        new_prog->toplevel.alloc = new_prog->defers.alloc = &alloc;
         return new_prog;
     }
 };
@@ -335,8 +357,7 @@ struct Parser {
     inline Parser& consume_and_indent(Lexer& lexer) {
         if (lexer.tokens.peek().kind != TK_EOF) 
             if (lexer.tokens.read().kind == TK_NEWLINE) {
-                if (!lexer.tokens) check_indent = true; // Remember to check indent again once we receive more tokens.
-                else if (lexer.tokens.peek().kind) indent = lexer.tokens.peek().column;
+                check_indent = true; // Remember to check indent again once we receive more tokens.
             }
         return *this;
     }
@@ -409,8 +430,8 @@ struct Parser {
         return {start, n};
     }
 
-    inline Parser& begincount() {
-        counts.push(1);
+    inline Parser& begincount(i32 n = 1) {
+        counts.push(n);
         return *this;
     }
 
@@ -530,8 +551,9 @@ struct CContext {
     i32 c_indent = 0;
     arena textspace;    // Arena for storing string information produced in the C output process.
     Module* main;       // Pointer to the module containing the entry point, can be null if no entry point is needed.
+    vec<pair<AST*, AST*>, 8, arena> patn_defs; // List of patterns to revisit in the body of a conditional expression.
 
-    inline CContext(stream& h_in, stream& c_in, Module* main_in): h(h_in), c(c_in), main(main_in) {}
+    inline CContext(stream& h_in, stream& c_in, Module* main_in): h(h_in), c(c_in), main(main_in) { patn_defs.alloc = &main->parser->astspace; }
 };
 
 /*

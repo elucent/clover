@@ -3,6 +3,7 @@
 
 #include "core/def.h"
 #include "lib/vec.h"
+#include "lib/io.h"
 #include "jasmine/type.h"
 #include "jasmine/tab.h"
 #include "jasmine/arch.h"

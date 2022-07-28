@@ -76,6 +76,7 @@ void EnvContext::create_root_env(Interner& syms, TypeContext& types) {
     env->def(syms.intern("bool"), e_type(BOOL = types.def<Type>(T_BOOL), nullptr));
     ERROR = types.def<Type>(T_ERROR);
     TYPE = types.def<Type>(T_TYPE);
+    ANY = types.def<Type>(T_ANY);
 
     I8->env = create(ENV_TYPE, env, syms.intern("i8"));
     I16->env = create(ENV_TYPE, env, syms.intern("i16"));
@@ -93,6 +94,12 @@ void EnvContext::create_root_env(Interner& syms, TypeContext& types) {
     CHAR->env = create(ENV_TYPE, env, syms.intern("char"));
     STRING->env = create(ENV_TYPE, env, syms.intern("string"));
     BOOL->env = create(ENV_TYPE, env, syms.intern("bool"));
+
+    ANY_PTR = types.def<PtrType>(ANY);
+    ANY_SLICE = types.def<SliceType>(ANY);
+    ANY_ARRAY = types.def<ArrayType>(ANY);
+    ANY_FUNCTION = types.def<FunType>(ANY);
+    ANY_NUMERIC = types.def<Type>(T_ANY_NUMERIC);
 
     root = env;
 
@@ -144,12 +151,123 @@ void EnvContext::add_generic_method(i32 name, FunDecl* decl) {
     if (it == generic_methods.end()) generic_methods.put(name, decl);
 }
 
-pair<Type*, Env*>* EnvContext::find_method(i32 name, Type* type) {
-    type = concrete(type);
+i32 anon_sym(Module* mod, i32 n) {
+    i8 buf[16];
+    i32 len = 0;
+
+    i32 id = n;
+    buf[len ++] = '_';
+    if (!id) buf[len ++] = '0';
+    else {
+        u32 olen = len;
+        u32 c = 0, d = 0;
+        u64 p = 1;
+        while (p <= id) p *= 10, ++ c;
+        d = c;
+        while (c >= 1) {
+            buf[-- c + olen] = "0123456789"[id % 10];
+            id /= 10;
+        }
+        len += d;
+    }
+    slice<i8> sl = slice<i8>{new(mod->envctx->envspace) i8[len], len};
+    mcpy(sl.ptr, buf, len);
+    i32 name = mod->interner->intern(sl);
+    return name;
+}
+
+AST* EnvContext::create_method(i32 name, Type* type, Module* mod, vec<pair<Type*, Env*>*, 64, arena> methods) {
+    for (const auto& m : methods) {
+        if (!m->second) return nullptr;
+        auto e = m->second->lookup(name);
+        if (!e || e->type->kind != T_FUN) return nullptr;
+    }
+    Entry* e0 = methods[0]->second->lookup(name);
+    FunType* ft0 = (FunType*)e0->type;
+    slice<Type*> args0 = ft0->arg;
+    Type* ret = ft0->ret;
+    for (i32 i = 1; i < methods.size(); i ++) {
+        Entry* en = methods[i]->second->lookup(name);
+        FunType* ftn = (FunType*)en->type;
+        slice<Type*> argsn = ftn->arg;
+        Type* retn = ftn->ret;
+        if (ret != retn) return nullptr;
+        if (argsn.n != args0.n) return nullptr;
+        for (i32 j = 1; j < args0.n; j ++) {
+            if (args0[j] != argsn[j]) return nullptr;
+        }
+    }
+
+    slice<AST*> params = { new(mod->parser->astspace) AST*[args0.size()], args0.size() };
+    params[0] = new(mod->parser->astspace) Var({}, type->env->name);
+    for (i32 i = 1; i < args0.n; i ++) {
+        Type* argt = args0[i];
+        i32 argname = anon_sym(mod, i);
+        AST* type = new(mod->parser->astspace) Var({}, argt->env->name);
+        type->kind = AST_TYPENAME, type->type = argt;
+        params[i] = new(mod->parser->astspace) VarDecl({}, type, new(mod->parser->astspace) Var({}, argname), nullptr);
+    }
+    AST* sig = new(mod->parser->astspace) Apply({}, new(mod->parser->astspace) Var({}, name), params);
+
+    slice<AST*> cases = { new(mod->parser->astspace) AST*[methods.size()], methods.size() };
+    i32 casename = mod->interner->intern("_p");
+    for (i32 i = 0; i < methods.size(); i ++) {
+        AST* d = methods[i]->second->decl;
+        Type* ct = ((UnionType*)type)->fields[i].second;
+        AST* caset = new(mod->parser->astspace) Var({}, ct->env->name);
+        caset->kind = AST_TYPENAME, caset->type = ct;
+        AST* decl = new(mod->parser->astspace) VarDecl({}, caset, new(mod->parser->astspace) Var({}, casename), nullptr);
+        
+        slice<AST*> bodyterms = { new(mod->parser->astspace) AST*[1], 1 };
+        slice<AST*> callargs = { new(mod->parser->astspace) AST*[args0.n], args0.n };
+        callargs[0] = new(mod->parser->astspace) Var({}, casename);
+        for (i32 i = 1; i < args0.n; i ++) callargs[i] = new(mod->parser->astspace) Var({}, ((Var*)((VarDecl*)params[i])->name)->name);
+        bodyterms[0] = new(mod->parser->astspace) Apply({}, new(mod->parser->astspace) Var({}, name), callargs);
+        bodyterms[0] = new(mod->parser->astspace) Unary(AST_RETURN, {}, bodyterms[0]);
+        AST* body = new(mod->parser->astspace) List(AST_DO, {}, bodyterms);
+        
+        cases[i] = new(mod->parser->astspace) CaseDecl({}, decl, body); 
+    }
+    AST* body = new(mod->parser->astspace) Binary(AST_MATCH, {}, new(mod->parser->astspace) Var({}, mod->interner->intern("this")), new(mod->parser->astspace) List(AST_DO, {}, cases));
+    slice<AST*> body_block = { new(mod->parser->astspace) AST*[1], 1 };
+    body_block[0] = body;
+    AST* rettype = new(mod->parser->astspace) Var({}, ret->env->name);
+    rettype->kind = AST_TYPENAME, rettype->type = ret;
+    FunDecl* fun = new(mod->parser->astspace) FunDecl({}, rettype, sig, new(mod->parser->astspace) List(AST_DO, {}, body_block));
+
+    compute_envs(mod, type->env, fun);
+    // print("auto generated "), format(stdout, mod, fun), print('\n');
+    detect_types(mod, type->env, fun);
+    infer(mod, type->env, fun);
+    typecheck(mod, type->env, fun);
+    return fun;
+}
+
+pair<Type*, Env*>* EnvContext::find_method(i32 name, Type* type, Module* mod) {
     auto it = methods.find(name);
     if (it != methods.end()) {
         for (auto& p : it->value) if (type == p.first) return &p;
         for (auto& p : it->value) if (is_subtype(type, p.first)) return &p;
+    }
+    // Consider generic matching method:
+    if (type->kind == T_UNION) {
+        vec<pair<Type*, Env*>*, 64, arena> methods;
+        methods.alloc = &envspace;
+
+        for (const auto& field : ((UnionType*)type)->fields) {
+            auto method = find_method(name, field.second, mod);
+            if (method) methods.push(method);
+            else break;
+        }
+
+        if (methods.size() == ((UnionType*)type)->fields.n) {
+            AST* auto_method = create_method(name, type, mod, methods);
+            if (!auto_method) return nullptr;
+
+            add_method(name, type, ((FunDecl*)auto_method)->env);
+            mod->automethods.push(auto_method);
+            return find_method(name, type, mod);
+        }
     }
     return nullptr;
 }

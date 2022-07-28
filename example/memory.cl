@@ -1,5 +1,6 @@
-int* i: new 1
-print(*i)
-*i += 1
-print(*i)
-del i
+var ints: new[16] 2
+var sum: 0
+for i in ints: 
+    sum += i
+print(sum)
+del ints

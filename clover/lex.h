@@ -67,7 +67,7 @@ static constexpr const i8 PRECEDENCE[NUM_TOKEN_KINDS] = {
     PREC_ASSIGN, PREC_ASSIGN, PREC_ASSIGN, PREC_ASSIGN, PREC_ASSIGN, PREC_ASSIGN, PREC_ASSIGN,
     PREC_ASSIGN, PREC_ASSIGN, PREC_ASSIGN, PREC_ASSIGN, PREC_ASSIGN,
     PREC_AND, PREC_OR, PREC_INCR, 
-    PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_COMPARE,
+    PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_EQUALS,
     PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE,
     PREC_NONE, PREC_NONE,
     PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE, PREC_NONE
@@ -133,13 +133,13 @@ struct Lexer {
  */
 struct Interner {
     i32 byteidx = 0, runeidx = 0, n_keywords = 0;
-    map<prehash<const_slice<i8>>, Symbol> intern_table;
-    vec<prehash<const_slice<i8>>> intern_data;
+    map<const_slice<i8>, Symbol> intern_table;
+    vec<const_slice<i8>> intern_data;
 
     // Initializes string table with keywords.
     Interner();
 
-    inline Symbol intern(const prehash<const_slice<i8>>& str) {
+    inline Symbol intern(const const_slice<i8>& str) {
         auto it = intern_table.find(str);
         Symbol id;
         if (it == intern_table.end()) {
@@ -152,7 +152,7 @@ struct Interner {
     }
 
     inline Symbol intern(const i8* literal) {
-        return intern({{literal, cidx(literal, '\0')}});
+        return intern({literal, cidx(literal, '\0')});
     }
 
     inline bool is_keyword(Symbol i) const {
@@ -165,7 +165,7 @@ struct Interner {
 };
 
 inline const_slice<i8> Token::str(Module* mod) {
-    if (kind == TK_IDENT) return mod->interner->intern_data[end].t;
+    if (kind == TK_IDENT) return mod->interner->intern_data[end];
     else return { mod->bytes.text + start, end - start };
 }
 

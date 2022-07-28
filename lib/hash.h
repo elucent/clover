@@ -6,31 +6,45 @@
 
 extern iptr lookups, scans;
 
-template<typename T>
-struct prehash {
-    u64 h;
-    T t;
-    prehash(const T& t_in): h(hash(t_in)), t(t_in)  {}
+// MurmurHash, 64-bit version, unaligned by Austin Appleby (https://sites.google.com/site/murmurhash/)
+// The source has been slightly modified, using basil typedefs, and a fixed seed (a 64-bit prime).
 
-    inline bool operator==(const prehash& other) const {
-        return t == other.t;
-    }
+inline u64 raw_hash(const void* input, u64 size){
+	const u64 m = 0xc6a4a7935bd1e995;
+	const u32 r = 47;
 
-    inline operator T&() {
-        return t;
-    }
+	u64 h = 7576351903513440497ul ^ (size * m);
 
-    inline operator const T&() const {
-        return t;
-    }
-};
+	const u64* data = (const u64*)input;
+	const u64* end = data + (size / 8);
 
-template<typename T>
-inline u64 hash(const prehash<T>& p) {
-    return p.h;
-}
+	while(data != end) {
+		u64 k = *data ++;
+		k *= m; 
+		k ^= k >> r; 
+		k *= m; 
+		h ^= k;
+		h *= m; 
+	}
 
-u64 raw_hash(const void* input, u64 size);
+	const u8* data2 = (const u8*)data;
+	switch(size & 7) {
+	case 7: h ^= u64(data2[6]) << 48;
+	case 6: h ^= u64(data2[5]) << 40;
+	case 5: h ^= u64(data2[4]) << 32;
+	case 4: h ^= u64(data2[3]) << 24;
+	case 3: h ^= u64(data2[2]) << 16;
+	case 2: h ^= u64(data2[1]) << 8;
+	case 1: h ^= u64(data2[0]);
+	        h *= m;
+	};
+ 
+	h ^= h >> r;
+	h *= m;
+	h ^= h >> r;
+
+	return h;
+} 
 
 inline u64 hash(i32 i) { // Cheaty, potentially a little exploitable, but it seems to give good results in practice.
     return i;
@@ -67,143 +81,144 @@ inline u64 hash(const entry<K, V>& e) {
 template<typename T, i32 N = 8, typename Alloc = allocator>
 class set {
     enum bucket_status : u8 {
-        EMPTY, GHOST, FILLED
+        FILLED, EMPTY, GHOST
     };
 
-    struct bucket {
-        u8 data[sizeof(T)];
-        bucket_status status;
+    static constexpr u32 SIZE_MUL = sizeof(bucket_status) + sizeof(u64) + sizeof(T); 
 
-        inline bucket() {}
+    struct memory {
+        u8* bytes;
+        u64 capacity;
+        // status is at offset 0
+        // hashes start at offset N
+        // data starts at offset N * 9
 
-        inline ~bucket() {
-            if (status == FILLED) (*(T*)data).~T();
+        memory(u8* bytes_in, u64 capacity_in): bytes(bytes_in), capacity(capacity_in) {
+            mset(bytes, EMPTY, capacity);
         }
 
-        inline bucket(const bucket& other): status(other.status) {
-            if (status == FILLED) new(data) T(*(T*)other.data);
+        inline void free(Alloc* alloc) {
+            alloc->free(bytes);
         }
 
-        inline bucket& operator=(const bucket& other) {
-            if (this != &other) {
-                evict();
-                status = other.status;
-                if (status == FILLED) new(data) T(*(T*)other.data);
-            }
-            return *this;
+        inline bucket_status* status() {
+            return (bucket_status*)bytes;
         }
 
-        inline const T& value() const {
-            return *(const T*)data;
+        inline const bucket_status* status() const {
+            return (bucket_status*)bytes;
         }
 
-        inline T& value() {
-            return *(T*)data;
+        inline u64* hashes() {
+            return (u64*)(bytes + capacity);
         }
 
-        inline void fill(const T& value) {
-            if (status != FILLED) {
-                status = FILLED, new(data) T(value);
-            }
-            else this->value() = value;
+        inline const u64* hashes() const {
+            return (u64*)(bytes + capacity);
         }
 
-        inline void evict() {
-            if (status == FILLED) {
-                (*(T*)data).~T();
-                status = GHOST;
-            }
+        inline T* values() {
+            return (T*)(bytes + capacity * 9);
         }
 
-        inline void clear() {
-            if (status == FILLED) (*(T*)data).~T();
-            status = EMPTY;
+        inline const T* values() const {
+            return (T*)(bytes + capacity * 9);
+        }
+
+        void fill(u32 i, const T& t, u64 h) {
+            if (status()[i] == FILLED) values()[i] = t;
+            else status()[i] = FILLED, new(values() + i) T(t);
+            hashes()[i] = h;
+        }
+
+        void evict(u32 i) {
+            status()[i] = GHOST;
+            values()[i].~T();
+        }
+
+        void clear() {
+            for (u32 i = 0; i < capacity; i ++) if (status()[i] == FILLED) evict(i);
+            mset(status(), EMPTY, capacity);
         }
     };
 
-    bucket* data;
-    u32 _size, _capacity;
-    bucket fixed[N];
+    memory mem;
+public:
+    Alloc* alloc = Alloc::instance;
+private:
+    u64 nelts;
+    u8 fixed[N * SIZE_MUL];
 
     inline void init(u32 size) {
-        _size = 0, _capacity = size;
-        data = _capacity <= N ? fixed : new(*alloc) bucket[size];
-        for (u32 i = 0; i < _capacity; i ++) data[i].status = EMPTY;
+        nelts = 0, mem.capacity = size;
+        mem.bytes = mem.capacity <= N ? fixed : new(*alloc) u8[mem.capacity * SIZE_MUL];
+        mset(mem.status(), EMPTY, mem.capacity);
     }
 
-    inline void swap(T& a, T& b) {
-        T t = a;
+    template<typename U>
+    inline void swap(U& a, U& b) {
+        U t = a;
         a = b;
         b = t;
     }
 
-    inline void free() {
-        if (_capacity > N) alloc->free(data);
-    }
-
-    inline void copy(const bucket* bs) {
-        for (u32 i = 0; i < _capacity; ++ i) {
-            data[i] = bs[i];
-        }
-    }
-
     inline void grow() {
-        bucket* old = data;
-        u32 oldsize = _capacity;
-        init(_capacity * 2);
-        for (u32 i = 0; i < oldsize; ++ i) {
-            if (old[i].status == FILLED) insert(old[i].value());
+        memory old = mem;
+        init(mem.capacity * 2);
+        for (u32 i = 0; i < old.capacity; ++ i) {
+            if (old.status()[i] == FILLED) insert(old.values()[i], old.hashes()[i]);
         }
-        if (oldsize > N) alloc->free(old);
+        if (old.capacity > N) old.clear(), alloc->free(old.bytes);
     }
 
 public:
-    Alloc* alloc = Alloc::instance;
-
-    set() {
-        init(N);
-    }
+    set(): mem(fixed, N), nelts(0) {}
 
     ~set() {
-        free();
+        mem.clear();
+        if (mem.bytes != fixed) alloc->free(mem.bytes);
     }
 
-    set(const set& other) {
-        init(other._capacity);
-        _size = other._size;
-        copy(other.data);
+    set(const set& other): mem(alloc->alloc(other.mem.capacity)), nelts(other.nelts) {
+        mcpy(mem.bytes, other.mem.bytes, mem.capacity * 9);
+        for (u32 i = 0; i < mem.capacity; i ++) if (mem.status()[i] == FILLED) 
+            new(mem.values() + i) T(other.mem.values()[i]);
     }
 
     set& operator=(const set& other) {
         if (this != &other) {
-            free();
-            init(other._capacity);
-            _size = other._size;
-            copy(other.data);
+            mem.clear();
+            if (mem.bytes != fixed) alloc->free(mem.bytes);
+            mem.bytes = alloc->alloc(other.mem.capacity);
+            nelts = other.nelts;
+            mcpy(mem.bytes, other.mem.bytes, mem.capacity * 9);
+            for (u32 i = 0; i < mem.capacity; i ++) if (mem.status()[i] == FILLED) 
+                new(mem.values() + i) T(other.mem.values()[i]);
         }
         return *this;
     }
 
     class const_iterator {
-        const bucket *ptr, *end;
+        const memory* m;
+        u32 ptr = 0, end = 0;
         friend class set;
     public:
-        const_iterator(const bucket* ptr_in, const bucket* end_in): 
-            ptr(ptr_in), end(end_in) {
+        const_iterator(const memory* m_in, u32 ptr_in, u32 end_in): 
+            m(m_in), ptr(ptr_in), end(end_in) {
             //
         }
 
         const T& operator*() const {
-            return ptr->value();
+            return m->values()[ptr];
         }
 
         const T* operator->() const {
-            return &(ptr->value());
+            return m->values() + ptr;
         }
 
         const_iterator& operator++() {
             if (ptr != end) ++ ptr;
-            while (ptr != end && ptr->status != FILLED) ++ ptr;
+            while (ptr != end && m->status()[ptr]) ++ ptr;
             return *this;
         }
 
@@ -223,24 +238,26 @@ public:
     };
 
     class iterator {
-        bucket *ptr, *end;
+        memory* m;
+        u32 ptr = 0, end = 0;
         friend class set;
     public:
-        iterator(bucket* ptr_in, bucket* end_in): ptr(ptr_in), end(end_in) {
+        iterator(memory* m_in, u32 ptr_in, u32 end_in): 
+            m(m_in), ptr(ptr_in), end(end_in) {
             //
         }
 
         T& operator*() {
-            return ptr->value();
+            return m->values()[ptr];
         }
 
         T* operator->() {
-            return &(ptr->value());
+            return m->values() + ptr;
         }
 
         iterator& operator++() {
             if (ptr != end) ++ ptr;
-            while (ptr != end && ptr->status != FILLED) ++ ptr;
+            while (ptr != end && m->status()[ptr]) ++ ptr;
             return *this;
         }
 
@@ -264,113 +281,116 @@ public:
     };
 
     iterator begin() {
-        bucket *start = data, *end = data + _capacity;
-        while (start != end && start->status != FILLED) ++ start;
-        return iterator(start, end);
+        u32 start = 0, end = mem.capacity;
+        while (start != end && mem.status()[start] != FILLED) ++ start;
+        return iterator(&mem, start, end);
     }
 
     const_iterator begin() const {
-        const bucket *start = data, *end = data + _capacity;
-        while (start != end && start->status != FILLED) ++ start;
-        return const_iterator(start, end);
+        u32 start = 0, end = mem.capacity;
+        while (start != end && mem.status()[start] != FILLED) ++ start;
+        return const_iterator(&mem, start, end);
     }
 
     inline iterator end() {
-        return iterator(data + _capacity, data + _capacity);
+        return iterator(&mem, mem.capacity, mem.capacity);
     }
 
     inline const_iterator end() const {
-        return const_iterator(data + _capacity, data + _capacity);
+        return const_iterator(&mem, mem.capacity, mem.capacity);
     }
 
     void clear() {
-        for (u64 i = 0; i < _capacity; i ++) {
-            if (data[i].status == FILLED) data[i].clear();
+        mem.clear();
+        nelts = 0;
+    }
+
+    void insert(const T& t, u64 h) {
+        if (mem.capacity * 8 < (nelts + 1) * 10) grow();
+        u64 dist = 0;
+        u64 mask = mem.capacity - 1;
+        u64 i = h & mask;
+        T item = t;
+        while (true) {
+            if (mem.status()[i]) {
+                mem.fill(i, item, h);
+                ++ nelts;
+                return;
+            }
+            else if (mem.hashes()[i] == h && mem.values()[i] == item) {
+                mem.fill(i, item, h); // potentially redundant assignment allows for overwriting existing values
+                return;
+            }
+            else {
+                u64 other_dist = i - mem.hashes()[i] & mask;
+                if (other_dist < dist) {
+                    swap(item, mem.values()[i]);
+                    swap(h, mem.hashes()[i]);
+                    dist = other_dist;
+                }
+                i = i + 1 & mask;
+                ++ dist;
+            }
         }
-        _size = 0;
     }
 
     void insert(const T& t) {
-        if (double(_size + 1) / double(_capacity) > 0.625) grow();
-        u64 h = hash(t);
-        u64 dist = 0;
-        u64 _mask = _capacity - 1;
-        u64 i = h & _mask;
-        T item = t;
-        while (true) {
-            if (data[i].status == EMPTY || data[i].status == GHOST) {
-                data[i].fill(item);
-                ++ _size;
-                return;
-            }
-
-            if (data[i].status == FILLED && data[i].value() == item) {
-                data[i].value() = t; // potentially redundant assignment allows for overwriting existing values
-                return;
-            }
-
-            u64 other_dist = i - hash(data[i].value()) & _mask;
-            if (other_dist < dist) {
-                swap(item, data[i].value());
-                dist = other_dist;
-            }
-            i = i + 1 & _mask;
-            ++ dist;
-        }
+        insert(t, hash(t));
     }
 
     void erase(const T& t) {
         u64 h = hash(t);
-        u64 _mask = _capacity - 1;
-        u64 i = h & _mask;
+        u64 mask = mem.capacity - 1;
+        u64 i = h & mask;
         while (true) {
-            if (data[i].status == EMPTY) return;
-            if (data[i].status == FILLED && data[i].value() == t) {
-                data[i].evict();
-                -- _size;
+            if (mem.status()[i] == EMPTY) return;
+            if (mem.status()[i] == FILLED && mem.hashes()[i] == h && mem.values()[i] == t) {
+                mem.evict(i);
+                -- nelts;
                 return;
             }
-            i = i + 1 & _mask;
+            i = i + 1 & mask;
         }
     }
 
     const_iterator find(const T& t) const {
         u64 h = hash(t);
-        u64 _mask = _capacity - 1;
-        u64 i = h & _mask;
+        u64 mask = mem.capacity - 1;
+        u64 i = h & mask;
         u64 dist = 0;
         while (true) {
-            if (data[i].status == EMPTY) return end();
-            if (data[i].status != GHOST) {
-                u64 oh = hash(data[i].value());
-                u64 other_dist = i - oh & _mask;
+            if (mem.status()[i] == EMPTY) return end();
+            if (mem.status()[i] == GHOST) {
+                u64 dist = (i - h) & mask;
+                u64 oh = mem.hashes()[i];
+                u64 other_dist = i - oh & mask;
                 if (other_dist < dist) return end();
             }
-            if (data[i].status == FILLED && t == data[i].value()) {
-                return const_iterator(data + i, data + _capacity);
+            if (mem.status()[i] == FILLED && mem.hashes()[i] == h && t == mem.values()[i]) {
+                return const_iterator(&mem, i, mem.capacity);
             }
-            i = i + 1 & _mask;
+            i = i + 1 & mask;
             dist ++;
         }
     }
 
     iterator find(const T& t) {
         u64 h = hash(t);
-        u64 _mask = _capacity - 1;
-        u64 i = h & _mask;
+        u64 mask = mem.capacity - 1;
+        u64 i = h & mask;
         u64 dist = 0;
         while (true) {
-            if (data[i].status == EMPTY) return end();
-            if (data[i].status != GHOST) {
-                u64 dist = (i - h) & _mask;
-                u64 oh = hash(data[i].value());
-                u64 other_dist = i - oh & _mask;
+            if (mem.status()[i] == EMPTY) return end();
+            if (mem.status()[i] == GHOST) {
+                u64 dist = (i - h) & mask;
+                u64 oh = mem.hashes()[i];
+                u64 other_dist = i - oh & mask;
                 if (other_dist < dist) return end();
             }
-            if (data[i].status == FILLED && t == data[i].value()) {
-                return iterator(data + i, data + _capacity);
+            if (mem.status()[i] == FILLED && mem.hashes()[i] == h && t == mem.values()[i]) {
+                return iterator(&mem, i, mem.capacity);
             }
-            i = i + 1 & _mask;
+            i = i + 1 & mask;
             dist ++;
         }
     }
@@ -380,11 +400,11 @@ public:
     }
 
     u32 size() const {
-        return _size;
+        return nelts;
     }
 
     u32 capacity() const {
-        return _capacity;
+        return mem.capacity;
     }
 };
 

@@ -2,7 +2,7 @@
 *.o
 example/*.c
 example/*.h
-clover/std/*.c
-clover/std/*.h
+std/*.c
+std/*.h
 bin/
 secret/

@@ -25,6 +25,8 @@ typedef u64 uword;
 #define LIBCORE_OSX
 #elif defined(_WIN64) || defined(_WIN32)
 #define LIBCORE_WINDOWS
+#elif defined(__wasm__)
+#define LIBCORE_WASI
 #endif
 
 #ifdef __x86__

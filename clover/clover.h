@@ -26,12 +26,27 @@ struct EnvContext;
 struct Clover;
 struct Type;
 
+enum TopoMark {
+    MARK_NONE, MARK_TEMP, MARK_PERM
+};
+
+struct AST;
+
 struct Module {
     // Local to this module
     const i8* path;
     ByteSource bytes;
     Lexer* lexer;
     Parser* parser;
+
+    // Defer metadata.
+    vec<AST*, 8, arena> defers; // Expressions being deferred in the current block.
+    vec<i32, 8, arena> ndefers; // Number of deferred expressions in the enclosing block.
+    // Together, defers and ndefers form a sort of stack of stacks. defers[ndefers.back():] represents the defers
+    // to be processed for the current block.
+
+    // Auto-generated methods.
+    vec<AST*, 8, arena> automethods; // Stores automatically-generated methods defined in this module.
 
     // Shared between modules
     Clover* cloverinst;
@@ -48,7 +63,11 @@ struct Module {
     vec<Module*, 8, arena> deps;
     bool visited;
 
+    // Name of this module.
     Symbol basename;
+
+    // Mark status used for topological sort.
+    TopoMark mark = MARK_NONE;
 };
 
 struct Clover {
