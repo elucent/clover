@@ -10,20 +10,20 @@ fun greet():
 
 ## Table of Contents
 
-#### [1. About](#1-about)
+### [1. About](#1-about)
 
-#### [2. Installation](#2-installation)
+### [2. Installation](#2-installation)
 
-#### [3. Roadmap](#3-roadmap)
+### [3. Roadmap](#3-roadmap)
 
  * **[3.1. Language Features](#3-1-language-features)**
  * **[3.2. Platform Support](#3-2-platform-support)**
 
-#### [4. Tour](#4-tour)
+### [4. Tour](#4-tour)
 
 ## 1. About
 
-#### What is Clover, anyway?
+### What is Clover, anyway?
 
 Clover is a low-level procedural programming language intended to function as an alternative (not a replacement!) to C for low-level programming. Overall, Clover is designed to incorporate more recently-popular and modern language features into a simple, procedural core, leading to code that is graceful, aesthetically-pleasing, and intuitive.
 
@@ -40,7 +40,7 @@ Here's a non-exhaustive list of some of my core design principles so you can get
 9. Batteries aren't included.
 10. ...but they should be close by when you need them.
 
-#### But...why Clover?
+### But...why Clover?
 
 There's loads of other fancy, procedural, prospective C replacements out there, [to](https://ziglang.org/) [name](https://odin-lang.org/) [just](https://nim-lang.org/) [a](https://inductive.no/jai/) [few](https://vlang.io/). Why does Clover need to exist too?
 
@@ -92,48 +92,48 @@ $ mdtest/mdtest test
 
 ## 3. Roadmap
 
-#### 3.1. Language Features
+### 3.1. Language Features
 
- [x] Primitive types, arithmetic, comparisons, logic, etc.
- [x] Variables.
- [x] First-class functions.
- [x] Pointer, array, and slice types.
- [x] Method calls using UFCS.
- [x] Control flow: `if`, `while`, `until`
- [x] For loops, iteration.
- [x] Modules, `use` statements, `with` blocks.
- [x] Type inference using unification variables.
- [x] Type aliases.
- [x] Struct, union, and named types.
- [x] Generic function and type definitions.
- [x] Named type variables.
- [x] Manual memory management.
- [x] Pattern matching.
- [x] Module initialization and deinitialization.
- [x] `defer` statements.
- [ ] Recoverable compile errors with good messages.
- [ ] Traits.
- [ ] Compile-time constant values and expressions.
- [ ] Set and dictionary constructors.
- [ ] List, set, and dictionary comprehensions.
- [ ] Anonymous functions.
+- [x] Primitive types, arithmetic, comparisons, logic, etc.
+- [x] Variables.
+- [x] First-class functions.
+- [x] Pointer, array, and slice types.
+- [x] Method calls using UFCS.
+- [x] Control flow: `if`, `while`, `until`
+- [x] For loops, iteration.
+- [x] Modules, `use` statements, `with` blocks.
+- [x] Type inference using unification variables.
+- [x] Type aliases.
+- [x] Struct, union, and named types.
+- [x] Generic function and type definitions.
+- [x] Named type variables.
+- [x] Manual memory management.
+- [x] Pattern matching.
+- [x] Module initialization and deinitialization.
+- [x] `defer` statements.
+- [ ] Recoverable compile errors with good messages.
+- [ ] Traits.
+- [ ] Compile-time constant values and expressions.
+- [ ] Set and dictionary constructors.
+- [ ] List, set, and dictionary comprehensions.
+- [ ] Anonymous functions.
 
-#### 3.2. Platform Support
+### 3.2. Platform Support
 
- [x] Linux AMD64
- [x] Darwin AMD64
- [ ] Windows AMD64
- [ ] Linux ARM64
- [ ] Darwin ARM64
- [ ] Windows ARM64
- [ ] WASM
+- [x] Linux AMD64
+- [x] Darwin AMD64
+- [ ] Windows AMD64
+- [ ] Linux ARM64
+- [ ] Darwin ARM64
+- [ ] Windows ARM64
+- [ ] WASM
 
-#### 3.3. Compiler Backends
+### 3.3. Compiler Backends
 
- [x] C99
- [ ] LLVM
- [ ] WASM
- [ ] Jasmine
+- [x] C99
+- [ ] LLVM
+- [ ] WASM
+- [ ] Jasmine
 
 ## 4. Documentation
 
