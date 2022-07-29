@@ -43,6 +43,76 @@ enum ErrorType : i8 {
     ERR_EMPTY_SIZEOF_EXPR,  // Sizeof expr with no expr inside.
     ERR_NO_CLOSING_SIZEOF,  // No closing pipe in sizeof expr.
     ERR_NO_NEWARRAY_SEP,    // No closing bracket in newarray expr.
+
+    ERR_INCORRECT_DEFER_ENV,        // Incorrect env for defer statement.
+    ERR_NO_SUCH_MODULE,             // Can't find module.
+    ERR_NON_TYPE_PARAM_IN_GENTYPE,  // Generic type has invalid type parameter.
+    ERR_DOT_IN_TYPEDECL_NAME,       // Dot expression in type name.
+    ERR_NO_NAME_IN_TYPEDECL,        // Invalid name in type decl.
+    ERR_NO_NAME_IN_TYPE_CASE,       // Invalid name in case type.
+    ERR_REDEFINED_TYPE_VAR,         // Type var conflicts with a previous definition.
+
+    ERR_CASE_IN_NON_UNION,          // Casedecl in non-union type.
+    ERR_INFERRED_FIELD,             // Field with inferred type.
+    ERR_FIELD_IN_NON_STRUCT,        // Field appears in non-struct type.
+    ERR_UNEXPECTED_TYPE_MEMBER,     // Typename in members of struct or union type.
+    ERR_REDEFINED_PATTERN,          // Redefined pattern variable.
+    ERR_NO_TYPE_IN_PATTERN,         // Missing typename in pattern.
+    ERR_INCOMPATIBLE_PATTERN_TYPES, // Conflicting types in pattern.
+    ERR_PATTERN_PARAMS_MISMATCH,    // Incorrect number of pattern parameters.
+    ERR_INVALID_DESTRUCTURING,      // Destructuring type that does not support destructuring.
+    ERR_UNDEFINED_VAR,              // Use of undefined variable.
+    ERR_MULTIPLE_ARRAY_DIMS,        // Multiple array dimensions in type expr.
+    ERR_UNEXPECTED_TYPENAME,        // Unexpected typename in expression.
+    ERR_NON_CONST_ARRAY_DIM,        // Array type constructed with non-constant dimension.
+    ERR_EXPECTED_ARRAY_TYPE,        // Expected array type, but found something else.
+    ERR_EXPECTED_SLICE_TYPE,        // Expected slice type, but found something else.
+    ERR_EXPECTED_PTR_TYPE,          // Expected ptr type, but found something else.
+    ERR_EXPECTED_FUN_TYPE,          // Expected function type, but found something else.
+    ERR_UNDEFINED_TYPENAME,         // Use of undefined type name.
+    ERR_EXPECTED_TYPENAME,          // Typename expression does not describe a type.
+    ERR_TYPENAME_IN_SLICE,          // Occurrence of type in slice expression.
+    ERR_GENTYPE_PARAMS_MISMATCH,    // Incorrect number of parameters for generic type.
+    ERR_NONTYPE_GENTYPE_PARAM,      // Non-type parameter in generic type instantiation.
+    ERR_TYPENAME_IN_CTOR,           // Occurrence of typename in constructor expression.
+    ERR_VAL_IN_FUNTYPE,             // Non-type in function type expression.
+    ERR_NONTYPE_ANNOTATION,         // Variable annotation that is not a type.
+    ERR_NONTYPE_RETURNTYPE,         // Return type annotation that is not a type.
+    ERR_NO_FUNCTION_PARAM_LIST,     // Function was somehow declared without a parameter list.
+
+    ERR_RETURN_OUTSIDE_FUN,         // Return statement outside of a function scope.
+    ERR_INVALID_WITH_ENV,           // No valid environment found for a with statement.
+    ERR_INFERENCE_MISMATCH,         // Inferred type and actual type of expression are in conflict.
+    ERR_INCOMPATIBLE_OPERAND,       // Operand to expression is incompatible with expected type.
+    ERR_NON_ARITHMETIC_TYPE,        // Expected arithmetic type.
+    ERR_NON_INTEGRAL_TYPE,          // Expected integral type.
+    ERR_NON_COMPARABLE_TYPE,        // Expected type that supports comparison.
+    ERR_NON_EQUALITY_TYPE,          // Expected type that supports equality.
+    ERR_INCOMPATIBLE_ASSIGNMENT,    // The rhs of an assignment is incompatible with the lhs.
+    ERR_NON_POINTER_DEREFERENCE,    // Attempted dereference of non-pointer value.
+    ERR_INVALID_DELETE,             // Attempted delete of non-pointer, non-slice value.
+    ERR_NON_INTEGRAL_NEWARRAY_DIM,  // Newarray without an integral size.
+    ERR_INVALID_SIZEOF_OPERAND,     // Sizeof on a non-array, non-size value.
+    ERR_INVALID_DOT_EXPRESSION,     // Dotted access where the lhs has no environment.
+    ERR_NON_INDEXABLE_TYPE,         // Attempted indexing into non-slice, non-array value.
+    ERR_NON_SLICEABLE_TYPE,         // Attempted slice of non-sliceable value.
+    ERR_GENCALL_MISMATCH,           // Calling a generic function with incorrect number of arguments.
+    ERR_CALL_MISMATCH,              // Calling a function with the incorrect number of arguments.
+    ERR_NON_FUNCTION_TYPE,          // Expected function type.
+    ERR_INCOMPATIBLE_ARGUMENT,      // Calling a function with an incompatible argument value.
+    ERR_EMPTY_ARGUMENTS,            // Calling a non-unit function with zero arguments.
+    ERR_NON_ARRAY_TYPE,             // Expected an array type.
+    ERR_INCOMPATIBLE_ELEMENT,       // Elements of an array constructor are incompatible with each other.
+    ERR_INCOMPATIBLE_INITIALIZER,   // Initial value of a variable is incompatible with inferred type.
+    ERR_CTOR_MISMATCH,              // Calling constructor with wrong number of arguments.
+    ERR_CAST_MISMATCH,              // Casting with wrong number of arguments.
+    ERR_INVALID_CAST,               // Casting to a type with invalid arguments.
+    ERR_INCOMPATIBLE_CTOR_PARAM,    // Parameter to ctor is incompatible with expected type.
+    ERR_UNION_CTOR,                 // Constructing a union on its own is not allowed.
+    ERR_NON_BOOLEAN_TYPE,           // Expected a boolean.
+    ERR_INCOMPATIBLE_RETURN,        // Return statement returns value incompatible with enclosing function.
+
+    ERR_CIRCULAR_DEPENDENCIES,      // A cycle was detected in the program's dependency graph.
 };
 
 #define CODE static constexpr ErrorType CODE
@@ -131,6 +201,142 @@ struct Error {
         ErrorData(EmptySizeofExpr e): empty_sizeof_expr(e) {}
         ErrorData(NoClosingSizeof e): no_closing_sizeof(e) {}
         ErrorData(NoNewarraySep e): no_newarray_sep(e) {}
+
+        struct IncorrectDeferEnv { CODE = ERR_INCORRECT_DEFER_ENV; Unary* defer; Env* env; } incorrect_defer_env;
+        struct NoSuchModule { CODE = ERR_NO_SUCH_MODULE; AST* path; } no_such_module;
+        struct NonTypeParamInGentype { CODE = ERR_NON_TYPE_PARAM_IN_GENTYPE; TypeDecl* decl; AST* param; } non_type_param_in_gentype;
+        struct DotInTypedeclName { CODE = ERR_DOT_IN_TYPEDECL_NAME; TypeDecl* decl; } dot_in_typedecl_name;
+        struct NoNameInTypedecl { CODE = ERR_NO_NAME_IN_TYPEDECL; TypeDecl* decl; } no_name_in_typedecl;
+        struct NoNameInTypeCase { CODE = ERR_NO_NAME_IN_TYPE_CASE; CaseDecl* decl; } no_name_in_type_case;
+        struct RedefinedTypeVar { CODE = ERR_REDEFINED_TYPE_VAR; AST* tvar; AST* prev_decl; } redefined_type_var;
+        
+        ErrorData(IncorrectDeferEnv e): incorrect_defer_env(e) {}
+        ErrorData(NoSuchModule e): no_such_module(e) {}
+        ErrorData(NonTypeParamInGentype e): non_type_param_in_gentype(e) {}
+        ErrorData(DotInTypedeclName e): dot_in_typedecl_name(e) {}
+        ErrorData(NoNameInTypedecl e): no_name_in_typedecl(e) {}
+        ErrorData(NoNameInTypeCase e): no_name_in_type_case(e) {}
+        ErrorData(RedefinedTypeVar e): redefined_type_var(e) {}
+
+        struct CaseInNonUnion { CODE = ERR_CASE_IN_NON_UNION; CaseDecl* decl; } case_in_non_union;
+        struct InferredField { CODE = ERR_INFERRED_FIELD; VarDecl* field; } inferred_field;
+        struct FieldInNonStruct { CODE = ERR_FIELD_IN_NON_STRUCT; VarDecl* field; } field_in_non_struct;
+        struct UnexpectedTypeMember { CODE = ERR_UNEXPECTED_TYPE_MEMBER; AST* member; } unexpected_type_member;
+        struct RedefinedPattern { CODE = ERR_REDEFINED_PATTERN; Var* v; VarDecl* prev_decl; } redefined_pattern;
+        struct NoTypeInPattern { CODE = ERR_NO_TYPE_IN_PATTERN; AST* ast; } no_type_in_pattern;
+        struct IncompatiblePatternTypes { CODE = ERR_INCOMPATIBLE_PATTERN_TYPES; Type* expected; AST* ast; } incompatible_pattern_types;
+        struct PatternParamsMismatch { CODE = ERR_PATTERN_PARAMS_MISMATCH; AST* pattern; Type* type; i32 n, expected; } pattern_params_mismatch;
+        struct InvalidDestructuring { CODE = ERR_INVALID_DESTRUCTURING; AST* pattern; Type* type; } invalid_destructuring;
+        struct UndefinedVar { CODE = ERR_UNDEFINED_VAR; Var* v; } undefined_var;
+        struct MultipleArrayDims { CODE = ERR_MULTIPLE_ARRAY_DIMS; AST* dims; } multiple_array_dims;
+        struct UnexpectedTypename { CODE = ERR_UNEXPECTED_TYPENAME; AST* type; } unexpected_typename;
+        struct NonConstArrayDim { CODE = ERR_NON_CONST_ARRAY_DIM; AST* dim; } non_const_array_dim;
+        struct ExpectedArrayType { CODE = ERR_EXPECTED_ARRAY_TYPE; AST* type; } expected_array_type;
+        struct ExpectedSliceType { CODE = ERR_EXPECTED_SLICE_TYPE; AST* type; } expected_slice_type;
+        struct ExpectedPtrType { CODE = ERR_EXPECTED_PTR_TYPE; AST* type; } expected_ptr_type;
+        struct ExpectedFunType { CODE = ERR_EXPECTED_FUN_TYPE; AST* type; } expected_fun_type;
+        struct UndefinedTypename { CODE = ERR_UNDEFINED_TYPENAME; Var* type; } undefined_typename;
+        struct ExpectedTypename { CODE = ERR_EXPECTED_TYPENAME; AST* type; } expected_typename;
+        struct TypenameInSlice { CODE = ERR_TYPENAME_IN_SLICE; AST* type; } typename_in_slice;
+        struct GentypeParamsMismatch { CODE = ERR_GENTYPE_PARAMS_MISMATCH; Apply* call; TypeDecl* decl; i32 n, expected; } gentype_params_mismatch;
+        struct NontypeGentypeParam { CODE = ERR_NONTYPE_GENTYPE_PARAM; AST* param; TypeDecl* decl; } nontype_gentype_param;
+        struct TypenameInCtor { CODE = ERR_TYPENAME_IN_CTOR; Type* ctor; AST* ast; } typename_in_ctor;
+        struct ValInFuntype { CODE = ERR_VAL_IN_FUNTYPE; AST* ast; } val_in_funtype;
+        struct NontypeAnnotation { CODE = ERR_NONTYPE_ANNOTATION; AST* ann; } nontype_annotation;
+        struct NontypeReturntype { CODE = ERR_NONTYPE_RETURNTYPE; AST* ret; } nontype_returntype;
+        struct NoFunctionParamList { CODE = ERR_NO_FUNCTION_PARAM_LIST; AST* proto; } no_function_param_list;
+
+        ErrorData(CaseInNonUnion e): case_in_non_union(e) {}
+        ErrorData(InferredField e): inferred_field(e) {}
+        ErrorData(FieldInNonStruct e): field_in_non_struct(e) {}
+        ErrorData(UnexpectedTypeMember e): unexpected_type_member(e) {}
+        ErrorData(RedefinedPattern e): redefined_pattern(e) {}
+        ErrorData(NoTypeInPattern e): no_type_in_pattern(e) {}
+        ErrorData(IncompatiblePatternTypes e): incompatible_pattern_types(e) {}
+        ErrorData(PatternParamsMismatch e): pattern_params_mismatch(e) {}
+        ErrorData(InvalidDestructuring e): invalid_destructuring(e) {}
+        ErrorData(UndefinedVar e): undefined_var(e) {}
+        ErrorData(MultipleArrayDims e): multiple_array_dims(e) {}
+        ErrorData(UnexpectedTypename e): unexpected_typename(e) {}
+        ErrorData(NonConstArrayDim e): non_const_array_dim(e) {}
+        ErrorData(ExpectedArrayType e): expected_array_type(e) {}
+        ErrorData(ExpectedSliceType e): expected_slice_type(e) {}
+        ErrorData(ExpectedPtrType e): expected_ptr_type(e) {}
+        ErrorData(ExpectedFunType e): expected_fun_type(e) {}
+        ErrorData(UndefinedTypename e): undefined_typename(e) {}
+        ErrorData(ExpectedTypename e): expected_typename(e) {}
+        ErrorData(TypenameInSlice e): typename_in_slice(e) {}
+        ErrorData(GentypeParamsMismatch e): gentype_params_mismatch(e) {}
+        ErrorData(NontypeGentypeParam e): nontype_gentype_param(e) {}
+        ErrorData(TypenameInCtor e): typename_in_ctor(e) {}
+        ErrorData(ValInFuntype e): val_in_funtype(e) {}
+        ErrorData(NontypeAnnotation e): nontype_annotation(e) {}
+        ErrorData(NontypeReturntype e): nontype_returntype(e) {}
+        ErrorData(NoFunctionParamList e): no_function_param_list(e) {}
+
+        struct ReturnOutsideFun { CODE = ERR_RETURN_OUTSIDE_FUN; Unary* ret; Env* env; } return_outside_fun;
+        struct InvalidWithEnv { CODE = ERR_INVALID_WITH_ENV; With* with; } invalid_with_env;
+        struct InferenceMismatch { CODE = ERR_INFERENCE_MISMATCH; AST* ast; Type *type, *expected; } inference_mismatch;
+        struct IncompatibleOperand { CODE = ERR_INCOMPATIBLE_OPERAND; AST* ast; Type *type, *expected; } incompatible_operand;
+        struct NonArithmeticType { CODE = ERR_NON_ARITHMETIC_TYPE; AST* ast; Type* type; } non_arithmetic_type;
+        struct NonIntegralType { CODE = ERR_NON_INTEGRAL_TYPE; AST* ast; Type* type; } non_integral_type;
+        struct NonComparableType { CODE = ERR_NON_COMPARABLE_TYPE; AST* ast; Type* type; } non_comparable_type;
+        struct NonEqualityType { CODE = ERR_NON_EQUALITY_TYPE; AST* ast; Type* type; } non_equality_type;
+        struct IncompatibleAssignment { CODE = ERR_INCOMPATIBLE_ASSIGNMENT; AST* ast; Type *type, *expected; } incompatible_assignment;
+        struct NonPointerDereference { CODE = ERR_NON_POINTER_DEREFERENCE; AST* ast; Type* type; } non_pointer_dereference;
+        struct InvalidDelete { CODE = ERR_INVALID_DELETE; AST* ast; Type* type; } invalid_delete;
+        struct NonIntegralNewarrayDim { CODE = ERR_NON_INTEGRAL_NEWARRAY_DIM; AST* ast; Type* type; } non_integral_newarray_dim;
+        struct InvalidSizeofOperand { CODE = ERR_INVALID_SIZEOF_OPERAND; AST* ast; Type* type; } invalid_sizeof_operand;
+        struct InvalidDotExpression { CODE = ERR_INVALID_DOT_EXPRESSION; AST* ast; } invalid_dot_expression;
+        struct NonIndexableType { CODE = ERR_NON_INDEXABLE_TYPE; AST* ast; Type* type; } non_indexable_type;
+        struct NonSliceableType { CODE = ERR_NON_SLICEABLE_TYPE; AST* ast; Type* type; } non_sliceable_type;
+        struct GencallMismatch { CODE = ERR_GENCALL_MISMATCH; AST* call; FunDecl* decl; i32 n, expected; } gencall_mismatch;
+        struct CallMismatch { CODE = ERR_CALL_MISMATCH; AST *call, *decl; i32 n, expected; } call_mismatch;
+        struct NonFunctionType { CODE = ERR_NON_FUNCTION_TYPE; AST* ast; Type* type; } non_function_type;
+        struct IncompatibleArgument { CODE = ERR_INCOMPATIBLE_ARGUMENT; AST* ast; Type *type, *dest; } incompatible_argument;
+        struct EmptyArguments { CODE = ERR_EMPTY_ARGUMENTS; AST* call; Type* funtype; } empty_arguments;
+        struct NonArrayType { CODE = ERR_NON_ARRAY_TYPE; AST* array; Type* type; } non_array_type;
+        struct IncompatibleElement { CODE = ERR_INCOMPATIBLE_ELEMENT; AST* element; Type *etype, *dest; } incompatible_element;
+        struct IncompatibleInitializer { CODE = ERR_INCOMPATIBLE_INITIALIZER; AST* init; Type *type, *dest; } incompatible_initializer;
+        struct CtorMismatch { CODE = ERR_CTOR_MISMATCH; AST* ctor; Type* ctype; i32 n, expected; } ctor_mismatch;
+        struct CastMismatch { CODE = ERR_CAST_MISMATCH; AST* cast; Type* ctype; i32 n, expected; } cast_mismatch;
+        struct InvalidCast { CODE = ERR_INVALID_CAST; AST* ast; Type *type, *dest; } invalid_cast;
+        struct IncompatibleCtorParam { CODE = ERR_INCOMPATIBLE_CTOR_PARAM; AST* ast; Type *type, *dest; } incompatible_ctor_param;
+        struct UnionCtor { CODE = ERR_UNION_CTOR; AST* ctor; Type* type; } union_ctor;
+        struct NonBooleanType { CODE = ERR_NON_BOOLEAN_TYPE; AST* ast; Type* type; } non_boolean_type;
+        struct IncompatibleReturn { CODE = ERR_INCOMPATIBLE_RETURN; AST* ast; Type *type, *dest; } incompatible_return;
+        
+        ErrorData(ReturnOutsideFun e): return_outside_fun(e) {}
+        ErrorData(InvalidWithEnv e): invalid_with_env(e) {}
+        ErrorData(InferenceMismatch e): inference_mismatch(e) {}
+        ErrorData(IncompatibleOperand e): incompatible_operand(e) {}
+        ErrorData(NonArithmeticType e): non_arithmetic_type(e) {}
+        ErrorData(NonIntegralType e): non_integral_type(e) {}
+        ErrorData(NonComparableType e): non_comparable_type(e) {}
+        ErrorData(NonEqualityType e): non_equality_type(e) {}
+        ErrorData(IncompatibleAssignment e): incompatible_assignment(e) {}
+        ErrorData(NonPointerDereference e): non_pointer_dereference(e) {}
+        ErrorData(InvalidDelete e): invalid_delete(e) {}
+        ErrorData(NonIntegralNewarrayDim e): non_integral_newarray_dim(e) {}
+        ErrorData(InvalidSizeofOperand e): invalid_sizeof_operand(e) {}
+        ErrorData(InvalidDotExpression e): invalid_dot_expression(e) {}
+        ErrorData(NonIndexableType e): non_indexable_type(e) {}
+        ErrorData(NonSliceableType e): non_sliceable_type(e) {}
+        ErrorData(GencallMismatch e): gencall_mismatch(e) {}
+        ErrorData(CallMismatch e): call_mismatch(e) {}
+        ErrorData(NonFunctionType e): non_function_type(e) {}
+        ErrorData(IncompatibleArgument e): incompatible_argument(e) {}
+        ErrorData(EmptyArguments e): empty_arguments(e) {}
+        ErrorData(NonArrayType e): non_array_type(e) {}
+        ErrorData(IncompatibleElement e): incompatible_element(e) {}
+        ErrorData(IncompatibleInitializer e): incompatible_initializer(e) {}
+        ErrorData(CtorMismatch e): ctor_mismatch(e) {}
+        ErrorData(CastMismatch e): cast_mismatch(e) {}
+        ErrorData(InvalidCast e): invalid_cast(e) {}
+        ErrorData(IncompatibleCtorParam e): incompatible_ctor_param(e) {}
+        ErrorData(UnionCtor e): union_ctor(e) {}
+        ErrorData(NonBooleanType e): non_boolean_type(e) {}
+        ErrorData(IncompatibleReturn e): incompatible_return(e) {}
     } data;
 };
 
@@ -159,6 +365,10 @@ void lex_error() {
 
 void parse_error() {
     if (err_kind < PARSE_ERROR) err_kind = PARSE_ERROR;
+}
+
+void type_error() {
+    if (err_kind < TYPE_ERROR) err_kind = TYPE_ERROR;
 }
 
 void utf8_format_error(Module* mod, UnicodeError err, i32 pos) {
@@ -341,22 +551,354 @@ void no_newarray_sep_error(Module* mod, const Token& tk) {
     push_error<Error::ErrorData::NoNewarraySep>(mod, tk);
 }
 
-static const i8* RED = "\e[1;31m";
+// env construction
+
+void incorrect_defer_env_error(Module* mod, Unary* defer, Env* env) {
+    type_error();
+    push_error<Error::ErrorData::IncorrectDeferEnv>(mod, defer, env);
+}
+
+void no_such_module_error(Module* mod, AST* path) {
+    type_error();
+    push_error<Error::ErrorData::NoSuchModule>(mod, path);
+}
+
+void non_type_param_in_gentype_error(Module* mod, TypeDecl* decl, AST* param) {
+    type_error();
+    push_error<Error::ErrorData::NonTypeParamInGentype>(mod, decl, param);
+}
+
+void dot_in_typedecl_name_error(Module* mod, TypeDecl* decl) {
+    type_error();
+    push_error<Error::ErrorData::DotInTypedeclName>(mod, decl);
+}
+
+void no_name_in_typedecl_error(Module* mod, TypeDecl* decl) {
+    type_error();
+    push_error<Error::ErrorData::NoNameInTypedecl>(mod, decl);
+}
+
+void no_name_in_type_case_error(Module* mod, CaseDecl* decl) {
+    type_error();
+    push_error<Error::ErrorData::NoNameInTypeCase>(mod, decl);
+}
+
+void redefined_type_var_error(Module* mod, AST* tvar, AST* prev_decl) {
+    type_error();
+    push_error<Error::ErrorData::RedefinedTypeVar>(mod, tvar, prev_decl);
+}
+
+// type detection
+
+void case_in_non_union_error(Module* mod, CaseDecl* decl) {
+    type_error();
+    push_error<Error::ErrorData::CaseInNonUnion>(mod, decl);
+}
+
+void inferred_field_error(Module* mod, VarDecl* field) {
+    type_error();
+    push_error<Error::ErrorData::InferredField>(mod, field);
+}
+
+void field_in_non_struct_error(Module* mod, VarDecl* field) {
+    type_error();
+    push_error<Error::ErrorData::FieldInNonStruct>(mod, field);
+}
+
+void unexpected_type_member_error(Module* mod, AST* type) {
+    type_error();
+    push_error<Error::ErrorData::UnexpectedTypeMember>(mod, type);
+}
+
+void redefined_pattern_error(Module* mod, Var* v, VarDecl* prev_decl) {
+    type_error();
+    push_error<Error::ErrorData::RedefinedPattern>(mod, v, prev_decl);
+}
+
+void no_type_in_pattern_error(Module* mod, AST* ast) {
+    type_error();
+    push_error<Error::ErrorData::NoTypeInPattern>(mod, ast);
+}
+
+void incompatible_pattern_types_error(Module* mod, Type* expected, AST* rhs) {
+    type_error();
+    push_error<Error::ErrorData::IncompatiblePatternTypes>(mod, expected, rhs);
+}
+
+void pattern_params_mismatch_error(Module* mod, AST* pattern, Type* type, i32 n, i32 expected) {
+    type_error();
+    push_error<Error::ErrorData::PatternParamsMismatch>(mod, pattern, type, n, expected);
+}
+
+void invalid_destructuring_error(Module* mod, AST* pattern, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::InvalidDestructuring>(mod, pattern, type);
+}
+
+void undefined_var_error(Module* mod, Var* v) {
+    type_error();
+    push_error<Error::ErrorData::UndefinedVar>(mod, v);
+}
+
+void multiple_array_dims_error(Module* mod, AST* dims) {
+    type_error();
+    push_error<Error::ErrorData::MultipleArrayDims>(mod, dims);
+}
+
+void unexpected_typename_error(Module* mod, AST* type) {
+    type_error();
+    push_error<Error::ErrorData::UnexpectedTypename>(mod, type);
+}
+
+void non_const_array_dim_error(Module* mod, AST* dim) {
+    type_error();
+    push_error<Error::ErrorData::NonConstArrayDim>(mod, dim);
+}
+
+void expected_array_type_error(Module* mod, AST* type) {
+    type_error();
+    push_error<Error::ErrorData::ExpectedArrayType>(mod, type);
+}
+
+void expected_slice_type_error(Module* mod, AST* type) {
+    type_error();
+    push_error<Error::ErrorData::ExpectedSliceType>(mod, type);
+}
+
+void expected_ptr_type_error(Module* mod, AST* type) {
+    type_error();
+    push_error<Error::ErrorData::ExpectedPtrType>(mod, type);
+}
+
+void expected_fun_type_error(Module* mod, AST* type) {
+    type_error();
+    push_error<Error::ErrorData::ExpectedFunType>(mod, type);
+}
+
+void undefined_typename_error(Module* mod, Var* t) {
+    type_error();
+    push_error<Error::ErrorData::ExpectedTypename>(mod, t);
+}
+
+void expected_typename_error(Module* mod, AST* type) {
+    type_error();
+    push_error<Error::ErrorData::ExpectedTypename>(mod, type);
+}
+
+void typename_in_slice_error(Module* mod, AST* type) {
+    type_error();
+    push_error<Error::ErrorData::TypenameInSlice>(mod, type);
+}
+
+void gentype_params_mismatch_error(Module* mod, Apply* call, TypeDecl* decl, i32 n, i32 expected) {
+    type_error();
+    push_error<Error::ErrorData::GentypeParamsMismatch>(mod, call, decl, n, expected);
+}
+
+void nontype_gentype_param_error(Module* mod, AST* param, TypeDecl* decl) {
+    type_error();
+    push_error<Error::ErrorData::NontypeGentypeParam>(mod, decl);
+}
+
+void typename_in_ctor_error(Module* mod, Type* ctor, AST* ast) {
+    type_error();
+    push_error<Error::ErrorData::TypenameInCtor>(mod, ctor, ast);
+}
+
+void val_in_funtype_error(Module* mod, AST* ast) {
+    type_error();
+    push_error<Error::ErrorData::ValInFuntype>(mod, ast);
+}
+
+void nontype_annotation_error(Module* mod, AST* ann) {
+    type_error();
+    push_error<Error::ErrorData::NontypeAnnotation>(mod, ann);
+}
+
+void nontype_returntype_error(Module* mod, AST* ret) {
+    type_error();
+    push_error<Error::ErrorData::NontypeReturntype>(mod, ret);
+}
+
+void no_function_param_list_error(Module* mod, AST* proto) {
+    type_error();
+    push_error<Error::ErrorData::NoFunctionParamList>(mod, proto);
+}
+
+// typechecking and inference
+
+void return_outside_fun_error(Module* mod, Unary* ret, Env* env) {
+    type_error();
+    push_error<Error::ErrorData::ReturnOutsideFun>(mod, ret, env);
+}
+
+void invalid_with_env_error(Module* mod, With* with) {
+    type_error();
+    push_error<Error::ErrorData::InvalidWithEnv>(mod, with);
+}
+
+void inference_mismatch_error(Module* mod, AST* ast, Type* type, Type* expected) {
+    type_error();
+    push_error<Error::ErrorData::InferenceMismatch>(mod, ast, type, expected);
+}
+
+void incompatible_operand_error(Module* mod, AST* ast, Type* type, Type* expected) {
+    type_error();
+    push_error<Error::ErrorData::IncompatibleOperand>(mod, ast, type, expected);
+}
+
+void non_arithmetic_type_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonArithmeticType>(mod, ast, type);
+}
+
+void non_integral_type_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonIntegralType>(mod, ast, type);
+}
+
+void non_comparable_type_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonComparableType>(mod, ast, type);
+}
+
+void non_equality_type_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonEqualityType>(mod, ast, type);
+}
+
+void incompatible_assignment_error(Module* mod, AST* ast, Type* type, Type* expected) {
+    type_error();
+    push_error<Error::ErrorData::IncompatibleAssignment>(mod, ast, type, expected);
+}
+
+void non_pointer_dereference_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonPointerDereference>(mod, ast, type);
+}
+
+void invalid_delete_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::InvalidDelete>(mod, ast, type);
+}
+
+void non_integral_newarray_dim_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonIntegralNewarrayDim>(mod, ast, type);
+}
+
+void invalid_sizeof_operand_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::InvalidSizeofOperand>(mod, ast, type);
+}
+
+void invalid_dot_expression_error(Module* mod, AST* ast) {
+    type_error();
+    push_error<Error::ErrorData::InvalidDotExpression>(mod, ast);
+}
+
+void non_indexable_type_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonIndexableType>(mod, ast, type);
+}
+
+void non_sliceable_type_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonSliceableType>(mod, ast, type);
+}
+
+void gencall_mismatch_error(Module* mod, AST* call, FunDecl* decl, i32 n, i32 expected) {
+    type_error();
+    push_error<Error::ErrorData::GencallMismatch>(mod, call, decl, n, expected);
+}
+
+void call_mismatch_error(Module* mod, AST* call, AST* decl, i32 n, i32 expected) {
+    type_error();
+    push_error<Error::ErrorData::CallMismatch>(mod, call, decl, n, expected);
+}
+
+void non_function_type_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonFunctionType>(mod, ast, type);
+}
+
+void incompatible_argument_error(Module* mod, AST* ast, Type* type, Type* expected) {
+    type_error();
+    push_error<Error::ErrorData::IncompatibleArgument>(mod, ast, type, expected);
+}
+
+void empty_arguments_error(Module* mod, AST* call, Type* funtype) {
+    type_error();
+    push_error<Error::ErrorData::EmptyArguments>(mod, call, funtype);
+}
+
+void non_array_type_error(Module* mod, AST* array, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonArrayType>(mod, array, type);
+}
+
+void incompatible_element_error(Module* mod, AST* element, Type* etype, Type* expected) {
+    type_error();
+    push_error<Error::ErrorData::IncompatibleElement>(mod, element, etype, expected);
+}
+
+void incompatible_initializer_error(Module* mod, AST* init, Type* type, Type* expected) {
+    type_error();
+    push_error<Error::ErrorData::IncompatibleInitializer>(mod, init, type, expected);
+}
+
+void ctor_mismatch_error(Module* mod, AST* ctor, Type* ctype, i32 n, i32 expected) {
+    type_error();
+    push_error<Error::ErrorData::CtorMismatch>(mod, ctor, ctype, n, expected);
+}
+
+void cast_mismatch_error(Module* mod, AST* ctor, Type* ctype, i32 n, i32 expected) {
+    type_error();
+    push_error<Error::ErrorData::CastMismatch>(mod, ctor, ctype, n, expected);
+}
+
+void invalid_cast_error(Module* mod, AST* ast, Type* type, Type* dest) {
+    type_error();
+    push_error<Error::ErrorData::InvalidCast>(mod, ast, type, dest);
+}
+
+void incompatible_ctor_param_error(Module* mod, AST* ast, Type* type, Type* expected) {
+    type_error();
+    push_error<Error::ErrorData::IncompatibleCtorParam>(mod, ast, type, expected);
+}
+
+void union_ctor_error(Module* mod, AST* ctor, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::UnionCtor>(mod, ctor, type);
+}
+
+void non_boolean_type_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NonBooleanType>(mod, ast, type);
+}
+
+void incompatible_return_error(Module* mod, AST* ast, Type* type, Type* expected) {
+    type_error();
+    push_error<Error::ErrorData::IncompatibleReturn>(mod, ast, type, expected);
+}
+
+static const i8* RED = "\e[0;91m";
+static const i8* PURPLE = "\e[0;31m";
 static const i8* RESET = "\e[0m";
 
-void print_line(Module* mod, stream& io, i32 pos, i32 len, i16 col) {
+void print_line(Module* mod, stream& io, i32 pos, i32 len, i16 col, const i8* color = RED) {
     i8* p = mod->bytes.text + pos;
     i8* begin = p - col;
     i8* end = begin;
     while (end < mod->bytes.text + mod->bytes.length && *end != '\n' && *end) end ++;
     write(io, "    ");
     for (i64 i = 0; i < end - begin; i ++) {
-        if (i == col) write(io, RED);
+        if (i == col) write(io, color);
         if (i == col + len) write(io, RESET);
         write(io, begin[i]);
     }
     write(io, RESET, '\n');
-    write(io, "    ", RED);
+    write(io, "    ", color);
     for (i64 i = 0; i < end - begin + 1; i ++) {
         if (i >= col && i < col + len) write(io, '^');
         else write(io, ' ');
@@ -364,8 +906,13 @@ void print_line(Module* mod, stream& io, i32 pos, i32 len, i16 col) {
     write(io, RESET, '\n');
 }
 
-void print_line(Module* mod, stream& io, SourcePos pos) {
-    print_line(mod, io, pos.start, pos.end - pos.start, pos.column);
+void print_line(Module* mod, stream& io, SourcePos pos, const i8* color = RED) {
+    print_line(mod, io, pos.start, pos.end - pos.start, pos.column, color);
+}
+
+void print_line(Module* mod, stream& io, AST* ast, const i8* color = RED) {
+    if (ast->pos.start != 0 || ast->pos.end != 0)
+        print_line(mod, io, ast->pos, color);
 }
 
 void print_loc(Module* mod, stream& io, i32 line, i32 col) {
@@ -375,6 +922,32 @@ void print_loc(Module* mod, stream& io, i32 line, i32 col) {
 void print_loc(Module* mod, stream& io, SourcePos pos) {
     print_loc(mod, io, pos.line, pos.column);
 }
+
+void print_loc(Module* mod, stream& io, AST* ast) {
+    if (ast->pos.start == 0 && ast->pos.end == 0) write(io, mod->path, ":?:? ");
+    else print_loc(mod, io, ast->pos);
+}
+
+struct TPrint {
+    Module* m;
+    Type* t;
+};
+
+struct APrint {
+    Module* m;
+    AST* ast;
+};
+
+inline void write(stream& io, const TPrint& p) {
+    format(io, p.m, p.t);
+}
+
+inline void write(stream& io, const APrint& p) {
+    format(io, p.m, p.ast);
+}
+
+#define AP(x) APrint{mod, x}
+#define TP(x) TPrint{mod, x}
 
 void print_error(stream& io, bool verbose, const Error& e) {
     Module* mod = e.mod;
@@ -569,11 +1142,430 @@ void print_error(stream& io, bool verbose, const Error& e) {
         write(io, RED, "Error", RESET, ": Expected closing bracket (']') after new array dimension.\n");
         print_line(mod, io, e.data.no_newarray_sep.tk);
         break;
+
+    // env construction
+    case ERR_INCORRECT_DEFER_ENV:
+        print_loc(mod, io, e.data.incorrect_defer_env.defer);
+        write(io, RED, "Error", RESET, ": Defer statement only permitted in global or function scope.\n");
+        print_line(mod, io, e.data.incorrect_defer_env.defer);
+        if (e.data.incorrect_defer_env.env->decl) {
+            print_loc(mod, io, e.data.incorrect_defer_env.env->decl);
+            write(io, PURPLE, "Note", RESET, ": Enclosing scope starts here.\n");
+            print_line(mod, io, e.data.incorrect_defer_env.env->decl, PURPLE);
+        }
+        break;
+    case ERR_NO_SUCH_MODULE:
+        print_loc(mod, io, e.data.no_such_module.path);
+        write(io, RED, "Error", RESET, ": Couldn't resolve module '");
+        format(io, mod, e.data.no_such_module.path);
+        write(io, "'.\n");
+        print_line(mod, io, e.data.no_such_module.path);
+        break;
+    case ERR_NON_TYPE_PARAM_IN_GENTYPE:
+        print_loc(mod, io, e.data.non_type_param_in_gentype.param);
+        write(io, RED, "Error", RESET, ": Expected type parameter name in generic type.\n");
+        print_line(mod, io, e.data.non_type_param_in_gentype.param);
+        break;
+    case ERR_DOT_IN_TYPEDECL_NAME:
+        print_loc(mod, io, e.data.dot_in_typedecl_name.decl->name);
+        write(io, RED, "Error", RESET, ": Dot expression not permitted in type name.\n");
+        print_line(mod, io, e.data.dot_in_typedecl_name.decl->name);
+        break;
+    case ERR_NO_NAME_IN_TYPEDECL:
+        print_loc(mod, io, e.data.no_name_in_typedecl.decl->name);
+        write(io, RED, "Error", RESET, ": Expected type name.\n");
+        print_line(mod, io, e.data.no_name_in_typedecl.decl->name);
+        break;
+    case ERR_REDEFINED_TYPE_VAR:
+        print_loc(mod, io, e.data.redefined_type_var.tvar);
+        write(io, RED, "Error", RESET, ": Type variable conflicts with prior definition.\n");
+        print_line(mod, io, e.data.redefined_type_var.tvar);
+        if (e.data.redefined_type_var.prev_decl) {
+            print_loc(mod, io, e.data.redefined_type_var.prev_decl);
+            write(io, PURPLE, "Note", RESET, ": Previously defined here.\n");
+            print_line(mod, io, e.data.redefined_type_var.prev_decl, PURPLE);
+        }
+        break;
+
+    // type detection
+    case ERR_CASE_IN_NON_UNION:
+        print_loc(mod, io, e.data.case_in_non_union.decl);
+        write(io, RED, "Error", RESET, ": Unexpected case type in non-union type definition.\n");
+        print_line(mod, io, e.data.case_in_non_union.decl);
+        break;
+    case ERR_INFERRED_FIELD:
+        print_loc(mod, io, e.data.inferred_field.field);
+        write(io, RED, "Error", RESET, ": Field types must be explicitly specified.\n");
+        print_line(mod, io, e.data.inferred_field.field);
+        break;
+    case ERR_FIELD_IN_NON_STRUCT:
+        print_loc(mod, io, e.data.field_in_non_struct.field);
+        write(io, RED, "Error", RESET, ": Unexpected field in non-struct type definition.\n");
+        print_line(mod, io, e.data.field_in_non_struct.field);
+        break;
+    case ERR_UNEXPECTED_TYPE_MEMBER:
+        print_loc(mod, io, e.data.unexpected_type_member.member);
+        write(io, RED, "Error", RESET, ": Unexpected type name in member definitions.\n");
+        print_line(mod, io, e.data.unexpected_type_member.member);
+        break;
+    case ERR_REDEFINED_PATTERN:
+        print_loc(mod, io, e.data.redefined_pattern.v);
+        write(io, RED, "Error", RESET, ": Redefinition of pattern variable.\n");
+        print_line(mod, io, e.data.redefined_pattern.v);
+        if (e.data.redefined_pattern.prev_decl) {
+            print_loc(mod, io, e.data.redefined_pattern.prev_decl);
+            write(io, PURPLE, "Note", RESET, ": Previously defined here.\n");
+            print_line(mod, io, e.data.redefined_pattern.prev_decl, PURPLE);
+        }
+        break;
+    case ERR_NO_TYPE_IN_PATTERN:
+        print_loc(mod, io, e.data.no_type_in_pattern.ast);
+        write(io, RED, "Error", RESET, ": Expected type name in pattern.\n");
+        print_line(mod, io, e.data.no_type_in_pattern.ast);
+        break;
+    case ERR_INCOMPATIBLE_PATTERN_TYPES:
+        print_loc(mod, io, e.data.incompatible_pattern_types.ast);
+        write(io, RED, "Error", RESET, ": Incompatible pattern types. Expected '");
+        format(io, mod, e.data.incompatible_pattern_types.expected);
+        write(io, "', found '");
+        format(io, mod, e.data.incompatible_pattern_types.ast->type);
+        write(io, "'.\n");
+        print_line(mod, io, e.data.incompatible_pattern_types.ast);
+        break;
+    case ERR_PATTERN_PARAMS_MISMATCH:
+        print_loc(mod, io, e.data.pattern_params_mismatch.pattern);
+        write(io, RED, "Error", RESET, ": Incorrect number of pattern fields. Expected ", e.data.pattern_params_mismatch.expected);
+        write(io, " but found ", e.data.pattern_params_mismatch.n, ".\n");
+        print_line(mod, io, e.data.pattern_params_mismatch.pattern);
+        if (e.data.pattern_params_mismatch.type->env->decl) {
+            AST* d = e.data.pattern_params_mismatch.type->env->decl;
+            print_loc(mod, io, d);
+            write(io, PURPLE, "Note", RESET, ": Type defined here.\n");
+            print_line(mod, io, d, PURPLE);
+        }
+        break;
+    case ERR_INVALID_DESTRUCTURING: {
+        print_loc(mod, io, e.data.invalid_destructuring.pattern);
+        write(io, RED, "Error", RESET, ": Type '");
+        Type* conc = fullsimplify(*mod->typectx, e.data.invalid_destructuring.type);
+        format(io, mod, conc);
+        write(io, "' cannot be destructured.\n");
+        print_line(mod, io, e.data.invalid_destructuring.pattern);
+        break;
+    }
+    case ERR_UNDEFINED_VAR:
+        print_loc(mod, io, e.data.undefined_var.v);
+        write(io, RED, "Error", RESET, ": Undefined variable '");
+        format(io, mod, e.data.undefined_var.v);
+        write(io, "'.\n");
+        print_line(mod, io, e.data.undefined_var.v);
+        break;
+    case ERR_MULTIPLE_ARRAY_DIMS:
+        print_loc(mod, io, e.data.multiple_array_dims.dims);
+        write(io, RED, "Error", RESET, ": Cannot define array type with multiple dimensions.\n");
+        print_line(mod, io, e.data.multiple_array_dims.dims);
+        break;
+    case ERR_UNEXPECTED_TYPENAME:
+        print_loc(mod, io, e.data.unexpected_typename.type);
+        write(io, RED, "Error", RESET, ": Unexpected type name in expression.\n");
+        print_line(mod, io, e.data.unexpected_typename.type);
+        break;
+    case ERR_NON_CONST_ARRAY_DIM:
+        print_loc(mod, io, e.data.non_const_array_dim.dim);
+        write(io, RED, "Error", RESET, ": Size of array type must be a constant integer.\n");
+        print_line(mod, io, e.data.non_const_array_dim.dim);
+        break;
+    case ERR_EXPECTED_ARRAY_TYPE:
+        print_loc(mod, io, e.data.expected_array_type.type);
+        write(io, RED, "Error", RESET, ": Expected array type.\n");
+        print_line(mod, io, e.data.expected_array_type.type);
+        break;
+    case ERR_EXPECTED_SLICE_TYPE:
+        print_loc(mod, io, e.data.expected_slice_type.type);
+        write(io, RED, "Error", RESET, ": Expected slice type.\n");
+        print_line(mod, io, e.data.expected_slice_type.type);
+        break;
+    case ERR_EXPECTED_PTR_TYPE:
+        print_loc(mod, io, e.data.expected_ptr_type.type);
+        write(io, RED, "Error", RESET, ": Expected pointer type.\n");
+        print_line(mod, io, e.data.expected_ptr_type.type);
+        break;
+    case ERR_EXPECTED_FUN_TYPE:
+        print_loc(mod, io, e.data.expected_fun_type.type);
+        write(io, RED, "Error", RESET, ": Expected function type.\n");
+        print_line(mod, io, e.data.expected_fun_type.type);
+        break;
+    case ERR_UNDEFINED_TYPENAME:
+        print_loc(mod, io, e.data.undefined_typename.type);
+        write(io, RED, "Error", RESET, ": Undefined type name '");
+        format(io, mod, e.data.undefined_typename.type);
+        write(io, "'.\n");
+        print_line(mod, io, e.data.undefined_typename.type);
+        break;
+    case ERR_EXPECTED_TYPENAME:
+        print_loc(mod, io, e.data.expected_typename.type);
+        write(io, RED, "Error", RESET, ": Type name does not actually describe a type.\n");
+        print_line(mod, io, e.data.expected_typename.type);
+        break;
+    case ERR_TYPENAME_IN_SLICE:
+        print_loc(mod, io, e.data.typename_in_slice.type);
+        write(io, RED, "Error", RESET, ": Unexpected type name in slice expression.\n");
+        print_line(mod, io, e.data.typename_in_slice.type);
+        break;
+    case ERR_GENTYPE_PARAMS_MISMATCH:
+        print_loc(mod, io, e.data.gentype_params_mismatch.call);
+        write(io, RED, "Error", RESET, ": Incorrect number of parameters for generic type. Expected '", e.data.gentype_params_mismatch.expected);
+        write(io, "', found '", e.data.gentype_params_mismatch.n, "'.\n");
+        print_line(mod, io, e.data.gentype_params_mismatch.call);
+        if (e.data.gentype_params_mismatch.decl) {
+            AST* d = e.data.gentype_params_mismatch.decl;
+            print_loc(mod, io, d);
+            write(io, PURPLE, "Note", RESET, ": Type defined here.\n");
+            print_line(mod, io, d, PURPLE);
+        }
+        break;
+    case ERR_NONTYPE_GENTYPE_PARAM:
+        print_loc(mod, io, e.data.nontype_gentype_param.param);
+        write(io, RED, "Error", RESET, ": Expected type name in generic type parameter list.\n");
+        print_line(mod, io, e.data.nontype_gentype_param.param);
+        if (e.data.nontype_gentype_param.decl) {
+            AST* d = e.data.nontype_gentype_param.decl;
+            print_loc(mod, io, d);
+            write(io, PURPLE, "Note", RESET, ": Type defined here.\n");
+            print_line(mod, io, d, PURPLE);
+        }
+        break;
+    case ERR_TYPENAME_IN_CTOR: {
+        print_loc(mod, io, e.data.typename_in_ctor.ast);
+        write(io, RED, "Error", RESET, ": Unexpected type name in ");
+        Type* conc = fullsimplify(*mod->typectx, e.data.typename_in_ctor.ctor);
+        format(io, mod, conc);
+        write(io, " constructor call.\n");
+        print_line(mod, io, e.data.typename_in_ctor.ast);
+        break;
+    }
+    case ERR_VAL_IN_FUNTYPE:
+        print_loc(mod, io, e.data.val_in_funtype.ast);
+        write(io, RED, "Error", RESET, ": Expected type name in function type.\n");
+        print_line(mod, io, e.data.val_in_funtype.ast);
+        break;
+    case ERR_NONTYPE_ANNOTATION:
+        print_loc(mod, io, e.data.nontype_annotation.ann);
+        write(io, RED, "Error", RESET, ": Expected type name in variable type annotation.\n");
+        print_line(mod, io, e.data.nontype_annotation.ann);
+        break;
+    case ERR_NONTYPE_RETURNTYPE:
+        print_loc(mod, io, e.data.nontype_returntype.ret);
+        write(io, RED, "Error", RESET, ": Expected type name in return type annotation.\n");
+        print_line(mod, io, e.data.nontype_returntype.ret);
+        break;
+    case ERR_NO_FUNCTION_PARAM_LIST:
+        print_loc(mod, io, e.data.no_function_param_list.proto);
+        write(io, RED, "Error", RESET, ": Function defined without a parameter list.\n");
+        print_line(mod, io, e.data.no_function_param_list.proto);
+        break;
+
+    // typechecking and inference
+    case ERR_RETURN_OUTSIDE_FUN:
+        print_loc(mod, io, e.data.return_outside_fun.ret);
+        write(io, RED, "Error", RESET, ": Return statements are only valid within function scope.\n");
+        print_line(mod, io, e.data.return_outside_fun.ret);
+        if (e.data.return_outside_fun.env->decl) {
+            AST* d = e.data.return_outside_fun.env->decl;
+            print_loc(mod, io, d);
+            write(io, PURPLE, "Note", RESET, ": Enclosing scope begins here.\n");
+            print_line(mod, io, d, PURPLE);
+        }
+        break;
+    case ERR_INVALID_WITH_ENV:
+        print_loc(mod, io, e.data.invalid_with_env.with->bound);
+        write(io, RED, "Error", RESET, ": Binding of invalid value in with statement.\n"); // wording on this isn't the clearest...
+        print_line(mod, io, e.data.invalid_with_env.with->bound);
+        break;
+    case ERR_INFERENCE_MISMATCH:
+        print_loc(mod, io, e.data.inference_mismatch.ast);
+        write(io, RED, "Error", RESET, ": Type mismatch. Expected '", TP(e.data.inference_mismatch.expected), "', found '");
+        write(io, TP(e.data.inference_mismatch.type), "'.\n");
+        print_line(mod, io, e.data.inference_mismatch.ast);
+        break;
+    case ERR_INCOMPATIBLE_OPERAND:
+        print_loc(mod, io, e.data.incompatible_operand.ast);
+        write(io, RED, "Error", RESET, ": Incompatible operand. Expected '", TP(e.data.incompatible_operand.expected), "', found '");
+        write(io, TP(e.data.incompatible_operand.type), "'.\n");
+        print_line(mod, io, e.data.incompatible_operand.ast);
+        break;
+    case ERR_NON_ARITHMETIC_TYPE:
+        print_loc(mod, io, e.data.non_arithmetic_type.ast);
+        write(io, RED, "Error", RESET, ": Expected arithmetic type in expression, found '", TP(e.data.non_arithmetic_type.type), "'.\n");
+        print_line(mod, io, e.data.non_arithmetic_type.ast);
+        break;
+    case ERR_NON_INTEGRAL_TYPE:
+        print_loc(mod, io, e.data.non_integral_type.ast);
+        write(io, RED, "Error", RESET, ": Expected integral type in expression, found '", TP(e.data.non_arithmetic_type.type), "'.\n");
+        print_line(mod, io, e.data.non_integral_type.ast);
+        break;
+    case ERR_NON_COMPARABLE_TYPE:
+        print_loc(mod, io, e.data.non_comparable_type.ast);
+        write(io, RED, "Error", RESET, ": Expected comparable type in expression, found '", TP(e.data.non_arithmetic_type.type), "'.\n");
+        print_line(mod, io, e.data.non_comparable_type.ast);
+        break;
+    case ERR_NON_EQUALITY_TYPE:
+        print_loc(mod, io, e.data.non_equality_type.ast);
+        write(io, RED, "Error", RESET, ": Expected equality-comparable type in expression, found '", TP(e.data.non_arithmetic_type.type), "'.\n");
+        print_line(mod, io, e.data.non_equality_type.ast);
+        break;
+    case ERR_INCOMPATIBLE_ASSIGNMENT:
+        print_loc(mod, io, e.data.incompatible_assignment.ast);
+        write(io, RED, "Error", RESET, ": Can't assign value of type '", TP(e.data.incompatible_assignment.type));
+        write(io, "' to '", TP(e.data.incompatible_assignment.expected), "'.\n");
+        print_line(mod, io, e.data.incompatible_assignment.ast);
+        break;
+    case ERR_NON_POINTER_DEREFERENCE:
+        print_loc(mod, io, e.data.non_pointer_dereference.ast);
+        write(io, RED, "Error", RESET, ": Tried to dereference non-pointer type '", TP(e.data.non_pointer_dereference.type), "'.\n");
+        print_line(mod, io, e.data.non_pointer_dereference.ast);
+        break;
+    case ERR_INVALID_DELETE:
+        print_loc(mod, io, e.data.invalid_delete.ast);
+        write(io, RED, "Error", RESET, ": Tried to delete non-deletable type '", TP(e.data.invalid_delete.type), "'.\n");
+        print_line(mod, io, e.data.invalid_delete.ast);
+        break;
+    case ERR_NON_INTEGRAL_NEWARRAY_DIM:
+        print_loc(mod, io, e.data.non_integral_newarray_dim.ast);
+        write(io, RED, "Error", RESET, ": Size of new array expression must be an integer, but found '", TP(e.data.non_integral_newarray_dim.type), "' instead.\n");
+        print_line(mod, io, e.data.non_integral_newarray_dim.ast);
+        break;
+    case ERR_INVALID_SIZEOF_OPERAND:
+        print_loc(mod, io, e.data.invalid_sizeof_operand.ast);
+        write(io, RED, "Error", RESET, ": Tried to find size of incompatible type '", TP(e.data.invalid_sizeof_operand.type), "'.\n");
+        print_line(mod, io, e.data.invalid_sizeof_operand.ast);
+        break;
+    case ERR_INVALID_DOT_EXPRESSION:
+        print_loc(mod, io, e.data.invalid_dot_expression.ast);
+        write(io, RED, "Error", RESET, ": Expression has no accessible fields or scope.\n");
+        print_line(mod, io, e.data.invalid_dot_expression.ast);
+        break;
+    case ERR_NON_INDEXABLE_TYPE:
+        print_loc(mod, io, e.data.non_indexable_type.ast);
+        write(io, RED, "Error", RESET, ": Tried to index non-indexable type '", TP(e.data.non_indexable_type.type), "'.\n");
+        print_line(mod, io, e.data.non_indexable_type.ast);
+        break;
+    case ERR_NON_SLICEABLE_TYPE:
+        print_loc(mod, io, e.data.non_sliceable_type.ast);
+        write(io, RED, "Error", RESET, ": Expected type name in function type.\n");
+        print_line(mod, io, e.data.non_sliceable_type.ast);
+        break;
+    case ERR_GENCALL_MISMATCH:
+        print_loc(mod, io, e.data.gencall_mismatch.call);
+        write(io, RED, "Error", RESET, ": Incorrect number of arguments to call generic function. Expected ");
+        write(io, e.data.gencall_mismatch.expected, ", found ", e.data.gencall_mismatch.n, ".\n");
+        print_line(mod, io, e.data.gencall_mismatch.call);
+        if (e.data.gencall_mismatch.decl) {
+            AST* d = e.data.gencall_mismatch.decl;
+            print_loc(mod, io, d);
+            write(io, PURPLE, "Note", RESET, ": Function defined here.\n");
+            print_line(mod, io, d, PURPLE);
+        }
+        break;
+    case ERR_CALL_MISMATCH:
+        print_loc(mod, io, e.data.call_mismatch.call);
+        write(io, RED, "Error", RESET, ": Incorrect number of arguments to call function. Expected ");
+        write(io, e.data.call_mismatch.expected, ", found ", e.data.call_mismatch.n, ".\n");
+        print_line(mod, io, e.data.call_mismatch.call);
+        if (e.data.call_mismatch.decl) {
+            AST* d = e.data.call_mismatch.decl;
+            print_loc(mod, io, d);
+            write(io, PURPLE, "Note", RESET, ": Function defined here.\n");
+            print_line(mod, io, d, PURPLE);
+        }
+        break;
+    case ERR_NON_FUNCTION_TYPE:
+        print_loc(mod, io, e.data.non_function_type.ast);
+        write(io, RED, "Error", RESET, ": Expected function type in call, found '", TP(e.data.non_function_type.type), "'.\n");
+        print_line(mod, io, e.data.non_function_type.ast);
+        break;
+    case ERR_INCOMPATIBLE_ARGUMENT:
+        print_loc(mod, io, e.data.incompatible_argument.ast);
+        write(io, RED, "Error", RESET, ": Incompatible argument in function call. Expected '", TP(e.data.incompatible_argument.dest));
+        write(io, "', but given '", TP(e.data.incompatible_argument.type), "'.\n");
+        print_line(mod, io, e.data.incompatible_argument.ast);
+        break;
+    case ERR_EMPTY_ARGUMENTS:
+        print_loc(mod, io, e.data.empty_arguments.call);
+        write(io, RED, "Error", RESET, ": No arguments provided in call to non-unit function type '", TP(e.data.empty_arguments.funtype), "'.\n");
+        print_line(mod, io, e.data.empty_arguments.call);
+        break;
+    case ERR_NON_ARRAY_TYPE:
+        print_loc(mod, io, e.data.non_array_type.array);
+        write(io, RED, "Error", RESET, ": Expected array type in constructor, but found '", TP(e.data.non_array_type.type), "'.\n");
+        print_line(mod, io, e.data.non_array_type.array);
+        break;
+    case ERR_INCOMPATIBLE_ELEMENT:
+        print_loc(mod, io, e.data.incompatible_element.element);
+        write(io, RED, "Error", RESET, ": Found incompatible element in array constructor. Expected '");
+        write(io, TP(e.data.incompatible_element.dest), "', but found '", TP(e.data.incompatible_element.etype), "'.\n");
+        print_line(mod, io, e.data.incompatible_element.element);
+        break;
+    case ERR_INCOMPATIBLE_INITIALIZER:
+        print_loc(mod, io, e.data.incompatible_initializer.init);
+        write(io, RED, "Error", RESET, ": Incompatible initial value in variable declaration. Expected '");
+        write(io, TP(e.data.incompatible_initializer.dest), "', but found '", TP(e.data.incompatible_initializer.type), "'.\n");
+        print_line(mod, io, e.data.incompatible_initializer.init);
+        break;
+    case ERR_CTOR_MISMATCH:
+        print_loc(mod, io, e.data.ctor_mismatch.ctor);
+        write(io, RED, "Error", RESET, ": Incorrect number of parameters to type constructor. Expected ");
+        write(io, e.data.ctor_mismatch.expected, " but found ", e.data.ctor_mismatch.n, ".\n");
+        print_line(mod, io, e.data.ctor_mismatch.ctor);
+        if (e.data.ctor_mismatch.ctype->env->decl) {
+            AST* d = e.data.ctor_mismatch.ctype->env->decl;
+            print_loc(mod, io, d);
+            write(io, PURPLE, "Note", RESET, ": Type defined here.\n");
+            print_line(mod, io, d, PURPLE);
+        }
+        break;
+    case ERR_CAST_MISMATCH:
+        print_loc(mod, io, e.data.cast_mismatch.cast);
+        write(io, RED, "Error", RESET, ": Incorrect number of parameters to type conversion. Expected ");
+        write(io, e.data.cast_mismatch.expected, " but found ", e.data.cast_mismatch.n, ".\n");
+        print_line(mod, io, e.data.cast_mismatch.cast);
+        break;
+    case ERR_INVALID_CAST:
+        print_loc(mod, io, e.data.invalid_cast.ast);
+        write(io, RED, "Error", RESET, ": Can't convert value of type '", TP(e.data.invalid_cast.type));
+        write(io, "' to '", TP(e.data.invalid_cast.dest), "'.\n");
+        print_line(mod, io, e.data.invalid_cast.ast);
+        break;
+    case ERR_INCOMPATIBLE_CTOR_PARAM:
+        print_loc(mod, io, e.data.incompatible_ctor_param.ast);
+        write(io, RED, "Error", RESET, ": Incompatible argument in constructor call. Expected '", TP(e.data.incompatible_ctor_param.dest));
+        write(io, "', but found '", TP(e.data.incompatible_ctor_param.type), "'.\n");
+        print_line(mod, io, e.data.incompatible_ctor_param.ast);
+        break;
+    case ERR_UNION_CTOR:
+        print_loc(mod, io, e.data.union_ctor.ctor);
+        write(io, RED, "Error", RESET, ": Values of union type can't be constructed directly. Construct one of the cases instead.\n");
+        print_line(mod, io, e.data.union_ctor.ctor);
+        break;
+    case ERR_NON_BOOLEAN_TYPE:
+        print_loc(mod, io, e.data.non_boolean_type.ast);
+        write(io, RED, "Error", RESET, ": Expected boolean type in condition, but found '", e.data.non_boolean_type.type, "'.\n");
+        print_line(mod, io, e.data.non_boolean_type.ast);
+        break;
+    case ERR_INCOMPATIBLE_RETURN:
+        print_loc(mod, io, e.data.incompatible_return.ast);
+        write(io, RED, "Error", RESET, ": Returned value of type '", TP(e.data.incompatible_return.type));
+        write(io, "' is incompatible with function return type '", TP(e.data.incompatible_return.dest), "'.\n");
+        print_line(mod, io, e.data.incompatible_return.ast);
+        break;
     default:
         unreachable("Unknown error kind.");
         break;
     }
 }
+
+#undef TP
+#undef AP
 
 void print_errors(stream& io, bool verbose) {
     for (i64 i = 0; i < n_errors; i ++) print_error(io, verbose, errors[i]);

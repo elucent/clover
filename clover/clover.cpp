@@ -160,7 +160,6 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     timer = nanotime();
     detect_types(mod, mod->envctx->root, mod->parser->program);
     typns = nanotime() - timer, timer = nanotime();
-
     if (get_error()) return print_errors(stderr, verbose), nullptr; // Typechecker decl error.
     
     if (show_types) {
@@ -170,7 +169,6 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
 
     timer = nanotime();
     infer(mod, mod->envctx->root, mod->parser->program);
-    if (get_error()) return print_errors(stderr, verbose), nullptr; // Typechecker checking error.
     
     if (show_types) {
         print("\nInferred types:\n\n");

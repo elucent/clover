@@ -82,12 +82,17 @@ struct SourcePos {
     i16 column;
     i32 line, start, end;
 
+    inline SourcePos(): column(0), line(0), start(0), end(0) {}
+
+    inline SourcePos(i16 column_in, i32 line_in, i32 start_in, i32 end_in):
+        column(column_in), line(line_in), start(start_in), end(end_in) {}
+
     inline SourcePos operator+(SourcePos other) const {
         return {
             column < other.column || line < other.line ? column : other.column,
             line < other.line ? line : other.line,
             start < other.start ? start : other.start,
-            end < other.end ? end : other.end
+            end < other.end ? other.end : end
         };
     }
 };

@@ -251,6 +251,7 @@ inline bool isconcrete(Type* type) {
 }
 
 inline Type* fullconcrete(TypeContext& ctx, Type* type) {
+    if (!type) return ERROR;
     switch (type->kind) {
         case T_NUMERIC:
             return type;
@@ -291,6 +292,7 @@ inline Type* fullconcrete(TypeContext& ctx, Type* type) {
 }
 
 inline Type* fullsimplify(TypeContext& ctx, Type* type) {
+    if (!type) return ERROR;
     switch (type->kind) {
         case T_NUMERIC:
             return simplify(type);
