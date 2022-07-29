@@ -111,7 +111,7 @@ $ mdtest/mdtest test
 - [x] Pattern matching.
 - [x] Module initialization and deinitialization.
 - [x] `defer` statements.
-- [ ] Recoverable compile errors with good messages.
+- [x] Recoverable compile errors with good messages.
 - [ ] Traits.
 - [ ] Compile-time constant values and expressions.
 - [ ] Set and dictionary constructors.
