@@ -125,11 +125,13 @@ inline double abs(double f) {
     return f < 0 ? -f : f;
 }
 
+#define FP_PRECISION 7
+
 void write_float(stream& io, double f) {
     push_if_necessary(io, 1);
     if (f < 0) f = -f, put(io, '-');
     i64 ipart = i64(f + 0.00000001);
-    write_int(io, ipart);
+    write_uint(io, ipart);
     write_byte(io, '.');
     double frac = f - ipart;
     if (frac < 0) frac = -frac;

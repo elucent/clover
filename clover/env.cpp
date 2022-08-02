@@ -23,7 +23,8 @@ void Env::format(stream& io, Module* mod, i32 indent) {
             break;
         case E_GENFUN:
         case E_FUN:
-            if (p.value.ast) ((FunDecl*)p.value.ast)->env->format(io, mod, indent + 3);
+            if (p.value.ast && ((FunDecl*)p.value.ast)->env != this) 
+                ((FunDecl*)p.value.ast)->env->format(io, mod, indent + 3);
             else space(io, indent), write(io, " - FUN ", mod->interner->str(p.key), '\n');
             break;
         case E_GENTYPE:
@@ -32,21 +33,24 @@ void Env::format(stream& io, Module* mod, i32 indent) {
                 space(io, indent);
                 write(io, " - TYPE ", mod->interner->str(p.key), '\n');
             }
-            else if (p.value.ast) ((TypeDecl*)p.value.ast)->env->format(io, mod, indent + 3);
-            else if (Env* tenv = type_env(p.value.type)) tenv->format(io, mod, indent + 3);
+            else if (p.value.ast && ((TypeDecl*)p.value.ast)->env != this) ((TypeDecl*)p.value.ast)->env->format(io, mod, indent + 3);
+            else if (Env* tenv = type_env(p.value.type)) if (tenv != this) tenv->format(io, mod, indent + 3);
             break;
         case E_CASE:
-            ((CaseDecl*)p.value.ast)->env->format(io, mod, indent + 3);
+            if (((CaseDecl*)p.value.ast)->env != this) 
+                ((CaseDecl*)p.value.ast)->env->format(io, mod, indent + 3);
             break;
         case E_GLOBAL:
-            ((ASTProgram*)p.value.ast)->env->format(io, mod, indent + 3);
+            if (((ASTProgram*)p.value.ast)->env != this) 
+                ((ASTProgram*)p.value.ast)->env->format(io, mod, indent + 3);
             break;
         case E_ALIAS:
             space(io, indent);
             write(io, " - ALIAS ", mod->interner->str(p.key), '\n');
             break;
         case E_MOD:
-            ((ModuleDecl*)p.value.ast)->env->format(io, mod, indent + 3);
+            if (((ModuleDecl*)p.value.ast)->env != this) 
+                ((ModuleDecl*)p.value.ast)->env->format(io, mod, indent + 3);
             break;
         }
     }
@@ -146,11 +150,6 @@ void EnvContext::add_method(i32 name, Type* type, Env* env) {
     else it->value.push({type, env});
 }
 
-void EnvContext::add_generic_method(i32 name, FunDecl* decl) {
-    auto it = generic_methods.find(name);
-    if (it == generic_methods.end()) generic_methods.put(name, decl);
-}
-
 i32 anon_sym(Module* mod, i32 n) {
     i8 buf[16];
     i32 len = 0;
@@ -198,16 +197,19 @@ AST* EnvContext::create_method(i32 name, Type* type, Module* mod, vec<pair<Type*
         }
     }
 
-    slice<AST*> params = { new(mod->parser->astspace) AST*[args0.size()], args0.size() };
-    params[0] = new(mod->parser->astspace) Var({}, type->env->name);
+    slice<AST*> params = { new(mod->parser->astspace) AST*[args0.size() - 1], args0.size() - 1 };
     for (i32 i = 1; i < args0.n; i ++) {
         Type* argt = args0[i];
         i32 argname = anon_sym(mod, i);
         AST* type = new(mod->parser->astspace) Var({}, argt->env->name);
         type->kind = AST_TYPENAME, type->type = argt;
-        params[i] = new(mod->parser->astspace) VarDecl({}, type, new(mod->parser->astspace) Var({}, argname), nullptr);
+        params[i - 1] = new(mod->parser->astspace) VarDecl({}, type, new(mod->parser->astspace) Var({}, argname), nullptr);
     }
-    AST* sig = new(mod->parser->astspace) Apply({}, new(mod->parser->astspace) Var({}, name), params);
+    AST* dotted_name = new(mod->parser->astspace) Binary(AST_DOT, {},
+        new(mod->parser->astspace) Var({}, type->env->name),
+        new(mod->parser->astspace) Var({}, name)
+    );
+    AST* sig = new(mod->parser->astspace) Apply({}, dotted_name, params);
 
     slice<AST*> cases = { new(mod->parser->astspace) AST*[methods.size()], methods.size() };
     i32 casename = mod->interner->intern("_p");

@@ -79,6 +79,9 @@ enum ErrorType : i8 {
     ERR_NONTYPE_ANNOTATION,         // Variable annotation that is not a type.
     ERR_NONTYPE_RETURNTYPE,         // Return type annotation that is not a type.
     ERR_NO_FUNCTION_PARAM_LIST,     // Function was somehow declared without a parameter list.
+    ERR_UNEXPECTED_TYPE_IN_FUNDECL, // Function name is a type name.
+    ERR_VAL_IN_GENTYPE,             // Value in generic type constructor.
+    ERR_TYPENAME_IN_GENCTOR,        // Unexpected typename in generic type constructor.
 
     ERR_RETURN_OUTSIDE_FUN,         // Return statement outside of a function scope.
     ERR_INVALID_WITH_ENV,           // No valid environment found for a with statement.
@@ -111,6 +114,7 @@ enum ErrorType : i8 {
     ERR_UNION_CTOR,                 // Constructing a union on its own is not allowed.
     ERR_NON_BOOLEAN_TYPE,           // Expected a boolean.
     ERR_INCOMPATIBLE_RETURN,        // Return statement returns value incompatible with enclosing function.
+    ERR_INACCESSIBLE_MEMBER,        // Member variable is inaccessible from local scope.
 
     ERR_CIRCULAR_DEPENDENCIES,      // A cycle was detected in the program's dependency graph.
 };
@@ -245,6 +249,9 @@ struct Error {
         struct NontypeAnnotation { CODE = ERR_NONTYPE_ANNOTATION; AST* ann; } nontype_annotation;
         struct NontypeReturntype { CODE = ERR_NONTYPE_RETURNTYPE; AST* ret; } nontype_returntype;
         struct NoFunctionParamList { CODE = ERR_NO_FUNCTION_PARAM_LIST; AST* proto; } no_function_param_list;
+        struct UnexpectedTypeInFundecl { CODE = ERR_UNEXPECTED_TYPE_IN_FUNDECL; AST* proto; } unexpected_type_in_fundecl;
+        struct ValInGentype { CODE = ERR_VAL_IN_GENTYPE; AST* ast; } val_in_gentype;
+        struct TypenameInGenctor { CODE = ERR_TYPENAME_IN_GENCTOR; AST* ctor; AST* ast; } typename_in_genctor;
 
         ErrorData(CaseInNonUnion e): case_in_non_union(e) {}
         ErrorData(InferredField e): inferred_field(e) {}
@@ -273,6 +280,9 @@ struct Error {
         ErrorData(NontypeAnnotation e): nontype_annotation(e) {}
         ErrorData(NontypeReturntype e): nontype_returntype(e) {}
         ErrorData(NoFunctionParamList e): no_function_param_list(e) {}
+        ErrorData(UnexpectedTypeInFundecl e): unexpected_type_in_fundecl(e) {}
+        ErrorData(ValInGentype e): val_in_gentype(e) {}
+        ErrorData(TypenameInGenctor e): typename_in_genctor(e) {}
 
         struct ReturnOutsideFun { CODE = ERR_RETURN_OUTSIDE_FUN; Unary* ret; Env* env; } return_outside_fun;
         struct InvalidWithEnv { CODE = ERR_INVALID_WITH_ENV; With* with; } invalid_with_env;
@@ -305,6 +315,7 @@ struct Error {
         struct UnionCtor { CODE = ERR_UNION_CTOR; AST* ctor; Type* type; } union_ctor;
         struct NonBooleanType { CODE = ERR_NON_BOOLEAN_TYPE; AST* ast; Type* type; } non_boolean_type;
         struct IncompatibleReturn { CODE = ERR_INCOMPATIBLE_RETURN; AST* ast; Type *type, *dest; } incompatible_return;
+        struct InaccessibleMember { CODE = ERR_INACCESSIBLE_MEMBER; Var *var; AST *local, *def; } inaccessible_member;
         
         ErrorData(ReturnOutsideFun e): return_outside_fun(e) {}
         ErrorData(InvalidWithEnv e): invalid_with_env(e) {}
@@ -337,6 +348,7 @@ struct Error {
         ErrorData(UnionCtor e): union_ctor(e) {}
         ErrorData(NonBooleanType e): non_boolean_type(e) {}
         ErrorData(IncompatibleReturn e): incompatible_return(e) {}
+        ErrorData(InaccessibleMember e): inaccessible_member(e) {}
     } data;
 };
 
@@ -725,6 +737,21 @@ void no_function_param_list_error(Module* mod, AST* proto) {
     push_error<Error::ErrorData::NoFunctionParamList>(mod, proto);
 }
 
+void unexpected_type_in_fundecl_error(Module* mod, AST* proto) {
+    type_error();
+    push_error<Error::ErrorData::UnexpectedTypeInFundecl>(mod, proto);
+}
+
+void val_in_gentype_error(Module* mod, AST* ast) {
+    type_error();
+    push_error<Error::ErrorData::ValInGentype>(mod, ast);
+}
+
+void typename_in_genctor_error(Module* mod, AST* ctor, AST* ast) {
+    type_error();
+    push_error<Error::ErrorData::TypenameInGenctor>(mod, ctor, ast);
+}
+
 // typechecking and inference
 
 void return_outside_fun_error(Module* mod, Unary* ret, Env* env) {
@@ -882,8 +909,13 @@ void incompatible_return_error(Module* mod, AST* ast, Type* type, Type* expected
     push_error<Error::ErrorData::IncompatibleReturn>(mod, ast, type, expected);
 }
 
+void inaccessible_member_error(Module* mod, Var* var, AST* local, AST* def) {
+    type_error();
+    push_error<Error::ErrorData::InaccessibleMember>(mod, var, local, def);
+}
+
 static const i8* RED = "\e[0;91m";
-static const i8* PURPLE = "\e[0;31m";
+static const i8* PURPLE = "\e[0;35m";
 static const i8* RESET = "\e[0m";
 
 void print_line(Module* mod, stream& io, i32 pos, i32 len, i16 col, const i8* color = RED) {
@@ -899,7 +931,7 @@ void print_line(Module* mod, stream& io, i32 pos, i32 len, i16 col, const i8* co
     }
     write(io, RESET, '\n');
     write(io, "    ", color);
-    for (i64 i = 0; i < end - begin + 1; i ++) {
+    for (i64 i = 0; i < end - begin; i ++) {
         if (i >= col && i < col + len) write(io, '^');
         else write(io, ' ');
     }
@@ -1364,6 +1396,21 @@ void print_error(stream& io, bool verbose, const Error& e) {
         write(io, RED, "Error", RESET, ": Function defined without a parameter list.\n");
         print_line(mod, io, e.data.no_function_param_list.proto);
         break;
+    case ERR_UNEXPECTED_TYPE_IN_FUNDECL:
+        print_loc(mod, io, e.data.unexpected_type_in_fundecl.proto);
+        write(io, RED, "Error", RESET, ": Unexpected type name in function declaration.\n");
+        print_line(mod, io, e.data.unexpected_type_in_fundecl.proto);
+        break;
+    case ERR_VAL_IN_GENTYPE:
+        print_loc(mod, io, e.data.val_in_gentype.ast);
+        write(io, RED, "Error", RESET, ": Expected type name in generic type instantiation.\n");
+        print_line(mod, io, e.data.val_in_gentype.ast);
+        break;
+    case ERR_TYPENAME_IN_GENCTOR:
+        print_loc(mod, io, e.data.typename_in_genctor.ast);
+        write(io, RED, "Error", RESET, ": Unexpected type name in generic type constructor.\n");
+        print_line(mod, io, e.data.typename_in_genctor.ast);
+        break;
 
     // typechecking and inference
     case ERR_RETURN_OUTSIDE_FUN:
@@ -1469,7 +1516,7 @@ void print_error(stream& io, bool verbose, const Error& e) {
         break;
     case ERR_CALL_MISMATCH:
         print_loc(mod, io, e.data.call_mismatch.call);
-        write(io, RED, "Error", RESET, ": Incorrect number of arguments to call function. Expected ");
+        write(io, RED, "Error", RESET, ": Incorrect number of arguments to function. Expected ");
         write(io, e.data.call_mismatch.expected, ", found ", e.data.call_mismatch.n, ".\n");
         print_line(mod, io, e.data.call_mismatch.call);
         if (e.data.call_mismatch.decl) {
@@ -1549,7 +1596,7 @@ void print_error(stream& io, bool verbose, const Error& e) {
         break;
     case ERR_NON_BOOLEAN_TYPE:
         print_loc(mod, io, e.data.non_boolean_type.ast);
-        write(io, RED, "Error", RESET, ": Expected boolean type in condition, but found '", e.data.non_boolean_type.type, "'.\n");
+        write(io, RED, "Error", RESET, ": Expected boolean type in condition, but found '", TP(e.data.non_boolean_type.type), "'.\n");
         print_line(mod, io, e.data.non_boolean_type.ast);
         break;
     case ERR_INCOMPATIBLE_RETURN:
@@ -1557,6 +1604,23 @@ void print_error(stream& io, bool verbose, const Error& e) {
         write(io, RED, "Error", RESET, ": Returned value of type '", TP(e.data.incompatible_return.type));
         write(io, "' is incompatible with function return type '", TP(e.data.incompatible_return.dest), "'.\n");
         print_line(mod, io, e.data.incompatible_return.ast);
+        break;
+    case ERR_INACCESSIBLE_MEMBER:
+        print_loc(mod, io, e.data.inaccessible_member.var);
+        write(io, RED, "Error", RESET, ": Variable '", mod->interner->str(e.data.inaccessible_member.var->name), "' is inaccessible in current scope.\n");
+        print_line(mod, io, e.data.inaccessible_member.var);
+        if (e.data.inaccessible_member.local) {
+            AST* d = e.data.inaccessible_member.local;
+            print_loc(mod, io, d);
+            write(io, PURPLE, "Note", RESET, ": Local scope begins here.\n");
+            print_line(mod, io, d, PURPLE);
+        }
+        if (e.data.inaccessible_member.def) {
+            AST* d = e.data.inaccessible_member.def;
+            print_loc(mod, io, d);
+            write(io, PURPLE, "Note", RESET, ": Variable defined here.\n");
+            print_line(mod, io, d, PURPLE);
+        }
         break;
     default:
         unreachable("Unknown error kind.");

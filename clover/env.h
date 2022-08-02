@@ -95,6 +95,10 @@ struct Env {
         return nullptr;
     }
 
+    inline void set(i32 name, Entry e) {
+        entries.put(name, e);
+    }
+
     inline bool def(i32 name, Entry e) {
         auto it = entries.find(name);
         if (it == entries.end()) {
@@ -113,7 +117,7 @@ struct EnvContext {
     arena envspace;
     Env* root;
     map<i32, vec<pair<Type*, Env*>, 16, arena>, 256, arena> methods;
-    map<i32, FunDecl*, 256, arena> generic_methods;
+    map<i32, vec<pair<Type*, FunDecl*>, 16, arena>, 256, arena> generic_methods;
 
     inline EnvContext() {
         methods.alloc = &envspace;

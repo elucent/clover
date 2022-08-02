@@ -11,4 +11,3 @@ var foo: Foo.Bar(1)
 foo.quux()
 foo = Foo.Baz(2.0)
 foo.quux()
-

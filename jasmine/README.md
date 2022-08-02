@@ -198,7 +198,7 @@ Depending on the opcode, instructions also have one of several arities, which mu
 | `var` | Nullary | `var a : () -> a` | Declares a new local of the specified type. |
 | `neg` | Unary | `neg a : a -> a` where `a` is numeric or a vector | Negates its operand and returns the result. |
 | `not` | Unary | `not a : a -> a` where `a` is an integer | Performs a bitwise NOT on the bits of its operand and returns the result. |
-| `find` | Unary | `find a : a -> ptr` | Computes the address of its operand. |
+| `addr` | Unary | `addr a : a -> ptr` | Computes the address of its operand. |
 | `load` | Unary | `load a : ptr -> a` | Loads the value at the address provided by the first operand. |
 | `new` | Unary | `new a : a -> ref` | Allocates a value on the heap and returns its reference. |
 | `cast` | Unary | `cast a : b -> a` | Reinterprets the bits of its operand as the desired type. |
@@ -222,7 +222,7 @@ Depending on the opcode, instructions also have one of several arities, which mu
 | `shl` | Binary | `shl a : (a, a) -> a` where `a` is an integer | Returns the first operand shifted to the left by the second operand. |
 | `shr` | Binary | `shr a : (a, a) -> a` where `a` is an integer | Returns the first operand shifted to the right by the second operand. Signed integers are shifted arithmetically, while unsigned integers are shifted logically. |
 | `store` | Binary | `store a : (ptr, a) -> void` | Writes the second operand into memory at the address provided by the first operand. |
-| `findf` | Binary | `findf a: (a, b) -> ptr` where `a` is an array or tuple and `b` is an integer | Computes the address of the nth element or member of its first operand. |
+| `elem` | Binary | `elem a: (a, b) -> ptr` where `a` is an array or tuple and `b` is an integer | Computes the address of the nth element or member of its first operand. |
 | `newa` | Binary | `newa a : (a, b) -> ref` where `b` is an integer | Allocates an array of values on the heap and returns its reference. |
 | `eq` | Binary | `eq a : (a, a) -> i8` where `a` is a primitive or vector | Returns nonzero if its operands are equal. |
 | `neq` | Binary | `neq a : (a, a) -> i8` where `a` is a primitive or vector | Returns nonzero if its operands are not equal. |

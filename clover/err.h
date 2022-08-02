@@ -103,6 +103,9 @@ void val_in_funtype_error(Module* mod, AST* ast);
 void nontype_annotation_error(Module* mod, AST* ann);
 void nontype_returntype_error(Module* mod, AST* ret);
 void no_function_param_list_error(Module* mod, AST* proto);
+void unexpected_type_in_fundecl_error(Module* mod, AST* proto);
+void val_in_gentype_error(Module* mod, AST* ast);
+void typename_in_genctor_error(Module* mod, AST* ctor, AST* ast);
 
 void return_outside_fun_error(Module* mod, Unary* ret, Env* env);
 void invalid_with_env_error(Module* mod, With* with);
@@ -135,6 +138,7 @@ void incompatible_ctor_param_error(Module* mod, AST* ast, Type* type, Type* expe
 void union_ctor_error(Module* mod, AST* ctor, Type* type);
 void non_boolean_type_error(Module* mod, AST* ast, Type* type);
 void incompatible_return_error(Module* mod, AST* ast, Type* type, Type* expected);
+void inaccessible_member_error(Module* mod, Var* var, AST* local, AST* def);
 
 // Codegen
 void cyclic_dependencies_error(Module* mod);

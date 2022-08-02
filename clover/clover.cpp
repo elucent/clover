@@ -169,6 +169,8 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
 
     timer = nanotime();
     infer(mod, mod->envctx->root, mod->parser->program);
+
+    if (get_error()) return print_errors(stderr, verbose), nullptr; // Typechecker checking error.
     
     if (show_types) {
         print("\nInferred types:\n\n");
@@ -312,7 +314,8 @@ void invoke_cc(Clover& clover, const i8* cc, vec<i8>& cmdbuf) {
     add_flag_cc("-L./bin", cmdbuf);
     add_flag_cc("-nodefaultlibs", cmdbuf);
     add_flag_cc("-nostdlib", cmdbuf);
-    add_flag_cc("-Os", cmdbuf);
+    add_flag_cc("-O3", cmdbuf);
+    add_flag_cc("-v", cmdbuf);
     for (auto& m : clover.modules) m.value->visited = false; // Reset visited state.
     visit_module_cc(clover.main, cmdbuf);
     add_flag_cc("-lcclover", cmdbuf);

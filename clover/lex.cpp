@@ -150,6 +150,9 @@ void advance_lexer(Module* mod, UnicodeBuf& iter) {
             break;
         case TK_NONE:
             switch ((u32)r) {
+            case '_':
+                buf.push({ TK_IDENT, col, line, idx, idx + rlen });
+                break;
             case '\n':
                 buf.push({ TK_NEWLINE, col, line, idx, idx + rlen });
                 col = -1;

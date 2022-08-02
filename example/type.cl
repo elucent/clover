@@ -1,5 +1,3 @@
-void int.print()
-
 type Vec2:
     int x, y
 

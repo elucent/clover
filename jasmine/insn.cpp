@@ -185,11 +185,12 @@ void format_func(const Function& fn, stream& io, u32 indent) {
         first = false;
         format_type(fn.obj->types, arg, io);
     }
-    write(io, "):\n");
+    write(io, ") {\n");
     for (const Insn& insn : fn.insns) {
         for (u32 i = 0; i < indent; i ++) write(io, ' ');
         format_insn(insn, io), write(io, '\n');
     }
+    write(io, "}\n");
 }
 
 namespace jasm {
@@ -289,8 +290,8 @@ namespace jasm {
     localidx shl(typeidx t, const ParamArg& lhs, const ParamArg& rhs) { return binary(OP_SHR, t, lhs, rhs); }
 
     void store(typeidx t, const ParamArg& addr, const ParamArg& val) { binary(OP_STORE, t, addr, val); }
-    localidx find(typeidx t, const ParamArg& src) { return unary(OP_FIND, t, src); }
-    localidx findf(typeidx t, const ParamArg& base, const ParamArg& field) { return binary(OP_FINDF, t, base, field); }
+    localidx addr(typeidx t, const ParamArg& src) { return unary(OP_ADDR, t, src); }
+    localidx elem(typeidx t, const ParamArg& base, const ParamArg& field) { return binary(OP_ELEM, t, base, field); }
     localidx mnew(typeidx t) { return nullary(OP_NEW, t); }
 
     localidx cast(typeidx t, const ParamArg& param) { return unary(OP_CAST, t, param); }

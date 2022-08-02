@@ -1,4 +1,8 @@
-int x: 1
-x = "hello"
 
-var y: [1, true, 'c']
+fun foo(int x):
+    fun bar(int y):
+        print(x)
+    
+    bar(x)
+
+foo(42)

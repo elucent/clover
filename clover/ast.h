@@ -17,7 +17,7 @@ enum ASTKind : u8 {
     AST_BITAND, AST_BITOR, AST_BITXOR, AST_BITNOT, AST_BITLEFT, AST_BITRIGHT,
     AST_AND, AST_OR, AST_XOR, AST_NOT,
     AST_EQUAL, AST_INEQUAL, AST_LESS, AST_LEQUAL, AST_GREATER, AST_GEQUAL, AST_IS, 
-    AST_DEREF, AST_ADDROF, AST_DOT, AST_APPLY, AST_INDEX, AST_SLICE, AST_CTOR,
+    AST_DEREF, AST_ADDROF, AST_DOT, AST_APPLY, AST_INDEX, AST_SLICE, AST_CTOR, AST_GENCTOR,
     AST_NEW, AST_NEWARRAY, AST_DEL, AST_POSTINCR, AST_POSTDECR, AST_INCR, AST_DECR,
     AST_ARRAY, AST_SET,
     AST_ASSIGN,
@@ -33,7 +33,7 @@ enum ASTKind : u8 {
     // decls
     AST_FIRST_DECL = AST_LAST_TYPE, AST_VARDECL = AST_FIRST_DECL, AST_TYPEDECL, AST_FUNDECL, AST_MODULEDECL, AST_ALIASDECL, AST_CASEDECL, AST_PTRDECL, // ptrdecl is needed for the case 'T* ptr', which is ambiguous with multiplication until typechecking
     // misc
-    AST_LAST_DECL, AST_MODULENAME = AST_LAST_DECL, AST_MODULEDOT,
+    AST_LAST_DECL, AST_MODULENAME = AST_LAST_DECL, AST_MODULEDOT, AST_DOTINSERT,
     // structure
     AST_PROGRAM, AST_ARGS,
 };
@@ -96,12 +96,14 @@ struct FunDecl : public Decl {
     AST* proto;
     AST* body;
     Env* env;
+    Type* method_type;
     Symbol basename;
+    bool emitted;
     map<TypeTuple, FunDecl*, 8, arena> insts;
     bool generic = false, isinst = false;
     inline FunDecl(SourcePos pos, AST* returned_in, AST* proto_in): FunDecl(pos, returned_in, proto_in, nullptr) {}
     inline FunDecl(SourcePos pos, AST* returned_in, AST* proto_in, AST* body_in): 
-        Decl(AST_FUNDECL, pos), returned(returned_in), proto(proto_in), body(body_in), env(nullptr) {}
+        Decl(AST_FUNDECL, pos), returned(returned_in), proto(proto_in), body(body_in), env(nullptr), method_type(nullptr), emitted(false) {}
 
     inline AST* clone(arena& alloc) override {
         return new(alloc) FunDecl(pos, try_clone(returned, alloc), try_clone(proto, alloc), try_clone(body, alloc));
@@ -139,8 +141,9 @@ struct TypeDecl : public Decl {
     Env* env;
     Symbol basename;
     map<TypeTuple, TypeDecl*, 8, arena> insts;
-    bool generic = false;
-    inline TypeDecl(SourcePos pos, AST* name_in, AST* body_in): Decl(AST_TYPEDECL, pos), name(name_in), body(body_in) {}
+    TypeDecl* prototype;
+    bool generic = false, is_prototype = false;
+    inline TypeDecl(SourcePos pos, AST* name_in, AST* body_in): Decl(AST_TYPEDECL, pos), name(name_in), body(body_in), prototype(nullptr) {}
 
     inline AST* clone(arena& alloc) override {
         return new(alloc) TypeDecl(pos, try_clone(name, alloc), try_clone(body, alloc));
@@ -178,7 +181,8 @@ struct Binary : public Expr {
 };
 
 struct Is : public Binary {
-    bool reachable = true;
+    Env* env = nullptr;
+    bool external_env = false, reachable = true;
     inline Is(SourcePos pos, AST* left, AST* right): Binary(AST_IS, pos, left, right) {}
 
     inline AST* clone(arena& alloc) override {
@@ -338,8 +342,6 @@ struct ASTProgram : public AST {
 
 using Production = void(*)(Lexer&, Parser&, Module*, Token&);
 
-void parse_if_then_condition(Lexer& lexer, Parser& parser, Module* mod, Token& next);
-
 struct Parser {
     arena astspace;
     vec<AST*, 128, arena> nodes;
@@ -369,13 +371,11 @@ struct Parser {
     }
 
     inline Parser& rec(Production prod) {
-        if (prod == parse_if_then_condition) fatal("what");
         prods.push(prod);
         return *this;
     }
 
     inline Parser& tailrec(Production prod) {
-        if (prod == parse_if_then_condition) fatal("what");
         prods.back() = prod;
         return *this;
     }
@@ -391,14 +391,12 @@ struct Parser {
     }
 
     inline Parser& rec(Production prod, AST* ast) {
-        if (prod == parse_if_then_condition) fatal("what");
         prods.push(prod);
         nodes.push(ast);
         return *this;
     }
 
     inline Parser& tailrec(Production prod, AST* ast) {
-        if (prod == parse_if_then_condition) fatal("what");
         prods.back() = prod;
         nodes.push(ast);
         return *this;

@@ -20,12 +20,12 @@ enum Arity : u8 {
 
 enum Op : u8 {
     /* Nullary */   OP_NOP, OP_VAR, OP_LAST_NULLARY = OP_VAR,
-    /* Unary */     OP_NEG, OP_NOT, OP_LOAD, OP_FIND, OP_NEW, OP_CAST, OP_CONV, 
+    /* Unary */     OP_NEG, OP_NOT, OP_LOAD, OP_ADDR, OP_NEW, OP_CAST, OP_CONV, 
                     OP_ZXT, OP_SXT, OP_RET, OP_PAR, OP_JUMP, OP_LABEL, OP_MOV,
     /* Unary* */    OP_PHI, OP_LAST_UNARY = OP_PHI,
     /* Binary */    OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_REM, 
                     OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR,
-                    OP_STORE, OP_FINDF, 
+                    OP_STORE, OP_ELEM, 
                     OP_EQ, OP_NEQ, OP_LT, OP_LEQ, OP_GT, OP_GEQ,
                     OP_JZ, OP_JNZ,
     /* Binary* */   OP_CALL, OP_LAST_BINARY = OP_CALL
@@ -33,13 +33,13 @@ enum Op : u8 {
 
 constexpr const i8* OP_NAMES[] = {
     "nop", "var",
-    "neg", "not", "load", "find", "new", "cast", "conv",
+    "neg", "not", "load", "addr", "new", "cast", "conv",
     "zxt", "sxt", "ret", "par", "jump", "label",
     "mov",
     "phi",
     "add", "sub", "mul", "div", "rem",
     "and", "or", "xor", "shl", "shr",
-    "store", "findf",
+    "store", "elem",
     "eq", "neq", "lt", "leq", "gt", "geq",
     "jz", "jnz",
     "call"

@@ -24,8 +24,6 @@ struct stream {
 
 extern "C" void io_init();
 extern "C" void io_deinit();
-
-#define FP_PRECISION 10
 struct rune;
 
 void write_string(stream& io, const i8* str, uptr n);

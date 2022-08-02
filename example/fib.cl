@@ -1,4 +1,4 @@
-int fib(int n):
+i32 fib(i32 n):
     if n < 2: 
         n
     else: 

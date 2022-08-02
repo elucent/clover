@@ -19,7 +19,7 @@ fun greet():
  * **[3.1. Language Features](#3-1-language-features)**
  * **[3.2. Platform Support](#3-2-platform-support)**
 
-### [4. Tour](#4-tour)
+### [4. Documentation](#4-documentation)
 
 ## 1. About
 

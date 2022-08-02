@@ -140,13 +140,14 @@ struct FunType : Type {
     bool nary;
     u64 hash;
 
-    inline FunType(Type* ret_in): Type(T_FUN), arg({nullptr, (iptr)0}), ret(simplify(ret_in)), nary(true) {
+    inline FunType(Type* ret_in): Type(T_FUN), ret(simplify(ret_in)), nary(true) {
         hash = 4318138567807710449ul * ::hash(ret);
         hash ^= 10126270993744429001ul;
     }
 
     inline FunType(slice<Type*> arg_in, Type* ret_in): Type(T_FUN), arg(arg_in), ret(simplify(ret_in)), nary(false) {
         hash = 4318138567807710449ul * ::hash(ret);
+        if (arg.n == 0) unreachable("Somehow function type has no arguments.");
         for (Type*& t : arg) t = simplify(t), hash *= 10126270993744429001ul, hash ^= ::hash(t);
     }
 
@@ -279,6 +280,7 @@ inline Type* fullconcrete(TypeContext& ctx, Type* type) {
                 ((ArrayType*)type)->size
             );
         case T_FUN: {
+            if (((FunType*)type)->nary) return ERROR;
             slice<Type*> concreted = { new(ctx.typespace) Type*[((FunType*)type)->arg.n], ((FunType*)type)->arg.n};
             for (iptr i = 0; i < concreted.n; i ++) {
                 concreted[i] = fullconcrete(ctx, ((FunType*)type)->arg[i]);
@@ -308,23 +310,24 @@ inline Type* fullsimplify(TypeContext& ctx, Type* type) {
         case T_UNION:
             return type;
         case T_VAR:
-            return fullconcrete(ctx, *((VarType*)type)->binding);
+            return fullsimplify(ctx, *((VarType*)type)->binding);
         case T_PTR:
-            return ctx.def<PtrType>(fullconcrete(ctx, ((PtrType*)type)->target));
+            return ctx.def<PtrType>(fullsimplify(ctx, ((PtrType*)type)->target));
         case T_SLICE:
-            return ctx.def<SliceType>(fullconcrete(ctx, ((SliceType*)type)->element));
+            return ctx.def<SliceType>(fullsimplify(ctx, ((SliceType*)type)->element));
         case T_ARRAY:
             if (((ArrayType*)type)->size < 0) return ERROR;
             return ctx.def<ArrayType>(
-                fullconcrete(ctx, ((ArrayType*)type)->element),
+                fullsimplify(ctx, ((ArrayType*)type)->element),
                 ((ArrayType*)type)->size
             );
         case T_FUN: {
+            if (((FunType*)type)->nary) return ERROR;
             slice<Type*> concreted = { new(ctx.typespace) Type*[((FunType*)type)->arg.n], ((FunType*)type)->arg.n};
             for (iptr i = 0; i < concreted.n; i ++) {
-                concreted[i] = fullconcrete(ctx, ((FunType*)type)->arg[i]);
+                concreted[i] = fullsimplify(ctx, ((FunType*)type)->arg[i]);
             }
-            return ctx.def<FunType>(concreted, fullconcrete(ctx, ((FunType*)type)->ret));
+            return ctx.def<FunType>(concreted, fullsimplify(ctx, ((FunType*)type)->ret));
         }
         case T_ANY:
         case T_ANY_NUMERIC:
@@ -333,6 +336,7 @@ inline Type* fullsimplify(TypeContext& ctx, Type* type) {
 }
 
 inline void unbind(Type* type) {
+    if (!type) return;
     switch (type->kind) {
         case T_NUMERIC:
         case T_UNIT:
@@ -359,7 +363,7 @@ inline void unbind(Type* type) {
             return unbind(((ArrayType*)type)->element);
         case T_FUN: {
             unbind(((FunType*)type)->ret);
-            for (Type* t : ((FunType*)type)->arg) unbind(t);
+            if (!((FunType*)type)->nary) for (Type* t : ((FunType*)type)->arg) unbind(t);
             return;
         }
     }   

@@ -19,7 +19,7 @@ void PtrType::init_env(TypeContext* typectx) {
     mcpy(ptr_name, tname.ptr, tname.n);
     ptr_name[tname.n] = '$';
     ptr_name[tname.n + 1] = 'P';
-    env = typectx->envctx->create(ENV_TYPE, typectx->envctx->root, typectx->interner->intern({ ptr_name, tname.n + 2 }));
+    env = typectx->envctx->create(ENV_TYPE, tenv->parent, typectx->interner->intern({ ptr_name, tname.n + 2 }));
 }
 
 void ArrayType::init_env(TypeContext* typectx) {
@@ -53,7 +53,7 @@ void ArrayType::init_env(TypeContext* typectx) {
         }
     }
     
-    env = typectx->envctx->create(ENV_TYPE, typectx->envctx->root, typectx->interner->intern({ arr_name, arr_name_size }));
+    env = typectx->envctx->create(ENV_TYPE, tenv->parent, typectx->interner->intern({ arr_name, arr_name_size }));
     typectx->def<SliceType>(element); // Always define the associated slice.
 }
 
@@ -66,7 +66,7 @@ void SliceType::init_env(TypeContext* typectx) {
     mcpy(slice_name, tname.ptr, tname.n);
     slice_name[tname.n] = '$';
     slice_name[tname.n + 1] = 'S';
-    env = typectx->envctx->create(ENV_TYPE, typectx->envctx->root, typectx->interner->intern({ slice_name, tname.n + 2 }));
+    env = typectx->envctx->create(ENV_TYPE, tenv->parent, typectx->interner->intern({ slice_name, tname.n + 2 }));
     slice<Type*> args = {(Type**)typectx->typespace.alloc(sizeof(Type*) * 1), 1};
     args[0] = this;
     typectx->envctx->add_method(typectx->interner->intern("iter"), this, env);
@@ -104,7 +104,7 @@ void FunType::init_env(TypeContext* typectx) {
         mcpy(writer, argname.ptr, argname.n), writer += argname.n;
     }
 
-    env = typectx->envctx->create(ENV_TYPE, typectx->envctx->root, typectx->interner->intern({ fn_name, name_size }));
+    env = typectx->envctx->create(ENV_TYPE, type_env(arg[0])->parent, typectx->interner->intern({ fn_name, name_size }));
 }
 
 u64 hash(Type* type) {
