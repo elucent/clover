@@ -2050,6 +2050,9 @@ inline void handle_decl(Module* mod, Env* env, vec<pair<i32, Type*>, 256, arena>
         member_stack.push({ v->basename, v->ann->type });
         kind = HAS_FIELD;
         endmatch
+    casematch(AST_PTRDECL, Binary*, b)
+        handle_decl(mod, env, member_stack, kind, b->left);
+        endmatch
     default:
         if (is_type(ast)) {
             if (kind != UNKNOWN_KIND) return unexpected_type_member_error(mod, ast);
@@ -2231,7 +2234,7 @@ Type* method_parent(Module* mod, Apply* a) {
     return nullptr;
 }
 
-Env* call_parent(Module* mod, Apply* a) {
+pair<Type*, Env*>* call_parent(Module* mod, Apply* a) {
     // print("resolving "), format(stdout, mod, a), print('\n');
     if (a->args.n && a->args[0]->type && a->fn->kind == AST_VAR) {
         Type* conc = fullsimplify(*mod->typectx, a->args[0]->type);
@@ -2244,7 +2247,7 @@ Env* call_parent(Module* mod, Apply* a) {
         pair<Type*, Env*>* ast = mod->envctx->find_method(((Var*)a->fn)->name, conc, mod);
         if (ast) {
             // print("resolved call to "), format(stdout, mod, ast->first), print('\n');
-            return ast->second;
+            return ast;
         }
     }
     return nullptr;
@@ -2252,13 +2255,15 @@ Env* call_parent(Module* mod, Apply* a) {
 
 Symbol inst_symbol(Module* mod, Symbol name, const TypeTuple& params) {
     const_slice<i8> prev = mod->interner->str(name);
-    iptr len = prev.n + 1;
-    for (Type* t : params.types) len += mod->interner->str(fullconcrete(*mod->typectx, t)->env->name).n + 1;
+    iptr len = prev.n + 2;
+    for (Type* t : params.types) len += mod->interner->str(fullconcrete(*mod->typectx, t)->env->name).n + 2;
     i8* name_space = new(mod->parser->astspace) i8[len];
     i8* writer = (i8*)mcpy(name_space, prev.ptr, prev.n);
-    *writer ++ = '$';
+    *writer ++ = '_';
+    *writer ++ = '_';
     for (Type* t : params.types) {
-        *writer ++ = '$';
+        *writer ++ = '_';
+        *writer ++ = '_';
         const_slice<i8> tname = mod->interner->str(fullconcrete(*mod->typectx, t)->env->name);
         writer = (i8*)mcpy(writer, tname.ptr, tname.n);
     }
@@ -2275,12 +2280,13 @@ TypeDecl* inst_type(Module* mod, Env* env, TypeDecl* d, slice<AST*> params) {
     if (it != d->insts.end()) return it->value;
     else {
         TypeDecl* inst = (TypeDecl*)d->clone(mod->parser->astspace);
+        d->insts.put(tup, inst);
         inst->name = new(mod->parser->astspace) Var(d->name->pos, inst_symbol(mod, d->basename, tup));
         compute_envs(mod, d->env->parent, inst);
         for (iptr i = 0; i < vars.n; i ++)
             inst->env->def(((Var*)vars[i])->name, e_type(types[i], nullptr));
         detect_types(mod, inst->env->parent, inst);
-        d->insts.put(tup, inst);
+        mod->envctx->finalize_methods(mod);
         return inst;
     }
 }
@@ -2323,6 +2329,7 @@ FunDecl* inst_fun(Module* mod, Env* env, FunDecl* d, slice<AST*> params) {
     if (it != d->insts.end()) return it->value;
     else {
         FunDecl* inst = (FunDecl*)d->clone(mod->parser->astspace);
+        d->insts.put(tup, inst);
         inst->isinst = true;
         ((Apply*)inst->proto)->fn = new(mod->parser->astspace) Var(d->proto->pos, inst_symbol(mod, d->basename, tup));
         iptr j = 0;
@@ -2545,11 +2552,7 @@ void detect_types(Module* mod, Env* env, AST* ast) {
     casematch(AST_PROGRAM, ASTProgram*, p)
         for (Statement* stmt : p->toplevel) detect_types(mod, p->env, stmt);
         for (AST* ast : p->defers) detect_types(mod, p->deferred, ast);
-        for (auto& e : mod->envctx->methods) for (auto& t : e.value) {
-            t.first = concretify(mod, env, t.first);
-            if (t.first == ERROR) unreachable("Could not concretify method type.");
-            t.second = t.first->env;
-        }
+        mod->envctx->finalize_methods(mod);
         endmatch
     casematch(AST_ICONST, Const*, c) endmatch
     casematch(AST_FCONST, Const*, c) endmatch
@@ -3225,7 +3228,7 @@ void infer(Module* mod, Env* env, AST* ast) {
     casematch(AST_EXP, Binary*, b) 
         infer_arithmetic(mod, env, b); 
 
-        AST* fn = new(mod->parser->astspace) Var(b->pos, mod->interner->intern("$pow"));
+        AST* fn = new(mod->parser->astspace) Var(b->pos, mod->interner->intern("pow"));
         slice<AST*> args = { new(mod->parser->astspace) AST*[2], 2 };
         args[0] = b->left;
         args[1] = b->right;
@@ -3275,7 +3278,10 @@ void infer(Module* mod, Env* env, AST* ast) {
     casematch(AST_TYPENAME, Var*, b) b->type = TYPE; endmatch
     casematch(AST_FUNTYPE, Apply*, b) b->type = TYPE; endmatch
     casematch(AST_TYPEDOT, Binary*, b) b->type = TYPE; endmatch
-    casematch(AST_TYPEINST, Apply*, a) a->type = TYPE; endmatch
+    casematch(AST_TYPEINST, Apply*, a) 
+        if (a->type->env->decl) infer(mod, a->type->env->parent, a->type->env->decl);
+        a->type = TYPE; 
+        endmatch
     casematch(AST_PTRTYPE, Unary*, b) b->type = TYPE; endmatch
 
     casematch(AST_PTRDECL, Binary*, b) 
@@ -3651,7 +3657,7 @@ void typecheck(Module* mod, Env* env, AST* ast) {
 
     // Constants don't need typechecking - they are always valid and concrete.
 
-    casematch(AST_VAR, Var*, v)       
+    casematch(AST_VAR, Var*, v)
         Entry* e = env->lookup(v->name);
         if (!e && v->type != ERROR) undefined_var_error(mod, v), v->type = ERROR;
         if (v->type != ERROR) {
@@ -3869,8 +3875,22 @@ void typecheck(Module* mod, Env* env, AST* ast) {
             argv.push(ast->type);
         }
         
-        Env* e = call_parent(mod, a);
-        if (!e) e = env;
+        Env* e = env;
+        auto p = call_parent(mod, a);
+        if (p) {
+            e = p->second;
+            Type* dest = p->first;
+            a->args[0]->type = concretify(mod, env, a->args[0]->type);
+            if (a->args.n && a->args[0]->type != dest && a->args[0]->type->kind == T_PTR) {
+                Type* orig = a->args[0]->type;
+                a->args[0] = new(mod->parser->astspace) Unary(AST_DEREF, a->args[0]->pos, a->args[0]);
+                a->args[0]->type = ((PtrType*)orig)->target;
+                AST* arg = coerce(mod, env, a->args[0], dest);
+                if (!arg) incompatible_argument_error(mod, a->args[0], a->args[0]->type, dest);
+                else a->args[0] = arg;
+            }
+        }
+        
         if (a->fn->kind == AST_VAR) {
             Entry* en = e->lookup(((Var*)a->fn)->name);
             if (en && en->kind == E_GENFUN) {
@@ -4027,6 +4047,9 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         if (!d->generic || d->isinst) {
             slice<AST*>& args = ((Apply*)d->proto)->args;
             for (AST* ast : args) typecheck(mod, d->env, ast);
+            if (d->method_type) {
+                d->method_type = args[0]->type = concretify(mod, env, d->method_type);
+            }
             if (d->body) typecheck(mod, d->env, d->body); 
         }
         for (const auto& e : d->insts) typecheck(mod, env, e.value);
@@ -4112,6 +4135,8 @@ void typecheck(Module* mod, Env* env, AST* ast) {
             case T_STRUCT: {
                 slice<pair<i32, Type*>>& fields = ((StructType*)t)->fields;
                 if (a->args.n != fields.n) {
+                    format(stdout, mod, a), print(" => "), format(stdout, mod, t), print('\n');
+                    unreachable("die");
                     ctor_mismatch_error(mod, a, t, a->args.n, fields.n);
                     break;
                 }
@@ -4295,7 +4320,7 @@ i32 env_fq_name(Module* mod, Env* env, CContext& ctx) {
     if (env->parent && env->parent->kind != ENV_ROOT && (env->parent->kind != ENV_GLOBAL)) {
         parent = mod->interner->str(env_fq_name(mod, env->parent, ctx));
         size += parent.n;
-        size ++; // $
+        size += 2;
     } 
     const_slice<i8> name = mod->interner->str(env->name);
     size += name.n;
@@ -4304,11 +4329,11 @@ i32 env_fq_name(Module* mod, Env* env, CContext& ctx) {
     if (env->parent && env->parent->kind != ENV_ROOT && (env->parent->kind != ENV_GLOBAL)) {
         mcpy(writer, parent.ptr, parent.n);
         writer += parent.n;
-        *writer = '$';
-        writer ++;
+        *writer ++ = '_';
+        *writer ++ = '_';
     } 
     mcpy(writer, name.ptr, name.n);
-    for (u32 i = 0; i < size; i ++) if (fqname[i] == '/' || fqname[i] == '\\') fqname[i] = '$';
+    for (u32 i = 0; i < size; i ++) if (fqname[i] == '/' || fqname[i] == '\\') fqname[i] = '_';
     env->fqname = mod->interner->intern(const_slice<i8>{fqname, size});
     return env->fqname;
 }
@@ -4342,7 +4367,7 @@ void emit_c_binary(Module* mod, Env* env, AST* left, AST* right, CContext& ctx, 
 }
 
 void emit_c_strcmp(Module* mod, Env* env, AST* left, AST* right, CContext& ctx, const i8* op) {
-    write(ctx.c, "($strcmp(");
+    write(ctx.c, "(__clover__strcmp(");
     emit_c(mod, env, left, ctx);
     write(ctx.c, ", ");
     emit_c(mod, env, right, ctx);
@@ -4354,7 +4379,7 @@ void emit_fqsym(stream& io, Module* mod, Env* env, Symbol sym, CContext& ctx) {
     if (env && env->kind != ENV_ROOT && env->kind != ENV_GLOBAL) {
         i32 envname = env_fq_name(mod, env, ctx);
         write_sym(io, mod, envname);
-        write(io, '$');
+        write(io, "__");
     }
     write_sym(io, mod, sym);
 }
@@ -4367,7 +4392,7 @@ void emit_c_placement_new(Module* mod, Type* t, CContext& ctx) {
     emit_c_typename(ctx.h, mod, t, ctx);
     write(ctx.h, "* ");
     emit_c_typename(ctx.h, mod, t, ctx);
-    write(ctx.h, "$_pnew(");
+    write(ctx.h, "__pnew(");
     emit_c_typename(ctx.h, mod, t, ctx);
     write(ctx.h, "* out, ");
     emit_c_typename(ctx.h, mod, t, ctx);
@@ -4380,16 +4405,16 @@ void emit_c_array_new(Module* mod, Type* t, Type* e, CContext& ctx) {
     emit_c_typename(ctx.h, mod, t, ctx);
     write(ctx.h, " ");
     emit_c_typename(ctx.h, mod, t, ctx);
-    write(ctx.h, "$_anew(");
+    write(ctx.h, "__anew(");
     emit_c_typename(ctx.h, mod, e, ctx);
     write(ctx.h, " in, intptr_t size) {\n");
     ctx.h_indent += 4;
     indent(ctx.h, ctx.h_indent), emit_c_typename(ctx.h, mod, e, ctx), write(ctx.h, "* ptr = (");
-    emit_c_typename(ctx.h, mod, e, ctx), write(ctx.h, "*)$malloc(sizeof(");
+    emit_c_typename(ctx.h, mod, e, ctx), write(ctx.h, "*)__clover__malloc(sizeof(");
     emit_c_typename(ctx.h, mod, e, ctx), write(ctx.h, ") * size);\n");
     indent(ctx.h, ctx.h_indent), write(ctx.h, "for (intptr_t i = 0; i < size; i ++) { ");
     emit_c_typename(ctx.h, mod, e, ctx);
-    write(ctx.h, "$_pnew(ptr + i, in); }\n");
+    write(ctx.h, "__pnew(ptr + i, in); }\n");
     indent(ctx.h, ctx.h_indent), write(ctx.h, "return (");
     emit_c_typename(ctx.h, mod, t, ctx);
     write(ctx.h, ") { ptr, size };\n");
@@ -4424,10 +4449,10 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             Type* target = ((PtrType*)t)->target;
             if (target->mangled == -1) emit_c_typedef(mod, target, ctx);
             const const_slice<i8>& target_name = mod->interner->str(target->mangled);
-            i32 newlen = target_name.size() + 2;
+            i32 newlen = target_name.size() + 3;
             i8* name = (i8*)mod->typectx->typespace.alloc(newlen);
             mcpy(name, target_name.ptr, target_name.size());
-            mcpy(name + target_name.size(), "$P", 2);
+            mcpy(name + target_name.size(), "__P", 3);
             t->mangled = mod->interner->intern(const_slice<i8>{name, newlen});
             indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef ");
             emit_c_typename(ctx.h, mod, target, ctx);
@@ -4440,14 +4465,14 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             Type* element = ((SliceType*)t)->element;
             if (element->mangled == -1) emit_c_typedef(mod, element, ctx);
             const const_slice<i8>& element_name = mod->interner->str(element->mangled);
-            i32 newlen = element_name.size() + 2; // strlen("$slice$")
+            i32 newlen = element_name.size() + 3; 
             i8* name = (i8*)mod->typectx->typespace.alloc(newlen);
             mcpy(name, element_name.ptr, element_name.size());
-            mcpy(name + element_name.size(), "$S", 2);
+            mcpy(name + element_name.size(), "__S", 3);
             t->mangled = mod->interner->intern(const_slice<i8>{name, newlen});
 
             if (element != I8) { // Byte slices are defined in cclover.h
-                write(ctx.h, "$clover_slice_def(");
+                write(ctx.h, "__clover__slice_def(");
                 emit_fqsym(ctx.h, mod, type_env(element)->parent, type_env(element)->name, ctx);
                 write(ctx.h, ", ");
                 emit_c_typename(ctx.h, mod, element, ctx);
@@ -4460,11 +4485,10 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             if (element->mangled == -1) emit_c_typedef(mod, element, ctx);
             const const_slice<i8>& element_name = mod->interner->str(element->mangled);
             i32 newlen = element_name.size() + 28;
-            i32 array_name_len = element_name.size() + 2; // strlen("$array$");
+            i32 array_name_len = element_name.size() + 5;
             i8* name = (i8*)mod->typectx->typespace.alloc(newlen);
             mcpy(name, element_name.ptr, element_name.size());
-            mcpy(name + element_name.size(), "$A", 2);
-            name[array_name_len ++] = '$';
+            mcpy(name + element_name.size(), "__A__", 5);
             if (!((ArrayType*)t)->size) {
                 name[array_name_len ++] = '0';
             }
@@ -4483,7 +4507,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             }
             t->mangled = mod->interner->intern(const_slice<i8>{name, array_name_len});
 
-            write(ctx.h, "$clover_array_def(");
+            write(ctx.h, "__clover__array_def(");
             emit_fqsym(ctx.h, mod, type_env(element)->parent, type_env(element)->name, ctx);
             write(ctx.h, ", ");
             emit_c_typename(ctx.h, mod, element, ctx);
@@ -4522,7 +4546,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef struct ");
             write_sym(ctx.h, mod, t->mangled), write(ctx.h, " {\n");
             ctx.h_indent += 4;
-            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "i32 $tag;\n");
+            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "i32 __tag;\n");
             if (AST* ast = ((TypeDecl*)t->env->decl)->body) {
                 if (ast->kind == AST_DO) for (AST* a : ((List*)ast)->items) {
                     indent(ctx.h, ctx.h_indent), emit_c_member(mod, t->env, a, ctx), write(ctx.h, ";\n");
@@ -4538,7 +4562,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
                 emit_c_typename(ctx.h, mod, t, ctx);
                 write(ctx.h, ' ');
                 write_sym(ctx.h, mod, t->mangled);
-                write(ctx.h, "$_new(");
+                write(ctx.h, "__new(");
                 for (const auto& p : ((StructType*)t)->fields) {
                     if (&p != &((StructType*)t)->fields[0]) write(ctx.h, ", ");
                     emit_c_typename(ctx.h, mod, p.second, ctx);
@@ -4549,7 +4573,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
                 write(ctx.h, ") {\n");
                 ctx.h_indent += 4;
                 indent(ctx.h, ctx.h_indent), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " out;\n");
-                if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.$tag = ", t->caseid, ";\n");
+                if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.__tag = ", t->caseid, ";\n");
                 for (const auto& p : ((StructType*)t)->fields) {
                     indent(ctx.h, ctx.h_indent), write(ctx.h, "out.");
                     emit_fqsym(ctx.h, mod, t->env, p.first, ctx);
@@ -4582,24 +4606,24 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef enum {\n");
             ctx.h_indent += 4;
             for (i32 i : cases) 
-                indent(ctx.h, ctx.h_indent), emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "$_tag,\n");
-            indent(ctx.h, ctx.h_indent), write(ctx.h, "$MAX_TAG = ", 0x7fffffff, '\n'); // Force size to int.
+                indent(ctx.h, ctx.h_indent), emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "__tag,\n");
+            indent(ctx.h, ctx.h_indent), write(ctx.h, "__MAX_TAG = ", 0x7fffffff, '\n'); // Force size to int.
             ctx.h_indent -= 4;
             indent(ctx.h, ctx.h_indent); write(ctx.h, "} ");
             write_sym(ctx.h, mod, env_fq_name(mod, t->env, ctx));
-            write(ctx.h, "$_tag;\n");
+            write(ctx.h, "__tag;\n");
             indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef struct ");
             write_sym(ctx.h, mod, t->mangled), write(ctx.h, " {\n");
             ctx.h_indent += 4;
-            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "i32 $tag;\n");
+            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "i32 __tag;\n");
             indent(ctx.h, ctx.h_indent); write(ctx.h, "union {\n");
             ctx.h_indent += 4;
             indent(ctx.h, ctx.h_indent);
             write_sym(ctx.h, mod, env_fq_name(mod, t->env, ctx));
-            write(ctx.h, "$_tag $case;\n");
+            write(ctx.h, "__tag __case;\n");
             for (i32 i : cases) {
                 indent(ctx.h, ctx.h_indent), emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, " ");
-                emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "$_var;\n");
+                emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "__var;\n");
             } 
             ctx.h_indent -= 4;
             indent(ctx.h, ctx.h_indent); write(ctx.h, "};\n");
@@ -4614,7 +4638,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
                     emit_c_typename(ctx.h, mod, t, ctx);
                     write(ctx.h, ' ');
                     emit_c_typename(ctx.h, mod, t, ctx);
-                    write(ctx.h, "$_from_$");
+                    write(ctx.h, "__from__");
                     write_sym(ctx.h, mod, e.value.type->mangled);
                     write(ctx.h, '(');
                     emit_c_typename(ctx.h, mod, e.value.type, ctx);
@@ -4622,8 +4646,8 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
                     ctx.h_indent += 4;
                     indent(ctx.h, ctx.h_indent), emit_c_typename(ctx.h, mod, t, ctx);
                     write(ctx.h, " out;\n");
-                    if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.$case = ", t->caseid, ";\n");
-                    indent(ctx.h, ctx.h_indent), write(ctx.h, "out."), emit_c_typename(ctx.h, mod, e.value.type, ctx), write(ctx.h, "$_var = in;\n");
+                    if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.__case = ", t->caseid, ";\n");
+                    indent(ctx.h, ctx.h_indent), write(ctx.h, "out."), emit_c_typename(ctx.h, mod, e.value.type, ctx), write(ctx.h, "__var = in;\n");
                     indent(ctx.h, ctx.h_indent), write(ctx.h, "return out;\n");
                     ctx.h_indent -= 4;
                     indent(ctx.h, ctx.h_indent), write(ctx.h, "}\n");
@@ -4646,7 +4670,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             write_sym(ctx.h, mod, t->mangled), write(ctx.h, " {\n");
 
             ctx.h_indent += 4;
-            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "i32 $tag;\n");
+            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "i32 __tag;\n");
             indent(ctx.h, ctx.h_indent);
             emit_c_typename(ctx.h, mod, ((NamedType*)t)->inner, ctx);
             write(ctx.h, ' ');
@@ -4661,12 +4685,12 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             emit_c_typename(ctx.h, mod, t, ctx);
             write(ctx.h, ' ');
             write_sym(ctx.h, mod, t->mangled);
-            write(ctx.h, "$_new(");
+            write(ctx.h, "__new(");
             emit_c_typename(ctx.h, mod, ((NamedType*)t)->inner, ctx);
             write(ctx.h, " in) {\n");
             ctx.h_indent += 4;
             indent(ctx.h, ctx.h_indent), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " out;\n");
-            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.$tag = ", t->caseid, ";\n");
+            if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.__tag = ", t->caseid, ";\n");
             indent(ctx.h, ctx.h_indent), write(ctx.h, "out."), emit_fqsym(ctx.h, mod, t->env, mod->interner->intern("this"), ctx);
             write(ctx.h, " = in;\n");
             indent(ctx.h, ctx.h_indent), write(ctx.h, "return out;\n");
@@ -4681,15 +4705,15 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             int arg_lens = 0;
             for (Type* a : ((FunType*)t)->arg) {
                 if (a->mangled == -1) emit_c_typedef(mod, a, ctx);
-                arg_lens += mod->interner->str(a->mangled).n + 1;
+                arg_lens += mod->interner->str(a->mangled).n + 2;
             }
 
             const const_slice<i8>& return_name = mod->interner->str(((FunType*)t)->ret->mangled);
             i32 newlen = return_name.size() + arg_lens + 28;
-            i32 fn_name_len = return_name.size() + 2; // strlen("$array$");
+            i32 fn_name_len = return_name.size() + 3;
             i8* name = (i8*)mod->typectx->typespace.alloc(newlen);
             mcpy(name, return_name.ptr, return_name.size());
-            mcpy(name + return_name.size(), "$F", 2);
+            mcpy(name + return_name.size(), "__F", 3);
             if (!((FunType*)t)->arg.n) {
                 name[fn_name_len ++] = '0';
             }
@@ -4706,7 +4730,8 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
                 }
             }
             for (Type* a : ((FunType*)t)->arg) {
-                name[fn_name_len ++] = '$';
+                name[fn_name_len ++] = '_';
+                name[fn_name_len ++] = '_';
                 const const_slice<i8>& arg_name = mod->interner->str(a->mangled);
                 mcpy(name + fn_name_len, arg_name.ptr, arg_name.n);
                 fn_name_len += arg_name.n;
@@ -4786,6 +4811,9 @@ void emit_c_member(Module* mod, Env* env, AST* ast, CContext& ctx) {
         write(ctx.h, ' ');
         emit_fqsym(ctx.h, mod, env, d->basename, ctx);
         endmatch
+    casematch(AST_PTRDECL, Binary*, b)
+        emit_c_member(mod, env, b->left, ctx);
+        endmatch
     default:
         break;
     }
@@ -4823,6 +4851,10 @@ void emit_c_toplevel(Module* mod, Env* env, AST* ast, CContext& ctx, vec<pair<AS
     if (ast->kind >= AST_FIRST_DECL && ast->kind < AST_LAST_DECL) {    
         if (ast->kind == AST_MODULEDECL) {
             emit_c_toplevel(mod, ((ModuleDecl*)ast)->env, ((ModuleDecl*)ast)->body, ctx, main);
+        }
+        else if (ast->kind == AST_PTRDECL) {
+            emit_c_toplevel(mod, env, ((Binary*)ast)->left, ctx, main);
+            return;
         }
         else {
             if (ast->kind == AST_FUNDECL && ((FunDecl*)ast)->generic) {
@@ -4869,7 +4901,7 @@ void emit_c_type_pattern(Module* mod, Env* env, Type* match, AST* val, CContext&
         }
         if (i < 0) write(ctx.c, "0");
         else {
-            write(ctx.c, '('), emit_c(mod, env, val, ctx), write(ctx.c, '.'), write(ctx.c, "$case == ", i, ')');
+            write(ctx.c, '('), emit_c(mod, env, val, ctx), write(ctx.c, '.'), write(ctx.c, "__case == ", i, ')');
         }
     }
     else write(ctx.c, "0");
@@ -5003,7 +5035,7 @@ void emit_c_pattern_defs(Module* mod, Env* env, AST* ast, AST* val, CContext& ct
         const_slice<i8> casename = mod->interner->str(match_type->mangled);
         slice<i8> newname = { new(mod->envctx->envspace) i8[casename.n + 5], casename.n + 5 };
         mcpy(newname.ptr, casename.ptr, casename.n);
-        mcpy(newname.ptr + casename.n, "$_var", 5);
+        mcpy(newname.ptr + casename.n, "__var", 5);
         i32 newfield = mod->interner->intern(newname);
         Binary* casefield = new(mod->parser->astspace) Binary(
             AST_DOT, val->pos,
@@ -5085,13 +5117,13 @@ void emit_c_inits(Module* mod, CContext& ctx) {
     toposort_dfs(mod, toposort);
 
     for (Module* m : toposort) {
-        indent(ctx.c, ctx.c_indent), write(ctx.c, "$init_"); 
+        indent(ctx.c, ctx.c_indent), write(ctx.c, "__init_"); 
         i32 sym = env_fq_name(mod, m->parser->program->env, ctx);
         write_sym(ctx.c, m, sym); 
         write(ctx.c, "();\n");
     }
     for (i64 i = toposort.size() - 1; i >= 0; i --) {
-        indent(ctx.c, ctx.c_indent), write(ctx.c, "$deinit_"); 
+        indent(ctx.c, ctx.c_indent), write(ctx.c, "__deinit_"); 
         i32 sym = env_fq_name(mod, toposort[i]->parser->program->env, ctx);
         write_sym(ctx.c, toposort[i], sym); 
         write(ctx.c, "();\n");
@@ -5105,14 +5137,14 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         main.alloc = &ctx.textspace;
         for (AST* ast : p->toplevel) emit_c_toplevel(mod, env, ast, ctx, main);
         for (AST* ast : mod->automethods) indent(ctx.c, ctx.c_indent), indent(ctx.h, ctx.h_indent), emit_c(mod, env, ast, ctx), write(ctx.c, ";\n"), write(ctx.h, ";\n");
-        write(ctx.h, "extern void $init_"), write_sym(ctx.h, mod, env_fq_name(mod, env, ctx)), write(ctx.h, "();\n");
-        write(ctx.h, "extern void $deinit_"), write_sym(ctx.h, mod, env_fq_name(mod, env, ctx)), write(ctx.h, "();\n");
-        write(ctx.c, "void $init_"), write_sym(ctx.c, mod, env_fq_name(mod, env, ctx)), write(ctx.c, "() {\n");
+        write(ctx.h, "extern void __init_"), write_sym(ctx.h, mod, env_fq_name(mod, env, ctx)), write(ctx.h, "();\n");
+        write(ctx.h, "extern void __deinit_"), write_sym(ctx.h, mod, env_fq_name(mod, env, ctx)), write(ctx.h, "();\n");
+        write(ctx.c, "void __init_"), write_sym(ctx.c, mod, env_fq_name(mod, env, ctx)), write(ctx.c, "() {\n");
         ctx.c_indent += 4;
         for (const auto& p : main) indent(ctx.c, ctx.c_indent), emit_c(mod, p.second, p.first, ctx), write(ctx.c, ";\n");
         ctx.c_indent -= 4;
         write(ctx.c, "}\n");
-        write(ctx.c, "void $deinit_"), write_sym(ctx.c, mod, env_fq_name(mod, env, ctx)), write(ctx.c, "() {\n");
+        write(ctx.c, "void __deinit_"), write_sym(ctx.c, mod, env_fq_name(mod, env, ctx)), write(ctx.c, "() {\n");
         ctx.c_indent += 4;
         for (AST* ast : p->defers) indent(ctx.c, ctx.c_indent), emit_c(mod, p->deferred, ast, ctx), write(ctx.c, ";\n");
         ctx.c_indent -= 4;
@@ -5120,9 +5152,9 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         if (mod == mod->cloverinst->main) {
             write(ctx.c, "int main(int argc, char** argv) {\n");
             ctx.c_indent += 4;
-            indent(ctx.c, ctx.c_indent), write(ctx.c, "$core_init();\n");
+            indent(ctx.c, ctx.c_indent), write(ctx.c, "__clover__core_init();\n");
             emit_c_inits(mod, ctx);
-            indent(ctx.c, ctx.c_indent), write(ctx.c, "$core_deinit();\n");
+            indent(ctx.c, ctx.c_indent), write(ctx.c, "__clover__core_deinit();\n");
             indent(ctx.c, ctx.c_indent), write(ctx.c, "return 0;\n");
             ctx.c_indent -= 4;
             write(ctx.c, "}\n");
@@ -5164,14 +5196,14 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         write(ctx.c, "((");
         emit_c_typename(ctx.c, mod, u->child->type, ctx);
         write(ctx.c, "*)");
-        write(ctx.c, "$new(");
+        write(ctx.c, "__clover__new(");
         emit_c_typename(ctx.c, mod, u->child->type, ctx);
         write(ctx.c, ", ");
         emit_c(mod, env, u->child, ctx);
         write(ctx.c, "))");
         endmatch
     casematch(AST_NEWARRAY, Binary*, b)
-        write(ctx.c, "$newarray(");
+        write(ctx.c, "__clover__newarray(");
         emit_c_typename(ctx.c, mod, (SliceType*)b->type, ctx);
         write(ctx.c, ", ");
         emit_c(mod, env, b->right, ctx);
@@ -5180,7 +5212,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         write(ctx.c, ')');
         endmatch
     casematch(AST_DEL, Unary*, u)
-        write(ctx.c, "$del(");
+        write(ctx.c, "__clover__del(");
         if (u->child->type->kind == T_SLICE) write(ctx.c, '(');
         emit_c(mod, env, u->child, ctx);
         if (u->child->type->kind == T_SLICE) write(ctx.c, ").ptr");
@@ -5261,7 +5293,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
             break;
         case T_UNION:
             emit_c_typename(ctx.c, mod, dest, ctx);
-            write(ctx.c, "$_from_$");
+            write(ctx.c, "__from__");
             emit_c_typename(ctx.c, mod, u->child->type, ctx);
             write(ctx.c, '(');
             emit_c(mod, env, u->child, ctx);
@@ -5273,7 +5305,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
             if (src->kind == T_UNION && dest->is_case && dest->env->parent == src->env) {
                 write(ctx.c, "(");
                 emit_c(mod, env, u->child, ctx);
-                write(ctx.c, ")."), emit_c_typename(ctx.c, mod, dest, ctx), write(ctx.c, "$_var");
+                write(ctx.c, ")."), emit_c_typename(ctx.c, mod, dest, ctx), write(ctx.c, "__var");
             }
             else {
                 write(ctx.c, "((");
@@ -5373,7 +5405,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         write(ctx.c, "]");
         endmatch
     casematch(AST_APPLY, Apply*, a)
-        if (Env* e = call_parent(mod, a)) emit_c(mod, e, a->fn, ctx);
+        if (auto p = call_parent(mod, a)) emit_c(mod, p->second, a->fn, ctx);
         else emit_c(mod, env, a->fn, ctx);
         bool first = true;
         write(ctx.c, '(');
@@ -5392,21 +5424,21 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         switch (t->kind) {
         case T_SLICE:
             if (a->args[0]->type->kind == T_STRING) {
-                write(ctx.c, "$str_to_bytes(");
+                write(ctx.c, "__clover__str_to_bytes(");
                 emit_c(mod, env, a->args[0], ctx);
                 write(ctx.c, ')');
             }
             break;
         case T_STRING:
             // Must be slice.
-            write(ctx.c, "$bytes_to_str(");
+            write(ctx.c, "__clover__bytes_to_str(");
             emit_c(mod, env, a->args[0], ctx);
             write(ctx.c, ')');
             break;
         case T_STRUCT:
         case T_NAMED: {
             emit_c_typename(ctx.c, mod, t, ctx);
-            write(ctx.c, "$_new(");
+            write(ctx.c, "__new(");
             bool first = true;
             for (AST* a : a->args) {
                 if (!first) write(ctx.c, ", ");
@@ -5600,8 +5632,8 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         write(ctx.c, "{\n");
         ctx.c_indent += 4;
         indent(ctx.c, ctx.c_indent), emit_c_typename(ctx.c, mod, patn->type, ctx); 
-        write(ctx.c, " $match = "), emit_c(mod, env, patn, ctx), write(ctx.c, ";\n");
-        Var* v = new(mod->parser->astspace) Var(patn->pos, mod->interner->intern("$match"));
+        write(ctx.c, " __match = "), emit_c(mod, env, patn, ctx), write(ctx.c, ";\n");
+        Var* v = new(mod->parser->astspace) Var(patn->pos, mod->interner->intern("__match"));
         v->type = patn->type;
         for (AST* a : l->items) if (((CaseDecl*)a)->reachable) {
             CaseDecl* d = (CaseDecl*)a;

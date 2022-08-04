@@ -10,3 +10,5 @@ var y: Foo("hello")
 x.bar()
 y.bar()
 
+int add(int a, int b):
+    a + b

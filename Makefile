@@ -13,7 +13,7 @@ JASMINE_OBJS := $(JASMINE_SRCS:.cpp=.o)
 SOLVER_OBJS := $(SOLVER_SRCS:.cpp=.o)
 
 CXX := clang++
-CXXFLAGS := -std=c++11 -Wall -Wno-unused -Wno-return-type-c-linkage -DINCLUDE_UTF8_LOOKUP_TABLE -nodefaultlibs -Os -fno-rtti -ffunction-sections -fno-exceptions -nostdlib -std=c++11 -I.
+CXXFLAGS := -std=c++11 -Wall -Wno-unused -Wno-return-type-c-linkage -DINCLUDE_UTF8_LOOKUP_TABLE -nodefaultlibs -O3 -fno-rtti -ffunction-sections -fno-exceptions -nostdlib -std=c++11 -I.
 LDFLAGS := -O3 -flto -Wl,--gc-sections
 ASM := as
 ASMFLAGS := 

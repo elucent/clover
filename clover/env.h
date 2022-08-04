@@ -4,6 +4,7 @@
 #include "lib/malloc.h"
 #include "lib/hash.h"
 #include "lib/vec.h"
+#include "lib/tuple.h"
 #include "clover/clover.h"
 
 enum EntryKind : i8 {
@@ -116,16 +117,20 @@ struct FunDecl;
 struct EnvContext {
     arena envspace;
     Env* root;
+    map<i32, vec<pair<Type*, Env*>, 16, arena>, 256, arena> nonconcrete_methods;
     map<i32, vec<pair<Type*, Env*>, 16, arena>, 256, arena> methods;
     map<i32, vec<pair<Type*, FunDecl*>, 16, arena>, 256, arena> generic_methods;
+    i32 in_prototype = 0;
 
     inline EnvContext() {
+        nonconcrete_methods.alloc = &envspace;
         methods.alloc = &envspace;
         generic_methods.alloc = &envspace;
     }
 
     void add_method(i32 name, Type* type, Env* decl);
     void add_generic_method(i32 name, FunDecl* decl);
+    void finalize_methods(Module* mod);
     AST* create_method(i32 name, Type* type, Module* mod, vec<pair<Type*, Env*>*, 64, arena> methods);
     pair<Type*, Env*>* find_method(i32 name, Type* type, Module* mod);
 

@@ -26,51 +26,51 @@ typedef struct {
     intptr_t size;
 } string;
 
-extern CLINKAGE iptr $strlen(string s);
+extern CLINKAGE iptr __clover__strlen(string s);
 
-inline i64 $strcmp(string a, string b) {
+inline i64 __clover__strcmp(string a, string b) {
     i64 smaller = a.size < b.size ? a.size : b.size;
     iptr result = mcmp(a.data, b.data, smaller); // Valid because strings are still null-terminated for now.
-    if (!result && a.size != b.size) return $strlen(a) - $strlen(b);
+    if (!result && a.size != b.size) return __clover__strlen(a) - __clover__strlen(b);
     else return result;
 }
 
-#define $new(T, x) T ## $_pnew((T*)$malloc(sizeof(T)), x)
-#define $newarray(T, x, n) T ## $_anew(x, n)
-#define $clover_array_def(T, CT, n) typedef struct { CT ptr[n]; } CT ## $A$ ## n ;
-#define $clover_slice_def(T, CT) typedef struct { CT* ptr; intptr_t size; } CT ## $S ; \
-inline CT ## $S T ## $S ## $iter(CT ## $S sl) { return sl; } \
-inline bool_t T ## $S ## $empty(CT ## $S sl) { return sl.size == 0; } \
-inline CT T ## $S ## $read(CT ## $S sl) { return sl.ptr[0]; } \
-inline CT ## $S T ## $S ## $next(CT ## $S sl) { return (CT ## $S){sl.ptr + 1, sl.size - 1}; }
+#define __clover__new(T, x) T ## __pnew((T*)__clover__malloc(sizeof(T)), x)
+#define __clover__newarray(T, x, n) T ## __anew(x, n)
+#define __clover__array_def(T, CT, n) typedef struct { CT ptr[n]; } CT ## __A__ ## n ;
+#define __clover__slice_def(T, CT) typedef struct { CT* ptr; intptr_t size; } CT ## __S ; \
+inline CT ## __S T ## __S ## __iter(CT ## __S sl) { return sl; } \
+inline bool_t T ## __S ## __empty(CT ## __S sl) { return sl.size == 0; } \
+inline CT T ## __S ## __read(CT ## __S sl) { return sl.ptr[0]; } \
+inline CT ## __S T ## __S ## __next(CT ## __S sl) { return (CT ## __S){sl.ptr + 1, sl.size - 1}; }
 
-$clover_slice_def(i8, i8)
-inline string $bytes_to_str(i8$S bytes) { return (string){ bytes.ptr, bytes.size }; }
-inline i8$S $str_to_bytes(string str) { return (i8$S){ (i8*)str.data, str.size }; }
+__clover__slice_def(i8, i8)
+inline string __clover__bytes_to_str(i8__S bytes) { return (string){ bytes.ptr, bytes.size }; }
+inline i8__S __clover__str_to_bytes(string str) { return (i8__S){ (i8*)str.data, str.size }; }
 
 // Init and deinit of libcore.
-extern CLINKAGE void $core_init();
-extern CLINKAGE void $core_deinit();
+extern CLINKAGE void __clover__core_init();
+extern CLINKAGE void __clover__core_deinit();
 
 // Formatting for various values.
-extern CLINKAGE void int$print(iword);
-extern CLINKAGE void float$print(double);
-extern CLINKAGE void unit$print(unit);
-extern CLINKAGE void bool$print(bool_t);
-extern CLINKAGE void char$print(i32);
-extern CLINKAGE void string$print(string);
+extern CLINKAGE void int__print(iword);
+extern CLINKAGE void float__print(double);
+extern CLINKAGE void unit__print(unit);
+extern CLINKAGE void bool__print(bool_t);
+extern CLINKAGE void char__print(i32);
+extern CLINKAGE void string__print(string);
 
 // Exponent function.
-extern CLINKAGE i8 i8$$pow(i8, i8);
-extern CLINKAGE i16 i16$$pow(i16, i16);
-extern CLINKAGE i32 i32$$pow(i32, i32);
-extern CLINKAGE i64 i64$$pow(i64, i64);
-extern CLINKAGE f32 f32$$pow(f32, f32);
-extern CLINKAGE f64 f64$$pow(f64, f64);
+extern CLINKAGE i8 i8__pow(i8, i8);
+extern CLINKAGE i16 i16__pow(i16, i16);
+extern CLINKAGE i32 i32__pow(i32, i32);
+extern CLINKAGE i64 i64__pow(i64, i64);
+extern CLINKAGE f32 f32__pow(f32, f32);
+extern CLINKAGE f64 f64__pow(f64, f64);
 
 // Control and memory management.
 extern CLINKAGE void pexit(iword);
-extern CLINKAGE iword $malloc(iword);
-extern CLINKAGE void $del(void*);
+extern CLINKAGE iword __clover__malloc(iword);
+extern CLINKAGE void __clover__del(void*);
 
 #endif

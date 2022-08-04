@@ -110,86 +110,86 @@ inline f64 fpow(f64 n, f64 p) {
     else return fipow(n, p_i) * froot(n, p_f);
 }
 
-extern "C" i8 i8$$pow(i8 n, i8 p) {
+extern "C" i8 i8__pow(i8 n, i8 p) {
     return i8(ipow(n, p));
 }
 
-extern "C" i16 i16$$pow(i16 n, i16 p) {
+extern "C" i16 i16__pow(i16 n, i16 p) {
     return i16(ipow(n, p));
 }
 
-extern "C" i32 i32$$pow(i32 n, i32 p) {
+extern "C" i32 i32__pow(i32 n, i32 p) {
     return i32(ipow(n, p));
 }
 
-extern "C" i64 i64$$pow(i64 n, i64 p) {
+extern "C" i64 i64__pow(i64 n, i64 p) {
     return i64(ipow(n, p));
 }
 
-extern "C" f32 f32$$pow(f32 n, f32 p) {
+extern "C" f32 f32__pow(f32 n, f32 p) {
     return f32(fpow(n, p));
 }
 
-extern "C" f64 f64$$pow(f64 n, f64 p) {
+extern "C" f64 f64__pow(f64 n, f64 p) {
     return f64(fpow(n, p));
 }
 
-extern "C" void int$print(iword i) {
+extern "C" void int__print(iword i) {
     print(i, '\n');
 }
 
-extern "C" void float$print(double i) {
+extern "C" void float__print(double i) {
     print(i, '\n');
 }
 
-extern "C" void unit$print(unit i) {
+extern "C" void unit__print(unit i) {
     print("()\n");
 }
 
-extern "C" void bool$print(bool_t i) {
+extern "C" void bool__print(bool_t i) {
     print(i ? "true\n" : "false\n");
 }
 
-extern "C" void char$print(i32 i) {
+extern "C" void char__print(i32 i) {
     print(rune(i), '\n');
 }
 
-extern "C" void string$print(string s) {
+extern "C" void string__print(string s) {
     print(const_slice<i8>{s.data, s.size}, '\n');
 }
 
-extern "C" iptr $strlen(string s) {
+extern "C" iptr __clover__strlen(string s) {
     return utf8_length(s.data, s.size);
 }
 
 static allocator* alloc;
 
-extern "C" void $core_init() {
+extern "C" void __clover__core_init() {
     alloc = new((allocator*)mreq(1).ptr) allocator;
 }
 
-extern "C" void $core_deinit() {
+extern "C" void __clover__core_deinit() {
     mfree({(page*)alloc, 1});
 }
 
-extern "C" iword $malloc(iword size) {
+extern "C" iword __clover__malloc(iword size) {
     return alloc->alloc(size);
 }
 
-extern "C" void $del(void* ptr) {
+extern "C" void __clover__del(void* ptr) {
     return alloc->free(ptr);
 }
 
 // Libcore bindings.
 
-extern CLINKAGE slice<page> memory$map(i64 n) {
+extern CLINKAGE slice<page> memory__map(i64 n) {
     return mreq(n);
 }
 
-extern CLINKAGE void memory$unmap(slice<page> pages) {
+extern CLINKAGE void memory__unmap(slice<page> pages) {
     mfree(pages);
 }
 
-extern CLINKAGE void memory$tag(slice<page> pages, i8 flags) {
+extern CLINKAGE void memory__tag(slice<page> pages, i8 flags) {
     mpermit(pages, flags);
 }

@@ -127,8 +127,8 @@ void EnvContext::create_root_env(Interner& syms, TypeContext& types) {
         args[0] = base;  
         args[1] = base;  
         Type* ft = types.def<FunType>(args, base);
-        base->env->def(syms.intern("$pow"), e_fun(ft, nullptr));
-        add_method(syms.intern("$pow"), base, base->env);
+        base->env->def(syms.intern("pow"), e_fun(ft, nullptr));
+        add_method(syms.intern("pow"), base, base->env);
     };
 
     def_pow(I8);
@@ -140,14 +140,31 @@ void EnvContext::create_root_env(Interner& syms, TypeContext& types) {
 }
 
 void EnvContext::add_method(i32 name, Type* type, Env* env) {
-    auto it = methods.find(name);
-    if (it == methods.end()) {
+    if (in_prototype) return;
+    auto it = nonconcrete_methods.find(name);
+    if (it == nonconcrete_methods.end()) {
         vec<pair<Type*, Env*>, 16, arena> v;
         v.alloc = &envspace;
         v.push({type, env});
-        methods.put(name, v);
+        nonconcrete_methods.put(name, v);
     }
     else it->value.push({type, env});
+}
+
+void EnvContext::finalize_methods(Module* mod) {
+    for (auto& e : nonconcrete_methods) {
+        auto it = methods.find(e.key);
+        if (it == methods.end()) {
+            vec<pair<Type*, Env*>, 16, arena> v;
+            v.alloc = &envspace;
+            for (const auto& p : e.value) 
+                v.push({fullsimplify(*mod->typectx, p.first), p.second});
+            methods.put(e.key, v);
+        }
+        else for (const auto& p : e.value)
+            it->value.push({fullsimplify(*mod->typectx, p.first), p.second});
+    }
+    nonconcrete_methods.clear();
 }
 
 i32 anon_sym(Module* mod, i32 n) {
@@ -250,6 +267,16 @@ pair<Type*, Env*>* EnvContext::find_method(i32 name, Type* type, Module* mod) {
     if (it != methods.end()) {
         for (auto& p : it->value) if (type == p.first) return &p;
         for (auto& p : it->value) if (is_subtype(type, p.first)) return &p;
+    }
+    it = nonconcrete_methods.find(name);
+    if (it != nonconcrete_methods.end()) {
+        for (auto& p : it->value) if (type == p.first) return &p;
+        for (auto& p : it->value) if (is_subtype(type, p.first)) return &p;
+    }
+
+    // Consider pointer matching method:
+    if (type->kind == T_PTR) {
+        return find_method(name, ((PtrType*)type)->target, mod);
     }
     // Consider generic matching method:
     if (type->kind == T_UNION) {

@@ -100,7 +100,7 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     mod->ndefers.push(0);
     mod->automethods.alloc = &mod->parser->astspace;
     iptr timer;
-    iptr decns = 0, lexns = 0, parsens = 0, envns = 0, typns = 0, chkns = 0, cycles = 0;
+    iptr decns = 0, lexns = 0, parsens = 0, envns = 0, typns = 0, chkns = 0, emitns = 0, cycles = 0;
 
     if (show_lex) print("\nLexed tokens:\n\n");
     while (ubuf.byteidx < mod->bytes.length) { // while there are still bytes to read
@@ -211,18 +211,22 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     mod->hpath = hdest;
     mod->cpath = cdest;
 
+    timer = nanotime();
     CContext cctx(*hout, *cout, mod);
     emit_c_prelude(mod, mod->parser->program->env, cctx, cdest, hdest);
     emit_c_types(mod, mod->parser->program->env, cctx);
     emit_c(mod, mod->parser->program->env, mod->parser->program, cctx);
+    emitns = nanotime() - timer, timer = nanotime();
 
-    double total = decns + lexns + parsens + envns + typns + chkns;
+    double total = decns + lexns + parsens + envns + typns + chkns + emitns;
     // print("decoding took ", decns / 1000000.0, " ms, avg ", (double)decns / cycles / UNICODE_BUFSIZE, " ns per char, ", decns / total * 100, " % total\n");
     // print("lexing took ", lexns / 1000000.0, " ms, avg ", (double)lexns / cycles / UNICODE_BUFSIZE, " ns per token, ", lexns / total * 100, " % total\n");
     // print("parsing took ", parsens / 1000000.0, " ms, avg ", (double)parsens / 1, " ns per node, ", parsens / total * 100, " % total\n");
     // print("scoping took ", envns / 1000000.0, " ms, ", envns / total * 100, " % total\n");
     // print("type declaration took ", typns / 1000000.0, " ms, ", typns / total * 100, " % total\n");
     // print("type checking took ", chkns / 1000000.0, " ms, ", chkns / total * 100, " % total\n");
+    // print("code generation took ", emitns / 1000000.0, " ms, ", emitns / total * 100, " % total\n");
+    // print("total took ", total / 1000000.0, " ms\n");
 
     close(cout);
     close(hout);
@@ -315,7 +319,6 @@ void invoke_cc(Clover& clover, const i8* cc, vec<i8>& cmdbuf) {
     add_flag_cc("-nodefaultlibs", cmdbuf);
     add_flag_cc("-nostdlib", cmdbuf);
     add_flag_cc("-O3", cmdbuf);
-    add_flag_cc("-v", cmdbuf);
     for (auto& m : clover.modules) m.value->visited = false; // Reset visited state.
     visit_module_cc(clover.main, cmdbuf);
     add_flag_cc("-lcclover", cmdbuf);

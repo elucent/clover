@@ -66,7 +66,7 @@ struct Type {
     Env* env = nullptr;
     i32 mangled = -1, caseid = -1;
     TypeKind kind;
-    bool referenced_by_name = false, ctor_called = false, gen_placement_new = false, is_case = false;
+    bool referenced_by_name = false, ctor_called = false, gen_placement_new = false, is_case = false, is_prototype = false;
 
     inline Type(TypeKind kind_in): kind(kind_in) {}
 

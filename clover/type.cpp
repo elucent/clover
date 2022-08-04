@@ -15,11 +15,12 @@ void PtrType::init_env(TypeContext* typectx) {
 
     Env* tenv = type_env(target);
     const auto& tname = typectx->interner->str(tenv->name);
-    i8* ptr_name = (i8*)typectx->envctx->envspace.alloc(tname.n + 2);
+    i8* ptr_name = (i8*)typectx->envctx->envspace.alloc(tname.n + 3);
     mcpy(ptr_name, tname.ptr, tname.n);
-    ptr_name[tname.n] = '$';
-    ptr_name[tname.n + 1] = 'P';
-    env = typectx->envctx->create(ENV_TYPE, tenv->parent, typectx->interner->intern({ ptr_name, tname.n + 2 }));
+    ptr_name[tname.n] = '_';
+    ptr_name[tname.n + 1] = '_';
+    ptr_name[tname.n + 2] = 'P';
+    env = typectx->envctx->create(ENV_TYPE, tenv->parent, typectx->interner->intern({ ptr_name, tname.n + 3 }));
 }
 
 void ArrayType::init_env(TypeContext* typectx) {
@@ -27,13 +28,15 @@ void ArrayType::init_env(TypeContext* typectx) {
 
     Env* tenv = type_env(element);
     const auto& tname = typectx->interner->str(tenv->name);
-    i8* arr_name = (i8*)typectx->envctx->envspace.alloc(tname.n + 23); // 20 bytes should be enough for any 32-bit size
+    i8* arr_name = (i8*)typectx->envctx->envspace.alloc(tname.n + 25); // 20 bytes should be enough for any 32-bit size
     i32 arr_name_size = tname.n + 3;
     mcpy(arr_name, tname.ptr, tname.n);
 
-    arr_name[tname.n] = '$';
-    arr_name[tname.n + 1] = 'A';
-    arr_name[tname.n + 2] = '$';
+    arr_name[tname.n] = '_';
+    arr_name[tname.n + 1] = '_';
+    arr_name[tname.n + 2] = 'A';
+    arr_name[tname.n + 3] = '_';
+    arr_name[tname.n + 4] = '_';
     if (size < 0) {
         arr_name[arr_name_size ++] = '!';
     }
@@ -62,11 +65,12 @@ void SliceType::init_env(TypeContext* typectx) {
 
     Env* tenv = type_env(element);
     const auto& tname = typectx->interner->str(tenv->name);
-    i8* slice_name = (i8*)typectx->envctx->envspace.alloc(tname.n + 2);
+    i8* slice_name = (i8*)typectx->envctx->envspace.alloc(tname.n + 3);
     mcpy(slice_name, tname.ptr, tname.n);
-    slice_name[tname.n] = '$';
-    slice_name[tname.n + 1] = 'S';
-    env = typectx->envctx->create(ENV_TYPE, tenv->parent, typectx->interner->intern({ slice_name, tname.n + 2 }));
+    slice_name[tname.n] = '_';
+    slice_name[tname.n + 1] = '_';
+    slice_name[tname.n + 2] = 'S';
+    env = typectx->envctx->create(ENV_TYPE, tenv->parent, typectx->interner->intern({ slice_name, tname.n + 3 }));
     slice<Type*> args = {(Type**)typectx->typespace.alloc(sizeof(Type*) * 1), 1};
     args[0] = this;
     typectx->envctx->add_method(typectx->interner->intern("iter"), this, env);
@@ -83,24 +87,28 @@ void FunType::init_env(TypeContext* typectx) {
     if (!isconcrete(ret)) return;
     for (Type* t : arg) if (!isconcrete(t)) return;
 
-    i32 name_size = typectx->interner->str(type_env(ret)->name).n + 2;
+    i32 name_size = typectx->interner->str(type_env(ret)->name).n + 5;
     for (Type* t : arg) {
-        if (t != arg[0]) name_size ++;
+        if (t != arg[0]) name_size += 2;
         name_size += typectx->interner->str(type_env(t)->name).n;
     }
-    name_size ++;
     i8* fn_name = (i8*)typectx->envctx->envspace.alloc(name_size);
     i8* writer = fn_name;
 
     const auto& retname = typectx->interner->str(type_env(ret)->name);
     mcpy(writer, retname.ptr, retname.n), writer += retname.n;
-    *writer ++ = '$';
+    *writer ++ = '_';
+    *writer ++ = '_';
     *writer ++ = 'F';
-    *writer ++ = '$';
+    *writer ++ = '_';
+    *writer ++ = '_';
     if (nary) *writer ++ = '!';
     else for (Type* t : arg) {
         const auto& argname = typectx->interner->str(type_env(t)->name);
-        if (t != arg[0]) *writer ++ = '$';
+        if (t != arg[0]) {
+            *writer ++ = '_';
+            *writer ++ = '_';
+        }
         mcpy(writer, argname.ptr, argname.n), writer += argname.n;
     }
 
