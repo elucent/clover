@@ -5,17 +5,19 @@
 #include "lib/hash.h"
 #include "lib/slice.h"
 #include "lib/io.h"
-#include "jasmine/type.h"
+#include "lib/buffer.h"
 
-using dataidx = u64;
-using statidx = u64;
-using funcidx = u64;
-using stridx = u64;
+using dataidx = i32;
+using statidx = i32;
+using funcidx = i32;
+using stridx = i32;
 
-constexpr const dataidx DATA_EXT = 0xffff;
-constexpr const statidx STAT_EXT = 0xffff;
-constexpr const funcidx FUNC_EXT = 0xffff;
-constexpr const stridx STR_EXT = 0xffff;
+using typeidx = i32;
+
+using localidx = i32;
+using labelidx = i32;
+
+struct JasmineModule;
 
 struct Version {
     u8 major, minor, patch;
@@ -63,17 +65,41 @@ struct MetaTable {
     void format(stream& io) const;
 };
 
-struct StringTable {
-    JasmineModule* obj;
+struct SymbolTable {
     vec<const_slice<i8>, 16, arena> strings;
     map<const_slice<i8>, stridx, 16, arena> strtab;
 
-    StringTable(JasmineModule* obj_in);
+    inline stridx intern(const_slice<i8> str) {
+        auto it = strtab.find(str);
+        if (it == strtab.end()) {
+            slice<i8> objstr = { new i8[str.n], str.n };
+            mcpy(objstr.ptr, str.ptr, str.n);
+            strtab.put(objstr, strings.size());
+            strings.push(objstr);
+            return strings.size() - 1;
+        }
+        else return it->value;
+    }
 
-    stridx intern(const_slice<i8> str);
+    inline stridx anon() {
+        stridx i = strings.size();
+        strings.push(const_slice<i8>{"", (iptr)0});
+        return i;
+    }
+
     inline stridx intern(u32 len, const i8* str) {
         return intern({ str, len });
     }
+
+    inline const_slice<i8> str(stridx sym) const {
+        return strings[sym];
+    }
+};
+
+struct StringTable : public SymbolTable {
+    JasmineModule* obj;
+
+    StringTable(JasmineModule* obj_in);
 
     u32 size() const;
     void write(bytebuf<arena>& buf) const;

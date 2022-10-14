@@ -1,5 +1,6 @@
 #include "jasmine/jasmine.h"
 #include "jasmine/obj.h"
+#include "jasmine/parse.h"
 #include "core/util.h"
 
 static bool startswith(const i8* str, const i8* prefix) {
@@ -49,6 +50,7 @@ static i32 help(const i8* cmd) {
     print("  ls <path>:                 Lists the defined modules/symbols in the selected object or module.\n");
     print("  cat <path> [files...]:     Combines the objects in [files] into a single object at <path>.\n");
     print("  rm <path> [module|func]:   Removes the selected module or function from the object.\n");
+    print("  as <path>:                 Assembles the selected file to standard output.\n");
     print("Options:\n");
     print("  -h, --help:                Prints usage information.\n");
     print("  --keep-newer:              Resolve duplicates by keeping the newer version of the module.\n");
@@ -66,8 +68,6 @@ static i32 run(i32 argc, i8** argv) {
         return help(CMD);
     }
 
-    const Target& target = DEFAULT_TARGET;
-
     if (is_path(argv[0])) {
         Path path = parse_path(argv[0]);
         stream* file = open(path.obj.ptr, FP_READ);
@@ -78,7 +78,7 @@ static i32 run(i32 argc, i8** argv) {
         JasmineObject obj(*file);
         auto mod = obj.modules.find(path.mod);
         if (mod != obj.modules.end()) {
-            mod->value->target(DEFAULT_TARGET, opt_level);
+            mod->value->opt(opt_level);
         }
         else {
             print("Binary ", path.obj, " contains no such module '", path.mod, "'.");
@@ -94,7 +94,7 @@ static i32 run(i32 argc, i8** argv) {
         }
         JasmineObject obj(*file);
         for (const auto& mod : obj.moduleseq) {
-            mod->target(DEFAULT_TARGET, opt_level);
+            mod->opt(opt_level);
         }
         close(file);
     }
@@ -283,6 +283,17 @@ static i32 rm(i32 argc, i8** argv) {
     return 0;
 }
 
+static i32 as(i32 argc, i8** argv) {
+    if (argc == 0) {
+        print("Expected source path.\n\n");
+        return help(CMD);
+    }
+
+    JasmineObject* obj = parse(argv[0]);
+    obj->write(stdout);
+    return 0;
+}
+
 i32 jasmine_main(i32 argc, i8** argv) {
     if (argc == 1) return help(argv[0]);
 
@@ -317,6 +328,9 @@ i32 jasmine_main(i32 argc, i8** argv) {
         }
         else if (!mcmp(arg, "rm", 3)) {
             return rm(argc - (i + 1), argv + i + 1);
+        }
+        else if (!mcmp(arg, "as", 3)) {
+            return as(argc - (i + 1), argv + i + 1);
         }
         else return run(argc - i, argv + i);
     }

@@ -8,7 +8,7 @@
 #include "clover/clover.h"
 
 enum EntryKind : i8 {
-    E_GLOBAL, E_VAR, E_FUN, E_GENFUN, E_MOD, E_TYPE, E_GENTYPE, E_ALIAS, E_CASE
+    E_GLOBAL, E_VAR, E_FUN, E_GENFUN, E_MOD, E_TYPE, E_GENTYPE, E_ALIAS, E_CASE, E_CONST
 };
 
 enum EnvKind : i8 {
@@ -27,6 +27,10 @@ struct Entry {
     Type* type;
     EntryKind kind;
 };
+
+inline Entry e_const(Type* type, AST* decl) {
+    return { decl, type, E_CONST };
+}
 
 inline Entry e_var(Type* type, AST* decl) {
     return { decl, type, E_VAR };

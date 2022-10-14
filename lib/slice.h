@@ -4,6 +4,18 @@
 #include "core/util.h"
 
 /*
+ * swap(lhs, rhs)
+ *
+ * Swaps the values beneath the two provided references.
+ */
+template<typename T>
+void swap(T& a, T& b) {
+    T t = a;
+    a = b;
+    b = t;
+}
+
+/*
  * const_slice<T>
  *
  * Immutable sized pointer type. Represents a valid sequence of values of length

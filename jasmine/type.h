@@ -4,10 +4,10 @@
 #include "lib/vec.h"
 #include "lib/hash.h"
 #include "lib/buffer.h"
+#include "jasmine/tab.h"
 
 struct JasmineModule;
 
-using typeidx = i64;
 constexpr typeidx
     T_I8 = -1,
     T_I16 = -2,
@@ -74,9 +74,51 @@ struct TypeTable {
     void write(bytebuf<arena>& buf) const;
     void read(bytebuf<arena>& buf);
     void format(stream& io) const;
-    u32 native_sizeof(const Target& t, typeidx i) const;
-    u32 native_alignof(const Target& t, typeidx i) const;
-    void compute_native_sizes(const Target& t);
+
+    template<typename Target>
+    u32 native_sizeof(typeidx i) const {
+        if (i < 0) return Target::primsize(i);
+        else return types[i].size;
+    }
+
+    template<typename Target>
+    u32 native_alignof(typeidx i) const {
+        if (i < 0) return Target::primsize(i);
+        else return types[i].align;
+    }
+    
+    template<typename Target>
+    void compute_native_sizes() {
+        for (u32 i = 0; i < types.size(); i ++) {
+            Type& t = types[i];
+            switch (t.kind) {
+                case TK_ARR: 
+                    t.size = t.nelts * native_sizeof<Target>(t.elt);
+                    t.align = native_alignof<Target>(t.elt);
+                    break;
+                case TK_FUN:
+                    t.size = 0;
+                    t.align = 0;
+                    break;
+                case TK_TUP: {
+                    u32 size = 0, align = 0;
+                    for (u32 i = 0; i < t.len; i ++) {
+                        u32 a = native_alignof<Target>(t.members[i]);
+                        while (size & a - 1) size ++;
+                        align = a > align ? a : align;
+                        size += native_sizeof<Target>(t.members[i]);
+                    }
+                    t.size = size;
+                    t.align = align;
+                    break;
+                }
+                case TK_VEC:
+                    t.size = t.nvelts * native_sizeof<Target>(t.velt); 
+                    t.align = native_alignof<Target>(t.nvelts * t.velt);
+                    break;
+            }
+        }
+    }
 };
 
 void format_type(const TypeTable& table, typeidx id, stream& io);

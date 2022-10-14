@@ -26,7 +26,7 @@ enum TokenKind : u8 {
     TK_FIRST_KEYWORD,
     TK_AND = TK_FIRST_KEYWORD, TK_OR, TK_NOT,
     TK_IF, TK_ELSE, TK_WHILE, TK_UNTIL, TK_WITH, TK_FOR, TK_IN, TK_USE, TK_RETURN, TK_DEFER, TK_AS, TK_IS, 
-    TK_FUN, TK_VAR, TK_TYPE, TK_CASE, TK_MATCH, TK_ALIAS, TK_MODULE, TK_NEW, TK_DEL, TK_DO, TK_THEN, TK_BREAK, TK_CONTINUE, TK_PASS,
+    TK_FUN, TK_VAR, TK_TYPE, TK_CASE, TK_MATCH, TK_ALIAS, TK_MODULE, TK_NEW, TK_DEL, TK_DO, TK_THEN, TK_BREAK, TK_CONTINUE, TK_CONST,
     TK_TRUE, TK_FALSE, TK_LAST_KEYWORD,
     TK_ICONST = TK_LAST_KEYWORD, TK_FCONST, TK_STRCONST, TK_CHCONST, TK_IDENT
 };
@@ -34,7 +34,7 @@ enum TokenKind : u8 {
 static constexpr const i8* KEYWORD_STRINGS[TK_LAST_KEYWORD - TK_FIRST_KEYWORD] = {
     "and", "or", "not", 
     "if", "else", "while", "until", "with", "for", "in", "use", "return", "defer", "as", "is", 
-    "fun", "var", "type", "case", "match", "alias", "module", "new", "del", "do", "then", "break", "continue", "pass",
+    "fun", "var", "type", "case", "match", "alias", "module", "new", "del", "do", "then", "break", "continue", "const",
     "true", "false"
 };
 

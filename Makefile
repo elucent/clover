@@ -13,8 +13,8 @@ JASMINE_OBJS := $(JASMINE_SRCS:.cpp=.o)
 SOLVER_OBJS := $(SOLVER_SRCS:.cpp=.o)
 
 CXX := clang++
-CXXFLAGS := -std=c++11 -Wall -Wno-unused -Wno-return-type-c-linkage -DINCLUDE_UTF8_LOOKUP_TABLE -nodefaultlibs -O3 -fno-rtti -ffunction-sections -fno-exceptions -nostdlib -std=c++11 -I.
-LDFLAGS := -O3 -flto -Wl,--gc-sections
+CXXFLAGS := -std=c++17 -Wall -Wno-unused -Wno-return-type-c-linkage -DINCLUDE_UTF8_LOOKUP_TABLE -nodefaultlibs -fno-rtti -ffunction-sections -fno-exceptions -nostdlib -I. -Wno-inaccessible-base
+LDFLAGS := -Wl,--gc-sections
 ASM := as
 ASMFLAGS := 
 
@@ -45,11 +45,19 @@ main: release
 release: clover jasmine libcore libcclover solver
 debug: clover-debug jasmine-debug libcore-debug libcclover-debug solver-debug
 
+clover-release: CXXFLAGS += -O3
+jasmine-release: CXXFLAGS += -O3
+libcore-release: CXXFLAGS += -O3
+libcclover-release: CXXFLAGS += -O3
+solver-release: CXXFLAGS += -O3
+gctest-release: CXXFLAGS += -O3 -g3
+
 clover-debug: CXXFLAGS += -O0 -g3
 jasmine-debug: CXXFLAGS += -O0 -g3
 libcore-debug: CXXFLAGS += -O0 -g3
 libcclover-debug: CXXFLAGS += -O0 -g3
 solver-debug: CXXFLAGS += -O0 -g3
+gctest-debug: CXXFLAGS += -O0 -g3
 
 bin/libcore.a: $(CORE_OBJS) $(CORE_NATIVE_OBJS) $(LIB_OBJS)
 	mkdir -p bin
@@ -71,23 +79,29 @@ bin/solver: $(CORE_OBJS) $(CORE_NATIVE_OBJS) $(LIB_OBJS) $(SOLVER_OBJS) solver_m
 	mkdir -p bin
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $^ -o $@
 
+bin/gctest: $(CORE_OBJS) $(CORE_NATIVE_OBJS) $(LIB_OBJS) gctest_main.cpp
+	mkdir -p bin
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $^ -o $@
+
 %.o: %.s
 	$(ASM) $(ASMFLAGS) $< -o $@
 
 %.o: %.cpp %.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+clover-release: bin/clover
+jasmine-release: bin/jasmine
+libcore-release: bin/libcore.a
+libcclover-release: bin/libcclover.a
+solver-release: bin/solver
+gctest-release: bin/gctest
+
 clover-debug: bin/clover
 jasmine-debug: bin/jasmine
 libcore-debug: bin/libcore.a
 libcclover-debug: bin/libcclover.a
 solver-debug: bin/solver
-
-clover: bin/clover
-jasmine: bin/jasmine
-libcore: bin/libcore.a
-libcclover: bin/libcclover.a
-solver: bin/solver
+gctest-debug: bin/gctest
 
 clean:
-	rm -f $(CORE_OBJS) $(CORE_NATIVE_OBJS) $(LIB_OBJS) $(CLOVER_OBJS) $(JASMINE_OBJS) bin/libcore.a bin/libcclover.a bin/clover bin/jasmine
+	rm -f $(CORE_OBJS) $(CORE_NATIVE_OBJS) $(LIB_OBJS) $(CLOVER_OBJS) $(JASMINE_OBJS) bin/libcore.a bin/libcclover.a bin/clover bin/jasmine bin/solver

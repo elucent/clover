@@ -145,12 +145,12 @@ void write_float(stream& io, double f) {
     write_uint(io, i64(frac));
 }
 
-void write_hex(stream& io, u64 u) {
+void write_hex(stream& io, u64 u, i64 min) {
     push_if_necessary(io, 16);
     if (!u) write_byte(io, '0'), write_byte(io, '0');
     else {
         u64 digits = 0, mask = 15;
-        while (mask << digits < u) mask <<= 4, digits ++;
+        while (mask < u) mask <<= 4, digits ++;
         if (digits % 2 == 0) digits ++;
         for (i64 i = digits * 4; i >= 0; i -= 4) {
             u8 digit = u >> i & 15;

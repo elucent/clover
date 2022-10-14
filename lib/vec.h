@@ -160,6 +160,11 @@ struct vec {
     inline T& back() { 
         return ((T*)data)[_size - 1];
     }
+
+    inline void trim(i32 n) {
+        for (i32 i = 0; i < n; i ++) destruct(_size - i - 1);
+        _size -= n;
+    }
 };
 
 template<typename T, u32 N = 8, typename Alloc = allocator>

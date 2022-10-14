@@ -78,7 +78,7 @@ inline u64 hash(const entry<K, V>& e) {
 
 // Open-addressed general-purpose hash table based on robin-hood hashing, with a 
 // fixed stack-allocated buffer of N elements.
-template<typename T, i32 N = 8, typename Alloc = allocator>
+template<typename T, i32 N = 4, typename Alloc = allocator>
 class set {
     enum bucket_status : u8 {
         FILLED, EMPTY, GHOST
@@ -141,11 +141,10 @@ class set {
             mset(status(), EMPTY, capacity);
         }
     };
-
-    memory mem;
 public:
     Alloc* alloc = Alloc::instance;
 private:
+    memory mem;
     u64 nelts;
     u8 fixed[N * SIZE_MUL];
 
@@ -179,7 +178,7 @@ public:
         if (mem.bytes != fixed) alloc->free(mem.bytes);
     }
 
-    set(const set& other): mem(alloc->alloc(other.mem.capacity)), nelts(other.nelts) {
+    set(const set& other): mem(other.mem.bytes == other.fixed ? fixed : (u8*)alloc->alloc(other.mem.capacity * SIZE_MUL), other.mem.capacity), nelts(other.nelts) {
         mcpy(mem.bytes, other.mem.bytes, mem.capacity * 9);
         for (u32 i = 0; i < mem.capacity; i ++) if (mem.status()[i] == FILLED) 
             new(mem.values() + i) T(other.mem.values()[i]);
@@ -189,7 +188,8 @@ public:
         if (this != &other) {
             mem.clear();
             if (mem.bytes != fixed) alloc->free(mem.bytes);
-            mem.bytes = alloc->alloc(other.mem.capacity);
+            mem.capacity = other.mem.capacity;
+            mem.bytes = other.mem.bytes == other.fixed ? fixed : (u8*)alloc->alloc(other.mem.capacity * SIZE_MUL);
             nelts = other.nelts;
             mcpy(mem.bytes, other.mem.bytes, mem.capacity * 9);
             for (u32 i = 0; i < mem.capacity; i ++) if (mem.status()[i] == FILLED) 
@@ -409,7 +409,7 @@ public:
 };
 
 // Key-value map backed by a hashset.
-template<typename K, typename V, i32 N = 8, typename Alloc = allocator>
+template<typename K, typename V, i32 N = 4, typename Alloc = allocator>
 class map : public set<entry<K, V>, N, Alloc> {
     static V default_value;
     using entryset = set<entry<K, V>, N, Alloc>;

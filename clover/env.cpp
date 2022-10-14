@@ -21,6 +21,10 @@ void Env::format(stream& io, Module* mod, i32 indent) {
             space(io, indent);
             write(io, " - VAR ", mod->interner->str(p.key), '\n');
             break;
+        case E_CONST:
+            space(io, indent);
+            write(io, " - CONST ", mod->interner->str(p.key), '\n');
+            break;
         case E_GENFUN:
         case E_FUN:
             if (p.value.ast && ((FunDecl*)p.value.ast)->env != this) 

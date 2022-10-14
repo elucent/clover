@@ -55,6 +55,8 @@ void non_ident_in_tvar_error(Module* mod, AST* var);
 void empty_sizeof_expr_error(Module* mod, const Token& tk);
 void no_closing_sizeof_error(Module* mod, const Token& tk);
 void no_newarray_sep_error(Module* mod, const Token& tk);
+void no_constdecl_colon_error(Module* mod, const Token& tk);
+void no_constdecl_sep_error(Module* mod, const Token& tk);
 
 struct Env;
 struct Unary;
@@ -106,6 +108,7 @@ void no_function_param_list_error(Module* mod, AST* proto);
 void unexpected_type_in_fundecl_error(Module* mod, AST* proto);
 void val_in_gentype_error(Module* mod, AST* ast);
 void typename_in_genctor_error(Module* mod, AST* ctor, AST* ast);
+void non_const_in_decl_error(Module* mod, AST* ast);
 
 void return_outside_fun_error(Module* mod, Unary* ret, Env* env);
 void invalid_with_env_error(Module* mod, With* with);
@@ -139,6 +142,7 @@ void union_ctor_error(Module* mod, AST* ctor, Type* type);
 void non_boolean_type_error(Module* mod, AST* ast, Type* type);
 void incompatible_return_error(Module* mod, AST* ast, Type* type, Type* expected);
 void inaccessible_member_error(Module* mod, Var* var, AST* local, AST* def);
+void size_of_non_concrete_error(Module* mod, AST* ast, Type* type);
 
 // Codegen
 void cyclic_dependencies_error(Module* mod);

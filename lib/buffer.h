@@ -152,7 +152,7 @@ struct bytebuf {
     u64 _capacity;
     Alloc* _alloc;
     i8* _data;
-    bytebuf(Alloc* alloc, u64 capacity = 32):
+    bytebuf(Alloc* alloc = Alloc::instance, u64 capacity = 32):
         _start(0), _end(0), _capacity(capacity), _alloc(alloc), _data(new(*_alloc) i8[_capacity]) {
         // starts with empty (uninitialized) buffer of 32 bytes
     }
@@ -290,12 +290,6 @@ struct bytebuf {
         // deserializes object, assuming first byte is lowest address
         const i8* data = (const i8*)&value;
         for (u32 i = 0; i < sizeof(T); i ++) write(data[i]);
-    }
-
-    template<typename... Args>
-    void write(i8 b, Args... args) {
-        write(b);
-        write(args...);
     }
 
     void writeLEB(i64 n) {

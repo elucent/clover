@@ -43,6 +43,8 @@ enum ErrorType : i8 {
     ERR_EMPTY_SIZEOF_EXPR,  // Sizeof expr with no expr inside.
     ERR_NO_CLOSING_SIZEOF,  // No closing pipe in sizeof expr.
     ERR_NO_NEWARRAY_SEP,    // No closing bracket in newarray expr.
+    ERR_NO_CONSTDECL_COLON, // No colon in constant declaration.
+    ERR_NO_CONSTDECL_SEP,   // No newline or comma after constant declaration.
 
     ERR_INCORRECT_DEFER_ENV,        // Incorrect env for defer statement.
     ERR_NO_SUCH_MODULE,             // Can't find module.
@@ -82,6 +84,7 @@ enum ErrorType : i8 {
     ERR_UNEXPECTED_TYPE_IN_FUNDECL, // Function name is a type name.
     ERR_VAL_IN_GENTYPE,             // Value in generic type constructor.
     ERR_TYPENAME_IN_GENCTOR,        // Unexpected typename in generic type constructor.
+    ERR_NON_CONST_IN_DECL,          // Non-constant expression in const declaration.
 
     ERR_RETURN_OUTSIDE_FUN,         // Return statement outside of a function scope.
     ERR_INVALID_WITH_ENV,           // No valid environment found for a with statement.
@@ -115,6 +118,7 @@ enum ErrorType : i8 {
     ERR_NON_BOOLEAN_TYPE,           // Expected a boolean.
     ERR_INCOMPATIBLE_RETURN,        // Return statement returns value incompatible with enclosing function.
     ERR_INACCESSIBLE_MEMBER,        // Member variable is inaccessible from local scope.
+    ERR_SIZEOF_NON_CONCRETE,        // Tried to take size of non-concrete type.
 
     ERR_CIRCULAR_DEPENDENCIES,      // A cycle was detected in the program's dependency graph.
 };
@@ -150,6 +154,8 @@ struct Error {
         struct NoDeclNewline    { CODE = ERR_NO_DECL_NL_SEP; Token tk; } no_decl_newline;
         struct NoVarDeclColon   { CODE = ERR_NO_VARDECL_COLON; Token tk; } no_vardecl_colon;
         struct NoVarDeclSep     { CODE = ERR_NO_VARDECL_SEP; Token tk; } no_vardecl_sep;
+        struct NoConstDeclColon { CODE = ERR_NO_CONSTDECL_COLON; Token tk; } no_constdecl_colon;
+        struct NoConstDeclSep   { CODE = ERR_NO_CONSTDECL_SEP; Token tk; } no_constdecl_sep;
         struct ExpectedPrimary  { CODE = ERR_EXPECTED_PRIMARY; Token tk; } expected_primary;
         struct NoFunDeclLparen  { CODE = ERR_NO_FUNDECL_LPAREN; Token tk; } no_fundecl_lparen;
         struct NoCallSep        { CODE = ERR_NO_CALL_SEP; Token tk; } no_call_sep;
@@ -180,6 +186,8 @@ struct Error {
         ErrorData(NoDeclNewline e): no_decl_newline(e) {}
         ErrorData(NoVarDeclColon e): no_vardecl_colon(e) {}
         ErrorData(NoVarDeclSep e): no_vardecl_sep(e) {}
+        ErrorData(NoConstDeclColon e): no_constdecl_colon(e) {}
+        ErrorData(NoConstDeclSep e): no_constdecl_sep(e) {}
         ErrorData(ExpectedPrimary e): expected_primary(e) {}
         ErrorData(NoFunDeclLparen e): no_fundecl_lparen(e) {}
         ErrorData(NoCallSep e): no_call_sep(e) {}
@@ -252,6 +260,7 @@ struct Error {
         struct UnexpectedTypeInFundecl { CODE = ERR_UNEXPECTED_TYPE_IN_FUNDECL; AST* proto; } unexpected_type_in_fundecl;
         struct ValInGentype { CODE = ERR_VAL_IN_GENTYPE; AST* ast; } val_in_gentype;
         struct TypenameInGenctor { CODE = ERR_TYPENAME_IN_GENCTOR; AST* ctor; AST* ast; } typename_in_genctor;
+        struct NonConstInDecl { CODE = ERR_NON_CONST_IN_DECL; AST* ast; } non_const_in_decl;
 
         ErrorData(CaseInNonUnion e): case_in_non_union(e) {}
         ErrorData(InferredField e): inferred_field(e) {}
@@ -283,6 +292,7 @@ struct Error {
         ErrorData(UnexpectedTypeInFundecl e): unexpected_type_in_fundecl(e) {}
         ErrorData(ValInGentype e): val_in_gentype(e) {}
         ErrorData(TypenameInGenctor e): typename_in_genctor(e) {}
+        ErrorData(NonConstInDecl e): non_const_in_decl(e) {}
 
         struct ReturnOutsideFun { CODE = ERR_RETURN_OUTSIDE_FUN; Unary* ret; Env* env; } return_outside_fun;
         struct InvalidWithEnv { CODE = ERR_INVALID_WITH_ENV; With* with; } invalid_with_env;
@@ -316,6 +326,7 @@ struct Error {
         struct NonBooleanType { CODE = ERR_NON_BOOLEAN_TYPE; AST* ast; Type* type; } non_boolean_type;
         struct IncompatibleReturn { CODE = ERR_INCOMPATIBLE_RETURN; AST* ast; Type *type, *dest; } incompatible_return;
         struct InaccessibleMember { CODE = ERR_INACCESSIBLE_MEMBER; Var *var; AST *local, *def; } inaccessible_member;
+        struct SizeofNonConcrete { CODE = ERR_SIZEOF_NON_CONCRETE; AST* ast; Type* type; } sizeof_non_concrete;
         
         ErrorData(ReturnOutsideFun e): return_outside_fun(e) {}
         ErrorData(InvalidWithEnv e): invalid_with_env(e) {}
@@ -349,6 +360,7 @@ struct Error {
         ErrorData(NonBooleanType e): non_boolean_type(e) {}
         ErrorData(IncompatibleReturn e): incompatible_return(e) {}
         ErrorData(InaccessibleMember e): inaccessible_member(e) {}
+        ErrorData(SizeofNonConcrete e): sizeof_non_concrete(e) {}
     } data;
 };
 
@@ -436,6 +448,16 @@ void no_vardecl_colon_error(Module* mod, const Token& tk) {
 void no_vardecl_sep_error(Module* mod, const Token& tk) {
     parse_error();
     push_error<Error::ErrorData::NoVarDeclSep>(mod, tk);
+}
+
+void no_constdecl_colon_error(Module* mod, const Token& tk) {
+    parse_error();
+    push_error<Error::ErrorData::NoConstDeclColon>(mod, tk);
+}
+
+void no_constdecl_sep_error(Module* mod, const Token& tk) {
+    parse_error();
+    push_error<Error::ErrorData::NoConstDeclSep>(mod, tk);
 }
 
 void expected_primary_error(Module* mod, const Token& tk) {
@@ -752,6 +774,11 @@ void typename_in_genctor_error(Module* mod, AST* ctor, AST* ast) {
     push_error<Error::ErrorData::TypenameInGenctor>(mod, ctor, ast);
 }
 
+void non_const_in_decl_error(Module* mod, AST* ast) {
+    type_error();
+    push_error<Error::ErrorData::NonConstInDecl>(mod, ast);
+}
+
 // typechecking and inference
 
 void return_outside_fun_error(Module* mod, Unary* ret, Env* env) {
@@ -914,6 +941,11 @@ void inaccessible_member_error(Module* mod, Var* var, AST* local, AST* def) {
     push_error<Error::ErrorData::InaccessibleMember>(mod, var, local, def);
 }
 
+void size_of_non_concrete_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::SizeofNonConcrete>(mod, ast, type);
+}
+
 static const i8* RED = "\e[0;91m";
 static const i8* PURPLE = "\e[0;35m";
 static const i8* RESET = "\e[0m";
@@ -1048,6 +1080,16 @@ void print_error(stream& io, bool verbose, const Error& e) {
         print_loc(mod, io, e.data.no_vardecl_sep.tk);
         write(io, RED, "Error", RESET, ": Expected colon (':') or comma (',') in variable declaration.\n");
         print_line(mod, io, e.data.no_vardecl_sep.tk);
+        break;
+    case ERR_NO_CONSTDECL_COLON:
+        print_loc(mod, io, e.data.no_constdecl_colon.tk);
+        write(io, RED, "Error", RESET, ": Expected colon (':') in constant declaration.\n");
+        print_line(mod, io, e.data.no_constdecl_colon.tk);
+        break;
+    case ERR_NO_CONSTDECL_SEP:
+        print_loc(mod, io, e.data.no_constdecl_sep.tk);
+        write(io, RED, "Error", RESET, ": Expected colon (':') or comma (',') in constant declaration.\n");
+        print_line(mod, io, e.data.no_constdecl_sep.tk);
         break;
     case ERR_EXPECTED_PRIMARY:
         print_loc(mod, io, e.data.expected_primary.tk);
@@ -1411,6 +1453,11 @@ void print_error(stream& io, bool verbose, const Error& e) {
         write(io, RED, "Error", RESET, ": Unexpected type name in generic type constructor.\n");
         print_line(mod, io, e.data.typename_in_genctor.ast);
         break;
+    case ERR_NON_CONST_IN_DECL:
+        print_loc(mod, io, e.data.non_const_in_decl.ast);
+        write(io, RED, "Error", RESET, ": Found non-constant expression in declaration.\n");
+        print_line(mod, io, e.data.non_const_in_decl.ast);
+        break;
 
     // typechecking and inference
     case ERR_RETURN_OUTSIDE_FUN:
@@ -1621,6 +1668,11 @@ void print_error(stream& io, bool verbose, const Error& e) {
             write(io, PURPLE, "Note", RESET, ": Variable defined here.\n");
             print_line(mod, io, d, PURPLE);
         }
+        break;
+    case ERR_SIZEOF_NON_CONCRETE:
+        print_loc(mod, io, e.data.sizeof_non_concrete.ast);
+        write(io, RED, "Error", RESET, ": Tried to take size of non-concrete type '", TP(e.data.incompatible_return.type), "'.\n");
+        print_line(mod, io, e.data.sizeof_non_concrete.ast);
         break;
     default:
         unreachable("Unknown error kind.");

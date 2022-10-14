@@ -215,6 +215,20 @@ extern "C" void punlock(iptr* ptr);
  */
 extern "C" iptr sysrun(const i8* cmd);
 
+/*
+ * getsp()
+ *
+ * Returns the current value of the stack pointer.
+ */
+extern "C" iptr getsp();
+
+/*
+ * rpushall()
+ *
+ * Push all registers to the stack.
+ */
+extern "C" void pushrframe(void(*func)());
+
 extern "C" void __cxa_pure_virtual();
 
 #endif

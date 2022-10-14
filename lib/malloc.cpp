@@ -90,10 +90,6 @@ void operator delete[](void* ptr) {
     return allocator::instance->free(ptr);
 }
 
-void* operator new(size_t, void* ptr) {
-    return ptr;
-}
-
 void* operator new(size_t bytes, arena& a) {
     return (void*)a.alloc(bytes);
 }

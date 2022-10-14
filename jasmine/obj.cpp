@@ -42,16 +42,6 @@ void JasmineModule::read(bytebuf<arena>& buf) {
     }
 }
 
-/*
-23 21 6a 61 73 6d 69 6e 65 0a 00 00 f4 00 00 00 06 03 66 69 62 0a 61 5f 63 6f 6e 73 74 61 6e 74 09 61 5f 
-70 6f 69 6e 74 65 72 07 61 5f 74 75 70 6c 65 08 61 6e 5f 61 72 72 61 79 08 61 5f 73 74 72 69 6e 67 01 00 
-00 01 00 00 01 07 63 6f 6d 6d 65 6e 74 29 74 68 69 73 20 69 73 20 61 20 74 65 73 74 20 6f 62 6a 65 63 74 
-20 63 6f 6e 73 74 72 75 63 74 65 64 20 69 6e 20 63 6f 64 65 04 01 02 7c 79 00 7d 03 00 7f 0c 02 7c 01 7c 
-02 01 7c 2a 02 7a 00 03 03 00 01 00 00 00 40 04 01 04 05 06 05 02 e8 00 e5 00 ec 00 ec 00 ef 00 20 f7 00 
-ef 00 f2 00 ec 00 e4 00 21 01 00 03 00 0b 0c 7c 20 00 21 7c 12 00 02 23 7f 51 00 01 0b 7c 10 00 0e 7a 50 
-00 12 7c 12 00 01 25 03 67 00 01 10 05 12 7c 12 00 02 25 03 67 00 01 10 07 11 7c 11 06 08 0b 7c 10 09 
-*/
-
 void JasmineModule::formatshort(stream& io) {
     ::write(io, strings.strings[meta.modname], ' ', meta.ver);
 }
@@ -68,19 +58,35 @@ void JasmineModule::format(stream& io) {
 }
 
 void JasmineModule::opt(OptLevel level) {
+    types.compute_native_sizes<DefaultTarget>();
+    PassInfo* info = makepassinfo();
     for (Function* func : funcs) {
+        print(" === before opts === \n");
+        func->format(stdout), print('\n');
         if (level >= OPT_1) {
-            foldc(*func);
-            dce(*func);   
+            inlining(*func, *info);
+            cfg(*func, *info);
+
+            print(" === after inline === \n");
+            func->format(stdout), print('\n');
+            foldc(*func, *info);
+
+            print(" === after foldc === \n");
+            func->format(stdout), print('\n');
+            dce(*func, *info);   
+
+            print(" === after dce === \n");
+            func->format(stdout), print('\n');
         }
+        if (level >= OPT_1) regalloc<DefaultTarget>(*func, *info);
+        else stackalloc<DefaultTarget>(*func, *info);
     }
+    delete info;
 }
 
-void JasmineModule::target(const Target& arch, OptLevel level) {
-    types.compute_native_sizes(arch);
+void JasmineModule::compile(Assembly& as) {
     for (Function* func : funcs) {
-        if (level >= OPT_1) regalloc(*func, arch);
-        else stackalloc(*func, arch);
+        lower<DefaultTarget>(*func, as);
     }
 }
 

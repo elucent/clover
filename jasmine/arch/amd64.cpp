@@ -1,11 +1,8 @@
 #include "jasmine/arch/amd64.h"
+#include "jasmine/insn.h"
 
 const mreg AMD64Target::GP_REGS[14] = { RAX, RCX, RDX, RSI, RDI, RBX, R8, R9, R10, R11, R12, R13, R14, R15 };
 const mreg AMD64Target::FP_REGS[16] = { XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7, XMM8, XMM9, XMM10, XMM11, XMM12, XMM13, XMM14, XMM15 };
-
-void AMD64Target::lower(const Function& fn, bytebuf<arena>& buf) {
-    
-}
 
 const mreg AMD64LinuxTarget::GP_ARGS[6] = { RDI, RSI, RDX, RCX, R8, R9 };
 const mreg AMD64LinuxTarget::FP_ARGS[8] = { XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7 };
@@ -27,8 +24,6 @@ Placement AMD64LinuxTarget::place_ret(const TypeTable& tab, typeidx t) {
     }
     else if (type.kind == TK_ARR) {
         if (type.nelts == 1) return place_ret(tab, type.elt);
-        else if (type.flags & TF_HAS_INT) return {gpreg_pair(RAX, RDX), {1, 0, 0}};
-        else return {fpreg_pair(XMM0, XMM1), {0, 2, 0}};
     }
     else {
         if (type.len == 1) return place_ret(tab, type.members[0]);
@@ -43,10 +38,6 @@ Placement AMD64LinuxTarget::place_ret(const TypeTable& tab, typeidx t) {
             bytes += m < 0 ? primsize(m) : tab.types[m].size;
         }
         if (ismem) return {gpreg_slot(RDI), {1, 0, type.size}};
-        else if (isfp[0] && isfp[1]) return {fpreg_pair(XMM0, XMM1), {0, 2, 0}};
-        else if (isfp[0]) return {fpgpreg_pair(XMM0, RAX), {0, 1, 0}};
-        else if (isfp[1]) return {gpfpreg_pair(RAX, XMM0), {0, 1, 0}};
-        else return {gpreg_pair(RAX, RDX), {1, 0, 0}};
     }
 }
 
@@ -71,8 +62,7 @@ Placement AMD64LinuxTarget::place_arg(const TypeTable& tab, typeidx t, UsageStat
     }
     else if (type.kind == TK_ARR) {
         if (type.nelts == 1) return place_arg(tab, type.elt, usage);
-        else if (type.flags & TF_HAS_INT) return {gpreg_pair(RAX, RDX), {1, 0, 0}};
-        else return {fpreg_pair(XMM0, XMM1), {0, 2, 0}};
+        else return {stack_slot(usage.stack_used), {0, 0, type.size}};
     }
     else {
         if (type.len == 1) return place_arg(tab, type.members[0], usage);
@@ -87,9 +77,5 @@ Placement AMD64LinuxTarget::place_arg(const TypeTable& tab, typeidx t, UsageStat
             bytes += m < 0 ? primsize(m) : tab.types[m].size;
         }
         if (ismem) return {stack_slot(usage.stack_used), {0, 0, type.size}};
-        else if (isfp[0] && isfp[1]) return {fpreg_pair(XMM0, XMM1), {0, 2, 0}};
-        else if (isfp[0]) return {fpgpreg_pair(XMM0, RAX), {0, 1, 0}};
-        else if (isfp[1]) return {gpfpreg_pair(RAX, XMM0), {0, 1, 0}};
-        else return {gpreg_pair(RAX, RDX), {1, 0, 0}};
     }
 }

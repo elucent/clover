@@ -36,7 +36,7 @@ extern "C" void* mset(void* dst, u8 val, uptr size);
  * Writes diagnostic information and a message to stderr then exits with a nonzero
  * code.
  */
-extern "C" void panic(const i8* file, uptr line, const i8* msg);
+extern "C" void panic(const i8* msg);
 
 /*
  * cidx(str, val)
@@ -48,9 +48,11 @@ extern "C" void panic(const i8* file, uptr line, const i8* msg);
 extern "C" iptr cidx(const i8* str, i8 val);
 
 #ifndef NDEBUG
-#define assert(x) if (!(x)) panic(__FILE__, __LINE__, #x)
-#define unreachable(x) panic(__FILE__, __LINE__, (x))
-#define fatal(x) panic(__FILE__, __LINE__, (x))
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+#define assert(x) if (!(x)) panic("[ASSERT FAILED] " __FILE__ " line " TOSTRING(__LINE__) ": " #x)
+#define unreachable(x) panic("[UNREACHABLE] " __FILE__ " line " TOSTRING(__LINE__) ": " x)
+#define fatal(x) panic("[FATAL] " __FILE__ " line " TOSTRING(__LINE__) ": " x)
 #else
 #define assert(x) void()
 #define unreachable(x) void()

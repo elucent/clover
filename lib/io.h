@@ -33,7 +33,7 @@ void write_byte(stream& io, i8 c);
 void write_uint(stream& io, u64 u);
 void write_int(stream& io, i64 i);
 void write_float(stream& io, double f);
-void write_hex(stream& io, u64 u);
+void write_hex(stream& io, u64 u, i64 min = 1);
 void read_string(stream& io, i8* str, uptr n);
 rune read_char(stream& io);
 i8 read_byte(stream& io);
@@ -59,61 +59,73 @@ inline void write(stream& io, const const_slice<i8>& str) {
     write_string(io, str.ptr, str.n);
 }
 
-inline void write(stream& io, const i8& i) {
+inline void write(stream& io, i8 i) {
     write_byte(io, i);
 }
 
-inline void write(stream& io, const i16& i) {
+inline void write(stream& io, i16 i) {
     write_int(io, i);
 }
 
-inline void write(stream& io, const i32& i) {
+inline void write(stream& io, i32 i) {
     write_int(io, i);
 }
 
-inline void write(stream& io, const i64& i) {
+inline void write(stream& io, i64 i) {
     write_int(io, i);
 }
 
-inline void write(stream& io, const u8& i) {
+inline void write(stream& io, u8 i) {
     write_byte(io, i);
 }
 
-inline void write(stream& io, const u16& i) {
+inline void write(stream& io, u16 i) {
     write_uint(io, i);
 }
 
-inline void write(stream& io, const u32& i) {
+inline void write(stream& io, u32 i) {
     write_uint(io, i);
 }
 
-inline void write(stream& io, const u64& i) {
+inline void write(stream& io, u64 i) {
     write_uint(io, i);
 }
 
-inline void write(stream& io, const float& f) {
+inline void write(stream& io, float f) {
     write_float(io, f);
 }
 
-inline void write(stream& io, const double& f) {
+inline void write(stream& io, double f) {
     write_float(io, f);
 }
 
-inline void write(stream& io, const rune& r) {
+inline void write(stream& io, rune&& r) {
     write_rune(io, r);
 }
 
 inline void write(stream& io) {}
 
 template<typename T, typename... Args>
-void write(stream& io, const T& t, const Args&... args) {
+void write(stream& io, T&& t, Args&&... args) {
     write(io, t);
     write(io, args...);
 }
 
 template<typename... Args>
-void print(const Args&... args) {
+void writeln(stream& io, Args&&... args) {
+    write(io, args...);
+    write(io, '\n');
+}
+
+template<typename... Args>
+void print(Args&&... args) {
     write(stdout, args...);
+}
+
+template<typename... Args>
+void println(Args&&... args) {
+    write(stdout, args...);
+    write(stdout, '\n');
 }
 
 #endif

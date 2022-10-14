@@ -14,6 +14,14 @@ enum OptLevel {
     OPT_0, OPT_1, OPT_2, OPT_MAX = OPT_2, OPT_SMALL = OPT_2
 };
 
+#if defined(LIBCORE_LINUX) && defined(LIBCORE_AMD64)
+#include "jasmine/arch/amd64.h"
+using DefaultTarget = AMD64LinuxTarget;
+#elif defined(LIBCORE_OSX) && defined(LIBCORE_AMD64)
+#include "jasmine/arch/amd64.h"
+using DefaultTarget = AMD64DarwinTarget;
+#endif
+
 struct JasmineModule {
     arena modspace;
     StringTable strings;
@@ -51,7 +59,7 @@ struct JasmineModule {
     void format(stream& io);
 
     void opt(OptLevel level);
-    void target(const Target& arch, OptLevel level);
+    void compile(Assembly& as);
 };
 
 struct JasmineObject {

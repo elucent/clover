@@ -6,7 +6,6 @@ Function::Function(JasmineModule* obj_in): obj(obj_in) {
     params.alloc = &obj->modspace;
     args.alloc = &obj->modspace;
     labels.alloc = &obj->modspace;
-    slots.alloc = &obj->modspace;
 }
 
 void Function::write(bytebuf<arena>& buf) const {
@@ -18,39 +17,48 @@ void Function::write(bytebuf<arena>& buf) const {
         buf.writeULEB(insns.size());
 
         for (const auto& insn : insns) {
+            auto params = insn.params(*this);
+            auto args = insn.args(*this);
             buf.write<u8>(insn.op);
             buf.writeLEB(insn.type);
             switch (OP_ARITIES[insn.op]) {
                 case NULLARY: break;
                 case UNARY:
-                    buf.write<u8>(argsof(insn.params()[0], P_NONE));
-                    buf.writeLEB(insn.args()[0].reg);
+                    buf.write<u8>(argsof(params[0], P_NONE));
+                    buf.writeLEB(args[0].reg);
                     break;
                 case VUNARY:
                     buf.write<u8>(argsof(P_VAR, P_NONE));
-                    buf.writeULEB(insn.args().size());
-                    for (u32 i = 0; i < insn.params().n; i += 2) {
-                        Param a = insn.params()[i];
-                        Param b = i + 1 < insn.params().n ? insn.params()[i + 1] : P_NONE;
+                    buf.writeULEB(args.size());
+                    for (u32 i = 0; i < params.size(); i += 2) {
+                        Param a = params[i];
+                        Param b = i + 1 < params.size() ? params[i + 1] : P_NONE;
                         buf.write<u8>(argsof(a, b));
                     }
-                    for (const auto& arg : insn.args()) buf.writeLEB(arg.reg);
+                    for (const auto& arg : args) buf.writeLEB(arg.reg);
                     break;
                 case BINARY:
-                    buf.write<u8>(argsof(insn.params()[0], insn.params()[1]));
-                    buf.writeLEB(insn.args()[0].reg);
-                    buf.writeLEB(insn.args()[1].reg);
+                    buf.write<u8>(argsof(params[0], params[1]));
+                    buf.writeLEB(args[0].reg);
+                    buf.writeLEB(args[1].reg);
                     break;
                 case VBINARY:
-                    buf.write<u8>(argsof(insn.params()[0], P_VAR));
-                    buf.writeLEB(insn.args()[0].reg);
-                    buf.writeULEB(insn.args().size() - 1);
-                    for (u32 i = 1; i < insn.params().n; i += 2) {
-                        Param a = insn.params()[i];
-                        Param b = i + 1 < insn.params().n ? insn.params()[i + 1] : P_NONE;
+                    buf.write<u8>(argsof(params[0], P_VAR));
+                    buf.writeLEB(args[0].reg);
+                    buf.writeULEB(args.size() - 1);
+                    for (u32 i = 1; i < params.n; i += 2) {
+                        Param a = params[i];
+                        Param b = i + 1 < params.n ? params[i + 1] : P_NONE;
                         buf.write<u8>(argsof(a, b));
                     }
-                    for (u32 i = 1; i < insn.args().n; i ++) buf.writeLEB(insn.args()[i].reg);
+                    for (u32 i = 1; i < args.n; i ++) buf.writeLEB(args[i].reg);
+                    break;
+                case TERNARY:
+                    buf.write<u8>(argsof(params[0], params[1]));
+                    buf.write<u8>(argsof(P_NONE, params[2]));
+                    buf.writeLEB(args[0].reg);
+                    buf.writeLEB(args[1].reg);
+                    buf.writeLEB(args[2].reg);
                     break;
             }
         }
@@ -67,10 +75,9 @@ void Function::read(bytebuf<arena>& buf) {
         u8 argbits;
 
         for (u64 i = 0; i < n_insns; i ++) {
-            Insn insn(this);
+            Insn insn;
             insn.op = (Op)buf.read<u8>();
             insn.type = buf.readLEB();
-            insn.aidx = args.size();
             insn.pidx = params.size();
             switch (OP_ARITIES[insn.op]) {
                 case NULLARY: 
@@ -108,7 +115,7 @@ void Function::read(bytebuf<arena>& buf) {
                     argbits = buf.read<u8>();
                     params.push(Param(argbits >> 4 & 15));
                     args.push(buf.readLEB());
-                    insn.nparams = 1 + buf.readLEB();
+                    insn.nparams = 1 + buf.readULEB();
                     for (u64 i = 1; i < insn.nparams; i += 2) {
                         u8 argbits = buf.read<u8>();
                         params.push(Param(argbits >> 4 & 15));
@@ -116,34 +123,45 @@ void Function::read(bytebuf<arena>& buf) {
                     }
                     for (u64 i = 1; i < insn.nparams; i ++) args.push(buf.readLEB());
                     break;
+                case TERNARY:
+                    argbits = buf.read<u8>();
+                    params.push(Param(argbits >> 4 & 15));
+                    params.push(Param(argbits & 15));
+                    params.push(Param(buf.read<u8>() & 15)); // Third param.
+                    insn.nparams = 3;
+                    args.push(buf.readLEB());
+                    args.push(buf.readLEB());
+                    args.push(buf.readLEB());
+                    break;
             }
             insns.push(insn);
         }
     }
 }
 
-void format_insn(const Insn& insn, stream& io) {
-    u32 idx = &insn - insn.fn->insns.begin();
-    if (insn.op == OP_LABEL) write(io, '.', insn.args()[0].lbl, ':');
+void format_insn(const Function& fn, const Insn& insn, stream& io) {
+    u32 idx = &insn - fn.insns.begin();
+    auto params = insn.params(fn);
+    auto args = insn.args(fn);
+    if (insn.op == OP_LABEL) write(io, '.', args[0].lbl, ':');
     else {
         write(io, "    ");
         if (OP_META[insn.op].hasoutput) write(io, "%", idx, " = "); 
         write(io, OP_NAMES[insn.op], ' ');
-        if (OP_META[insn.op].hastype) format_type(insn.fn->obj->types, insn.type, io), write(io, ' ');
-        const Function& fn = *insn.fn;
+        if (OP_META[insn.op].hastype) format_type(fn.obj->types, insn.type, io), write(io, ' ');
         const JasmineModule& obj = *fn.obj;
         bool first = true;
         i32 varct = -1;
-        for (u32 i = 0; i < insn.params().n; i ++) {
-            if (insn.params()[i] != P_NONE && insn.params()[i] != P_VAR && !first) write(io, ", ");
+        for (u32 i = 0; i < params.n; i ++) {
+            if (params[i] != P_NONE && params[i] != P_VAR && !first) write(io, ", ");
             first = false;
-            switch (insn.params()[i]) {
-                case P_REG: write(io, '%', insn.args()[i].reg); break;
-                case P_IMM: write(io, insn.args()[i].imm); break;
-                case P_DATA: write(io, insn.args()[i].imm); break;
-                case P_STATIC: write(io, insn.args()[i].imm); break;
-                case P_FUNC: write(io, obj.strings.strings[obj.funcs[insn.args()[i].func]->name]); break;
-                case P_LABEL: write(io, '.', insn.args()[i].lbl); break;
+            switch (params[i]) {
+                case P_REG: write(io, '%', args[i].reg); break;
+                case P_IMM: write(io, args[i].imm); break;
+                case P_DATA: write(io, args[i].imm); break;
+                case P_STATIC: write(io, args[i].imm); break;
+                case P_FUNC: write(io, obj.strings.strings[obj.funcs[args[i].func]->name]); break;
+                case P_LABEL: write(io, '.', args[i].lbl); break;
                 case P_VAR: write(io, '('), varct = insn.nparams - 1, first = true; break;
                 default: break;
             }
@@ -188,8 +206,9 @@ void format_func(const Function& fn, stream& io, u32 indent) {
     write(io, ") {\n");
     for (const Insn& insn : fn.insns) {
         for (u32 i = 0; i < indent; i ++) write(io, ' ');
-        format_insn(insn, io), write(io, '\n');
+        format_insn(fn, insn, io), write(io, '\n');
     }
+    for (u32 i = 0; i < indent; i ++) write(io, ' ');
     write(io, "}\n");
 }
 
@@ -197,7 +216,7 @@ namespace jasm {
     Function* targetfn = nullptr;
     static u32 nargs = 0;
     static vec<ParamArg, 64, arena> args;
-    static typeidx callt;
+    static typeidx callt, phit;
     
     funcidx externfunc(JasmineModule& obj, const_slice<i8> name, typeidx type) {
         funcidx i = obj.funcs.size();
@@ -229,41 +248,32 @@ namespace jasm {
     
     localidx nullary(Op op, typeidx t) {
         localidx i = targetfn->insns.size();
-        Insn insn(targetfn);
+        Insn insn;
         insn.op = op;
-        insn.aidx = targetfn->args.size();
         insn.pidx = targetfn->args.size();
         insn.nparams = 0;
         insn.type = t;
-        targetfn->params.push(P_NONE);
-        targetfn->args.push(imm(0).a);
-        targetfn->params.push(P_NONE);
-        targetfn->args.push(imm(0).a);
         targetfn->insns.push(insn);
         return i;
     }
 
     localidx unary(Op op, typeidx t, const ParamArg& param) {
         localidx i = targetfn->insns.size();
-        Insn insn(targetfn);
+        Insn insn;
         insn.op = op;
-        insn.aidx = targetfn->args.size();
         insn.pidx = targetfn->args.size();
         insn.nparams = 1;
         insn.type = t;
         targetfn->params.push(param.p);
         targetfn->args.push(param.a);
-        targetfn->params.push(P_NONE);
-        targetfn->args.push(imm(0).a);
         targetfn->insns.push(insn);
         return i;
     }
 
     localidx binary(Op op, typeidx t, const ParamArg& lhs, const ParamArg& rhs) {
         localidx i = targetfn->insns.size();
-        Insn insn(targetfn);
+        Insn insn;
         insn.op = op;
-        insn.aidx = targetfn->args.size();
         insn.pidx = targetfn->args.size();
         insn.nparams = 2;
         insn.type = t;
@@ -290,8 +300,6 @@ namespace jasm {
     localidx shl(typeidx t, const ParamArg& lhs, const ParamArg& rhs) { return binary(OP_SHR, t, lhs, rhs); }
 
     void store(typeidx t, const ParamArg& addr, const ParamArg& val) { binary(OP_STORE, t, addr, val); }
-    localidx addr(typeidx t, const ParamArg& src) { return unary(OP_ADDR, t, src); }
-    localidx elem(typeidx t, const ParamArg& base, const ParamArg& field) { return binary(OP_ELEM, t, base, field); }
     localidx mnew(typeidx t) { return nullary(OP_NEW, t); }
 
     localidx cast(typeidx t, const ParamArg& param) { return unary(OP_CAST, t, param); }
@@ -299,6 +307,28 @@ namespace jasm {
     localidx zxt(typeidx t, const ParamArg& param) { return unary(OP_ZXT, t, param); }
     localidx sxt(typeidx t, const ParamArg& param) { return unary(OP_SXT, t, param); }
     localidx mov(typeidx t, const ParamArg& param) { return unary(OP_MOV, t, param); }
+
+    localidx beginphi(typeidx t, const ParamArg& param) {
+        nargs = 0;
+        args.clear();
+        args.push(param);
+        phit = t;
+        return targetfn->insns.size();
+    }
+
+    void phiarg(const ParamArg& param) {
+        args.push(param);
+    }
+
+    void endphi() {
+        Insn insn;
+        insn.nparams = args.size();
+        insn.pidx = targetfn->params.size();
+        insn.op = OP_PHI;
+        insn.type = callt;
+        for (const ParamArg& pa : args) targetfn->args.push(pa.a), targetfn->params.push(pa.p);
+        targetfn->insns.push(insn);
+    }
 
     localidx begincall(typeidx t, const ParamArg& param) {
         nargs = 0;
@@ -313,9 +343,8 @@ namespace jasm {
     }
 
     void endcall() {
-        Insn insn(targetfn);
+        Insn insn;
         insn.nparams = args.size();
-        insn.aidx = targetfn->args.size();
         insn.pidx = targetfn->params.size();
         insn.op = OP_CALL;
         insn.type = callt;
@@ -324,7 +353,7 @@ namespace jasm {
     }
 
     void ret(typeidx t, const ParamArg& param) { unary(OP_RET, t, param); }
-    localidx par(typeidx t, i64 idx) { return unary(OP_PAR, t, imm(idx)); }
+    localidx arg(typeidx t, i64 idx) { return unary(OP_ARG, t, imm(idx)); }
     localidx jump(const ParamArg& param) { return unary(OP_JUMP, T_PTR, param); }
     void label(labelidx l) { targetfn->labels[l] = targetfn->insns.size(), unary(OP_LABEL, T_PTR, lbl(l)); }
     localidx phi(typeidx t, const ParamArg& lhs, const ParamArg& rhs) { return binary(OP_PHI, t, lhs, rhs); }

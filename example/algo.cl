@@ -7,17 +7,17 @@ fun Range.empty():
 fun Range.read(): this.begin
 fun Range.next(): Range(this.begin + this.incr, this.end, this.incr)
 
-# fun min(nums):
-#     var min: nums[0]
-#     for i in nums[1:]:
-#         if i < min: min = i
-#     return min
-# 
-# fun max(nums):
-#     var max: nums[0]
-#     for i in nums[1:]:
-#         if i > max: max = i
-#     return max
+fun min(nums):
+    var min: nums[0]
+    for i in nums[1:]:
+        if i < min: min = i
+    return min
+
+fun max(nums):
+    var max: nums[0]
+    for i in nums[1:]:
+        if i > max: max = i
+    return max
 
 fun insort(T?[] nums):
     for i in Range(1, |nums|, 1):

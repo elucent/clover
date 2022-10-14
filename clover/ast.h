@@ -31,7 +31,7 @@ enum ASTKind : u8 {
     // types
     AST_FIRST_TYPE, AST_TYPENAME = AST_FIRST_TYPE, AST_PTRTYPE, AST_ARRAYTYPE, AST_SLICETYPE, AST_FUNTYPE, AST_TYPEDOT, AST_TYPEINST, AST_TYPECONST, AST_TYPEVAR, AST_LAST_TYPE,
     // decls
-    AST_FIRST_DECL = AST_LAST_TYPE, AST_VARDECL = AST_FIRST_DECL, AST_TYPEDECL, AST_FUNDECL, AST_MODULEDECL, AST_ALIASDECL, AST_CASEDECL, AST_PTRDECL, // ptrdecl is needed for the case 'T* ptr', which is ambiguous with multiplication until typechecking
+    AST_FIRST_DECL = AST_LAST_TYPE, AST_VARDECL = AST_FIRST_DECL, AST_TYPEDECL, AST_FUNDECL, AST_MODULEDECL, AST_ALIASDECL, AST_CASEDECL, AST_CONSTDECL, AST_PTRDECL, // ptrdecl is needed for the case 'T* ptr', which is ambiguous with multiplication until typechecking
     // misc
     AST_LAST_DECL, AST_MODULENAME = AST_LAST_DECL, AST_MODULEDOT, AST_DOTINSERT,
     // structure
@@ -48,6 +48,64 @@ struct AST {
     inline AST(ASTKind kind_in, SourcePos pos_in): kind(kind_in), pos(pos_in), type(nullptr) {}
 
     virtual AST* clone(arena& alloc) = 0;
+};
+
+struct Fold {
+    enum Kind : i8 {
+        NONE, ICONST, FCONST, BOOL, CHCONST
+    };
+
+    union {
+        i64 iconst;
+        double fconst;
+        rune chconst;
+        bool bconst;
+    };
+
+    Kind kind;
+
+    inline Fold(): kind(NONE) {}
+    inline static Fold from_int(i64 iconst_in) {
+        Fold f;
+        f.kind = ICONST;
+        f.iconst = iconst_in;
+        return f;
+    }
+    
+    inline static Fold from_float(double fconst_in) {
+        Fold f;
+        f.kind = FCONST;
+        f.fconst = fconst_in;
+        return f;
+    }
+    
+    inline static Fold from_char(rune chconst_in) {
+        Fold f;
+        f.kind = CHCONST;
+        f.chconst = chconst_in;
+        return f;
+    }
+    
+    inline static Fold from_bool(bool bconst_in) {
+        Fold f;
+        f.kind = BOOL;
+        f.bconst = bconst_in;
+        return f;
+    }
+    
+    inline operator bool() const {
+        return kind != NONE;
+    }
+
+    inline Type* type() const {
+        switch (kind) {
+            case NONE: return ERROR;
+            case ICONST: return ::ICONST;
+            case FCONST: return ::FCONST;
+            case BOOL: return ::BOOL;
+            case CHCONST: return ::CHAR;
+        }
+    }
 };
 
 inline AST* try_clone(AST* ast, arena& alloc) {
@@ -88,6 +146,18 @@ struct VarDecl : public Decl {
 
     inline AST* clone(arena& alloc) override {
         return new(alloc) VarDecl(pos, try_clone(ann, alloc), try_clone(name, alloc), try_clone(init, alloc));
+    }
+};
+
+struct ConstDecl : public Decl {
+    AST* name;
+    AST* init;
+    Symbol basename;
+    Fold fold;
+    inline ConstDecl(SourcePos pos, AST* name_in, AST* init_in): Decl(AST_CONSTDECL, pos), name(name_in), init(init_in) {}
+
+    inline AST* clone(arena& alloc) override {
+        return new(alloc) ConstDecl(pos, try_clone(name, alloc), try_clone(init, alloc));
     }
 };
 
@@ -167,6 +237,17 @@ struct Unary : public Expr {
 
     inline AST* clone(arena& alloc) override {
         return new(alloc) Unary(kind, pos, try_clone(child, alloc));
+    }
+};
+
+struct Sizeof : public Unary {
+    Fold fold;
+    inline Sizeof(SourcePos pos, AST* child): Unary(AST_SIZEOF, pos, child) {}
+
+    inline AST* clone(arena& alloc) override {
+        Sizeof* s = new(alloc) Sizeof(pos, try_clone(child, alloc));
+        s->fold = fold;
+        return s;
     }
 };
 
@@ -536,6 +617,14 @@ void infer(Module* mod, Env* env, AST* ast);
  * function instantiation is done at this phase.
  */
 void typecheck(Module* mod, Env* env, AST* ast);
+
+/*
+ * tryfold(mod, env, ast)
+ *
+ * Tries to constant-fold the provided AST. Returns an empty fold if the node cannot be constant-folded,
+ * or a fold of a primitive value if a fold was possible.
+ */
+Fold tryfold(Module* mod, Env* env, AST* ast);
 
 /*
  * CContext

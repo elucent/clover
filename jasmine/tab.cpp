@@ -11,25 +11,8 @@ StringTable::StringTable(JasmineModule* obj_in): obj(obj_in) {
     strtab.alloc = &obj->modspace;
 }
 
-stridx StringTable::intern(const_slice<i8> str) {
-    auto it = strtab.find(str);
-    if (it == strtab.end()) {
-        const_slice<i8> objstr = obj->makestr(str.n, str.ptr);
-        if (strings.size() == STR_EXT) {
-            strtab.put(objstr, strings.size());
-            strings.push(objstr);
-        }
-        strtab.put(objstr, strings.size());
-        strings.push(objstr);
-        return strings.size() - 1;
-    }
-    else return it->value;
-}
-
 u32 MetaTable::size() const {
     u32 acc = 16;
-    if (modname > STR_EXT) acc += sizeof(stridx);
-    if (modname > FUNC_EXT) acc += sizeof(funcidx);
     for (const auto& e : entries) {
         acc += 8 + e.key.n + e.value.n;
         acc = (acc + 3) / 4 * 4;
@@ -45,8 +28,6 @@ void MetaTable::write(bytebuf<arena>& buf) const {
     buf.writeLEB(modname);
     buf.writeLEB(entry);
     buf.writeULEB(entries.size());
-    if (modname > STR_EXT) buf.writeLE<stridx>(modname);
-    if (entry > FUNC_EXT) buf.writeLE<funcidx>(entry);
     for (const auto& e : entries) {
         buf.writeULEB(e.key.n);                          // Write key and value sizes.
         u32 i = 0;
