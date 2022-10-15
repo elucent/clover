@@ -41,7 +41,7 @@ struct Version {
     inline bool operator>=(const Version& v) { return !(*this < v); }
 };
 
-inline void write(stream& io, const Version& v) {
+inline void write_impl(stream& io, const Version& v) {
     write(io, (u16)v.major, '.', (u16)v.minor, '.', (u16)v.patch);
 }
 

@@ -67,16 +67,16 @@ void JasmineModule::opt(OptLevel level) {
             inlining(*func, *info);
             cfg(*func, *info);
 
-            print(" === after inline === \n");
-            func->format(stdout), print('\n');
-            foldc(*func, *info);
+            // print(" === after inline === \n");
+            // func->format(stdout), print('\n');
+            // foldc(*func, *info);
 
-            print(" === after foldc === \n");
-            func->format(stdout), print('\n');
-            dce(*func, *info);   
+            // print(" === after foldc === \n");
+            // func->format(stdout), print('\n');
+            // dce(*func, *info);   
 
-            print(" === after dce === \n");
-            func->format(stdout), print('\n');
+            // print(" === after dce === \n");
+            // func->format(stdout), print('\n');
         }
         if (level >= OPT_1) regalloc<DefaultTarget>(*func, *info);
         else stackalloc<DefaultTarget>(*func, *info);

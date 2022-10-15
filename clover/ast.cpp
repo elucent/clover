@@ -4980,7 +4980,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
 
             indent(ctx.h, ctx.h_indent), write(ctx.h, "} ");
             write_sym(ctx.h, mod, t->mangled);
-            write(ctx.h, ";\n");  
+            write(ctx.h, ";\n");
             write(ctx.h, "inline ");
             emit_c_typename(ctx.h, mod, t, ctx);
             write(ctx.h, ' ');

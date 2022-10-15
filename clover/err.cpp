@@ -1002,11 +1002,11 @@ struct APrint {
     AST* ast;
 };
 
-inline void write(stream& io, const TPrint& p) {
+inline void write_impl(stream& io, const TPrint& p) {
     format(io, p.m, p.t);
 }
 
-inline void write(stream& io, const APrint& p) {
+inline void write_impl(stream& io, const APrint& p) {
     format(io, p.m, p.ast);
 }
 

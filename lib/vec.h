@@ -60,7 +60,7 @@ struct vec {
     }
 
     inline ~vec() {
-        free(data);
+        if (data != fixed) free(data);
     }
 
     inline vec(const vec& other) {

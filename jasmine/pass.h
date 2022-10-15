@@ -6,14 +6,13 @@
 #include "jasmine/obj.h"
 
 struct Binding {
-    enum Kind {
+    enum Kind : u8 {
         NONE, GPREG, FPREG, STACK
     };
 
-    Kind kind;
     union {
-        mreg reg;
-        i32 offset;
+        struct { Kind kind; mreg reg; };
+        struct { Kind pad; i32 offset : 24; };
     };
 
     inline operator bool() const {
@@ -48,9 +47,19 @@ struct Binding {
     }
 };
 
+inline void write_impl(stream& io, const Binding& binding) {
+    switch (binding.kind) {
+        case Binding::NONE: write(io, "none"); break;
+        case Binding::FPREG:
+        case Binding::GPREG: write(io, DefaultTarget::reg_name(binding.reg)); break;
+        case Binding::STACK: write(io, "[frame - ", binding.offset, "]"); break;
+    }
+}
+
 struct GraphNode {
-    vec<localidx, 6> edges;
+    vec<localidx, 4> edges;
     Binding binding, hint;
+    RegSet gpregs, fpregs;
 
     inline GraphNode(): binding(Binding::none()), hint(Binding::none()) {}
 };
@@ -102,17 +111,51 @@ struct PassInfo {
 PassInfo* makepassinfo();
 
 void init(Function& fn, PassInfo& info);
+
+// Inline functions.
 void inlining(Function& fn, PassInfo& info);
+
+// Compute control flow graph/basic blocks.
 void cfg(Function& fn, PassInfo& info);
+
+// Fold constant expressions.
 void foldc(Function& fn, PassInfo& info);
+
+// Eliminate dead code.
 void dce(Function& fn, PassInfo& info);
+
+// Compute live intervals of each variable.
 void live(Function& fn, PassInfo& info);
 
+// Compute interference graph.
+void irg(Function& fn, PassInfo& info);
+
+// Allocate registers.
 template<typename Target>
 void regalloc(Function& fn, PassInfo& info) {
     live(fn, info);
-    for (localidx l = 0; l < fn.insns.size(); l ++)
-        info.rg.push(GraphNode());
+    irg(fn, info);
+
+    RegSet gpregs, fpregs;
+    for (mreg r : Target::gpregs()) gpregs.add(r);
+    for (mreg r : Target::fpregs()) fpregs.add(r);
+    for (GraphNode& node : info.rg) node.gpregs = gpregs, node.fpregs = fpregs;
+
+    i64 stack = 0;
+    for (i32 i = 0; i < info.rg.size(); i ++) if (info.live[i].size()) {
+        GraphNode& node = info.rg[i];
+        if (node.gpregs) {
+            mreg r = node.gpregs.next();
+            node.binding = Binding::gpreg(r);
+            for (i32 j : node.edges) info.rg[j].gpregs.remove(r);
+        }
+        else node.binding = Binding::stack(stack -= 8);
+    }
+
+    // for (i32 i = 0; i < info.live.size(); i ++) if (info.live[i].size()) {
+    //     Binding b = info.rg[i].binding;
+    //     println("Allocated local %", i, " to ", b);
+    // }
 }
 
 template<typename Target>

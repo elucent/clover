@@ -46,12 +46,36 @@ struct TargetDesc {
 
 using mreg = u8;   // Generic type of machine register.
 
-inline void write(stream& io, const TargetDesc& target) {
+inline void write_impl(stream& io, const TargetDesc& target) {
     ::write(io, OS_NAMES[target.os], '_', ARCH_NAMES[target.arch]);
 }
 
 struct Function;
 struct TypeTable;
+
+struct RegSet {
+    u64 regs;
+
+    inline void add(mreg r) {
+        regs |= 1 << r;
+    }
+
+    inline void remove(mreg r) {
+        regs &= ~(1 << r);
+    }
+
+    inline bool operator[](mreg r) const {
+        return regs & 1 << r;
+    }
+
+    inline operator bool() const {
+        return regs;
+    }
+
+    inline mreg next() const {
+        return __builtin_ctz(regs);
+    }
+};
 
 enum SlotType {
     SLOT_NONE, SLOT_STACK, SLOT_GPREG, SLOT_FPREG, SLOT_ICONST

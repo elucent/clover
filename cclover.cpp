@@ -1,5 +1,6 @@
 #include "cclover.h"
 #include "core/sys.h"
+#include "lib/gc.h"
 #include "lib/malloc.h"
 #include "lib/io.h"
 #include "lib/utf.h"
@@ -173,11 +174,11 @@ extern "C" void __clover__core_deinit() {
 }
 
 extern "C" iword __clover__malloc(iword size) {
-    return alloc->alloc(size);
+    return (iptr)gc_alloc_untyped(size);
 }
 
 extern "C" void __clover__del(void* ptr) {
-    return alloc->free(ptr);
+    gc_free_untyped(ptr);
 }
 
 // Libcore bindings.

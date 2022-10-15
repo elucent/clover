@@ -90,7 +90,6 @@ void Function::read(bytebuf<arena>& buf) {
                     if (insn.op == OP_LABEL) {
                         while (labels.size() <= args.back().lbl) labels.push(-1);
                         labels[args.back().lbl] = i;
-                        print("! set label ", args.back().lbl, " to ", i, '\n');
                     }
                     break;
                 case VUNARY:

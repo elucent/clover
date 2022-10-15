@@ -47,59 +47,59 @@ void close(stream* file);
 
 extern stream stdin, stdout, stderr;
 
-inline void write(stream& io, const i8* const& str) {
+inline void write_impl(stream& io, const i8* const& str) {
     write_string(io, str, cidx(str, '\0'));
 }
 
-inline void write(stream& io, i8* const& str) {
+inline void write_impl(stream& io, i8* && str) {
     write_string(io, str, cidx(str, '\0'));
 }
 
-inline void write(stream& io, const const_slice<i8>& str) {
+inline void write_impl(stream& io, const_slice<i8> str) {
     write_string(io, str.ptr, str.n);
 }
 
-inline void write(stream& io, i8 i) {
+inline void write_impl(stream& io, i8 i) {
     write_byte(io, i);
 }
 
-inline void write(stream& io, i16 i) {
+inline void write_impl(stream& io, i16 i) {
     write_int(io, i);
 }
 
-inline void write(stream& io, i32 i) {
+inline void write_impl(stream& io, i32 i) {
     write_int(io, i);
 }
 
-inline void write(stream& io, i64 i) {
+inline void write_impl(stream& io, i64 i) {
     write_int(io, i);
 }
 
-inline void write(stream& io, u8 i) {
+inline void write_impl(stream& io, u8 i) {
     write_byte(io, i);
 }
 
-inline void write(stream& io, u16 i) {
+inline void write_impl(stream& io, u16 i) {
     write_uint(io, i);
 }
 
-inline void write(stream& io, u32 i) {
+inline void write_impl(stream& io, u32 i) {
     write_uint(io, i);
 }
 
-inline void write(stream& io, u64 i) {
+inline void write_impl(stream& io, u64 i) {
     write_uint(io, i);
 }
 
-inline void write(stream& io, float f) {
+inline void write_impl(stream& io, float f) {
     write_float(io, f);
 }
 
-inline void write(stream& io, double f) {
+inline void write_impl(stream& io, double f) {
     write_float(io, f);
 }
 
-inline void write(stream& io, rune&& r) {
+inline void write_impl(stream& io, rune&& r) {
     write_rune(io, r);
 }
 
@@ -107,14 +107,14 @@ inline void write(stream& io) {}
 
 template<typename T, typename... Args>
 void write(stream& io, T&& t, Args&&... args) {
-    write(io, t);
+    write_impl(io, t);
     write(io, args...);
 }
 
 template<typename... Args>
 void writeln(stream& io, Args&&... args) {
     write(io, args...);
-    write(io, '\n');
+    write_impl(io, '\n');
 }
 
 template<typename... Args>
@@ -125,7 +125,7 @@ void print(Args&&... args) {
 template<typename... Args>
 void println(Args&&... args) {
     write(stdout, args...);
-    write(stdout, '\n');
+    write_impl(stdout, '\n');
 }
 
 #endif

@@ -1,10 +1,11 @@
 #include "jasmine/pass.h"
+#include "jasmine/insn.h"
 #include "jasmine/obj.h"
 #include "lib/bits.h"
 #include "lib/math.h"
 
 PassInfo* makepassinfo() {
-    return new PassInfo;
+    return new PassInfo();
 }
 
 void init(Function& fn, PassInfo& info) {
@@ -147,6 +148,7 @@ void cfg(Function& fn, PassInfo& info) {
     info.bb.push(BasicBlock(0, 1));
     for (i32 i = 0; i < fn.insns.size(); i ++) {
         if (fn.insns[i].is_jump()) for (localidx l : info.succ[i].items()) if (l) { // Don't overwrite block 0.
+            if (info.ib[l] != -1) continue; // Don't overwrite blocks we just created.
             info.ib[l] = info.bb.size();
             info.bb.push(BasicBlock(l, l + 1));
         }
@@ -179,18 +181,18 @@ void cfg(Function& fn, PassInfo& info) {
         }
     }
 
-    for (i32 i = 0; i < info.bb.size(); i ++) {
-        print("bb #", i, '\n');
-        print("pred:");
-        for (i32 bb : info.bb[i].pred) print(" #", bb);
-        print('\n');
-        for (i32 j = info.bb[i].start; j < info.bb[i].end; j ++)
-            print("  "), format_insn(fn, fn.insns[j], stdout), print('\n');
-        print("succ:");
-        for (i32 bb : info.bb[i].succ) print(" #", bb);
-        print('\n');
-        print('\n');
-    }
+    // for (i32 i = 0; i < info.bb.size(); i ++) {
+    //     print("bb #", i, '\n');
+    //     print("pred:");
+    //     for (i32 bb : info.bb[i].pred) print(" #", bb);
+    //     print('\n');
+    //     for (i32 j = info.bb[i].start; j < info.bb[i].end; j ++)
+    //         print("  "), format_insn(fn, fn.insns[j], stdout), print('\n');
+    //     print("succ:");
+    //     for (i32 bb : info.bb[i].succ) print(" #", bb);
+    //     print('\n');
+    //     print('\n');
+    // }
 }
 
 void foldc(Function& fn, PassInfo& info) {
@@ -510,32 +512,80 @@ struct RegStack {
 };
 
 struct Intervals {
-    vec<localidx> tips;
     vec<vec<LiveInterval, 2>>& live;
 
     inline Intervals(vec<vec<LiveInterval, 2>>& live_in): live(live_in) {}
-
-    // LiveInterval* 
 };
 
 void live(Function& fn, PassInfo& info) {
-    // info.live.clear();
-    // Intervals first(info.live), second(info.live);
-    // for (i32 i = 0; i < fn.insns.size(); i ++) info.live.push({}), tips.push(-1);
-    // for (i32 i = i32(fn.insns.size()) - 1; i >= 0; i --) {
-    //     const Insn& insn = fn.insns[i];
-    //     if (insn.has_output() && tips[i] != -1)
-    //         info.live[i].back().start = i, tips[i] = -1;
-    //     const auto& params = insn.params(fn);
-    //     const auto& args = insn.args(fn);
-    //     for (i32 j = 0; j < params.size(); j ++) {
-    //         if (params[j] == P_REG && tips[args[j].reg] == -1)
-    //             info.live[args[j].reg].push({ -1, i }), tips[args[j].reg] = i;
-    //     }
-    //     for (i32 j = 0; j < tips.size(); j ++) {
+    info.live.clear();
+    vec<vec<localidx>, 16> bbin;
+    vec<localidx, 64> tips;
+    for (i32 i = 0; i < fn.insns.size(); i ++) {
+        tips.push(-1);
+        info.live.push(vec<LiveInterval, 2>());
+    }
+    for (i32 i = 0; i < info.bb.size(); i ++) 
+        bbin.push(vec<localidx>());
+    for (i32 bbi = i32(info.bb.size()) - 1; bbi >= 0; bbi --) {
+        BasicBlock& bb = info.bb[bbi];
+        for (localidx i : bbin[bbi])
+            tips[i] = bb.end;
+        bbin[bbi].clear();
 
-    //     }
-    // }
+        for (i32 i = bb.end - 1; i >= bb.start; i --) {
+            Insn& insn = fn.insns[i];
+            const auto& params = insn.params(fn);
+            const auto& args = insn.args(fn);
+            // print(" * visiting insn ", i, ":\t");
+            // format_insn(fn, insn, stdout);
+            // println();
+            if (insn.has_output()) {
+                // println("   * dieing local %", i);
+                info.live[i].push({i, tips[i]});
+                tips[i] = -1;
+            }
+            for (i32 j = 0; j < args.n; j ++) {
+                if (params[j] == P_REG && tips[args[j].reg] == -1) {
+                    // println("   * using local %", args[j].reg);
+                    tips[args[j].reg] = i;
+                }
+            }
+        }
+
+        for (i32 pbb : bb.pred) {
+            for (i32 i = 0; i < tips.size(); i ++) if (tips[i] != -1) {
+                // println("   * adding use of %", i, " to bb", pbb);
+                bbin[pbb].push(i);
+                info.live[i].push({bb.start, tips[i]});
+                tips[i] = -1;
+            }
+        }
+    }
+
+    for (i32 bbi = i32(info.bb.size()) - 1; bbi >= 0; bbi --) {
+        if (bbin[bbi].size() == 0) 
+            continue;
+        BasicBlock& bb = info.bb[bbi];
+        for (i32 i = 0; i < tips.size(); i ++)
+            tips[i] = -1;
+        for (localidx i : bbin[bbi])
+            tips[i] = bb.end;
+        bbin[bbi].clear();
+
+        for (i32 i = bb.end - 1; i >= bb.start; i --) {
+            Insn& insn = fn.insns[i];
+            const auto& params = insn.params(fn);
+            const auto& args = insn.args(fn);
+            // print(" * visiting insn ", i, ":\t");
+            // format_insn(fn, insn, stdout);
+            // println();
+            if (insn.has_output()) {
+                info.live[i].push({i, tips[i]});
+                tips[i] = -1;
+            }
+        }
+    }
 
     // for (i32 i = 0; i < info.live.size(); i ++) {
     //     const auto& l = info.live[i];
@@ -549,5 +599,37 @@ void live(Function& fn, PassInfo& info) {
     //         }
     //         print('\n');
     //     }
+    // }
+}
+
+u64 hash(const pair<localidx, localidx>& p) {
+    return hash(p.first) * 31ul + hash(p.second);
+}
+
+void irg(Function& fn, PassInfo& info) {
+    info.rg.clear();
+    vec<vec<localidx, 4>, 64> ifer;
+    set<pair<localidx, localidx>, 64> edges;
+
+    for (i32 i = 0; i < fn.insns.size(); i ++) {
+        info.rg.push({});
+        ifer.push({});
+    }
+    
+    for (i32 r = 0; r < info.live.size(); r ++) {
+        for (const auto& iv : info.live[r]) for (i32 i = iv.start; i < iv.end; i ++) 
+            ifer[i].push(r);
+    }
+
+    for (i32 i = 0; i < ifer.size(); i ++) for (i32 j = 0; j < ifer[i].size(); j ++)
+        if (i != ifer[i][j]) edges.insert({min(i, ifer[i][j]), max(i, ifer[i][j])});
+
+    for (const auto& e : edges) {
+        info.rg[e.first].edges.push(e.second);
+        info.rg[e.second].edges.push(e.first);
+    }
+
+    // for (const auto& e : edges) {
+    //     println("%", e.first, " -> % ", e.second);
     // }
 }
