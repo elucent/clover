@@ -148,9 +148,7 @@ void operator delete(void* ptr);
 void* operator new[](size_t bytes);
 void operator delete[](void* ptr);
 
-inline void* operator new(size_t, void* ptr) {
-    return ptr;
-}
+void* operator new(size_t, void* ptr);
 
 void* operator new(size_t bytes, arena& a);
 void operator delete(void* ptr, arena& a);

@@ -9,7 +9,7 @@ constexpr uptr BYTES_PER_WORD = 16;
 constexpr uptr PTRS_PER_WORD = BYTES_PER_WORD / sizeof(iptr);
 constexpr uptr WORDS_PER_PAGE = 4096;
 constexpr uptr BYTES_PER_PAGE = BYTES_PER_WORD * WORDS_PER_PAGE;
-constexpr uptr DEFAULT_PAGES_PER_REGION = 16384;
+constexpr uptr DEFAULT_PAGES_PER_REGION = 65536;
 static_assert(DEFAULT_PAGES_PER_REGION >= 64, "Minimum heap size is 1MB."); // Otherwise the live page bitmap won't work. Kinda dumb.
 constexpr uptr MAX_PAGES_PER_REGION = 65536;
 constexpr uptr BYTES_PER_REGION = DEFAULT_PAGES_PER_REGION * BYTES_PER_PAGE;
@@ -126,11 +126,12 @@ struct gc_heap {
     i64 live_page_bitmap[MAX_PAGES_PER_REGION / 64];
     gc_page* max_pages;
     bool just_did_gc = false;
+    i64 lock = 0;
 
     inline gc_heap(): top_page(0), page_limit(DEFAULT_PAGES_PER_REGION) {
         for (u32 i = 0; i < N_SIZE_CLASSES; i ++)
             free_lists[i] = { 0, -1 };
-        constexpr u32 initial_size = DEFAULT_PAGES_PER_REGION * WORDS_PER_PAGE * BYTES_PER_WORD;
+        constexpr uptr initial_size = DEFAULT_PAGES_PER_REGION * WORDS_PER_PAGE * BYTES_PER_WORD;
         auto aligned_pages = map_aligned(MAX_BYTES_PER_REGION, initial_size);
         auto aligned_info = map_aligned(MAX_PAGES_PER_REGION * sizeof(gc_page_info), PAGESIZE);
         pages = (gc_page*)aligned_pages.ptr;
@@ -204,7 +205,11 @@ struct gc_heap {
         }
         else {
             pushrframe(gc);
-            return { nullptr, gc_page_info() };
+            i32 next_page = find_free_pages(1);
+            if (should_grow_heap_heuristic() || next_page == -1)
+                if (!try_grow(max(1, DEFAULT_PAGES_PER_REGION)) && next_page == -1)
+                    fatal("Out of memory!");
+            return { pages + next_page, gc_page_info() };
         }
 
         info[result].size_class = size_class;
@@ -242,14 +247,15 @@ struct gc_heap {
             return pages + next_page;
         }
     }
+    
+    inline void* alloc_huge_locked(i32 size) {
+        void* result = alloc_huge(size);
+        return result;
+    }
 
-    inline void* alloc_in_new_page(i32 size_class) {
+    __attribute((noinline)) void* alloc_in_new_page(i32 size_class) {
         auto page = alloc_page_for(size_class);
         if (!page.first) { // Did GC 
-            auto list_entry = free_lists[size_class];
-            if (stats.freed_bytes < (uptr)page_limit * (uptr)BYTES_PER_PAGE / 16 || list_entry.second < 0)
-                if (!try_grow(DEFAULT_PAGES_PER_REGION) && list_entry.second < 0)
-                    fatal("Out of memory!");
             return alloc(size_class);
         }
         u32 idx = page.first - pages;
@@ -263,11 +269,16 @@ struct gc_heap {
         return result;
     }
 
-    inline void* alloc(i32 size_class) {
+    void* alloc(i32 size_class) {
         auto list_entry = free_lists[size_class];
-        if (list_entry.second < 0) return alloc_in_new_page(size_class);
-        void* result = pages[list_entry.first].words + list_entry.second;
-        free_lists[size_class] = *(pair<u32, i32>*)result;
+        void* result;
+        if (list_entry.second < 0) {
+            result = alloc_in_new_page(size_class);
+        }
+        else { 
+            result = pages[list_entry.first].words + list_entry.second;
+            free_lists[size_class] = *(pair<u32, i32>*)result;
+        }
         return result;
     }
 
@@ -309,12 +320,12 @@ void gc_init();
 
 template<typename T>
 T* gc_alloc() {
-    if (sizeof(T) > 16384) return (T*)THE_HEAP.alloc_huge(sizeof(T));
+    if (sizeof(T) > 16384) return (T*)THE_HEAP.alloc_huge_locked(sizeof(T));
     return (T*)THE_HEAP.alloc(size_class_for_const(sizeof(T)));
 }
 
 inline void* gc_alloc_untyped(iptr size) {
-    if (size > 16384) return THE_HEAP.alloc_huge(size);
+    if (size > 16384) return THE_HEAP.alloc_huge_locked(size);
     return THE_HEAP.alloc(size_class_for(size));
 }
 

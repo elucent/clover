@@ -121,3 +121,7 @@ void* operator new[](size_t bytes, allocator& a) {
 void operator delete[](void* ptr, allocator& a) {
     a.free(ptr);
 }
+
+void* operator new(size_t, void* ptr) {
+    return ptr;
+}

@@ -1,15 +1,17 @@
 #include "lib/gc.h"
-
-struct foo {
-    u8 bytes[64];
-};
+#include "lib/io.h"
 
 int main(int argc, char** argv) {
-    foo* foos[65536];
-    foo* ptr;
+    iptr sizes[] = {
+        8, 8, 16, 16, 16, 16, 24, 24, 32, 32, 48, 48, 64, 64, 96, 128,
+        8, 8, 16, 16, 16, 16, 24, 24, 32, 32, 48, 48, 64, 64, 256, 512
+    };
+
+    void** foos = (void**)gc_alloc_untyped(sizeof(iptr) * 524288);
+    //void* foos[524288];
     i64 i = 0;
     while (true) {
-        (i % 128 ? ptr : foos[i / 128 % 65536]) = (foo*)gc_alloc_untyped(64);
+        foos[i % 524288] = gc_alloc_untyped(sizes[i % 32]);
         i ++;
         if (i == 838860800) break;
     }
