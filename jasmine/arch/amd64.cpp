@@ -1,4 +1,5 @@
 #include "jasmine/arch/amd64.h"
+#include "core/util.h"
 #include "jasmine/insn.h"
 
 const mreg AMD64Target::GP_REGS[14] = { RAX, RCX, RDX, RSI, RDI, RBX, R8, R9, R10, R11, R12, R13, R14, R15 };
@@ -8,74 +9,127 @@ const mreg AMD64LinuxTarget::GP_ARGS[6] = { RDI, RSI, RDX, RCX, R8, R9 };
 const mreg AMD64LinuxTarget::FP_ARGS[8] = { XMM0, XMM1, XMM2, XMM3, XMM4, XMM5, XMM6, XMM7 };
 const TargetDesc AMD64LinuxTarget::DESC = TargetDesc(OS_LINUX, ARCH_AMD64);
 
-Placement AMD64LinuxTarget::place_ret(const TypeTable& tab, typeidx t) {
-    if (t < 0) switch (i8(t)) {
-        case T_F32:
-        case T_F64:
-            return {fpreg_slot(XMM0), {0, 1, 0}};
-        default:
-            return {gpreg_slot(RAX), {0, 0, 0}};
-    }
-    const Type& type = tab.types[t];
-    if (type.size > 16) return {gpreg_slot(RDI), {1, 0, type.size}};
-    else if (type.size <= 8) {
-        if (type.flags & TF_HAS_INT) return {gpreg_slot(RAX), {0, 0, 0}};
-        else return {fpreg_slot(XMM0), {0, 1, 0}};
-    }
-    else if (type.kind == TK_ARR) {
-        if (type.nelts == 1) return place_ret(tab, type.elt);
+enum TypeCharacter {
+    GPREG, FPREG, COMPOUND, PAD, GPGP, GPFP, FPGP, FPFP
+};
+
+TypeCharacter classify(const TypeTable& typetab, typeidx type) {
+    if (type < 0) {
+        if (type == T_F32 || type == T_F64) return FPREG;
+        else return GPREG;
     }
     else {
-        if (type.len == 1) return place_ret(tab, type.members[0]);
-        bool isfp[2] = {true, true};
-        bool ismem = false;
-        u32 bytes = 0;
-        for (u32 i = 0; i < type.len && !ismem; i ++) {
-            typeidx m = type.members[i];
-            if (m != T_F32 && m != T_F64 && (m < 0 || tab.types[m].flags & TF_HAS_INT)) isfp[bytes >> 3] = false;
-            u32 align = m < 0 ? primalign(m) : tab.types[m].align;
-            if (bytes & align - 1) ismem = true;
-            bytes += m < 0 ? primsize(m) : tab.types[m].size;
+        const Type& tval = typetab.types[type];
+        i32 size = typetab.native_sizeof<AMD64LinuxTarget>(type);
+        if (tval.kind == TK_FUN) return GPREG;
+        if (size > 16) return COMPOUND;
+        if (tval.kind == TK_ARR) {
+            TypeCharacter ch = classify(typetab, tval.elt);
+            if (size > 8) return ch == FPREG ? FPFP : GPGP;
+            else return ch;
         }
-        if (ismem) return {gpreg_slot(RDI), {1, 0, type.size}};
+        if (tval.kind == TK_TUP) {
+            if (tval.size == 1) return classify(typetab, tval.elt);
+            else if (size <= 8) {
+                TypeCharacter ch = FPREG;
+                for (typeidx id : tval.members)
+                    if (classify(typetab, id) != FPREG)
+                        ch = GPREG;
+                return ch;
+            }
+            else {
+                TypeCharacter ch1 = FPREG, ch2 = FPREG;
+                i32 count = 0;
+                for (typeidx id : tval.members) {
+                    TypeCharacter t = classify(typetab, id);
+                    if (count < 8 && t != FPREG) ch1 = GPREG;
+                    else if (t != FPREG) ch2 = GPREG;
+                    count += typetab.native_sizeof<AMD64LinuxTarget>(id);
+                }
+                return TypeCharacter((ch1 | ch2 << 1) << 2);
+            }
+        }
+        unreachable("Unsupported typekind.");
+        return COMPOUND;
     }
 }
 
-Placement AMD64LinuxTarget::place_arg(const TypeTable& tab, typeidx t, UsageState usage) {
-    if (t < 0) switch (i8(t)) {
-        case T_F32:
-        case T_F64:
-            return usage.n_fpregs_used >= 8 ? Placement{stack_slot(usage.stack_used), {0, 0, primsize(t)}}
-                : Placement{fpreg_slot(FP_ARGS[usage.n_fpregs_used]), {0, 1, 0}};
+void AMD64LinuxTarget::place_call(CallBindings& call, const TypeTable& typetab, typeidx fntype) {
+    // SysV-AMD64 calling convention. 
+    assert(fntype >= 0);
+    const Type& fn = typetab.types[fntype];
+
+    i32 caller_stack = 0;
+    i32 retsize = typetab.native_sizeof<AMD64LinuxTarget>(fn.ret);
+    if (retsize <= 8) {
+        auto ch = classify(typetab, fn.ret);
+        if (ch == FPREG) call.place_ret(Binding::fpreg(XMM0));
+        else call.place_ret(Binding::gpreg(RAX));
+    }
+    else if (retsize <= 16) {
+        auto ch = classify(typetab, fn.ret);
+        switch (ch) {
+        case GPGP:
+            call.place_ret(Binding::gpreg(RAX), Binding::gpreg(RDX));
+            break;
+        case FPGP:
+            call.place_ret(Binding::gpreg(XMM0), Binding::gpreg(RDX));
+            break;
+        case GPFP:
+            call.place_ret(Binding::gpreg(RAX), Binding::gpreg(XMM0));
+            break;
+        case FPFP:
+            call.place_ret(Binding::gpreg(XMM0), Binding::gpreg(XMM1));
+            break;
         default:
-            return usage.n_gpregs_used >= 6 ? Placement{stack_slot(usage.stack_used), {0, 0, primsize(t)}}
-                : Placement{gpreg_slot(GP_ARGS[usage.n_gpregs_used]), {1, 0, 0}};
-    }
-    const Type& type = tab.types[t];
-    if (type.size > 16) return {stack_slot(usage.stack_used), {0, 0, type.size}};
-    else if (type.size <= 8) {
-        if (type.flags & TF_HAS_INT) 
-            return usage.n_gpregs_used >= 6 ? Placement{stack_slot(usage.stack_used), {0, 0, primsize(t)}}
-                : Placement{gpreg_slot(GP_ARGS[usage.n_gpregs_used]), {1, 0, 0}};
-        else return usage.n_fpregs_used >= 8 ? Placement{stack_slot(usage.stack_used), {0, 0, primsize(t)}}
-                : Placement{fpreg_slot(FP_ARGS[usage.n_fpregs_used]), {0, 1, 0}};
-    }
-    else if (type.kind == TK_ARR) {
-        if (type.nelts == 1) return place_arg(tab, type.elt, usage);
-        else return {stack_slot(usage.stack_used), {0, 0, type.size}};
-    }
-    else {
-        if (type.len == 1) return place_arg(tab, type.members[0], usage);
-        bool isfp[2] = {true, true};
-        bool ismem = false;
-        u32 bytes = 0;
-        for (u32 i = 0; i < type.len && !ismem; i ++) {
-            typeidx m = type.members[i];
-            if (m != T_F32 && m != T_F64 && (m < 0 || tab.types[m].flags & TF_HAS_INT)) isfp[bytes >> 3] = false;
-            u32 align = m < 0 ? primalign(m) : tab.types[m].align;
-            if (bytes & align - 1) ismem = true;
-            bytes += m < 0 ? primsize(m) : tab.types[m].size;
+            unreachable("Should have classified 16-byte type as double register.");
         }
-        if (ismem) return {stack_slot(usage.stack_used), {0, 0, type.size}};
+    }
+    else call.place_ret(Binding::stack(caller_stack)), caller_stack += retsize;
+
+    i32 gpargs_used = 0, fpargs_used = 0;
+    for (typeidx arg : fn.members) {
+        i32 argsize = typetab.native_sizeof<AMD64LinuxTarget>(arg);
+        if (argsize <= 8) {
+            auto ch = classify(typetab, arg);
+            if (ch == FPREG && fpargs_used < 8) 
+                call.add_param(Binding::fpreg(FP_ARGS[fpargs_used ++]));
+            else if (ch == GPREG && gpargs_used < 6) 
+                call.add_param(Binding::gpreg(GP_ARGS[gpargs_used ++]));
+            else
+                call.add_param(Binding::stack(caller_stack)), caller_stack += argsize;
+        }
+        else if (argsize <= 16) {
+            auto ch = classify(typetab, arg);
+            switch (ch) {
+            case GPGP:
+                if (gpargs_used < 5)
+                    call.add_param(Binding::gpreg(GP_ARGS[gpargs_used]), Binding::gpreg(GP_ARGS[gpargs_used + 1])), gpargs_used += 2;
+                else
+                    call.add_param(Binding::stack(caller_stack)), caller_stack += argsize;
+                break;
+            case FPGP:
+                if (gpargs_used < 6 && fpargs_used < 8)
+                    call.add_param(Binding::fpreg(FP_ARGS[fpargs_used ++]), Binding::gpreg(GP_ARGS[gpargs_used ++]));
+                else
+                    call.add_param(Binding::stack(caller_stack)), caller_stack += argsize;
+                break;
+            case GPFP:
+                if (gpargs_used < 6 && fpargs_used < 8)
+                    call.add_param(Binding::gpreg(GP_ARGS[gpargs_used ++]), Binding::fpreg(FP_ARGS[fpargs_used ++]));
+                else
+                    call.add_param(Binding::stack(caller_stack)), caller_stack += argsize;
+                break;
+            case FPFP:
+                if (fpargs_used < 5)
+                    call.add_param(Binding::fpreg(FP_ARGS[fpargs_used]), Binding::fpreg(FP_ARGS[fpargs_used + 1])), fpargs_used += 2;
+                else
+                    call.add_param(Binding::stack(caller_stack)), caller_stack += argsize;
+                break;
+            default:
+                unreachable("Should have classified 16-byte type as double register.");
+            }
+        }
+        else call.add_param(Binding::stack(caller_stack)), caller_stack += argsize;
     }
 }

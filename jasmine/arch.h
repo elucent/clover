@@ -44,7 +44,7 @@ struct TargetDesc {
     }
 };
 
-using mreg = u8;   // Generic type of machine register.
+using mreg = i8;   // Generic type of machine register.
 
 inline void write_impl(stream& io, const TargetDesc& target) {
     ::write(io, OS_NAMES[target.os], '_', ARCH_NAMES[target.arch]);
@@ -55,6 +55,9 @@ struct TypeTable;
 
 struct RegSet {
     u64 regs;
+
+    inline RegSet(): 
+        regs(0) {}
 
     inline void add(mreg r) {
         regs |= 1 << r;
@@ -77,61 +80,83 @@ struct RegSet {
     }
 };
 
-enum SlotType {
-    SLOT_NONE, SLOT_STACK, SLOT_GPREG, SLOT_FPREG, SLOT_ICONST
-};
-
-struct Slot {
-    SlotType type = SLOT_NONE;
+struct Binding {
+    enum Kind : u8 {
+        NONE, GPREG, FPREG, STACK
+    };
 
     union {
-        mreg reg;
-        mreg regpair[2];
-        i64 stack;
+        struct { Kind kind; mreg reg; };
+        struct { Kind pad; i32 offset : 24; };
     };
-};
 
-inline Slot gpreg_slot(mreg reg) {
-    Slot s;
-    s.type = SLOT_GPREG;
-    s.reg = reg;
-    return s;
-}
+    inline operator bool() const {
+        return kind != NONE;
+    }
 
-inline Slot fpreg_slot(mreg reg) {
-    Slot s;
-    s.type = SLOT_FPREG;
-    s.reg = reg;
-    return s;
-}
+    inline static Binding none() {
+        Binding b;
+        b.kind = NONE;
+        return b;
+    }
 
-inline Slot stack_slot(i64 stack) {
-    Slot s;
-    s.type = SLOT_STACK;
-    s.stack = stack;
-    return s;
-}
+    inline static Binding gpreg(mreg reg) {
+        Binding b;
+        b.kind = GPREG;
+        b.reg = reg;
+        return b;
+    }
 
-inline Slot empty_slot() {
-    return Slot();
-}
+    inline static Binding fpreg(mreg reg) {
+        Binding b;
+        b.kind = FPREG;
+        b.reg = reg;
+        return b;
+    }
 
-struct UsageState {
-    u32 n_gpregs_used = 0, n_fpregs_used = 0, stack_used = 0;
-
-    inline UsageState(u32 ngp, u32 nfp, u32 st): n_gpregs_used(ngp), n_fpregs_used(nfp), stack_used(st) {}
-
-    inline UsageState& operator+=(const UsageState& other) {
-        n_gpregs_used += other.n_gpregs_used;
-        n_fpregs_used += other.n_fpregs_used;
-        stack_used += other.stack_used;
-        return *this;
+    inline static Binding stack(i32 offset) {
+        Binding b;
+        b.kind = STACK;
+        b.offset = offset;
+        return b;
     }
 };
 
-struct Placement {
-    Slot slot;
-    UsageState usage;
+struct CallBindings {
+    vec<Binding, 6> bindings;
+    vec<i32, 6> param_indices;
+
+    inline const_slice<Binding> param(i32 i) const {
+        i32 idx = param_indices[i];
+        i32 next = i >= i32(param_indices.size()) - 1 ? bindings.size() : param_indices[i + 1];
+        return {&bindings[idx], next - idx};
+    }
+
+    inline const_slice<Binding> ret() const {
+        return { &bindings[0], param_indices.size() > 0 ? param_indices[0] : bindings.size() };
+    }
+
+    inline void place_ret(Binding binding) {
+        assert(bindings.size() == 0);
+        bindings.push(binding);
+    }
+
+    inline void place_ret(Binding first, Binding second) {
+        assert(bindings.size() == 0);
+        bindings.push(first);
+        bindings.push(second);
+    }
+
+    inline void add_param(Binding binding) {
+        param_indices.push(bindings.size());
+        bindings.push(binding);
+    }
+
+    inline void add_param(Binding first, Binding second) {
+        param_indices.push(bindings.size());
+        bindings.push(first);
+        bindings.push(second);
+    }
 };
 
 // Machine-level value.
@@ -374,6 +399,14 @@ enum class Size {
     MEMORY = 6, OTHER = 7
 };
 
+constexpr static const i8* ASM_SIZE_NAMES[] = {
+    "8", "16", "32", "64", "f32", "f64", "", ""
+};
+
+inline void write_impl(stream& io, Size size) {
+    write_impl(io, ASM_SIZE_NAMES[(unsigned)size]);
+}
+
 enum class ASMOpcode {
     ADD8, ADD16, ADD32, ADD64,
     SUB8, SUB16, SUB32, SUB64,
@@ -499,7 +532,7 @@ constexpr static const i8* ASM_OPCODE_NAMES[] = {
 
     "isz", "isnz",
     "ccc8", "ccc16", "ccc32", "ccc64",
-    "cfcc32", "cfcc64",
+    "fccc32", "fccc64",
 
     "push8", "push16", "push32", "push64",
     "pop8", "pop16", "pop32", "pop64",
@@ -520,7 +553,7 @@ constexpr static const i8* ASM_OPCODE_NAMES[] = {
 
     "j", "jz", "jnz",
     "jcc8", "jcc16", "jcc32", "jcc64",
-    "jfcc8", "jfcc16", "jfcc32", "jfcc64",
+    "fjcc8", "fjcc16", "fjcc32", "fjcc64",
 
     "enter", "leave",
     "stack", "alloca", "unstack",
@@ -551,6 +584,8 @@ constexpr static const i8* ASM_REGISTER_NAMES[] = {
     "f24", "f25", "f26", "f27", "f28", "f29", "f30", "f31",
 };
 
+struct Insn;
+
 // Not a real target, represents the abstract target properties of the virtual instruction set. Implements calling convention
 // and the register set for an abstract machine of 32 general-purpose and 32 floating-point registers. Can be used for platform-independent
 // instruction set purposes, such as validation or formatting.
@@ -563,6 +598,9 @@ struct FakeTarget {
         32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 
         48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63
     };
+
+    constexpr static mreg fp = 30;
+    constexpr static mreg sp = 31;
 
     static inline const_slice<mreg> gpregs() {
         return const_slice<mreg>{GPREGS, 32};
@@ -592,12 +630,24 @@ struct FakeTarget {
         return 0;
     }
 
-    static Placement place_ret(const TypeTable& tab, typeidx t) {
-        return { {}, UsageState(0, 0, 0) };
+    static inline mreg hint(const Insn& insn, typeidx t) {
+        return -1;
     }
 
-    static Placement place_arg(const TypeTable& tab, typeidx t, UsageState usage) {
-        return { {}, UsageState(0, 0, 0) };
+    static inline RegSet clobbers(const Insn& insn) {
+        return RegSet();
+    }
+
+    static inline void place_call(CallBindings& call, const TypeTable& typetab, typeidx fntype) {
+        //
+    }
+
+    static inline Size word_size() {
+        return Size::BITS64;
+    }
+
+    static inline Size ptr_size() {
+        return Size::BITS64;
     }
 };
 
@@ -630,7 +680,7 @@ struct ASMPrinter : public Target {
                     ::write(io, "func ", as.symtab->str(val.payload.sym));
                     break;
                 case MVal::LOCAL_LABEL:
-                    ::write(io, as.symtab->str(val.payload.sym));
+                    ::write(io, '.', as.symtab->str(val.payload.sym));
                     break;
                 case MVal::DATA_LABEL:
                     ::write(io, "data ", as.symtab->str(val.payload.sym));
@@ -876,8 +926,8 @@ struct ASMPrinter : public Target {
     static void ccc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(c, 32)
     static void ccc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(c, 64)
 
-    static void cfcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(cf, 32)
-    static void cfcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(cf, 64)
+    static void fccc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(cf, 32)
+    static void fccc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(cf, 64)
 
     // Memory
 
@@ -965,8 +1015,8 @@ struct ASMPrinter : public Target {
     static void jcc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(j, 32)
     static void jcc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(j, 64)
     
-    static void jfcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(jf, 32)
-    static void jfcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(jf, 64)
+    static void fjcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(jf, 32)
+    static void fjcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(jf, 64)
 
     // Functions
 
@@ -1222,8 +1272,8 @@ struct ASMVerifier : public Target {
     static void ccc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
     static void ccc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void cfcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void cfcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
+    static void fccc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fccc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
     // Memory
 
@@ -1309,8 +1359,8 @@ struct ASMVerifier : public Target {
     static void jcc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
     static void jcc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
     
-    static void jfcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void jfcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
+    static void fjcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fjcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
     // Functions
 
@@ -1562,8 +1612,8 @@ struct ASMCompose : public A, public B {
     static void ccc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(ccc32)
     static void ccc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(ccc64)
 
-    static void cfcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(cfcc32)
-    static void cfcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(cfcc64)
+    static void fccc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(fccc32)
+    static void fccc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(fccc64)
 
     // Memory
 
@@ -1659,8 +1709,8 @@ struct ASMCompose : public A, public B {
     static void jcc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(jcc32)
     static void jcc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(jcc64)
     
-    static void jfcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(jfcc32)
-    static void jfcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(jfcc64)
+    static void fjcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(fjcc32)
+    static void fjcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(fjcc64)
 
     // Functions
 

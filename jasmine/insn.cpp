@@ -14,8 +14,13 @@ void Function::write(bytebuf<arena>& buf) const {
     buf.write<u8>(isextern ? 1 : 0);
     if (isextern) buf.writeLEB(modname);
     else {
-        buf.writeULEB(insns.size());
+        buf.writeULEB(labels.size());
+        for (const auto& label : labels) {
+            buf.writeLEB(label.insn);
+            buf.writeLEB(label.name);
+        }
 
+        buf.writeULEB(insns.size());
         for (const auto& insn : insns) {
             auto params = insn.params(*this);
             auto args = insn.args(*this);
@@ -71,6 +76,13 @@ void Function::read(bytebuf<arena>& buf) {
     isextern = buf.read<u8>();
     if (isextern) modname = buf.readLEB();
     else {
+        u64 n_labels = buf.readULEB();
+        for (u64 i = 0; i < n_labels; i ++) {
+            localidx offset = buf.readLEB();
+            stridx name = buf.readLEB();
+            labels.push({ offset, name });
+        }
+
         u64 n_insns = buf.readULEB();
         u8 argbits;
 
@@ -87,10 +99,6 @@ void Function::read(bytebuf<arena>& buf) {
                     insn.nparams = 1;
                     params.push(Param(buf.read<u8>() >> 4 & 15));
                     args.push(buf.readLEB());
-                    if (insn.op == OP_LABEL) {
-                        while (labels.size() <= args.back().lbl) labels.push(-1);
-                        labels[args.back().lbl] = i;
-                    }
                     break;
                 case VUNARY:
                     buf.read<u8>();
@@ -149,6 +157,7 @@ void format_insn(const Function& fn, const Insn& insn, stream& io) {
         write(io, OP_NAMES[insn.op], ' ');
         if (OP_META[insn.op].hastype) format_type(fn.obj->types, insn.type, io), write(io, ' ');
         const JasmineModule& obj = *fn.obj;
+        auto& strings = obj.strings;
         bool first = true;
         i32 varct = -1;
         for (u32 i = 0; i < params.n; i ++) {
@@ -159,8 +168,8 @@ void format_insn(const Function& fn, const Insn& insn, stream& io) {
                 case P_IMM: write(io, args[i].imm); break;
                 case P_DATA: write(io, args[i].imm); break;
                 case P_STATIC: write(io, args[i].imm); break;
-                case P_FUNC: write(io, obj.strings.strings[obj.funcs[args[i].func]->name]); break;
-                case P_LABEL: write(io, '.', args[i].lbl); break;
+                case P_FUNC: write(io, strings.str(obj.funcs[args[i].func]->name)); break;
+                case P_LABEL: write(io, '.', strings.str(fn.labels[args[i].lbl].name)); break;
                 case P_VAR: write(io, '('), varct = insn.nparams - 1, first = true; break;
                 default: break;
             }
@@ -354,7 +363,7 @@ namespace jasm {
     void ret(typeidx t, const ParamArg& param) { unary(OP_RET, t, param); }
     localidx arg(typeidx t, i64 idx) { return unary(OP_ARG, t, imm(idx)); }
     localidx jump(const ParamArg& param) { return unary(OP_JUMP, T_PTR, param); }
-    void label(labelidx l) { targetfn->labels[l] = targetfn->insns.size(), unary(OP_LABEL, T_PTR, lbl(l)); }
+    void label(labelidx l) { targetfn->labels[l].insn = targetfn->insns.size(), unary(OP_LABEL, T_PTR, lbl(l)); }
     localidx phi(typeidx t, const ParamArg& lhs, const ParamArg& rhs) { return binary(OP_PHI, t, lhs, rhs); }
 
     localidx eq(typeidx t, const ParamArg& lhs, const ParamArg& rhs) { return binary(OP_EQ, t, lhs, rhs); }

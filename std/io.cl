@@ -18,8 +18,12 @@ module io:
         else if this is File f:
             del f.buf
     
-    Stream[] streams: new[65536] Stream.Nil()
+    Stream[] streams: new Stream.Nil()[65536]
+    Stream* stdout: &streams[0], stdin: &streams[1], stderr: &streams[2]
+
     defer:
         for stream in streams: 
             stream.free()
         del streams
+    
+    

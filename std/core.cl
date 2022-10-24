@@ -16,6 +16,7 @@ module core:
     module fs:
         # Kind ids for different filesystem entities.
         type kind:
+            case none
             case file
             case dir
             case socket

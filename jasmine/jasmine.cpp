@@ -79,6 +79,8 @@ static i32 run(i32 argc, i8** argv) {
         auto mod = obj.modules.find(path.mod);
         if (mod != obj.modules.end()) {
             mod->value->opt(opt_level);
+            Assembly as(&mod->value->strings);
+            mod->value->compile(as);
         }
         else {
             print("Binary ", path.obj, " contains no such module '", path.mod, "'.");
@@ -95,6 +97,8 @@ static i32 run(i32 argc, i8** argv) {
         JasmineObject obj(*file);
         for (const auto& mod : obj.moduleseq) {
             mod->opt(opt_level);
+            Assembly as(&mod->strings);
+            mod->compile(as);
         }
         close(file);
     }

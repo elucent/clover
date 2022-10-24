@@ -90,6 +90,20 @@ const_slice<i8> parse_ident(Buf& buf) {
     return bytes;
 }
 
+const_slice<i8> parse_label(Buf& buf) {
+    buf.skipws();
+    const rune* front = &buf.runes[buf.i];
+    while (!delimiter(buf.peek()) && buf.peek() != ':') buf.read();
+    const rune* back = &buf.runes[buf.i];
+    buf.expect(':');
+    buf.expect('\n');
+    const_slice<rune> runes = { front, back };
+    i32 n_bytes = utf8_bytes(runes.ptr, runes.n);
+    slice<i8> bytes = { new i8[n_bytes], n_bytes };
+    utf8_encode(runes.ptr, runes.n, bytes.ptr, bytes.n);
+    return bytes;
+}
+
 const_slice<i8> parse_string(Buf& buf) {
     buf.expect('"');
     const rune* front = &buf.runes[buf.i];
@@ -192,14 +206,10 @@ void parse_insn(JasmineModule* mod, Function* func, Buf& buf) {
     buf.skipws();
     if (buf.peek() == '.') {
         buf.read();
-        parse_integer(buf);
-        jasm::label(func->label());
-        buf.expect(':');
-        buf.expect('\n');
+        jasm::label(func->label(func->obj->strings.intern(parse_label(buf))));
         return;
     }
     else if (buf.peek() == '%') parse_setlocal(mod, buf);
-
 
     Insn insn;
     insn.op = (*OPCODE_MAP)[parse_ident(buf)];

@@ -293,7 +293,7 @@ void GlobalTable::read(bytebuf<arena>& buf) {
 }
 
 void DataTable::format(stream& io) const {
-    ::write(io, "=== Data Table ===\n");
+    ::write(io, " === Data Table ===\n");
     u32 i = 0;
     for (const auto& entry : entries) {
         ::write(io, "  ");
@@ -308,7 +308,7 @@ void DataTable::format(stream& io) const {
 }
 
 void StaticTable::format(stream& io) const {
-    ::write(io, "=== Static Table ===\n");
+    ::write(io, " === Static Table ===\n");
     u32 i = 0;
     for (const auto& entry : entries) {
         ::write(io, "  ");

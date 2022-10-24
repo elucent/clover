@@ -152,7 +152,7 @@ void TypeTable::read(bytebuf<arena>& buf) {
 }
 
 void TypeTable::format(stream& io) const {
-    ::write(io, "=== Type Table ===\n");
+    ::write(io, " === Type Table === \n");
     for (const auto& e : table) ::write(io, "  "), ::write_hex(io, e.value), ::write(io, ": "), format_type(*this, e.value, io), ::write(io, '\n');
     ::write(io, '\n');
 }

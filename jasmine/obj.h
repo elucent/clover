@@ -22,6 +22,8 @@ using DefaultTarget = AMD64LinuxTarget;
 using DefaultTarget = AMD64DarwinTarget;
 #endif
 
+struct PassInfo;
+
 struct JasmineModule {
     arena modspace;
     StringTable strings;
@@ -31,6 +33,7 @@ struct JasmineModule {
     StaticTable stat;
     vec<Function*, 8, arena> funcs;
     map<const_slice<i8>, Function*, 8, arena> funcmap;
+    PassInfo* info;
 
     inline JasmineModule(bytebuf<arena>& buf): 
         strings(this), meta(this, Version(0, 0, 0), JASMINE_ENCODING, 0), types(this), data(this), stat(this) {

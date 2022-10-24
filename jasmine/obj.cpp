@@ -1,5 +1,6 @@
 #include "jasmine/obj.h"
 #include "jasmine/pass.h"
+#include "jasmine/pass_target.h"
 
 void JasmineModule::write(bytebuf<arena>& buf) {
     bytebuf<arena> strbuf(&modspace), metabuf(&modspace), typebuf(&modspace), databuf(&modspace), statbuf(&modspace), codebuf(&modspace);
@@ -40,6 +41,7 @@ void JasmineModule::read(bytebuf<arena>& buf) {
         funcs.push(f);
         funcs.back()->read(buf);
     }
+    format(stdout);
 }
 
 void JasmineModule::formatshort(stream& io) {
@@ -53,15 +55,16 @@ void JasmineModule::format(stream& io) {
     data.format(io);
     stat.format(io);
 
-    ::write(io, "=== Function Table ===\n");
+    ::write(io, " === Function Table === \n");
     for (const auto& func : funcs) func->format(io);
 }
 
 void JasmineModule::opt(OptLevel level) {
     types.compute_native_sizes<DefaultTarget>();
-    PassInfo* info = makepassinfo();
+    delete info;
+    info = makepassinfo();
     for (Function* func : funcs) {
-        print(" === before opts === \n");
+        print(" === jasmine IR === \n");
         func->format(stdout), print('\n');
         if (level >= OPT_1) {
             inlining(*func, *info);
@@ -78,16 +81,27 @@ void JasmineModule::opt(OptLevel level) {
             // print(" === after dce === \n");
             // func->format(stdout), print('\n');
         }
-        if (level >= OPT_1) regalloc<DefaultTarget>(*func, *info);
-        else stackalloc<DefaultTarget>(*func, *info);
+        regalloc<DefaultTarget>(*func, *info);
+        // else stackalloc<DefaultTarget>(*func, *info);
     }
-    delete info;
 }
 
 void JasmineModule::compile(Assembly& as) {
+    print(" === asm-level IR === \n");
+    ASMPrinter<DefaultTarget>::write_to(stdout);
     for (Function* func : funcs) {
-        lower<DefaultTarget>(*func, as);
+        lower<ASMPrinter<DefaultTarget>>(*func, *info, as);
+        lower<DefaultTarget>(*func, *info, as);
     }
+    println();
+
+    print(" === machine code === \n");
+    auto codesize = as.code.size();
+    LinkedAssembly linkasm = as.link();
+    for (i32 i = 0; i < codesize; i ++)
+        write_hex(stdout, (u8)linkasm.code[i]), print(' ');
+    println();
+    println();
 }
 
 void JasmineObject::write(bytebuf<arena>& buf) {

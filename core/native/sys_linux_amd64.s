@@ -32,7 +32,7 @@ _start:
     mov [rip + .PATH], rdx
     and rsp, -16
     sub rsp, 8
-    mov [_initial_sp], rsp
+    mov [rip + _initial_sp], rsp
     jmp _start_impl
 
 .global mreq

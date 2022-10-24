@@ -9,7 +9,6 @@ PassInfo* makepassinfo() {
 }
 
 void init(Function& fn, PassInfo& info) {
-    info.slots.clear();
     info.stack = 0;
 }
 
@@ -85,7 +84,7 @@ void inlining(Function& fn, PassInfo& info) {
                 args.push({ call.params(fn)[j], call.args(fn)[j] });
             insert(fn, src, fn.insns, i, {&src.insns[0], src.insns.size()});
 
-            labelidx lbl = fn.label();
+            labelidx lbl = fn.label(src.name); // TODO: add number to this to guarantee uniqueness
             for (i32 j = i; j < i + src.insns.size(); j ++) {
                 if (fn.insns[j].op == OP_ARG) { // Convert parameters to moves.
                     auto& par = fn.insns[j];
@@ -104,7 +103,7 @@ void inlining(Function& fn, PassInfo& info) {
                     }
                 }
             }
-            fn.labels[lbl] = i + src.insns.size();
+            fn.labels[lbl].insn = i + src.insns.size();
             auto& phi = fn.insns[i + src.insns.size()];
             phi.type = phi.result_type(fn.obj->types);
             phi.op = rets.size() == 1 ? OP_MOV : OP_PHI;
@@ -130,12 +129,12 @@ void cfg(Function& fn, PassInfo& info) {
         if (fn.insns[i].is_jump()) {
             if (fn.insns[i].op == OP_JUMP) { // Conditional jump.
                 if (fn.insns[i].params(fn)[0] == P_LABEL) 
-                    a = fn.labels[fn.insns[i].args(fn)[0].lbl];
+                    a = fn.labels[fn.insns[i].args(fn)[0].lbl].insn;
             }
             else {
                 a = i + 1;
                 if (fn.insns[i].params(fn)[0] == P_LABEL) 
-                    b = fn.labels[fn.insns[i].args(fn)[0].lbl];
+                    b = fn.labels[fn.insns[i].args(fn)[0].lbl].insn;
             }
         }
         else if (fn.insns[i].op != OP_RET) a = i + 1;
@@ -165,7 +164,7 @@ void cfg(Function& fn, PassInfo& info) {
         if (pbb < 0) continue;
         BasicBlock& pred = info.bb[pbb];
         if (fn.insns[i].is_jump() && fn.insns[i].params(fn)[0] == P_LABEL) {
-            i32 dst = fn.labels[fn.insns[i].args(fn)[0].lbl];
+            i32 dst = fn.labels[fn.insns[i].args(fn)[0].lbl].insn;
             i32 dbb = info.ib[dst];
             if (dbb < 0) continue;
             BasicBlock& succ = info.bb[dbb];
@@ -599,37 +598,5 @@ void live(Function& fn, PassInfo& info) {
     //         }
     //         print('\n');
     //     }
-    // }
-}
-
-u64 hash(const pair<localidx, localidx>& p) {
-    return hash(p.first) * 31ul + hash(p.second);
-}
-
-void irg(Function& fn, PassInfo& info) {
-    info.rg.clear();
-    vec<vec<localidx, 4>, 64> ifer;
-    set<pair<localidx, localidx>, 64> edges;
-
-    for (i32 i = 0; i < fn.insns.size(); i ++) {
-        info.rg.push({});
-        ifer.push({});
-    }
-    
-    for (i32 r = 0; r < info.live.size(); r ++) {
-        for (const auto& iv : info.live[r]) for (i32 i = iv.start; i < iv.end; i ++) 
-            ifer[i].push(r);
-    }
-
-    for (i32 i = 0; i < ifer.size(); i ++) for (i32 j = 0; j < ifer[i].size(); j ++)
-        if (i != ifer[i][j]) edges.insert({min(i, ifer[i][j]), max(i, ifer[i][j])});
-
-    for (const auto& e : edges) {
-        info.rg[e.first].edges.push(e.second);
-        info.rg[e.second].edges.push(e.first);
-    }
-
-    // for (const auto& e : edges) {
-    //     println("%", e.first, " -> % ", e.second);
     // }
 }

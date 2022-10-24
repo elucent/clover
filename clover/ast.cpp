@@ -1200,7 +1200,7 @@ inline void write_binary(stream& io, Module* mod, Binary* node, const char* op) 
 }
 
 void format(stream& io, Module* mod, const AST* const& ast) {
-    // if (ast->type) write(io, '<'), format(io, mod, ast->type), write(io, '>');
+    if (ast->type) write(io, '<'), format(io, mod, ast->type), write(io, '>');
     switch (ast->kind) {
     casematch(AST_PROGRAM, ASTProgram*, p)
         for (Statement* stmt : p->toplevel) format(io, mod, stmt), write(io, '\n');
@@ -4073,7 +4073,6 @@ void typecheck(Module* mod, Env* env, AST* ast) {
             b->type = b->right->type;
         }
         else if ((nenv = type_env(b->left->type = concretify(mod, b->left->type)))) { // Field access instead.
-            // print("reading field from env "), nenv->format(stdout, mod, 0);
             if (b->left->type->kind == T_PTR) nenv = type_env(((PtrType*)b->left->type)->target);
             infer(mod, nenv, b->right);
             typecheck(mod, nenv, b->right);
@@ -4522,15 +4521,16 @@ void typecheck(Module* mod, Env* env, AST* ast) {
         Type* ret = e->type;
         if (ret->kind != T_FUN) unreachable("Function declaration somehow isn't a function type.");
         ret = ((FunType*)ret)->ret;
-        if (u->child && ret->kind != T_VOID) {
+        if (u->child) {
             typecheck(mod, env, u->child);
-            AST* child = coerce(mod, env, u->child, ret);
-            if (!child) {
-                incompatible_return_error(mod, u->child, concretify(mod, u->child->type), ret);
+            if (ret->kind != T_VOID) {
+                AST* child = coerce(mod, env, u->child, ret);
+                if (!child) {
+                    incompatible_return_error(mod, u->child, concretify(mod, u->child->type), ret);
+                }
+                else u->child = child;
             }
-            else u->child = child;
         }
-        else if (ret != VOID) incompatible_return_error(mod, u, VOID, ret);
         u->type = VOID;
         endmatch
     
@@ -5517,9 +5517,9 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         write(ctx.c, "__clover__newarray(");
         emit_c_typename(ctx.c, mod, (SliceType*)b->type, ctx);
         write(ctx.c, ", ");
-        emit_c(mod, env, b->right, ctx);
-        write(ctx.c, ", ");
         emit_c(mod, env, b->left, ctx);
+        write(ctx.c, ", ");
+        emit_c(mod, env, b->right, ctx);
         write(ctx.c, ')');
         endmatch
     casematch(AST_DEL, Unary*, u)

@@ -56,7 +56,7 @@ void MetaTable::read(bytebuf<arena>& buf) {
 }
 
 void MetaTable::format(stream& io) const {
-    ::write(io, "=== Meta Table ===\n");
+    ::write(io, " === Meta Table === \n");
     ::write(io, "  Version:     ", ver, '\n');
     ::write(io, "  Encoding:    ", (u16)encoding, '\n');
     ::write(io, "  Name:        ", obj->strings.strings[modname], '\n');
@@ -92,12 +92,13 @@ void StringTable::read(bytebuf<arena>& buf) {
         slice<i8> tmpstr = obj->makestr(buf.readULEB());
         u32 i = 0;
         for (; i < tmpstr.n; i ++) tmpstr[i] = buf.read();
-        intern(tmpstr);
+        strings.push(tmpstr);
+        strtab.put(tmpstr, strings.size() - 1);
     }
 }
 
 void StringTable::format(stream& io) const {
-    ::write(io, "=== String Table ===\n");
+    ::write(io, " === String Table === \n");
     u32 i = 0;
     for (const_slice<i8> s : strings) {
         ::write(io, "  ");

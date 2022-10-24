@@ -130,6 +130,11 @@ using InsnVec = vec<Insn, 8, arena>;
 
 struct JasmineModule;
 
+struct Label {
+    localidx insn;
+    stridx name;
+};
+
 struct Function {
     JasmineModule* obj;
     typeidx type;
@@ -137,7 +142,7 @@ struct Function {
     InsnVec insns;
     vec<Param, 16, arena> params;
     vec<Arg, 16, arena> args;
-    vec<i64, 8, arena> labels;
+    vec<Label, 8, arena> labels;
     stridx modname, name;
 
     Function(JasmineModule* obj_in);
@@ -147,8 +152,8 @@ struct Function {
     void format(stream& io, u32 indent = 2) const;
     void formatshort(stream& io) const;
 
-    inline labelidx label() {
-        labels.push(-1);
+    inline labelidx label(stridx name) {
+        labels.push({-1, name});
         return labels.size() - 1;
     }
 };

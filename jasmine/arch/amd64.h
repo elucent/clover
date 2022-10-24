@@ -2,6 +2,8 @@
 #define BASIL_JASMINE_ARCH_AMD64_H
 
 #include "jasmine/arch.h"
+#include "jasmine/insn.h"
+#include "jasmine/type.h"
 
 struct AMD64Target {
     static constexpr mreg 
@@ -18,6 +20,8 @@ struct AMD64Target {
         "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", 
         "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15" 
     };
+    
+    constexpr static mreg fp = RBP, sp = RSP;
 
     static inline const_slice<mreg> gpregs() {
         return { GP_REGS, 14 };
@@ -41,6 +45,7 @@ struct AMD64Target {
     }
 
     static inline u32 primsize(typeidx t) {
+        assert(t < 0 && t >= T_REF);
         static constexpr u32 TYPE_SIZES[14] = {
             1, 2, 4, 8, // I8 - I64
             8, 8,       // IWORD, PTR
@@ -53,6 +58,22 @@ struct AMD64Target {
 
     static inline u32 primalign(typeidx t) {
         return primsize(t);
+    }
+
+    static inline mreg hint(const Insn& insn, typeidx t) {
+        return -1;
+    }
+
+    static inline RegSet clobbers(const Insn& insn) {
+        return RegSet();
+    }
+
+    static inline Size word_size() {
+        return Size::BITS64;
+    }
+
+    static inline Size ptr_size() {
+        return Size::BITS64;
     }
 
     enum AMD64Size {
@@ -823,12 +844,12 @@ struct AMD64Target {
         unaryop(as, BYTE, Opcode::withExt(0x0f, 0x90 + CCodes[cc], 0x00), dst);
     }
 
-    static inline void cfcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) {
+    static inline void fccc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) {
         fcmp32(as, a, b);
         unaryop(as, BYTE, Opcode::withExt(0x0f, 0x90 + CCodes[cc], 0x00), dst);
     }
 
-    static inline void cfcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) {
+    static inline void fccc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) {
         fcmp32(as, a, b);
         unaryop(as, BYTE, Opcode::withExt(0x0f, 0x90 + CCodes[cc], 0x00), dst);
     }
@@ -1080,12 +1101,12 @@ struct AMD64Target {
         jcc(as, cc, dst);
     }
     
-    static inline void jfcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) {
+    static inline void fjcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) {
         fcmp32(as, a, b);
         jcc(as, cc, dst);
     }
 
-    static inline void jfcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) {
+    static inline void fjcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) {
         fcmp64(as, a, b);
         jcc(as, cc, dst);
     }
@@ -1178,9 +1199,8 @@ struct AMD64Target {
 struct AMD64LinuxTarget : public AMD64Target {
     static const mreg GP_ARGS[6], FP_ARGS[8];
     static const TargetDesc DESC;
-
-    static Placement place_ret(const TypeTable& tab, typeidx t);
-    static Placement place_arg(const TypeTable& tab, typeidx t, UsageState usage);
+    
+    static void place_call(CallBindings& call, const TypeTable& tab, typeidx fntype);
 };
 
 struct AMD64DarwinTarget : public AMD64LinuxTarget {};
