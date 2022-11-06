@@ -12,6 +12,11 @@
  */
 i64 toint(const_slice<i8> str);
 
+
+i64 hextoint(const_slice<i8> str);
+
+i64 binarytoint(const_slice<i8> str);
+
 /*
  * tofloat(str)
  *

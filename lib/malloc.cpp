@@ -1,5 +1,6 @@
 #include "malloc.h"
 #include "core/sys.h"
+#include "lib/gc.h"
 
 arena::arena(iptr size_in): pages(mreq(size_in)), top((u8*)pages.ptr), size(size_in) { 
     *(page**)top = nullptr;
@@ -75,19 +76,19 @@ iptr allocator::lock = 0;
 allocator* allocator::instance = nullptr;
 
 void* operator new(size_t bytes) {
-    return (void*)allocator::instance->alloc(bytes);
+    return gc_alloc_untyped(bytes);
 }
 
 void operator delete(void* ptr) {
-    return allocator::instance->free(ptr);
+    gc_free_untyped(ptr);
 }
 
 void* operator new[](size_t bytes) {
-    return (void*)allocator::instance->alloc(bytes);
+    return gc_alloc_untyped(bytes);
 }
 
 void operator delete[](void* ptr) {
-    return allocator::instance->free(ptr);
+    gc_free_untyped(ptr);
 }
 
 void* operator new(size_t bytes, arena& a) {
