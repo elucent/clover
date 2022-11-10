@@ -22,7 +22,7 @@ constexpr uptr PTRS_PER_WORD = BYTES_PER_WORD / sizeof(iptr);
 constexpr uptr WORDS_PER_PAGE = 4096;
 constexpr uptr BYTES_PER_PAGE = BYTES_PER_WORD * WORDS_PER_PAGE;
 constexpr uptr DEFAULT_PAGES_PER_REGION = 65536;
-static_assert(DEFAULT_PAGES_PER_REGION >= 16, "Minimum heap size is 4MB."); // Otherwise the live page bitmap won't work. Kinda not ideal.
+static_assert(DEFAULT_PAGES_PER_REGION >= 16, "Minimum heap size is 1MB."); // Otherwise the live page bitmap won't work. Kinda not ideal.
 constexpr uptr MAX_PAGES_PER_REGION = 65536;
 constexpr uptr BYTES_PER_REGION = DEFAULT_PAGES_PER_REGION * BYTES_PER_PAGE;
 constexpr uptr MAX_BYTES_PER_REGION = MAX_PAGES_PER_REGION * BYTES_PER_PAGE;
@@ -280,25 +280,25 @@ struct gc_heap {
     }
 
     inline i32 next_free_page() {
-        for (i64 i = 0; i < (page_limit + 63) / 64; i ++) if (live_page_bitmap[i] != 0xffffffffffffffffl) {
+        for (i64 i = 0; i < (page_limit + 63) / 64; i ++) if ((u64)live_page_bitmap[i] != 0xfffffffffffffffful) {
             return i * 64 + __builtin_ctzll(~live_page_bitmap[i]);
         }
         return -1;
     }
 
     inline void mark_pages(u32 idx, u32 n_pages) {
-        for (i32 i = idx; i < idx + n_pages; i ++) 
+        for (u32 i = idx; i < idx + n_pages; i ++) 
             live_page_bitmap[i / 64] |= 1ul << (i % 64);
     }
 
     inline void clear_pages(u32 idx, u32 n_pages) {
-        for (i32 i = idx; i < idx + n_pages; i ++) 
+        for (u32 i = idx; i < idx + n_pages; i ++) 
             live_page_bitmap[i / 64] &= ~(1ul << (i % 64));
     }
 
     inline i32 find_free_pages(u32 n_pages) {
         if (n_pages >= page_limit) return -1;
-        for (i64 i = 0; i < (page_limit + 63) / 64; i ++) if (live_page_bitmap[i] != 0xffffffffffffffffl) {
+        for (i64 i = 0; i < (page_limit + 63) / 64; i ++) if ((u64)live_page_bitmap[i] != 0xfffffffffffffffful) {
             u64 start = i * 64 + __builtin_ctzll(~live_page_bitmap[i]);
             bool big_enough = true;
             for (u64 j = 1; j < n_pages; j ++) {
@@ -319,7 +319,7 @@ struct gc_heap {
      */
 
     inline bool should_grow_heap_heuristic() {
-        return stats.freed_bytes < (uptr)page_limit * (uptr)BYTES_PER_PAGE / 8
+        return stats.freed_bytes < (iptr)page_limit * (iptr)BYTES_PER_PAGE / 8
             ; // || stats.since_gc_ns < 2 * stats.gc_time_ns; <-- Should we use a temporal heuristic too?
     }
 
@@ -384,7 +384,7 @@ struct gc_heap {
         if (top_page + n_pages <= page_limit) {
             void* result = pages + top_page;
             mark_pages(top_page, n_pages);
-            for (i32 i = top_page; i < top_page + n_pages; i ++) {
+            for (u32 i = top_page; i < top_page + n_pages; i ++) {
                 info[i].huge = true;
                 info[i].n_huge_pages = i == top_page ? n_pages : top_page - i;
             }
@@ -415,7 +415,6 @@ struct gc_heap {
      */
     
     inline void* alloc_huge_locked(i32 size) {
-        fatal("Wtf");
         void* result = alloc_huge(size);
         return result;
     }

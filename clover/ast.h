@@ -26,12 +26,12 @@ enum ASTKind : u8 {
     AST_PAREN,
     AST_CONV, AST_SIZEOF,
     // statements
-    AST_LAST_EXPR, AST_IF = AST_LAST_EXPR, AST_WHILE, AST_UNTIL, AST_FOR, AST_WITH, AST_USE, AST_MATCH,
-    AST_RETURN, AST_DEFER, AST_DO, AST_BREAK, AST_CONTINUE,
+    AST_LAST_EXPR, AST_FIRST_STMT = AST_LAST_EXPR, AST_IF = AST_FIRST_STMT, AST_WHILE, AST_UNTIL, AST_FOR, AST_WITH, AST_USE, AST_MATCH,
+    AST_RETURN, AST_DEFER, AST_DO, AST_BREAK, AST_CONTINUE, AST_LAST_STMT = AST_CONTINUE,
     // types
     AST_FIRST_TYPE, AST_TYPENAME = AST_FIRST_TYPE, AST_PTRTYPE, AST_ARRAYTYPE, AST_SLICETYPE, AST_FUNTYPE, AST_TYPEDOT, AST_TYPEINST, AST_TYPECONST, AST_TYPEVAR, AST_LAST_TYPE,
     // decls
-    AST_FIRST_DECL = AST_LAST_TYPE, AST_VARDECL = AST_FIRST_DECL, AST_TYPEDECL, AST_FUNDECL, AST_MODULEDECL, AST_ALIASDECL, AST_CASEDECL, AST_CONSTDECL, AST_PTRDECL, // ptrdecl is needed for the case 'T* ptr', which is ambiguous with multiplication until typechecking
+    AST_FIRST_DECL, AST_VARDECL = AST_FIRST_DECL, AST_TYPEDECL, AST_FUNDECL, AST_MODULEDECL, AST_ALIASDECL, AST_CASEDECL, AST_CONSTDECL, AST_PTRDECL, // ptrdecl is needed for the case 'T* ptr', which is ambiguous with multiplication until typechecking
     // misc
     AST_LAST_DECL, AST_MODULENAME = AST_LAST_DECL, AST_MODULEDOT, AST_DOTINSERT,
     // structure
@@ -49,6 +49,13 @@ struct AST {
 
     virtual AST* clone(arena& alloc) = 0;
 };
+
+inline Type* smallest_type_for_int(i64 i) {
+    if (i >= -128 && i <= 127) return ICONST8;
+    else if (i >= -32768 && i <= 32767) return ICONST16;
+    else if (i >= (i64)-2147483648 && i <= (i64)2147483647) return ICONST32;
+    else return ICONST64;
+}
 
 struct Fold {
     enum Kind : i8 {
@@ -97,13 +104,16 @@ struct Fold {
         return kind != NONE;
     }
 
-    inline Type* type() const {
+    inline Type* type(Module* mod, Env* env) const {
         switch (kind) {
             case NONE: return ERROR;
-            case ICONST: return ::ICONST;
-            case FCONST: return ::FCONST;
+            case ICONST: return unify(mod->typectx->defvar(mod, env), smallest_type_for_int(iconst));
+            case FCONST: return unify(mod->typectx->defvar(mod, env), FLOAT);
             case BOOL: return ::BOOL;
             case CHCONST: return ::CHAR;
+            default:
+                unreachable("Unexpected fold kind!");
+                return ERROR;
         }
     }
 };
@@ -582,7 +592,7 @@ void advance_parser(Module* mod);
  *
  * Writes a textual representation of the provided AST to the provided IO stream.
  */
-void format(stream& io, Module* mod, const AST* const& ast);
+void format(stream& io, Module* mod, const AST* const& ast, i32 depth = 0);
 
 /*
  * compute_envs(mod, env, ast)

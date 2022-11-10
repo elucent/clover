@@ -10,6 +10,7 @@ typedef int8_t unit;
 typedef int8_t bool_t;
 typedef float f32;
 typedef double f64;
+typedef int32_t char_t;
 
 #ifdef __cplusplus
 #define CLINKAGE "C"

@@ -59,6 +59,10 @@ inline void write_impl(stream& io, const_slice<i8> str) {
     write_string(io, str.ptr, str.n);
 }
 
+inline void write_impl(stream& io, const rune& r) {
+    write_rune(io, r);
+}
+
 inline void write_impl(stream& io, i8 i) {
     write_byte(io, i);
 }
@@ -99,31 +103,27 @@ inline void write_impl(stream& io, double f) {
     write_float(io, f);
 }
 
-inline void write_impl(stream& io, rune&& r) {
-    write_rune(io, r);
-}
-
 inline void write(stream& io) {}
 
 template<typename T, typename... Args>
-void write(stream& io, T&& t, Args&&... args) {
+void write(stream& io, const T& t, const Args&... args) {
     write_impl(io, t);
     write(io, args...);
 }
 
 template<typename... Args>
-void writeln(stream& io, Args&&... args) {
+void writeln(stream& io, const Args&... args) {
     write(io, args...);
     write_impl(io, '\n');
 }
 
 template<typename... Args>
-void print(Args&&... args) {
+void print(const Args&... args) {
     write(stdout, args...);
 }
 
 template<typename... Args>
-void println(Args&&... args) {
+void println(const Args&... args) {
     write(stdout, args...);
     write_impl(stdout, '\n');
 }

@@ -6,15 +6,15 @@
 
 #define TAB_SPACE 4
 
-inline bool is_letter(rune r) {
+inline bool is_letter(u32 r) {
     return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || utf8_is_letter(r);
 }
 
-inline bool is_digit(rune r) {
+inline bool is_digit(u32 r) {
     return (r >= '0' && r <= '9') || utf8_is_digit(r);
 }
 
-inline bool is_ident(rune r) {
+inline bool is_ident(u32 r) {
 #ifdef INCLUDE_UTF8_LOOKUP_TABLE
     if ((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_') return true;
     if (r == ' ') return false;
@@ -28,7 +28,7 @@ inline bool is_ident(rune r) {
 #endif
 }
 
-inline bool is_space(rune r) {
+inline bool is_space(u32 r) {
     return r == ' ' || r == '\t' || utf8_is_space_separator(r);
 }
 
@@ -40,7 +40,7 @@ void advance_lexer(Module* mod, UnicodeBuf& iter) {
     auto& buf = mod->lexer->tokens;
     while (iter.idx < iter.length) {
         TokenKind tk = acc.kind;
-        rune r = iter.peek();
+        u32 r = iter.peek().get();
 
         i32 rlen = 4;
         if (r <= UTF8_ONE_MAX) rlen = 1;
@@ -83,6 +83,21 @@ void advance_lexer(Module* mod, UnicodeBuf& iter) {
                 }
                 else letter_in_number_error(mod, idx, line, 1, col, r), acc.end += rlen, iter.read(), col ++, idx += rlen;
             }
+            else buf.push(acc), acc.kind = TK_NONE;
+            break;
+        case TK_ZERO:
+            if (r == 'x') acc.kind = TK_HEXCONST, acc.end += rlen, iter.read(), col ++, idx += rlen;
+            else if (r == 'b') acc.kind = TK_BINARYCONST, acc.end += rlen, iter.read(), col ++, idx += rlen;
+            else acc.kind = TK_ICONST;
+            break;
+        case TK_HEXCONST:
+            if (is_digit(r) || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) acc.end += rlen, iter.read(), col ++, idx += rlen;
+            else if (is_letter(r)) non_hex_digit_error(mod, idx, line, 1, col, r), acc.end += rlen, iter.read(), col ++, idx += rlen;
+            else buf.push(acc), acc.kind = TK_NONE;
+            break;
+        case TK_BINARYCONST:
+            if (r == '0' || r == '1') acc.end += rlen, iter.read(), col ++, idx += rlen;
+            else if (is_digit(r) || is_letter(r)) non_binary_digit_error(mod, idx, line, 1, col, r), acc.end += rlen, iter.read(), col ++, idx += rlen;
             else buf.push(acc), acc.kind = TK_NONE;
             break;
         case TK_STRCONST:
@@ -249,7 +264,10 @@ void advance_lexer(Module* mod, UnicodeBuf& iter) {
             case 'w': case 'x': case 'y': case 'z': 
                 acc = { TK_IDENT, col, line, idx, idx + rlen };
                 break;
-            case '0': case '1': case '2': case '3': case '4': 
+            case '0': 
+                acc = { TK_ZERO, col, line, idx, idx + rlen };
+                break;
+            case '1': case '2': case '3': case '4': 
             case '5': case '6': case '7': case '8': case '9':
                 acc = { TK_ICONST, col, line, idx, idx + rlen };
                 break;

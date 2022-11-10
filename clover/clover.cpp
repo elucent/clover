@@ -59,6 +59,19 @@ const i8* out_path = nullptr;
 bool show_lex = false, show_ast = false, show_envs = false, show_types = false, cc_verbose = false;
 bool verbose = false;
 
+void Module::add_top_decl(AST* ast, Env* env) {
+    if (ast->kind == AST_TYPEDECL) add_top_typedecl(ast, env);
+    else toplevels.push({ ast, env });
+}
+
+void Module::add_top_typedecl(AST* ast, Env* env) {
+    auto it = cloverinst->typedefs.find(ast->type);
+    if (it == cloverinst->typedefs.end()) {
+        toplevels.push({ ast, env });
+        cloverinst->typedefs.put(ast->type, { env, this });
+    }
+}
+
 Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx, EnvContext* envctx, const_slice<i8> path) {
     i64 pathlen = path.n;
     i64 dotidx = -1;
@@ -98,6 +111,7 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     mod->defers.alloc = &mod->parser->astspace;
     mod->ndefers.alloc = &mod->parser->astspace;
     mod->ndefers.push(0);
+    mod->toplevels.alloc = &mod->parser->astspace;
     mod->automethods.alloc = &mod->parser->astspace;
     iptr timer;
     iptr decns = 0, lexns = 0, parsens = 0, envns = 0, typns = 0, chkns = 0, emitns = 0, cycles = 0;
@@ -129,7 +143,7 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     }
     if (mod->lexer->scratch.kind == TK_STRCONST || mod->lexer->scratch.kind == TK_CHCONST)
         unexpected_eof_error(mod, mod->bytes.length, mod->lexer->line, 1, mod->lexer->column);
-    Token eof = mod->lexer->tokens.elts[mod->lexer->tokens.start - 1 & mod->lexer->tokens.size() - 1];
+    Token eof = mod->lexer->tokens.elts[(mod->lexer->tokens.start - 1) & (mod->lexer->tokens.size() - 1)];
     eof.kind = TK_EOF;
     mod->lexer->tokens.push(eof);
     
@@ -176,8 +190,6 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
         print("\nInferred types:\n\n");
         for (AST* ast : mod->parser->program->toplevel) {
             format(stdout, mod, ast);
-            write(stdout, " : ");
-            format(stdout, mod, ast->type);
             write(stdout, "\n");
         }
         print("\n\n");
@@ -192,8 +204,6 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
         print("\nChecked types:\n\n");
         for (AST* ast : mod->parser->program->toplevel) {
             format(stdout, mod, ast);
-            write(stdout, " : ");
-            format(stdout, mod, ast->type);
             write(stdout, "\n");
         }
         print("\n\n");
@@ -405,6 +415,7 @@ i32 clover_main(i32 argc, i8** argv) {
 
     Clover clover;
     clover.modules.alloc = &envctx.envspace;
+    clover.typedefs.alloc = &envctx.envspace;
     clover.main = nullptr;
     compile_module(&clover, &interner, &typectx, &envctx, { module_path, cidx(module_path, '\0') });
 

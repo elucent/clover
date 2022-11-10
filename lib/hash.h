@@ -322,13 +322,13 @@ public:
                 return;
             }
             else {
-                u64 other_dist = i - mem.hashes()[i] & mask;
+                u64 other_dist = (i - mem.hashes()[i]) & mask;
                 if (other_dist < dist) {
                     swap(item, mem.values()[i]);
                     swap(h, mem.hashes()[i]);
                     dist = other_dist;
                 }
-                i = i + 1 & mask;
+                i = (i + 1) & mask;
                 ++ dist;
             }
         }
@@ -349,7 +349,7 @@ public:
                 -- nelts;
                 return;
             }
-            i = i + 1 & mask;
+            i = (i + 1) & mask;
         }
     }
 
@@ -384,13 +384,13 @@ public:
             if (mem.status()[i] == GHOST) {
                 u64 dist = (i - h) & mask;
                 u64 oh = mem.hashes()[i];
-                u64 other_dist = i - oh & mask;
+                u64 other_dist = (i - oh) & mask;
                 if (other_dist < dist) return end();
             }
             if (mem.status()[i] == FILLED && mem.hashes()[i] == h && t == mem.values()[i]) {
                 return iterator(&mem, i, mem.capacity);
             }
-            i = i + 1 & mask;
+            i = (i + 1) & mask;
             dist ++;
         }
     }

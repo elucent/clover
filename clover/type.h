@@ -2,6 +2,7 @@
 #define BASIL_CLOVER_TYPE_H
 
 #include "core/def.h"
+#include "core/util.h"
 #include "lib/slice.h"
 #include "lib/tuple.h"
 #include "lib/malloc.h"
@@ -52,7 +53,7 @@ struct TypeContext {
         else return it->value;
     }
 
-    inline Type* defvar(Module* mod, Env* env);
+    inline Type* defvar(Module* mod, Env* env, i32 nick = -1);
 };
 
 enum TypeKind : i8 {
@@ -73,14 +74,8 @@ struct Type {
     inline void init_env(TypeContext* typectx) {}
 };
 
-extern Type *VOID, *UNIT, *I8, *I16, *I32, *I64, *INT, *IPTR, *ICONST, *F32, *F64, *FLOAT, *FCONST, *BOOL, *CHAR, *STRING, *TYPE, *ERROR,
+extern Type *VOID, *UNIT, *I8, *I16, *I32, *I64, *INT, *IPTR, *ICONST8, *ICONST16, *ICONST32, *ICONST64, *F32, *F64, *FLOAT, *BOOL, *CHAR, *STRING, *TYPE, *ERROR,
     *ANY, *ANY_NUMERIC, *ANY_ARRAY, *ANY_PTR, *ANY_SLICE, *ANY_FUNCTION;
-
-inline Type* simplify(Type* t) {
-    if (t == ICONST) return INT;
-    else if (t == FCONST) return FLOAT;
-    return t;
-}
 
 struct TypeTuple {
     slice<Type*> types;
@@ -107,6 +102,14 @@ struct NumericType : Type {
 
     inline void init_env(TypeContext* typectx) {}
 };
+
+inline Type* simplify(Type* t) {
+    if (t == ICONST8) return INT;
+    if (t == ICONST16) return INT;
+    if (t == ICONST32) return INT;
+    if (t == ICONST64) return INT;
+    return t;
+}
 
 struct PtrType : Type {
     Type* target;
@@ -189,10 +192,10 @@ struct UnionType : Type {
 };
 
 struct VarType : Type {
-    i32 id;
+    i32 id, nick;
     Type** binding;
 
-    inline VarType(Module* mod, Env* env_in): Type(T_VAR), id(env_in->tvar ++), binding((Type**)mod->typectx->typespace.alloc(sizeof(Type*))) {
+    inline VarType(Module* mod, Env* env_in, i32 nick_in = -1): Type(T_VAR), id(env_in->tvar ++), nick(nick_in), binding((Type**)mod->typectx->typespace.alloc(sizeof(Type*))) {
         *binding = VOID;
         env = env_in;
     }
@@ -200,9 +203,9 @@ struct VarType : Type {
     inline void init_env(TypeContext* typectx) {}
 };
 
-inline Type* TypeContext::defvar(Module* mod, Env* env) {
+inline Type* TypeContext::defvar(Module* mod, Env* env, i32 nick) {
     VarType* var = (VarType*)typespace.alloc(sizeof(VarType));
-    new(var) VarType(mod, env);
+    new(var) VarType(mod, env, nick);
     return var;
 }
 
@@ -248,6 +251,9 @@ inline bool isconcrete(Type* type) {
             if (!isconcrete(((FunType*)type)->ret)) return false;
             for (Type* t : ((FunType*)type)->arg) if (!isconcrete(t)) return false;
             return true;
+        default:
+            unreachable("Unexpected typekind!");
+            return false;
     }   
 }
 
@@ -268,27 +274,37 @@ inline Type* fullconcrete(TypeContext& ctx, Type* type) {
         case T_UNION:
             return type;
         case T_VAR:
-            return fullconcrete(ctx, *((VarType*)type)->binding);
+            type = fullconcrete(ctx, *((VarType*)type)->binding);
+            if (type == VOID || type == ERROR) return ERROR;
+            else return type;
         case T_PTR:
-            return ctx.def<PtrType>(fullconcrete(ctx, ((PtrType*)type)->target));
+            type = fullconcrete(ctx, ((PtrType*)type)->target);
+            if (type == VOID || type == ERROR) return ERROR;
+            else return ctx.def<PtrType>(type);
         case T_SLICE:
-            return ctx.def<SliceType>(fullconcrete(ctx, ((SliceType*)type)->element));
-        case T_ARRAY:
+            type = fullconcrete(ctx, ((PtrType*)type)->target);
+            if (type == VOID || type == ERROR) return ERROR;
+            else return ctx.def<SliceType>(type);
+        case T_ARRAY: {
             if (((ArrayType*)type)->size < 0) return ERROR;
-            return ctx.def<ArrayType>(
-                fullconcrete(ctx, ((ArrayType*)type)->element),
-                ((ArrayType*)type)->size
-            );
+            Type* element = fullconcrete(ctx, ((ArrayType*)type)->element);
+            if (element == VOID || element == ERROR) return ERROR;
+            else return ctx.def<ArrayType>(element, ((ArrayType*)type)->size);
+        }
         case T_FUN: {
             if (((FunType*)type)->nary) return ERROR;
             slice<Type*> concreted = { new(ctx.typespace) Type*[((FunType*)type)->arg.n], ((FunType*)type)->arg.n};
             for (iptr i = 0; i < concreted.n; i ++) {
                 concreted[i] = fullconcrete(ctx, ((FunType*)type)->arg[i]);
+                if (concreted[i] == VOID || concreted[i] == ERROR) return ERROR;
             }
             return ctx.def<FunType>(concreted, fullconcrete(ctx, ((FunType*)type)->ret));
         }
         case T_ANY:
         case T_ANY_NUMERIC:
+            return ERROR;
+        default:
+            unreachable("Unexpected type kind!");
             return ERROR;
     }   
 }
@@ -331,8 +347,9 @@ inline Type* fullsimplify(TypeContext& ctx, Type* type) {
         }
         case T_ANY:
         case T_ANY_NUMERIC:
+        default:
             return ERROR;
-    }   
+    }
 }
 
 inline void unbind(Type* type) {

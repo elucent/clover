@@ -10,15 +10,15 @@ struct buffer {
     iptr start = 0, end = 0;
 
     T& operator[](iptr i) {
-        return elts[start + i & N - 1];
+        return elts[(start + i) & (N - 1)];
     }
 
     const T& operator[](iptr i) const {
-        return elts[start + i & N - 1];
+        return elts[(start + i) & (N - 1)];
     }
 
     iptr size() const {
-        return end - start & N - 1;
+        return (end - start) & (N - 1);
     }
 
     operator bool() const {
@@ -35,13 +35,13 @@ struct buffer {
 
     T read() {
         T elt = peek();
-        start = start + 1 & N - 1;
+        start = (start + 1) & (N - 1);
         return elt;
     }
 
     void push(const T& t) {
         elts[end] = t;
-        end = end + 1 & N - 1;
+        end = (end + 1) & (N - 1);
     }
 
     bool full() {

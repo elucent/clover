@@ -53,7 +53,7 @@ struct gc_bitmap {
         if (!ptr) return false;
         if (ptr & 7) return false;
         iptr offset = (iptr*)ptr - base;
-        if (offset < 0 || offset >= THE_HEAP.page_limit * WORDS_PER_PAGE * 2ul)
+        if (offset < 0 || offset >= (iptr)THE_HEAP.page_limit * (iptr)WORDS_PER_PAGE * 2)
             return false;
         // print("    Marking "), write_hex(stdout, ptr), print(" at offset ", offset, '\n');
         i64 old = bits[offset / 64];
@@ -125,14 +125,14 @@ struct gc_mark_stack_fifo {
     }
 
     void push(iptr p) {
-        if ((end + 1 & capacity - 1) == start) grow();
+        if (((end + 1) & (capacity - 1)) == start) grow();
         refs[end] = p;
-        end = end + 1 & capacity - 1;
+        end = (end + 1) & (capacity - 1);
     }
 
     iptr pop() {
         iptr p = refs[start];
-        start = start + 1 & capacity - 1;
+        start = (start + 1) & (capacity - 1);
         return p;
     }
 
@@ -145,7 +145,7 @@ struct gc_mark_stack_fifo {
     }
 
     iptr size() const {
-        return end - start & capacity - 1;
+        return (end - start) & (capacity - 1);
     }
 };
 
@@ -316,7 +316,7 @@ gc_stats stats;
  * these can be exposed via an environment variable or other command-line interface?
  */
 
-#define LOG_GC 0
+#define LOG_GC 1
 
 void print_info(gc_heap& heap) {
     print(" * Heap blocks: [");
@@ -501,7 +501,7 @@ void gc() {
                 p += BYTES_PER_PAGE * info.n_huge_pages;
                 info = THE_HEAP.info[(gc_page*)p - THE_HEAP.pages];
             }
-            scan_huge_page(bitmap, (gc_page*)(p & BYTES_PER_PAGE - 1), info.n_huge_pages, stats);
+            scan_huge_page(bitmap, (gc_page*)(p & (BYTES_PER_PAGE - 1)), info.n_huge_pages, stats);
             continue;
         }
         p = round_to_size_class(p, info.size_class);

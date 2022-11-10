@@ -25,19 +25,19 @@ rune rune_at(const char* str) {
 		return str[0];
 	}
 	else if ((unsigned char)str[0] < UTF8_THREE) {
-		return (rune)(str[0] & UTF8_TWO_MASK) << 6 
-					| (rune)(str[1] & UTF8_INNER_MASK);
+		return (u32)(str[0] & UTF8_TWO_MASK) << 6 
+					| (u32)(str[1] & UTF8_INNER_MASK);
 	}
 	else if ((unsigned char)str[0] < UTF8_FOUR) {
-		return (rune)(str[0] & UTF8_THREE_MASK) << 12 
-					| (rune)(str[1] & UTF8_INNER_MASK) << 6 
-					| (rune)(str[2] & UTF8_INNER_MASK);
+		return (u32)(str[0] & UTF8_THREE_MASK) << 12 
+					| (u32)(str[1] & UTF8_INNER_MASK) << 6 
+					| (u32)(str[2] & UTF8_INNER_MASK);
 	}
 	else {
-		return (rune)(str[0] & UTF8_FOUR_MASK) << 18 
-					| (rune)(str[1] & UTF8_INNER_MASK) << 12 
-					| (rune)(str[2] & UTF8_INNER_MASK) << 6 
-					| (rune)(str[3] & UTF8_INNER_MASK);
+		return (u32)(str[0] & UTF8_FOUR_MASK) << 18 
+					| (u32)(str[1] & UTF8_INNER_MASK) << 12 
+					| (u32)(str[2] & UTF8_INNER_MASK) << 6 
+					| (u32)(str[3] & UTF8_INNER_MASK);
 	}
 }
 
@@ -67,9 +67,9 @@ unsigned long int utf8_length(const char* str, unsigned long int str_length) {
 unsigned long int utf8_bytes(const rune* str, unsigned long int str_length) {
     unsigned long int i = 0, n = 0;
     while (n < str_length) {
-        if (str[n] <= UTF8_ONE_MAX) ++ n, ++ i;
-        else if (str[n] <= UTF8_TWO_MAX) ++ n, i += 2;
-        else if (str[n] <= UTF8_THREE_MAX) ++ n, i += 3;
+        if (str[n].get() <= UTF8_ONE_MAX) ++ n, ++ i;
+        else if (str[n].get() <= UTF8_TWO_MAX) ++ n, i += 2;
+        else if (str[n].get() <= UTF8_THREE_MAX) ++ n, i += 3;
         else ++ n, i += 4;
     }
     if (n != str_length) ERROR = INCORRECT_FORMAT;
@@ -89,8 +89,8 @@ amounts utf8_decode(const char* str, unsigned long int str_length,
                 ERROR = RAN_OUT_OF_BOUNDS;
                 return {n, i};
             }
-            else out[n] = (rune)(str[i] & UTF8_TWO_MASK) << 6 
-                        | (rune)(str[i + 1] & UTF8_INNER_MASK);
+            else out[n] = (u32)(str[i] & UTF8_TWO_MASK) << 6 
+                        | (u32)(str[i + 1] & UTF8_INNER_MASK);
             ++ n, i += 2;
         }
         else if ((unsigned char)str[i] < UTF8_FOUR) {
@@ -98,9 +98,9 @@ amounts utf8_decode(const char* str, unsigned long int str_length,
                 ERROR = RAN_OUT_OF_BOUNDS;
                 return {n, i};
             }
-            else out[n] = (rune)(str[i] & UTF8_THREE_MASK) << 12 
-                        | (rune)(str[i + 1] & UTF8_INNER_MASK) << 6 
-                        | (rune)(str[i + 2] & UTF8_INNER_MASK);
+            else out[n] = (u32)(str[i] & UTF8_THREE_MASK) << 12 
+                        | (u32)(str[i + 1] & UTF8_INNER_MASK) << 6 
+                        | (u32)(str[i + 2] & UTF8_INNER_MASK);
             ++ n, i += 3;
         }
         else {
@@ -108,10 +108,10 @@ amounts utf8_decode(const char* str, unsigned long int str_length,
                 ERROR = RAN_OUT_OF_BOUNDS;
                 return {n, i};
             }
-            else out[n] = (rune)(str[i] & UTF8_FOUR_MASK) << 18 
-                        | (rune)(str[i + 1] & UTF8_INNER_MASK) << 12 
-                        | (rune)(str[i + 2] & UTF8_INNER_MASK) << 6 
-                        | (rune)(str[i + 3] & UTF8_INNER_MASK);
+            else out[n] = (u32)(str[i] & UTF8_FOUR_MASK) << 18 
+                        | (u32)(str[i + 1] & UTF8_INNER_MASK) << 12 
+                        | (u32)(str[i + 2] & UTF8_INNER_MASK) << 6 
+                        | (u32)(str[i + 3] & UTF8_INNER_MASK);
             ++ n, i += 4;
         }
     }
@@ -122,43 +122,43 @@ unsigned long int utf8_encode(const rune* str, unsigned long int str_length,
                               char* out, unsigned long int out_length) {
     unsigned long int i = 0, n = 0;
     while (i < str_length && n < out_length) {
-        if (str[i] <= UTF8_ONE_MAX) {
-            out[n] = str[i];
+        if (str[i].get() <= UTF8_ONE_MAX) {
+            out[n] = str[i].get();
             ++ n, ++ i;
         }
-        else if (str[i] <= UTF8_TWO_MAX) {
+        else if (str[i].get() <= UTF8_TWO_MAX) {
             if (n > out_length - 1) {
                 ERROR = BUFFER_TOO_SMALL;
                 return n;
             }
             else {
-                out[n] = (str[i] >> 6 & UTF8_TWO_MASK) | UTF8_TWO;
-                out[n + 1] = (str[i] & UTF8_INNER_MASK) | UTF8_INNER;
+                out[n] = (str[i].get() >> 6 & UTF8_TWO_MASK) | UTF8_TWO;
+                out[n + 1] = (str[i].get() & UTF8_INNER_MASK) | UTF8_INNER;
             }
             n += 2, ++ i;
         }
-        else if (str[i] <= UTF8_THREE_MAX) {
+        else if (str[i].get() <= UTF8_THREE_MAX) {
             if (n > out_length - 2) {
                 ERROR = BUFFER_TOO_SMALL;
                 return n;
             }
             else {
-                out[n] = (str[i] >> 12 & UTF8_THREE_MASK) | UTF8_THREE;
-                out[n + 1] = (str[i] >> 6 & UTF8_INNER_MASK) | UTF8_INNER;
-                out[n + 2] = (str[i] & UTF8_INNER_MASK) | UTF8_INNER;
+                out[n] = (str[i].get() >> 12 & UTF8_THREE_MASK) | UTF8_THREE;
+                out[n + 1] = (str[i].get() >> 6 & UTF8_INNER_MASK) | UTF8_INNER;
+                out[n + 2] = (str[i].get() & UTF8_INNER_MASK) | UTF8_INNER;
             }
             n += 3, ++ i;
         }
-        else if (str[i] <= UTF8_FOUR_MAX) {
+        else if (str[i].get() <= UTF8_FOUR_MAX) {
             if (n > out_length - 3) {
                 ERROR = BUFFER_TOO_SMALL;
                 return n;
             }
             else {
-                out[n] = (str[i] >> 18 & UTF8_FOUR_MASK) | UTF8_FOUR;
-                out[n + 1] = (str[i] >> 12 & UTF8_INNER_MASK) | UTF8_INNER;
-                out[n + 2] = (str[i] >> 6 & UTF8_INNER_MASK) | UTF8_INNER;
-                out[n + 3] = (str[i] & UTF8_INNER_MASK) | UTF8_INNER;
+                out[n] = (str[i].get() >> 18 & UTF8_FOUR_MASK) | UTF8_FOUR;
+                out[n + 1] = (str[i].get() >> 12 & UTF8_INNER_MASK) | UTF8_INNER;
+                out[n + 2] = (str[i].get() >> 6 & UTF8_INNER_MASK) | UTF8_INNER;
+                out[n + 3] = (str[i].get() & UTF8_INNER_MASK) | UTF8_INNER;
             }
             n += 4, ++ i;
         }
@@ -3963,12 +3963,12 @@ static int find(const range* array, int length, rune code) {
     while (low <= high) { 
         int mid = (low + high) / 2; 
   
-        if (code >= (array[mid].start & COMPARE_MASK) && code <= (array[mid].end & COMPARE_MASK)) {
+        if (code.get() >= (array[mid].start & COMPARE_MASK) && code.get() <= (array[mid].end & COMPARE_MASK)) {
             if (array[mid].start & EVEN_BIT) return (mid & 1) ? -1 : mid;
             else if (array[mid].start & ODD_BIT) return (mid & 1) ? mid : -1;
             else return mid;
         }
-        else if (code < array[mid].start) high = mid - 1; 
+        else if (code.get() < array[mid].start) high = mid - 1; 
         else low = mid + 1; 
     } 
   
@@ -3983,7 +3983,7 @@ static int inited = 0;
     static void populate_lookup_table(const range* array, int length, UnicodeCategory category) {
         for (int i = 0; i < length; i ++) {
             range r = array[i];
-            for (rune c = r.start & COMPARE_MASK; c <= (r.end & COMPARE_MASK); c += (r.start & EVEN_BIT || r.start & ODD_BIT) ? 2 : 1) 
+            for (u32 c = r.start & COMPARE_MASK; c <= (r.end & COMPARE_MASK); c += (r.start & EVEN_BIT || r.start & ODD_BIT) ? 2 : 1) 
                 LOOKUP_TABLE[c] = category;
         }
     }
@@ -3996,14 +3996,14 @@ static int inited = 0;
 
     static int lookup(rune code, UnicodeCategory low, UnicodeCategory high) {
         if (!inited) { inited = 1; init_lookup_table(); }
-        UnicodeCategory c = LOOKUP_TABLE[code];
+        UnicodeCategory c = LOOKUP_TABLE[code.get()];
         if (c >= low && c <= high) return 1;
         else return 0;
     }
 
 	UnicodeCategory utf8_category(rune r) {
         if (!inited) { inited = 1; init_lookup_table(); }
-		return LOOKUP_TABLE[r];
+		return LOOKUP_TABLE[r.get()];
 	}
 #endif
 
@@ -4013,7 +4013,7 @@ int utf8_digit_value(rune digit) {
 		ERROR = INVALID_RUNE;
 		return -1;
 	}
-	return digit - decimal_digits[range].start;
+	return digit.get() - decimal_digits[range].start;
 }
 
 int utf8_is_other(rune r) {

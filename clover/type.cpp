@@ -135,6 +135,9 @@ u64 hash(Type* type) {
         case T_VAR: return ((VarType*)type)->env->hash * 12050882363664274373ul ^ ((VarType*)type)->id * 9020503123748990177ul;
         case T_ANY_NUMERIC: return 7594156975545589679ul;
         case T_ANY: return 7751476419087332773ul;
+        default:
+            unreachable("Unhashable type!");
+            return false;
     }
 }
 
@@ -182,10 +185,14 @@ bool operator==(const Type& a, const Type& b) {
         case T_VAR: 
             return ((const VarType&)a).env == ((const VarType&)b).env
                 && ((const VarType&)a).id == ((const VarType&)b).id;
+        default:
+            unreachable("Incomparable type!");
+            return false;
     }
 }
 
 void format(stream& io, Module* mod, Type* type) {
+    if (!type) return write(io, "<null type!>");
     bool first = true;
     switch (type->kind) {
         case T_VOID: write(io, "void"); break;
@@ -198,7 +205,7 @@ void format(stream& io, Module* mod, Type* type) {
         case T_PTR: write(io, '*'); format(io, mod, ((PtrType*)type)->target); break;
         case T_NUMERIC:
             write(io, ((NumericType*)type)->floating ? 'f' : 'i');
-            if (((NumericType*)type)->literal) write(io, "const");
+            if (((NumericType*)type)->literal) write(io, "const", ((NumericType*)type)->bytes * 8);
             else write(io, ((NumericType*)type)->bytes * 8);
             break;
         case T_ARRAY: format(io, mod, ((ArrayType*)type)->element); write(io, '[', ((ArrayType*)type)->size, ']'); break;
@@ -224,9 +231,11 @@ void format(stream& io, Module* mod, Type* type) {
             write(io, mod->interner->str(((UnionType*)type)->name));
             break;
         case T_VAR:
-            write(io, '$', ((VarType*)type)->id, '(');
-            format(io, mod, *((VarType*)type)->binding);
-            write(io, ')');
+            if (((VarType*)type)->nick != -1) write(io, mod->interner->str(((VarType*)type)->nick), '?');
+            else write(io, ((VarType*)type)->id, '?');
+            // write(io, '(');
+            // format(io, mod, *((VarType*)type)->binding);
+            // write(io, ')');
             break;
         case T_ANY: write(io, "any?"); break;
         case T_ANY_NUMERIC: write(io, "numeric?"); break;
@@ -255,6 +264,14 @@ Type* unify(Type* a, Type* b) {
     else if (b->kind == T_VAR) if (Type* t = attempt_union(b, a)) return t;
 
     return nullptr;
+}
+
+bool more_generic(Type* a, Type* b) {
+    if (b->kind == T_ANY 
+        || b->kind == T_ANY_NUMERIC
+        || b->kind == T_VOID
+        || (isconcrete(a) && a != VOID && b->kind == T_VAR && (!isconcrete(*((VarType*)b)->binding) || *((VarType*)b)->binding == VOID))) return false;
+    return true;
 }
 
 bool occurs(Type* t, Type* var) {
@@ -293,6 +310,7 @@ bool occurs(Type* t, Type* var) {
 bool is_subtype_generic(Type* src, Type* dest) {
     if (!src || !dest) return false;
     if (dest == ANY) return true;
+    if (src->kind == T_NUMERIC && dest == ANY_NUMERIC) return true;
     if (src == dest) return true;
     if (dest->kind == T_ERROR) return true; // Error types are infectious; everything else can convert to them.
     if (src->kind != T_VAR && dest->kind == T_VAR) return is_subtype(dest, src);
@@ -311,7 +329,8 @@ bool is_subtype_generic(Type* src, Type* dest) {
             return true; 
         case T_NUMERIC: // Numeric types have no child types, and only have nontrivial subtyping relations.
             if (dest->kind != T_NUMERIC) return false;
-            return ((NumericType*)src)->literal && ((NumericType*)src)->floating == ((NumericType*)dest)->floating;
+            return ((((NumericType*)src)->literal && ((NumericType*)src)->bytes <= ((NumericType*)dest)->bytes)
+                || (((NumericType*)dest)->literal && ((NumericType*)src)->bytes >= ((NumericType*)dest)->bytes)) && ((NumericType*)src)->floating == ((NumericType*)dest)->floating;
         case T_PTR:
             if (dest->kind != T_PTR) return false;
             return is_subtype_generic(((PtrType*)src)->target, ((PtrType*)dest)->target);
@@ -337,8 +356,11 @@ bool is_subtype_generic(Type* src, Type* dest) {
         case T_UNION:
             return false;
         case T_VAR:
+        // $2($1(i8)) iconst16
+        // $1(i8) iconst16
+        // i8 iconst16
             if (is_subtype(*((VarType*)src)->binding, dest)) {
-                if (!occurs(odest, src)) *((VarType*)src)->binding = odest;
+                if (more_generic(*((VarType*)src)->binding, odest) && !occurs(odest, src)) *((VarType*)src)->binding = odest;
                 return true;
             }
             else if (((VarType*)src)->binding[0]->is_case && dest->is_case              // Cases of the same union can unify to the union.
@@ -347,6 +369,7 @@ bool is_subtype_generic(Type* src, Type* dest) {
                 return is_subtype_generic(src, dest->env->parent->decl->type);
             }
             else if (odest->kind == T_VAR) return is_subtype(odest, src);
+            return false;
         case T_ANY_NUMERIC:
             return dest->kind == T_ANY_NUMERIC || dest->kind == T_NUMERIC;
         default:
@@ -383,10 +406,11 @@ bool is_subtype(Type* src, Type* dest) {
             return true; 
         case T_NUMERIC:
             if (dest->kind != T_NUMERIC) return false;
+            if (((NumericType*)src)->literal && !((NumericType*)dest)->literal && !((NumericType*)dest)->floating) return false; // No non-generic subtyping for constants.
             if (((NumericType*)src)->floating)
                 return ((NumericType*)dest)->floating 
-                    && (((NumericType*)src)->literal || ((NumericType*)src)->bytes <= ((NumericType*)dest)->bytes);
-            else return ((NumericType*)src)->literal || ((NumericType*)src)->bytes <= ((NumericType*)dest)->bytes || ((NumericType*)dest)->floating;
+                    && (((NumericType*)src)->bytes <= ((NumericType*)dest)->bytes);
+            else return ((NumericType*)src)->bytes <= ((NumericType*)dest)->bytes || ((NumericType*)dest)->floating;
         case T_PTR:
             if (dest->kind != T_PTR) return false;
             if (deepbinding(((PtrType*)dest)->target)->kind != T_UNION) return false; // Allow only union member coercions.
@@ -406,4 +430,4 @@ bool is_subtype(Type* src, Type* dest) {
     return false;
 }
 
-Type *VOID, *UNIT, *I8, *I16, *I32, *I64, *INT, *IPTR, *ICONST, *F32, *F64, *FLOAT, *FCONST, *BOOL, *CHAR, *STRING, *TYPE, *ERROR, *ANY, *ANY_NUMERIC, *ANY_ARRAY, *ANY_PTR, *ANY_SLICE, *ANY_FUNCTION;
+Type *VOID, *UNIT, *I8, *I16, *I32, *I64, *INT, *IPTR, *ICONST8, *ICONST16, *ICONST32, *ICONST64, *F32, *F64, *FLOAT, *BOOL, *CHAR, *STRING, *TYPE, *ERROR, *ANY, *ANY_NUMERIC, *ANY_ARRAY, *ANY_PTR, *ANY_SLICE, *ANY_FUNCTION;

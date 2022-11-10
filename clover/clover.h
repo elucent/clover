@@ -31,6 +31,7 @@ enum TopoMark {
 };
 
 struct AST;
+struct Env;
 
 struct Module {
     // Local to this module
@@ -45,8 +46,12 @@ struct Module {
     // Together, defers and ndefers form a sort of stack of stacks. defers[ndefers.back():] represents the defers
     // to be processed for the current block.
 
-    // Auto-generated methods.
-    vec<AST*, 8, arena> automethods; // Stores automatically-generated methods defined in this module.
+    // Definitions this module is responsible for generating.
+    vec<pair<AST*, Env*>, 8, arena> toplevels; // Stores top-level definitions to be included in this module's output.
+    vec<pair<AST*, Env*>, 8, arena> automethods; // Stores automatically-generated methods defined in this module.
+
+    void add_top_decl(AST* ast, Env* env);
+    void add_top_typedecl(AST* ast, Env* env);
 
     // Shared between modules
     Clover* cloverinst;
@@ -61,7 +66,7 @@ struct Module {
 
     // Dependencies
     vec<Module*, 8, arena> deps;
-    bool visited;
+    bool visited, dep_errored = false;
 
     // Name of this module.
     Symbol basename;
@@ -72,6 +77,7 @@ struct Module {
 
 struct Clover {
     map<Symbol, Module*, 256, arena> modules;
+    map<Type*, pair<Env*, Module*>, 256, arena> typedefs; // Tracks which modules define certain types.
     arena module_space;
     Module* main;
 };

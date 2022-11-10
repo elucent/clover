@@ -20,6 +20,8 @@ void utf8_format_error(Module* mod, UnicodeError err, i32 pos);
 // Lexer
 void unexpected_char_error(Module* mod, i32 pos, i32 line, i32 len, i16 col, rune ch);
 void letter_in_number_error(Module* mod, i32 pos, i32 line, i32 len, i16 col, rune ch);
+void non_hex_digit_error(Module* mod, i32 pos, i32 line, i32 len, i16 col, rune ch);
+void non_binary_digit_error(Module* mod, i32 pos, i32 line, i32 len, i16 col, rune ch);
 void no_newline_in_string_error(Module* mod, i32 pos, i32 line, i32 len, i16 col);
 void no_newline_in_char_error(Module* mod, i32 pos, i32 line, i32 len, i16 col);
 void unknown_escape_error(Module* mod, i32 pos, i32 line, i32 len, i16 col, rune ch);
@@ -143,6 +145,8 @@ void non_boolean_type_error(Module* mod, AST* ast, Type* type);
 void incompatible_return_error(Module* mod, AST* ast, Type* type, Type* expected);
 void inaccessible_member_error(Module* mod, Var* var, AST* local, AST* def);
 void size_of_non_concrete_error(Module* mod, AST* ast, Type* type);
+void inference_failure_error(Module* mod, AST* ast);
+void no_high_in_ptr_slice_error(Module* mod, AST* ast, Type* type);
 
 // Codegen
 void cyclic_dependencies_error(Module* mod);

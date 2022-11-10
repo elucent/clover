@@ -48,38 +48,13 @@ iptr arena::alloc_huge(iptr bytes) {
     return result;
 }
 
-page_freeing_ptr::~page_freeing_ptr() {
-    if (ptr.ptr) mfree(ptr);
-}
-
-allocator::allocator(iptr block_size_in): block_size(block_size_in), blocks(1) {
-    for (iptr i = 0; i < N_SIZES; i ++) free_lists[i] = nullptr;
-}
-
-allocator::~allocator() {
-    slice<page> pages = blocks.pages;
-    page* prev = *(page**)pages.ptr;
-    u8* prev_top = *((u8**)pages.ptr + 1);
-    page_freeing_ptr* bot = (page_freeing_ptr*)((u8*)pages.ptr + sizeof(iptr) * 2);
-    page_freeing_ptr* top = (page_freeing_ptr*)(blocks.top);
-    while (prev) {
-        while (bot < top) bot->~page_freeing_ptr(), bot ++;
-        bot = (page_freeing_ptr*)((u8*)prev + sizeof(iptr) * 2);
-        top = (page_freeing_ptr*)prev_top;
-        prev_top = *((u8**)prev + 1);
-        prev = *(page**)prev;
-    }
-    while (bot < top) bot->~page_freeing_ptr(), bot ++;
-}
-
-iptr allocator::lock = 0;
-allocator* allocator::instance = nullptr;
+gc_allocator* gc_allocator::instance;
 
 void* operator new(size_t bytes) {
     return gc_alloc_untyped(bytes);
 }
 
-void operator delete(void* ptr) {
+void operator delete(void* ptr) noexcept {
     gc_free_untyped(ptr);
 }
 
@@ -87,40 +62,8 @@ void* operator new[](size_t bytes) {
     return gc_alloc_untyped(bytes);
 }
 
-void operator delete[](void* ptr) {
+void operator delete[](void* ptr) noexcept {
     gc_free_untyped(ptr);
-}
-
-void* operator new(size_t bytes, arena& a) {
-    return (void*)a.alloc(bytes);
-}
-
-void operator delete(void* ptr, arena& a) {
-    //
-}
-
-void* operator new[](size_t bytes, arena& a) {
-    return (void*)a.alloc(bytes);
-}
-
-void operator delete[](void* ptr, arena& a) {
-    //
-}
-
-void* operator new(size_t bytes, allocator& a) {
-    return (void*)a.alloc(bytes);
-}
-
-void operator delete(void* ptr, allocator& a) {
-    a.free(ptr);
-}
-
-void* operator new[](size_t bytes, allocator& a) {
-    return (void*)a.alloc(bytes);
-}
-
-void operator delete[](void* ptr, allocator& a) {
-    a.free(ptr);
 }
 
 void* operator new(size_t, void* ptr) {

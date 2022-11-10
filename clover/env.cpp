@@ -70,12 +70,14 @@ void EnvContext::create_root_env(Interner& syms, TypeContext& types) {
     env->def(syms.intern("i64"), e_type(I64 = types.def<NumericType>(false, false, 8), nullptr));
     env->def(syms.intern("int"), e_type(INT = types.def<NumericType>(false, false, sizeof(iptr)), nullptr));
     env->def(syms.intern("iptr"), e_type(IPTR = types.def<NumericType>(false, false, sizeof(iptr)), nullptr));
-    ICONST = types.def<NumericType>(false, true, 8);
+    ICONST8 = types.def<NumericType>(false, true, 1);
+    ICONST16 = types.def<NumericType>(false, true, 2);
+    ICONST32 = types.def<NumericType>(false, true, 4);
+    ICONST64 = types.def<NumericType>(false, true, 8);
     
     env->def(syms.intern("f32"), e_type(F32 = types.def<NumericType>(true, false, 4), nullptr));
     env->def(syms.intern("f64"), e_type(F64 = types.def<NumericType>(true, false, 8), nullptr));
     env->def(syms.intern("float"), e_type(FLOAT = types.def<NumericType>(true, false, 8), nullptr));
-    FCONST = types.def<NumericType>(true, true, 8);
     
     env->def(syms.intern("void"), e_type(VOID = types.def<Type>(T_VOID), nullptr));
     env->def(syms.intern("unit"), e_type(UNIT = types.def<Type>(T_UNIT), nullptr));
@@ -92,11 +94,10 @@ void EnvContext::create_root_env(Interner& syms, TypeContext& types) {
     I64->env = create(ENV_TYPE, env, syms.intern("i64"));
     INT->env = create(ENV_TYPE, env, syms.intern("int"));
     IPTR->env = create(ENV_TYPE, env, syms.intern("iptr"));
-    ICONST->env = INT->env;
+    ICONST8->env = ICONST16->env = ICONST32->env = ICONST64->env = INT->env;
     F32->env = create(ENV_TYPE, env, syms.intern("f32"));
     F64->env = create(ENV_TYPE, env, syms.intern("f64"));
     FLOAT->env = create(ENV_TYPE, env, syms.intern("float"));
-    FCONST->env = FLOAT->env;
     VOID->env = create(ENV_TYPE, env, syms.intern("void"));
     UNIT->env = create(ENV_TYPE, env, syms.intern("unit"));
     CHAR->env = create(ENV_TYPE, env, syms.intern("char"));
@@ -155,6 +156,13 @@ void EnvContext::add_method(i32 name, Type* type, Env* env) {
     else it->value.push({type, env});
 }
 
+void EnvContext::add_generic_method(i32 name, FunDecl* decl) {
+    auto it = generic_methods.find(name);
+    if (it == generic_methods.end()) {
+        generic_methods.put(name, {(i32)((Apply*)decl->proto)->args.n, decl});
+    }
+}
+
 void EnvContext::finalize_methods(Module* mod) {
     for (auto& e : nonconcrete_methods) {
         auto it = methods.find(e.key);
@@ -181,7 +189,7 @@ i32 anon_sym(Module* mod, i32 n) {
     else {
         u32 olen = len;
         u32 c = 0, d = 0;
-        u64 p = 1;
+        i64 p = 1;
         while (p <= id) p *= 10, ++ c;
         d = c;
         while (c >= 1) {
@@ -206,7 +214,7 @@ AST* EnvContext::create_method(i32 name, Type* type, Module* mod, vec<pair<Type*
     FunType* ft0 = (FunType*)e0->type;
     slice<Type*> args0 = ft0->arg;
     Type* ret = ft0->ret;
-    for (i32 i = 1; i < methods.size(); i ++) {
+    for (u32 i = 1; i < methods.size(); i ++) {
         Entry* en = methods[i]->second->lookup(name);
         FunType* ftn = (FunType*)en->type;
         slice<Type*> argsn = ftn->arg;
@@ -234,7 +242,7 @@ AST* EnvContext::create_method(i32 name, Type* type, Module* mod, vec<pair<Type*
 
     slice<AST*> cases = { new(mod->parser->astspace) AST*[methods.size()], methods.size() };
     i32 casename = mod->interner->intern("_p");
-    for (i32 i = 0; i < methods.size(); i ++) {
+    for (u32 i = 0; i < methods.size(); i ++) {
         AST* d = methods[i]->second->decl;
         Type* ct = ((UnionType*)type)->fields[i].second;
         AST* caset = new(mod->parser->astspace) Var({}, ct->env->name);
@@ -282,7 +290,7 @@ pair<Type*, Env*>* EnvContext::find_method(i32 name, Type* type, Module* mod) {
     if (type->kind == T_PTR) {
         return find_method(name, ((PtrType*)type)->target, mod);
     }
-    // Consider generic matching method:
+    // Consider union case matching method:
     if (type->kind == T_UNION) {
         vec<pair<Type*, Env*>*, 64, arena> methods;
         methods.alloc = &envspace;
@@ -298,9 +306,16 @@ pair<Type*, Env*>* EnvContext::find_method(i32 name, Type* type, Module* mod) {
             if (!auto_method) return nullptr;
 
             add_method(name, type, ((FunDecl*)auto_method)->env);
-            mod->automethods.push(auto_method);
+            mod->automethods.push({ auto_method, ((FunDecl*)auto_method)->env->parent });
             return find_method(name, type, mod);
         }
     }
     return nullptr;
+}
+
+FunDecl* EnvContext::find_generic_method(i32 name, i32 arity) {
+    auto it = generic_methods.find(name);
+    if (it != generic_methods.end() && it->value.first == arity)
+        return it->value.second;
+    else return nullptr;
 }

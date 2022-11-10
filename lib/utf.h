@@ -9,8 +9,8 @@ struct rune {
 
     inline rune() {}
     inline rune(uint32_t u_in): u(u_in) {}
-    inline operator uint32_t() const { return u; }
-    inline operator uint32_t&() { return u; }
+    inline u32 get() const { return u; }
+    inline u32 ref() { return u; }
 };
 
 static constexpr const uint8_t UTF8_FOUR = 0b11110000,

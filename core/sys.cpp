@@ -22,7 +22,7 @@ static thread** waiting_queue_start;
 static thread** waiting_queue_end;
 
 static inline thread** wrap_waiting_queue(thread** ptr) {
-    return waiting_queue_base + (ptr - waiting_queue_base & waiting_queue_size - 1);
+    return waiting_queue_base + ((ptr - waiting_queue_base) & (waiting_queue_size - 1));
 }
 
 static void grow_waiting_queue() {
@@ -109,7 +109,7 @@ static void sig_cont(i32 sig) {
     return;
 }
 
-extern "C" iptr _tgid = 0;
+iptr _tgid;
 extern "C" iptr getpid();
 extern "C" iptr gettid();
 extern "C" void pyield(iptr tid);

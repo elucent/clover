@@ -123,7 +123,7 @@ struct EnvContext {
     Env* root;
     map<i32, vec<pair<Type*, Env*>, 16, arena>, 256, arena> nonconcrete_methods;
     map<i32, vec<pair<Type*, Env*>, 16, arena>, 256, arena> methods;
-    map<i32, vec<pair<Type*, FunDecl*>, 16, arena>, 256, arena> generic_methods;
+    map<i32, pair<i32, FunDecl*>, 256, arena> generic_methods;
     i32 in_prototype = 0;
 
     inline EnvContext() {
@@ -137,6 +137,7 @@ struct EnvContext {
     void finalize_methods(Module* mod);
     AST* create_method(i32 name, Type* type, Module* mod, vec<pair<Type*, Env*>*, 64, arena> methods);
     pair<Type*, Env*>* find_method(i32 name, Type* type, Module* mod);
+    FunDecl* find_generic_method(i32 name, i32 arity);
 
     inline Env* create(EnvKind kind, Env* parent, i32 name) {
         Env* env = new(envspace) Env;

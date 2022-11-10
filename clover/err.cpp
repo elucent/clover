@@ -9,6 +9,8 @@ enum ErrorType : i8 {
 
     ERR_UNEXPECTED_CHAR,    // Unexpected character in lexer input.
     ERR_LETTER_IN_NUMBER,   // Unexpected letter in numeric constant.
+    ERR_NON_HEX_DIGIT,      // Non-hexadecimal digit in binary integer constant.
+    ERR_NON_BINARY_DIGIT,   // Non-binary digit in binary integer constant.
     ERR_STRING_NEWLINE,     // Unexpected newline in string constant.
     ERR_CHAR_NEWLINE,       // Unexpected newline in char constant.
     ERR_UNKNOWN_ESCAPE,     // Unknown escape sequence in string or char constant.
@@ -119,6 +121,8 @@ enum ErrorType : i8 {
     ERR_INCOMPATIBLE_RETURN,        // Return statement returns value incompatible with enclosing function.
     ERR_INACCESSIBLE_MEMBER,        // Member variable is inaccessible from local scope.
     ERR_SIZEOF_NON_CONCRETE,        // Tried to take size of non-concrete type.
+    ERR_INFERENCE_FAILURE,          // Couldn't infer valid type.
+    ERR_NO_HIGH_IN_PTR_SLICE,       // Missing upper bound in pointer slice.
 
     ERR_CIRCULAR_DEPENDENCIES,      // A cycle was detected in the program's dependency graph.
 };
@@ -138,6 +142,8 @@ struct Error {
 
         struct UnexpectedChar   { CODE = ERR_UNEXPECTED_CHAR; i32 pos, line, len; i16 col; rune ch; } unexpected_char;
         struct LetterInNumber   { CODE = ERR_LETTER_IN_NUMBER; i32 pos, line, len; i16 col; rune ch; } letter_in_number;
+        struct NonHexDigit   { CODE = ERR_LETTER_IN_NUMBER; i32 pos, line, len; i16 col; rune ch; } non_hex_digit;
+        struct NonBinaryDigit   { CODE = ERR_LETTER_IN_NUMBER; i32 pos, line, len; i16 col; rune ch; } non_binary_digit;
         struct StringNewline    { CODE = ERR_STRING_NEWLINE; i32 pos, line, len; i16 col; } string_newline;
         struct CharNewline      { CODE = ERR_CHAR_NEWLINE; i32 pos, line, len; i16 col; } char_newline;
         struct UnknownEscape    { CODE = ERR_UNKNOWN_ESCAPE; i32 pos, line, len; i16 col; rune ch; } unknown_escape;
@@ -145,6 +151,8 @@ struct Error {
 
         ErrorData(UnexpectedChar e): unexpected_char(e) {}
         ErrorData(LetterInNumber e): letter_in_number(e) {}
+        ErrorData(NonHexDigit e): non_hex_digit(e) {}
+        ErrorData(NonBinaryDigit e): non_binary_digit(e) {}
         ErrorData(StringNewline e): string_newline(e) {}
         ErrorData(CharNewline e): char_newline(e) {}
         ErrorData(UnknownEscape e): unknown_escape(e) {}
@@ -327,6 +335,8 @@ struct Error {
         struct IncompatibleReturn { CODE = ERR_INCOMPATIBLE_RETURN; AST* ast; Type *type, *dest; } incompatible_return;
         struct InaccessibleMember { CODE = ERR_INACCESSIBLE_MEMBER; Var *var; AST *local, *def; } inaccessible_member;
         struct SizeofNonConcrete { CODE = ERR_SIZEOF_NON_CONCRETE; AST* ast; Type* type; } sizeof_non_concrete;
+        struct InferenceFailure { CODE = ERR_INFERENCE_FAILURE; AST* ast; } inference_failure;
+        struct NoHighInPtrSlice { CODE = ERR_NO_HIGH_IN_PTR_SLICE; AST* ast; Type* type; } no_high_in_ptr_slice;
         
         ErrorData(ReturnOutsideFun e): return_outside_fun(e) {}
         ErrorData(InvalidWithEnv e): invalid_with_env(e) {}
@@ -361,6 +371,8 @@ struct Error {
         ErrorData(IncompatibleReturn e): incompatible_return(e) {}
         ErrorData(InaccessibleMember e): inaccessible_member(e) {}
         ErrorData(SizeofNonConcrete e): sizeof_non_concrete(e) {}
+        ErrorData(InferenceFailure e): inference_failure(e) {}
+        ErrorData(NoHighInPtrSlice e): no_high_in_ptr_slice(e) {}
     } data;
 };
 
@@ -408,6 +420,16 @@ void unexpected_char_error(Module* mod, i32 pos, i32 line, i32 len, i16 col, run
 void letter_in_number_error(Module* mod, i32 pos, i32 line, i32 len, i16 col, rune ch) {
     lex_error();
     push_error<Error::ErrorData::LetterInNumber>(mod, pos, line, len, col, ch);
+}
+
+void non_hex_digit_error(Module* mod, i32 pos, i32 line, i32 len, i16 col, rune ch) {
+    lex_error();
+    push_error<Error::ErrorData::NonHexDigit>(mod, pos, line, len, col, ch);
+}
+
+void non_binary_digit_error(Module* mod, i32 pos, i32 line, i32 len, i16 col, rune ch) {
+    lex_error();
+    push_error<Error::ErrorData::NonBinaryDigit>(mod, pos, line, len, col, ch);
 }
 
 void no_newline_in_string_error(Module* mod, i32 pos, i32 line, i32 len, i16 col) {
@@ -946,6 +968,16 @@ void size_of_non_concrete_error(Module* mod, AST* ast, Type* type) {
     push_error<Error::ErrorData::SizeofNonConcrete>(mod, ast, type);
 }
 
+void inference_failure_error(Module* mod, AST* ast) {
+    type_error();
+    push_error<Error::ErrorData::InferenceFailure>(mod, ast);
+}
+
+void no_high_in_ptr_slice_error(Module* mod, AST* ast, Type* type) {
+    type_error();
+    push_error<Error::ErrorData::NoHighInPtrSlice>(mod, ast, type);
+}
+
 static const i8* RED = "\e[0;91m";
 static const i8* PURPLE = "\e[0;35m";
 static const i8* RESET = "\e[0m";
@@ -1040,6 +1072,16 @@ void print_error(stream& io, bool verbose, const Error& e) {
         print_loc(mod, io, e.data.letter_in_number.line, e.data.letter_in_number.col);
         write(io, RED, "Error", RESET, ": Found letter character '", e.data.letter_in_number.ch, "' in numeric constant.\n");
         print_line(mod, io, e.data.letter_in_number.pos, e.data.letter_in_number.len, e.data.letter_in_number.col);
+        break;
+    case ERR_NON_HEX_DIGIT:
+        print_loc(mod, io, e.data.non_hex_digit.line, e.data.non_hex_digit.col);
+        write(io, RED, "Error", RESET, ": Found non-hexadecimal digit '", e.data.non_hex_digit.ch, "' in hexadecimal constant.\n");
+        print_line(mod, io, e.data.non_hex_digit.pos, e.data.non_hex_digit.len, e.data.non_hex_digit.col);
+        break;
+    case ERR_NON_BINARY_DIGIT:
+        print_loc(mod, io, e.data.non_binary_digit.line, e.data.non_binary_digit.col);
+        write(io, RED, "Error", RESET, ": Found non-binary character '", e.data.non_binary_digit.ch, "' in binary constant.\n");
+        print_line(mod, io, e.data.non_binary_digit.pos, e.data.non_binary_digit.len, e.data.non_binary_digit.col);
         break;
     case ERR_STRING_NEWLINE:
         print_loc(mod, io, e.data.string_newline.line, e.data.string_newline.col);
@@ -1674,6 +1716,16 @@ void print_error(stream& io, bool verbose, const Error& e) {
         write(io, RED, "Error", RESET, ": Tried to take size of non-concrete type '", TP(e.data.incompatible_return.type), "'.\n");
         print_line(mod, io, e.data.sizeof_non_concrete.ast);
         break;
+    case ERR_INFERENCE_FAILURE:
+        print_loc(mod, io, e.data.inference_failure.ast);
+        write(io, RED, "Error", RESET, ": Failed to infer valid type for expression.\n");
+        print_line(mod, io, e.data.inference_failure.ast);
+        break;
+    case ERR_NO_HIGH_IN_PTR_SLICE:
+        print_loc(mod, io, e.data.no_high_in_ptr_slice.ast);
+        write(io, RED, "Error", RESET, ": Missing upper bound taking slice of pointer type '", TP(e.data.no_high_in_ptr_slice.type), "'.\n");
+        print_line(mod, io, e.data.no_high_in_ptr_slice.ast);
+        break;
     default:
         unreachable("Unknown error kind.");
         break;
@@ -1685,4 +1737,5 @@ void print_error(stream& io, bool verbose, const Error& e) {
 
 void print_errors(stream& io, bool verbose) {
     for (i64 i = 0; i < n_errors; i ++) print_error(io, verbose, errors[i]);
+    n_errors = 0;
 }
