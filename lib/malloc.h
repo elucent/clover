@@ -93,7 +93,7 @@ void operator delete(void* ptr) noexcept;
 void* operator new[](size_t bytes);
 void operator delete[](void* ptr) noexcept;
 
-void* operator new(size_t, void* ptr);
+void* operator new(size_t, void* ptr) noexcept;
 
 inline void* operator new(size_t bytes, arena& a) {
     return (void*)a.alloc(bytes);

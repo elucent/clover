@@ -147,6 +147,7 @@ void inaccessible_member_error(Module* mod, Var* var, AST* local, AST* def);
 void size_of_non_concrete_error(Module* mod, AST* ast, Type* type);
 void inference_failure_error(Module* mod, AST* ast);
 void no_high_in_ptr_slice_error(Module* mod, AST* ast, Type* type);
+void tautological_compare_error(Module* mod, Binary* ast, AST* smaller, Type* larger, bool result);
 
 // Codegen
 void cyclic_dependencies_error(Module* mod);

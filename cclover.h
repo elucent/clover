@@ -69,6 +69,13 @@ extern CLINKAGE i64 i64__pow(i64, i64);
 extern CLINKAGE f32 f32__pow(f32, f32);
 extern CLINKAGE f64 f64__pow(f64, f64);
 
+extern CLINKAGE i16 i8__u16(i8);
+extern CLINKAGE i32 i8__u32(i8);
+extern CLINKAGE i64 i8__u64(i8);
+extern CLINKAGE i32 i16__u32(i16);
+extern CLINKAGE i64 i16__u64(i16);
+extern CLINKAGE i64 i32__u64(i32);
+
 // Control and memory management.
 extern CLINKAGE void pexit(iword);
 extern CLINKAGE iword __clover__malloc(iword);

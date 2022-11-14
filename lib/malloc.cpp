@@ -66,6 +66,6 @@ void operator delete[](void* ptr) noexcept {
     gc_free_untyped(ptr);
 }
 
-void* operator new(size_t, void* ptr) {
+void* operator new(size_t, void* ptr) noexcept {
     return ptr;
 }

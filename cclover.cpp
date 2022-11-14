@@ -54,6 +54,30 @@ extern "C" void string__print(string s) {
     print(const_slice<i8>{s.data, s.size}, '\n');
 }
 
+extern "C" i16 i8__u16(i8 i) {
+    return (uint16_t)(uint8_t)(i);
+}
+
+extern "C" i32 i8__u32(i8 i) {
+    return (uint32_t)(uint8_t)(i);
+}
+
+extern "C" i64 i8__u64(i8 i) {
+    return (uint64_t)(uint8_t)(i);
+}
+
+extern "C" i32 i16__u32(i16 i) {
+    return (uint32_t)(uint16_t)(i);
+}
+
+extern "C" i64 i16__u64(i16 i) {
+    return (uint64_t)(uint16_t)(i);
+}
+
+extern "C" i64 i32__u64(i32 i) {
+    return (uint64_t)(uint32_t)(i);
+}
+
 extern "C" iptr __clover__strlen(string s) {
     return utf8_length(s.data, s.size);
 }

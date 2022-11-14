@@ -579,7 +579,7 @@ inline void gc_free_untyped(void* const& ptr) {
  * objects appropriately, while using the GC as a memory manager.
  */
 
-void* operator new(size_t, void* ptr);
+void* operator new(size_t, void* ptr) noexcept;
 
 template<typename T, typename... Args>
 inline T* gc_new(Args&&... args) {

@@ -162,5 +162,11 @@ bin/test/core-tests: $(CORE_TEST_OBJS) $(CORE_OBJS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) $@.cpp -o $@
 	rm -f $@.cpp
 
+EXAMPLE_SRCS := $(wildcard example/*.cl)
+STD_SRCS := $(wildcard std/*.cl)
+
+EXAMPLE_PRODUCTS := $(EXAMPLE_SRCS:.cl=.c) $(EXAMPLE_SRCS:.cl=.h)
+STD_PRODUCTS := $(STD_SRCS:.cl=.c) $(STD_SRCS:.cl=.h)
+
 clean:
-	rm -f $(CORE_OBJS) $(CORE_NATIVE_OBJS) $(LIB_OBJS) $(BASIL_OBJS) $(CLOVER_OBJS) $(JASMINE_OBJS) bin/libcore.a cclover.o bin/libcclover.a bin/clover bin/jasmine bin/solver
+	rm -f $(CORE_OBJS) $(CORE_NATIVE_OBJS) $(LIB_OBJS) $(BASIL_OBJS) $(CLOVER_OBJS) $(JASMINE_OBJS) $(EXAMPLE_PRODUCTS) $(STD_PRODUCTS) bin/libcore.a cclover.o bin/libcclover.a bin/clover bin/jasmine bin/solver

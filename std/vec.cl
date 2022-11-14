@@ -7,15 +7,15 @@ type Vec(T):
         var old: data
         data = new 0[|old| * 2]
         var i: 0
-        var oldts: T[](T*(old), size)
-        var newts: T[](T*(data), size)
+        var oldts: T*(old)[:size]
+        var newts: T*(data)[:size]
         until i == size:
             newts[i] = oldts[i]
             i ++
         del oldts
 
     T[] items():
-        T[](T*(data), size)
+        T*(data)[:size]
 
     fun set(T t, int i):
         this.items()[i] = t
@@ -33,15 +33,10 @@ type Vec(T):
     fun clear():
         size = 0
 
-fun fill(T? t, int n):
-    var v: Vec(T)(new 0[|T| * n], n)
-    int i: 0
-    until i == v.size:
-        v.items()[i ++] = t
-    return v
-
-var v: fill(0, 4)
-v.clear()
-int i: 0
-until i == 10: v.push(i ++)
-until i == 0: print(v.get(-- i))
+module vec:
+    fun of(T? t, int n):
+        var v: Vec(T)(new 0[|T| * n], n)
+        int i: 0
+        until i == v.size:
+            v.items()[i ++] = t
+        return v

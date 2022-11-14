@@ -257,6 +257,38 @@ inline bool isconcrete(Type* type) {
     }   
 }
 
+inline Type* shallowconcrete(Type* type) {
+    if (!type) return ERROR;
+    switch (type->kind) {
+        case T_NUMERIC:
+        case T_UNIT:
+        case T_STRING:
+        case T_CHAR:
+        case T_BOOL:
+        case T_VOID:
+        case T_ERROR:
+        case T_TYPE:
+        case T_NAMED:
+        case T_STRUCT:
+        case T_UNION:
+        case T_PTR:
+        case T_SLICE:
+        case T_ARRAY:
+        case T_FUN:
+            return type;
+        case T_VAR:
+            type = shallowconcrete(*((VarType*)type)->binding);
+            if (type == VOID || type == ERROR) return ERROR;
+            else return type;
+        case T_ANY:
+        case T_ANY_NUMERIC:
+            return ERROR;
+        default:
+            unreachable("Unexpected type kind!");
+            return ERROR;
+    }   
+}
+
 inline Type* fullconcrete(TypeContext& ctx, Type* type) {
     if (!type) return ERROR;
     switch (type->kind) {
@@ -326,22 +358,29 @@ inline Type* fullsimplify(TypeContext& ctx, Type* type) {
         case T_UNION:
             return type;
         case T_VAR:
-            return fullsimplify(ctx, *((VarType*)type)->binding);
+            type = fullsimplify(ctx, *((VarType*)type)->binding);
+            if (type == VOID || type == ERROR) return ERROR;
+            else return type;
         case T_PTR:
-            return ctx.def<PtrType>(fullsimplify(ctx, ((PtrType*)type)->target));
+            type = fullsimplify(ctx, ((PtrType*)type)->target);
+            if (type == VOID || type == ERROR) return ERROR;
+            else return ctx.def<PtrType>(type);
         case T_SLICE:
-            return ctx.def<SliceType>(fullsimplify(ctx, ((SliceType*)type)->element));
-        case T_ARRAY:
+            type = fullsimplify(ctx, ((PtrType*)type)->target);
+            if (type == VOID || type == ERROR) return ERROR;
+            else return ctx.def<SliceType>(type);
+        case T_ARRAY: {
             if (((ArrayType*)type)->size < 0) return ERROR;
-            return ctx.def<ArrayType>(
-                fullsimplify(ctx, ((ArrayType*)type)->element),
-                ((ArrayType*)type)->size
-            );
+            Type* element = fullsimplify(ctx, ((ArrayType*)type)->element);
+            if (element == VOID || element == ERROR) return ERROR;
+            else return ctx.def<ArrayType>(element, ((ArrayType*)type)->size);
+        }
         case T_FUN: {
             if (((FunType*)type)->nary) return ERROR;
             slice<Type*> concreted = { new(ctx.typespace) Type*[((FunType*)type)->arg.n], ((FunType*)type)->arg.n};
             for (iptr i = 0; i < concreted.n; i ++) {
                 concreted[i] = fullsimplify(ctx, ((FunType*)type)->arg[i]);
+                if (concreted[i] == VOID || concreted[i] == ERROR) return ERROR;
             }
             return ctx.def<FunType>(concreted, fullsimplify(ctx, ((FunType*)type)->ret));
         }

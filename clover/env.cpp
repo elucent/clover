@@ -142,6 +142,37 @@ void EnvContext::create_root_env(Interner& syms, TypeContext& types) {
     def_pow(I64);
     def_pow(F32);
     def_pow(F64);
+
+    auto def_u16 = [&](Type* base) {
+        slice<Type*> args = { new(types.typespace) Type*[1], 1 };
+        args[0] = base;
+        Type* ft = types.def<FunType>(args, I16);
+        base->env->def(syms.intern("u16"), e_fun(ft, nullptr));
+        add_method(syms.intern("u16"), base, base->env);
+    };
+    
+    auto def_u32 = [&](Type* base) {
+        slice<Type*> args = { new(types.typespace) Type*[1], 1 };
+        args[0] = base;
+        Type* ft = types.def<FunType>(args, I32);
+        base->env->def(syms.intern("u32"), e_fun(ft, nullptr));
+        add_method(syms.intern("u32"), base, base->env);
+    };
+
+    auto def_u64 = [&](Type* base) {
+        slice<Type*> args = { new(types.typespace) Type*[1], 1 };
+        args[0] = base;
+        Type* ft = types.def<FunType>(args, I64);
+        base->env->def(syms.intern("u64"), e_fun(ft, nullptr));
+        add_method(syms.intern("u64"), base, base->env);
+    };
+
+    def_u16(I8);
+    def_u32(I8);
+    def_u64(I8);
+    def_u32(I16);
+    def_u64(I16);
+    def_u64(I32);
 }
 
 void EnvContext::add_method(i32 name, Type* type, Env* env) {

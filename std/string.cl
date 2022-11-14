@@ -4,6 +4,11 @@ module noalloc:
         const TWO: 0b11000000
         const THREE: 0b11100000
         const FOUR: 0b11110000
+
+        const INNER_MASK: 0b00111111
+        const TWO_MASK: 0b00011111
+        const THREE_MASK: 0b00001111
+        const FOUR_MASK: 0b00000111
         
         const ONE_MAX: 0x7f
         const TWO_MAX: 0x7ff
@@ -13,16 +18,16 @@ module noalloc:
         int length(i8[] bytes):
             var idx: 0, numChars: 0
             while idx < |bytes|:
-                var front: bytes[idx]
+                var front: bytes[idx].u16()
                 if front < INNER:
                     idx ++
                     numChars ++
-                else if front < TWO:
+                else if front < THREE:
                     if idx + 1 >= |bytes|:
                         break
                     idx += 2
                     numChars ++
-                else if front < THREE:
+                else if front < FOUR:
                     if idx + 2 >= |bytes|:
                         break
                     idx += 3
@@ -51,30 +56,30 @@ module noalloc:
         DecodeResult decode(i8[] bytes, char[] out):
             var read: 0, decoded: 0
             while read < |bytes| and decoded < |out|:
-                var front: bytes[read]
+                var front: bytes[read].u16()
                 if front < INNER:
                     out[decoded ++] = char(front)
                     read ++
                 else if front < THREE:
                     if read + 1 >= |bytes|:
                         return DecodeResult.OutOfBounds(read)
-                    out[decoded ++] = char((front & ~TWO) << 6 
-                                           | bytes[read + 1] & ~INNER)
+                    out[decoded ++] = char((front & TWO_MASK) << 6 
+                                           | bytes[read + 1] & INNER_MASK)
                     read += 2
                 else if front < FOUR:
                     if read + 2 >= |bytes|:
                         return DecodeResult.OutOfBounds(read)
-                    out[decoded ++] = char((front & ~THREE) << 12 
-                                           | (bytes[read + 1] & ~INNER) << 6 
-                                           | bytes[read + 2] & ~INNER)
+                    out[decoded ++] = char((front & THREE_MASK) << 12 
+                                           | (bytes[read + 1] & INNER_MASK) << 6 
+                                           | bytes[read + 2] & INNER_MASK)
                     read += 3
                 else:
                     if read + 3 >= |bytes|:
                         return DecodeResult.OutOfBounds(read)
-                    out[decoded ++] = char((front & ~FOUR) << 18 
-                                           | (bytes[read + 1] & ~INNER) << 12 
-                                           | (bytes[read + 2] & ~INNER) << 6 
-                                           | bytes[read + 3] & ~INNER)
+                    out[decoded ++] = char((front & FOUR_MASK) << 18 
+                                           | (bytes[read + 1] & INNER_MASK) << 12 
+                                           | (bytes[read + 2] & INNER_MASK) << 6 
+                                           | bytes[read + 3] & INNER_MASK)
                     read += 4
             return DecodeResult.Chars(out[:decoded], read)
 
@@ -88,23 +93,23 @@ module noalloc:
                 else if i32(front) < TWO_MAX:
                     if encoded + 1 >= |out|:
                         break
-                    out[encoded ++] = i8(i32(front) >> 6 & ~TWO | TWO)
-                    out[encoded ++] = i8(i32(front) & ~INNER | INNER)
+                    out[encoded ++] = i8(i32(front) >> 6 & TWO_MASK | TWO)
+                    out[encoded ++] = i8(i32(front) & INNER_MASK | INNER)
                     read ++
                 else if i32(front) < THREE_MAX:
                     if encoded + 2 >= |out|:
                         break
-                    out[encoded ++] = i8(i32(front) >> 12 & ~THREE | THREE)
-                    out[encoded ++] = i8(i32(front) >> 6 & ~INNER | INNER)
-                    out[encoded ++] = i8(i32(front) & ~INNER | INNER)
+                    out[encoded ++] = i8(i32(front) >> 12 & THREE_MASK | THREE)
+                    out[encoded ++] = i8(i32(front) >> 6 & INNER_MASK | INNER)
+                    out[encoded ++] = i8(i32(front) & INNER_MASK | INNER)
                     read ++
                 else if i32(front) < THREE_MAX:
                     if encoded + 3 >= |out|:
                         break
-                    out[encoded ++] = i8(i32(front) >> 18 & ~FOUR | FOUR)
-                    out[encoded ++] = i8(i32(front) >> 12 & ~INNER | INNER)
-                    out[encoded ++] = i8(i32(front) >> 6 & ~INNER | INNER)
-                    out[encoded ++] = i8(i32(front) & ~INNER | INNER)
+                    out[encoded ++] = i8(i32(front) >> 18 & FOUR_MASK | FOUR)
+                    out[encoded ++] = i8(i32(front) >> 12 & INNER_MASK | INNER)
+                    out[encoded ++] = i8(i32(front) >> 6 & INNER_MASK | INNER)
+                    out[encoded ++] = i8(i32(front) & INNER_MASK | INNER)
                     read ++
                 else:
                     return EncodeResult.InvalidEncoding(read)
@@ -118,22 +123,22 @@ module noalloc:
         
         char read():
             var bytes: i8[](str)
-            if bytes[0] < utf8.INNER:
+            if bytes[0].u16() < utf8.INNER:
                 char(bytes[0])
-            else if bytes[0] < utf8.THREE:
-                char((bytes[0] & utf8.TWO) << 6 | bytes[1] & utf8.INNER)
-            else if bytes[0] < utf8.FOUR:
-                char((bytes[0] & ~utf8.THREE) << 12 | (bytes[1] & ~utf8.TWO) << 6 | bytes[2] & ~utf8.INNER)
+            else if bytes[0].u16() < utf8.THREE:
+                char((bytes[0] & utf8.TWO_MASK) << 6 | bytes[1] & utf8.INNER_MASK)
+            else if bytes[0].u16() < utf8.FOUR:
+                char((bytes[0] & utf8.THREE_MASK) << 12 | (bytes[1] & utf8.INNER_MASK) << 6 | bytes[2] & utf8.INNER_MASK)
             else:
-                char(bytes[0] & utf8.FOUR << 18 | (bytes[1] & utf8.THREE) << 12 | (bytes[2] & utf8.TWO) << 6 | bytes[3] & utf8.INNER)
+                char((bytes[0] & utf8.FOUR_MASK) << 18 | (bytes[1] & utf8.INNER_MASK) << 12 | (bytes[2] & utf8.INNER_MASK) << 6 | bytes[3] & utf8.INNER_MASK)
 
         StringIterator next():
             var bytes: i8[](str)
-            if bytes[0] < utf8.INNER:
+            if bytes[0].u16() < utf8.INNER:
                 StringIterator(string(bytes[1:]))
-            else if bytes[0] < utf8.THREE:
+            else if bytes[0].u16() < utf8.THREE:
                 StringIterator(string(bytes[2:]))
-            else if bytes[0] < utf8.FOUR:
+            else if bytes[0].u16() < utf8.FOUR:
                 StringIterator(string(bytes[3:]))
             else:
                 StringIterator(string(bytes[4:]))
@@ -147,7 +152,7 @@ module noalloc:
     char string.last():
         var idx: |this| - 1
         var bytes: i8[](this)
-        while bytes[idx] >= utf8.INNER and bytes[idx] < utf8.TWO and idx >= 0:
+        while bytes[idx].u16() >= utf8.INNER and bytes[idx].u16() < utf8.TWO and idx >= 0:
             idx --
         string(bytes[idx:]).first()
 
@@ -170,9 +175,11 @@ module noalloc:
         string read(): prev
                 
         StringSplitter next():
+            if |seq| == 0:
+                return StringSplitter(src, "", seq)
             var srcIterOriginal: src.iter()
             var srcIter: srcIterOriginal, seqIter: seq.iter()
-            while not srcIter.empty():
+            until srcIter.empty():
                 if srcIter.read() == seqIter.read():
                     seqIter = seqIter.next()
                     if seqIter.empty():
@@ -200,16 +207,18 @@ module noalloc:
         int read(): prev
                 
         StringFinder next():
+            if |seq| == 0:
+                return StringFinder(src, seq, 0)
             var srcIter: src.iter(), seqIter: seq.iter()
             var idx: 0
-            while not srcIter.empty():
+            if prev != -1:
+                idx = prev + seq.length()
+            until srcIter.empty():
                 idx ++
                 if srcIter.read() == seqIter.read():
                     seqIter = seqIter.next()
                     if seqIter.empty():
-                        if prev != -1:
-                            idx += prev
-                        return StringFinder(srcIter.str, seq, idx - seq.length())
+                        return StringFinder(srcIter.next().str, seq, idx - seq.length())
                 else:
                     seqIter = seq.iter()
                 srcIter = srcIter.next()
@@ -238,33 +247,42 @@ string string.append(string s):
     return string(buf)
 
 string string.repeat(int times):
+    if times == 1:
+        return this
     var len: |this| * times
+    if len == 0:
+        return ""
     var buf: new i8(0)[len]
     var loop: 0
     var idx: 0
     while loop < times:
         for c in i8[](this):
             buf[idx ++] = c
+        loop ++
     return string(buf)
 
 string T?.join(string joiner):
     var len: 0
+    var loop: 0
     for s in this:
-        if len > 0:
+        if loop > 0:
             len += |joiner|
         len += |s|
+        loop ++
     var buf: new i8(0)[len]
     var idx: 0
+    loop = 0
     for s in this:
-        if idx > 0:
+        if loop > 0:
             for c in i8[](joiner):
                 buf[idx ++] = c
         for c in i8[](s):
             buf[idx ++] = c
+        loop ++
     return string(buf)
 
 string string.replace(string old, string replacement):
     this.split(old).join(replacement)
 
 string string.remove(string toRemove):
-    this.split(toRemove).join("")
+    this.replace(toRemove, "")

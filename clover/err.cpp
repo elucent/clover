@@ -1,6 +1,7 @@
 #include "clover/err.h"
 #include "clover/lex.h"
 #include "clover/ast.h"
+#include "clover/type.h"
 
 ErrorKind err_kind = NO_CLOVER_ERROR;
 
@@ -123,6 +124,7 @@ enum ErrorType : i8 {
     ERR_SIZEOF_NON_CONCRETE,        // Tried to take size of non-concrete type.
     ERR_INFERENCE_FAILURE,          // Couldn't infer valid type.
     ERR_NO_HIGH_IN_PTR_SLICE,       // Missing upper bound in pointer slice.
+    ERR_TAUTOLOGICAL_COMPARE,       // Comparison is always true/false.
 
     ERR_CIRCULAR_DEPENDENCIES,      // A cycle was detected in the program's dependency graph.
 };
@@ -337,6 +339,7 @@ struct Error {
         struct SizeofNonConcrete { CODE = ERR_SIZEOF_NON_CONCRETE; AST* ast; Type* type; } sizeof_non_concrete;
         struct InferenceFailure { CODE = ERR_INFERENCE_FAILURE; AST* ast; } inference_failure;
         struct NoHighInPtrSlice { CODE = ERR_NO_HIGH_IN_PTR_SLICE; AST* ast; Type* type; } no_high_in_ptr_slice;
+        struct TautologicalCompare { CODE = ERR_TAUTOLOGICAL_COMPARE; Binary* ast; AST* smaller; Type* larger; bool result; } tautological_compare;
         
         ErrorData(ReturnOutsideFun e): return_outside_fun(e) {}
         ErrorData(InvalidWithEnv e): invalid_with_env(e) {}
@@ -373,6 +376,7 @@ struct Error {
         ErrorData(SizeofNonConcrete e): sizeof_non_concrete(e) {}
         ErrorData(InferenceFailure e): inference_failure(e) {}
         ErrorData(NoHighInPtrSlice e): no_high_in_ptr_slice(e) {}
+        ErrorData(TautologicalCompare e): tautological_compare(e) {}
     } data;
 };
 
@@ -976,6 +980,11 @@ void inference_failure_error(Module* mod, AST* ast) {
 void no_high_in_ptr_slice_error(Module* mod, AST* ast, Type* type) {
     type_error();
     push_error<Error::ErrorData::NoHighInPtrSlice>(mod, ast, type);
+}
+
+void tautological_compare_error(Module* mod, Binary* ast, AST* smaller, Type* larger, bool result) {
+    type_error();
+    push_error<Error::ErrorData::TautologicalCompare>(mod, ast, smaller, larger, result);
 }
 
 static const i8* RED = "\e[0;91m";
@@ -1725,6 +1734,17 @@ void print_error(stream& io, bool verbose, const Error& e) {
         print_loc(mod, io, e.data.no_high_in_ptr_slice.ast);
         write(io, RED, "Error", RESET, ": Missing upper bound taking slice of pointer type '", TP(e.data.no_high_in_ptr_slice.type), "'.\n");
         print_line(mod, io, e.data.no_high_in_ptr_slice.ast);
+        break;
+    case ERR_TAUTOLOGICAL_COMPARE:
+        print_loc(mod, io, e.data.tautological_compare.ast);
+        write(io, RED, "Error", RESET, ": Comparison between '", AP(e.data.tautological_compare.ast->left), "' and '", AP(e.data.tautological_compare.ast->right), "' is always ", e.data.tautological_compare.result ? "true" : "false", ".\n");
+        print_line(mod, io, e.data.no_high_in_ptr_slice.ast);
+        if (e.data.tautological_compare.larger->kind == T_NUMERIC) {
+            print_loc(mod, io, e.data.tautological_compare.smaller);
+            i32 size = ((NumericType*)e.data.tautological_compare.larger)->bytes * 8;
+            write(io, PURPLE, "Note", RESET, ": Consider 'u", size, '(', AP(e.data.tautological_compare.smaller), ")' to compare against the unsigned value.\n");
+            print_line(mod, io, e.data.tautological_compare.smaller, PURPLE);
+        }
         break;
     default:
         unreachable("Unknown error kind.");

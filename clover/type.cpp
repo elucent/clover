@@ -233,9 +233,11 @@ void format(stream& io, Module* mod, Type* type) {
         case T_VAR:
             if (((VarType*)type)->nick != -1) write(io, mod->interner->str(((VarType*)type)->nick), '?');
             else write(io, ((VarType*)type)->id, '?');
-            // write(io, '(');
-            // format(io, mod, *((VarType*)type)->binding);
-            // write(io, ')');
+            if (*((VarType*)type)->binding != VOID) {
+                write(io, '(');
+                format(io, mod, *((VarType*)type)->binding);
+                write(io, ')');
+            }
             break;
         case T_ANY: write(io, "any?"); break;
         case T_ANY_NUMERIC: write(io, "numeric?"); break;
