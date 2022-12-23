@@ -1,6 +1,8 @@
 #include "jasmine/data.h"
 #include "jasmine/obj.h"
 
+MODULE(jasmine)
+
 u32 DVal::size(TypeTable* tab, typeidx t) const {
     if (t < 0) switch (i8(t)) {
         case T_I8: 
@@ -69,7 +71,7 @@ u32 DVal::size(TypeTable* tab, typeidx t) const {
     }
 }
 
-void DVal::write(TypeTable* tab, typeidx t, bytebuf<arena>& buf) const {
+void DVal::write(TypeTable* tab, typeidx t, bytebuf<>& buf) const {
     u32 prev = buf.size();
     if (t < 0) switch (i8(t)) {
         case T_I8: return buf.writeLEB(int8);
@@ -119,7 +121,7 @@ void DVal::write(TypeTable* tab, typeidx t, bytebuf<arena>& buf) const {
     else unreachable("Functions are not permitted in the data/static sections.");
 }
 
-void DVal::read(TypeTable* tab, typeidx t, bytebuf<arena>& buf) {
+void DVal::read(TypeTable* tab, typeidx t, bytebuf<>& buf) {
     u32 prev = buf.size();
     if (t < 0) switch (i8(t)) {
         case T_I8: int8 = buf.readLEB(); return;
@@ -143,37 +145,37 @@ void DVal::read(TypeTable* tab, typeidx t, bytebuf<arena>& buf) {
     const Type& type = tab->types[t];
     if (type.kind == TK_ARR) {
         if (type.elt < 0) switch (i8(type.elt)) {
-            case T_I8: arr_i8 = {new (tab->obj->modspace) i8[type.nelts], (iptr)type.nelts}; for (auto& int8 : arr_i8) int8 = buf.readLEB(); return;
-            case T_I16: arr_i16 = {new (tab->obj->modspace) i16[type.nelts], (iptr)type.nelts}; for (auto& int16 : arr_i16) int16 = buf.readLEB(); return;
-            case T_I32: arr_i32 = {new (tab->obj->modspace) i32[type.nelts], (iptr)type.nelts}; for (auto& int32 : arr_i32) int32 = buf.readLEB(); return;
-            case T_I64: arr_i64 = {new (tab->obj->modspace) i64[type.nelts], (iptr)type.nelts}; for (auto& int64 : arr_i64) int64 = buf.readLEB(); return;
-            case T_IWORD: arr_iword = {new (tab->obj->modspace) iword[type.nelts], (iptr)type.nelts}; for (auto& iw : arr_iword) iw = buf.readLEB(); return;
-            case T_PTR: arr_ptr = {new (tab->obj->modspace) iptr[type.nelts], (iptr)type.nelts}; for (auto& ptr : arr_ptr) ptr = buf.readULEB(); return;
-            case T_F32: arr_f32 = {new (tab->obj->modspace) float[type.nelts], (iptr)type.nelts}; for (auto& f32 : arr_f32) f32 = buf.readLE<float>(); return;
-            case T_F64: arr_f64 = {new (tab->obj->modspace) double[type.nelts], (iptr)type.nelts}; for (auto& f64 : arr_f64) f64 = buf.readLE<double>(); return;
-            case T_U8: arr_u8 = {new (tab->obj->modspace) u8[type.nelts], (iptr)type.nelts}; for (auto& uint8 : arr_u8) uint8 = buf.readULEB(); return;
-            case T_U16: arr_u16 = {new (tab->obj->modspace) u16[type.nelts], (iptr)type.nelts}; for (auto& uint16 : arr_u16) uint16 = buf.readULEB(); return;
-            case T_U32: arr_u32 = {new (tab->obj->modspace) u32[type.nelts], (iptr)type.nelts}; for (auto& uint32 : arr_u32) uint32 = buf.readULEB(); return;
-            case T_U64: arr_u64 = {new (tab->obj->modspace) u64[type.nelts], (iptr)type.nelts}; for (auto& uint64 : arr_u64) uint64 = buf.readULEB(); return;
-            case T_UWORD: arr_uword = {new (tab->obj->modspace) uword[type.nelts], (iptr)type.nelts}; for (auto& uw : arr_uword) uw = buf.readULEB(); return;
-            case T_REF: arr_ref = {new (tab->obj->modspace) iptr[type.nelts], (iptr)type.nelts}; for (auto& ref : arr_ref) ref = buf.readULEB(); return;
+            case T_I8: arr_i8 = {new i8[type.nelts], (iptr)type.nelts}; for (auto& int8 : arr_i8) int8 = buf.readLEB(); return;
+            case T_I16: arr_i16 = {new i16[type.nelts], (iptr)type.nelts}; for (auto& int16 : arr_i16) int16 = buf.readLEB(); return;
+            case T_I32: arr_i32 = {new i32[type.nelts], (iptr)type.nelts}; for (auto& int32 : arr_i32) int32 = buf.readLEB(); return;
+            case T_I64: arr_i64 = {new i64[type.nelts], (iptr)type.nelts}; for (auto& int64 : arr_i64) int64 = buf.readLEB(); return;
+            case T_IWORD: arr_iword = {new iword[type.nelts], (iptr)type.nelts}; for (auto& iw : arr_iword) iw = buf.readLEB(); return;
+            case T_PTR: arr_ptr = {new iptr[type.nelts], (iptr)type.nelts}; for (auto& ptr : arr_ptr) ptr = buf.readULEB(); return;
+            case T_F32: arr_f32 = {new float[type.nelts], (iptr)type.nelts}; for (auto& f32 : arr_f32) f32 = buf.readLE<float>(); return;
+            case T_F64: arr_f64 = {new double[type.nelts], (iptr)type.nelts}; for (auto& f64 : arr_f64) f64 = buf.readLE<double>(); return;
+            case T_U8: arr_u8 = {new u8[type.nelts], (iptr)type.nelts}; for (auto& uint8 : arr_u8) uint8 = buf.readULEB(); return;
+            case T_U16: arr_u16 = {new u16[type.nelts], (iptr)type.nelts}; for (auto& uint16 : arr_u16) uint16 = buf.readULEB(); return;
+            case T_U32: arr_u32 = {new u32[type.nelts], (iptr)type.nelts}; for (auto& uint32 : arr_u32) uint32 = buf.readULEB(); return;
+            case T_U64: arr_u64 = {new u64[type.nelts], (iptr)type.nelts}; for (auto& uint64 : arr_u64) uint64 = buf.readULEB(); return;
+            case T_UWORD: arr_uword = {new uword[type.nelts], (iptr)type.nelts}; for (auto& uw : arr_uword) uw = buf.readULEB(); return;
+            case T_REF: arr_ref = {new iptr[type.nelts], (iptr)type.nelts}; for (auto& ref : arr_ref) ref = buf.readULEB(); return;
             case T_VOID:
                 unreachable("Invalid data type.");
                 return;
         }
         else {
-            fields = {new (tab->obj->modspace) DVal[type.nelts], (iptr)type.nelts};
+            fields = {new DVal[type.nelts], (iptr)type.nelts};
             for (DVal& d : fields) d.read(tab, type.elt, buf);
         }
     }
     else if (type.kind == TK_TUP) {
-        fields = {new (tab->obj->modspace) DVal[type.len], (iptr)type.len};
+        fields = {new DVal[type.len], (iptr)type.len};
         for (u32 i = 0; i < type.len; i ++) fields[i].read(tab, type.members[i], buf);
     }
     else unreachable("Functions are not permitted in the data/static sections.");
 }
 
-void DVal::format(stream &io, TypeTable* tab, typeidx t) const {
+void DVal::format(fd io, TypeTable* tab, typeidx t) const {
     if (t < 0) switch (i8(t)) {
         case T_I8: return ::write(io, int8);
         case T_I16: return ::write(io, int16);
@@ -254,9 +256,7 @@ void DVal::format(stream &io, TypeTable* tab, typeidx t) const {
     else unreachable("Functions are not permitted in the data/static sections.");
 }
 
-GlobalTable::GlobalTable(JasmineModule* obj_in): obj(obj_in) {
-    entries.alloc = &obj->modspace;
-}
+GlobalTable::GlobalTable(JasmineModule* obj_in): obj(obj_in) {}
 
 void GlobalTable::def(const GlobalEntry& e) {
     entries.push(e);
@@ -271,7 +271,7 @@ DataTable::DataTable(JasmineModule* obj_in): GlobalTable(obj_in) {}
 
 StaticTable::StaticTable(JasmineModule* obj_in): GlobalTable(obj_in) {}
 
-void GlobalTable::write(bytebuf<arena>& buf) const {
+void GlobalTable::write(bytebuf<>& buf) const {
     buf.writeULEB(entries.size());
     for (const auto& e : entries) {
         buf.writeLEB(e.name);
@@ -280,7 +280,7 @@ void GlobalTable::write(bytebuf<arena>& buf) const {
     }
 }
 
-void GlobalTable::read(bytebuf<arena>& buf) {
+void GlobalTable::read(bytebuf<>& buf) {
     u32 prev = buf.size();
     u32 nentries = buf.readULEB();
     for (u32 i = 0; i < nentries; i ++) {
@@ -292,7 +292,7 @@ void GlobalTable::read(bytebuf<arena>& buf) {
     }
 }
 
-void DataTable::format(stream& io) const {
+void DataTable::format(fd io) const {
     ::write(io, " === Data Table ===\n");
     u32 i = 0;
     for (const auto& entry : entries) {
@@ -307,7 +307,7 @@ void DataTable::format(stream& io) const {
     ::write(io, '\n');
 }
 
-void StaticTable::format(stream& io) const {
+void StaticTable::format(fd io) const {
     ::write(io, " === Static Table ===\n");
     u32 i = 0;
     for (const auto& entry : entries) {
@@ -321,3 +321,5 @@ void StaticTable::format(stream& io) const {
     }
     ::write(io, '\n');
 }
+
+ENDMODULE()

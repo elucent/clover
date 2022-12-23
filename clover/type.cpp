@@ -71,7 +71,7 @@ void SliceType::init_env(TypeContext* typectx) {
     slice_name[tname.n + 1] = '_';
     slice_name[tname.n + 2] = 'S';
     env = typectx->envctx->create(ENV_TYPE, tenv->parent, typectx->interner->intern({ slice_name, tname.n + 3 }));
-    slice<Type*> args = {(Type**)typectx->typespace.alloc(sizeof(Type*) * 1), 1};
+    slice<Type*> args = {(Type**)typectx->typespace.alloc(sizeof(Type*)), 1};
     args[0] = this;
     typectx->envctx->add_method(typectx->interner->intern("iter"), this, env);
     typectx->envctx->add_method(typectx->interner->intern("empty"), this, env);
@@ -191,7 +191,7 @@ bool operator==(const Type& a, const Type& b) {
     }
 }
 
-void format(stream& io, Module* mod, Type* type) {
+void format(fd io, Module* mod, Type* type) {
     if (!type) return write(io, "<null type!>");
     bool first = true;
     switch (type->kind) {

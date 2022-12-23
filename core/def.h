@@ -39,4 +39,25 @@ typedef u64 uword;
 #define LIBCORE_WASM
 #endif
 
+#if defined(__clang__) || defined(__GCC__)
+#ifdef __wasm__
+#define ASM_LABEL(name) __attribute__((export_name(name)))
+#else
+#define ASM_LABEL(name) asm(name)
+#endif
+
+#define NO_INLINE __attribute__((noinline))
+#define ALWAYS_INLINE __attribute__((always_inline))
+#else
+#define ASM_LABEL(name)
+#define NO_INLINE
+#define ALWAYS_INLINE inline
+#endif
+
+#define STRINGIFY(x) #x
+#define TOSTRING(x) STRINGIFY(x)
+
+#define MODULE(x) namespace x {
+#define ENDMODULE() }
+
 #endif

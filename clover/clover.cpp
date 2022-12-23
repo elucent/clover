@@ -8,6 +8,7 @@
 #include "core/sys.h"
 #include "core/util.h"
 #include "lib/io.h"
+#include "jasmine/obj.h"
 
 #define CLOVER_VERSION_MAJOR 0
 #define CLOVER_VERSION_MINOR 1
@@ -41,7 +42,7 @@ enum CompilerFamily {
 };
 
 enum CompilerBackend {
-    C_BACKEND
+    C_BACKEND, JASMINE_BACKEND
 };
 
 enum CompilerProduct {
@@ -72,6 +73,37 @@ void Module::add_top_typedecl(AST* ast, Env* env) {
     }
 }
 
+void c_backend(Module* mod, const_slice<i8> basename) {
+    i8* cdest = (i8*)mod->envctx->envspace.alloc(basename.n + 3);
+    i8* hdest = (i8*)mod->envctx->envspace.alloc(basename.n + 3);
+    mcpy(cdest, basename.ptr, basename.n + 1);
+    mcpy(hdest, basename.ptr, basename.n + 1);
+    cdest[basename.n + 1] = 'c';
+    hdest[basename.n + 1] = 'h';
+    cdest[basename.n + 2] = hdest[basename.n + 2] = '\0';
+    fd cout = file_open({cdest, basename.n + 3}, FP_WRITE);
+    fd hout = file_open({hdest, basename.n + 3}, FP_WRITE);
+    mod->hpath = hdest;
+    mod->cpath = cdest;
+
+    CContext cctx(hout, cout, mod);
+    emit_c_prelude(mod, mod->parser->program->env, cctx, cdest, hdest);
+    emit_c_types(mod, mod->parser->program->env, cctx);
+    emit_c(mod, mod->parser->program->env, mod->parser->program, cctx);
+
+    file_close(cout);
+    file_close(hout);
+}
+
+void jasmine_backend(Module* mod) {
+    JasmineGenContext ctx{mod, new jasmine::JasmineModule(jasmine::Version(0, 0, 1), mod->interner->str(mod->basename)), {}};
+    emit_jasmine_types(mod, mod->parser->program->env, ctx);
+    emit_jasmine_prelude(mod, mod->parser->program->env, ctx);
+    emit_jasmine(mod, mod->parser->program->env, mod->parser->program, ctx);
+
+    ctx.mod->dumpDOT(file_stdout);
+}
+
 Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx, EnvContext* envctx, const_slice<i8> path) {
     i64 pathlen = path.n;
     i64 dotidx = -1;
@@ -94,7 +126,7 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     mod->cnew_types.alloc = &typectx->typespace;
     mod->deps.alloc = &clover->module_space;
 
-    iptr time = nanotime();
+    iptr time = time_nanos();
 
     mod->bytes = read_bytes(path.ptr);
     if (!mod->bytes.text) fatal("Couldn't open source file.");
@@ -118,14 +150,14 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
 
     if (show_lex) print("\nLexed tokens:\n\n");
     while (ubuf.byteidx < mod->bytes.length) { // while there are still bytes to read
-        timer = nanotime();
+        timer = time_nanos();
         advance_decoder(ubuf, mod);
-        decns += nanotime() - timer, timer = nanotime();
+        decns += time_nanos() - timer, timer = time_nanos();
 
         if (!get_error() || get_error() == LEX_ERROR) {
             advance_lexer(mod, ubuf);
             advance_interner(mod);
-            lexns += nanotime() - timer, timer = nanotime();
+            lexns += time_nanos() - timer, timer = time_nanos();
 
             if (show_lex) {
                 for (i64 i = mod->lexer->tokens.start; i != mod->lexer->tokens.end; i = (i + 1) & 16383) {
@@ -137,7 +169,7 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
 
         if (!get_error() || get_error() == PARSE_ERROR) {
             advance_parser(mod);
-            parsens += nanotime() - timer, timer = nanotime();
+            parsens += time_nanos() - timer, timer = time_nanos();
         }
         cycles ++;
     }
@@ -148,85 +180,71 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     mod->lexer->tokens.push(eof);
     
     if (!get_error() || get_error() == PARSE_ERROR) advance_parser(mod);
-    if (get_error()) return print_errors(stderr, verbose), nullptr; // Decoder, lexer, parser error.
+    if (get_error()) return print_errors(io_stderr, verbose), nullptr; // Decoder, lexer, parser error.
 
     {
         bindlocal<arena> astspace(&mod->parser->astspace);
         for (AST* ast : mod->parser->nodes) mod->parser->program->toplevel.push((Statement*)ast);
         if (show_ast) {
             print("\nParsed nodes:\n\n");
-            format(stdout, mod, mod->parser->program);
+            format(io_stdout, mod, mod->parser->program);
         }
     }
 
-    timer = nanotime();
+    timer = time_nanos();
     compute_envs(mod, mod->envctx->root, mod->parser->program);
-    envns = nanotime() - timer, timer = nanotime();
+    envns = time_nanos() - timer, timer = time_nanos();
 
-    if (get_error()) return print_errors(stderr, verbose), nullptr; // Typechecker env error.
+    if (get_error()) return print_errors(io_stderr, verbose), nullptr; // Typechecker env error.
 
     if (show_envs) {
         print("\nEnv tree:\n\n");
-        mod->envctx->root->format(stdout, mod, 0);
-        format(stdout, mod, mod->parser->program);
+        mod->envctx->root->format(io_stdout, mod, 0);
+        format(io_stdout, mod, mod->parser->program);
     }
 
-    timer = nanotime();
+    timer = time_nanos();
     detect_types(mod, mod->envctx->root, mod->parser->program);
-    typns = nanotime() - timer, timer = nanotime();
-    if (get_error()) return print_errors(stderr, verbose), nullptr; // Typechecker decl error.
+    typns = time_nanos() - timer, timer = time_nanos();
+    if (get_error()) return print_errors(io_stderr, verbose), nullptr; // Typechecker decl error.
     
     if (show_types) {
         print("\nDetected types:\n\n");
-        format(stdout, mod, mod->parser->program);
+        format(io_stdout, mod, mod->parser->program);
     }
 
-    timer = nanotime();
+    timer = time_nanos();
     infer(mod, mod->envctx->root, mod->parser->program);
 
-    if (get_error()) return print_errors(stderr, verbose), nullptr; // Typechecker checking error.
+    if (get_error()) return print_errors(io_stderr, verbose), nullptr; // Typechecker checking error.
     
     if (show_types) {
         print("\nInferred types:\n\n");
         for (AST* ast : mod->parser->program->toplevel) {
-            format(stdout, mod, ast);
-            write(stdout, "\n");
+            format(io_stdout, mod, ast);
+            write(io_stdout, "\n");
         }
         print("\n\n");
     }
 
     typecheck(mod, mod->envctx->root, mod->parser->program);
-    chkns = nanotime() - timer, timer = nanotime();
+    chkns = time_nanos() - timer, timer = time_nanos();
 
-    if (get_error()) return print_errors(stderr, verbose), nullptr; // Typechecker checking error.
+    if (get_error()) return print_errors(io_stderr, verbose), nullptr; // Typechecker checking error.
     
     if (show_types) {
         print("\nChecked types:\n\n");
         for (AST* ast : mod->parser->program->toplevel) {
-            format(stdout, mod, ast);
-            write(stdout, "\n");
+            format(io_stdout, mod, ast);
+            write(io_stdout, "\n");
         }
         print("\n\n");
     }
 
-    i8* cdest = (i8*)mod->envctx->envspace.alloc(dotidx + 3);
-    i8* hdest = (i8*)mod->envctx->envspace.alloc(dotidx + 3);
-    mcpy(cdest, path.ptr, dotidx + 1);
-    mcpy(hdest, path.ptr, dotidx + 1);
-    cdest[dotidx + 1] = 'c';
-    hdest[dotidx + 1] = 'h';
-    cdest[dotidx + 2] = hdest[dotidx + 2] = '\0';
-    stream* cout = open(cdest, FP_WRITE);
-    stream* hout = open(hdest, FP_WRITE);
-    mod->hpath = hdest;
-    mod->cpath = cdest;
-
-    timer = nanotime();
-    CContext cctx(*hout, *cout, mod);
-    emit_c_prelude(mod, mod->parser->program->env, cctx, cdest, hdest);
-    emit_c_types(mod, mod->parser->program->env, cctx);
-    emit_c(mod, mod->parser->program->env, mod->parser->program, cctx);
-    emitns = nanotime() - timer, timer = nanotime();
+    timer = time_nanos();
+    // c_backend(mod, {path.ptr, dotidx});
+    jasmine_backend(mod);
+    emitns = time_nanos() - timer, timer = time_nanos();
 
     double total = decns + lexns + parsens + envns + typns + chkns + emitns;
     // print("decoding took ", decns / 1000000.0, " ms, avg ", (double)decns / cycles / UNICODE_BUFSIZE, " ns per char, ", decns / total * 100, " % total\n");
@@ -237,9 +255,6 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     // print("type checking took ", chkns / 1000000.0, " ms, ", chkns / total * 100, " % total\n");
     // print("code generation took ", emitns / 1000000.0, " ms, ", emitns / total * 100, " % total\n");
     // print("total took ", total / 1000000.0, " ms\n");
-
-    close(cout);
-    close(hout);
 
     return mod;
 }
@@ -419,12 +434,12 @@ i32 clover_main(i32 argc, i8** argv) {
     clover.main = nullptr;
     compile_module(&clover, &interner, &typectx, &envctx, { module_path, cidx(module_path, '\0') });
 
-    if (!get_error()) {
-        allocator cmd_alloc;
-        vec<i8> cmdbuf;
-        cmdbuf.alloc = &cmd_alloc;
-        invoke_cc(clover, cc, cmdbuf);
-    }
+    // if (!get_error()) {
+    //     allocator cmd_alloc;
+    //     vec<i8> cmdbuf;
+    //     cmdbuf.alloc = &cmd_alloc;
+    //     invoke_cc(clover, cc, cmdbuf);
+    // }
 
     return get_error();
 }

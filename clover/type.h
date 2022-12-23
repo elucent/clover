@@ -65,6 +65,7 @@ enum TypeKind : i8 {
 
 struct Type {
     Env* env = nullptr;
+    void* codegen_data = nullptr;
     i32 mangled = -1, caseid = -1;
     TypeKind kind;
     bool referenced_by_name = false, ctor_called = false, gen_placement_new = false, is_case = false, is_prototype = false;
@@ -213,7 +214,7 @@ Type* unify(Type* a, Type* b);
 bool is_subtype(Type* src, Type* dest);
 bool is_subtype_generic(Type* src, Type* dest);
 i32 size(Type* type);
-void format(stream& io, Module* mod, Type* type);
+void format(fd io, Module* mod, Type* type);
 
 inline bool is_named(Type* type) {
     return type->kind >= T_NAMED;

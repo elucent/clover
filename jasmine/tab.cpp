@@ -1,15 +1,12 @@
 #include "jasmine/tab.h"
 #include "jasmine/obj.h"
 
-MetaTable::MetaTable(JasmineModule* obj_in, Version ver_in, u16 encoding_in, stridx modname_in):
-    obj(obj_in), ver(ver_in), encoding(encoding_in), modname(modname_in), entry(0) {
-    entries.alloc = &obj->modspace;
-}    
+MODULE(jasmine)
 
-StringTable::StringTable(JasmineModule* obj_in): obj(obj_in) {
-    strings.alloc = &obj->modspace;
-    strtab.alloc = &obj->modspace;
-}
+MetaTable::MetaTable(JasmineModule* obj_in, Version ver_in, u16 encoding_in, stridx modname_in):
+    obj(obj_in), ver(ver_in), encoding(encoding_in), modname(modname_in), entry(0) {}    
+
+StringTable::StringTable(JasmineModule* obj_in): obj(obj_in) {}
 
 u32 MetaTable::size() const {
     u32 acc = 16;
@@ -20,7 +17,7 @@ u32 MetaTable::size() const {
     return (acc + 7) / 8 * 8;
 }
 
-void MetaTable::write(bytebuf<arena>& buf) const {
+void MetaTable::write(bytebuf<>& buf) const {
     buf.write<u8>(ver.major);
     buf.write<u8>(ver.minor);
     buf.write<u8>(ver.patch);
@@ -38,7 +35,7 @@ void MetaTable::write(bytebuf<arena>& buf) const {
     }
 }
 
-void MetaTable::read(bytebuf<arena>& buf) {
+void MetaTable::read(bytebuf<>& buf) {
     ver = Version(buf.read<u8>(), buf.read<u8>(), buf.read<u8>());
     encoding = buf.read<u8>();
     modname = buf.readLEB();
@@ -55,7 +52,7 @@ void MetaTable::read(bytebuf<arena>& buf) {
     }
 }
 
-void MetaTable::format(stream& io) const {
+void MetaTable::format(fd io) const {
     ::write(io, " === Meta Table === \n");
     ::write(io, "  Version:     ", ver, '\n');
     ::write(io, "  Encoding:    ", (u16)encoding, '\n');
@@ -77,7 +74,7 @@ u32 StringTable::size() const {
     return (acc + 7) / 8 * 8;
 }
 
-void StringTable::write(bytebuf<arena>& buf) const {
+void StringTable::write(bytebuf<>& buf) const {
     buf.writeULEB(strings.size());
     for (const auto& s : strings) {
         buf.writeULEB(s.n);
@@ -86,7 +83,7 @@ void StringTable::write(bytebuf<arena>& buf) const {
     }
 }
 
-void StringTable::read(bytebuf<arena>& buf) {
+void StringTable::read(bytebuf<>& buf) {
     u32 nstrings = buf.readULEB();
     for (u32 e = 0; e < nstrings; e ++) {
         slice<i8> tmpstr = obj->makestr(buf.readULEB());
@@ -97,7 +94,7 @@ void StringTable::read(bytebuf<arena>& buf) {
     }
 }
 
-void StringTable::format(stream& io) const {
+void StringTable::format(fd io) const {
     ::write(io, " === String Table === \n");
     u32 i = 0;
     for (const_slice<i8> s : strings) {
@@ -107,3 +104,5 @@ void StringTable::format(stream& io) const {
     }
     ::write(io, '\n');
 }
+
+ENDMODULE()

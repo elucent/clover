@@ -47,9 +47,6 @@ extern "C" void panic(const i8* msg);
  */
 extern "C" iptr cidx(const i8* str, i8 val);
 
-#define STRINGIFY(x) #x
-#define TOSTRING(x) STRINGIFY(x)
-
 #ifndef NDEBUG
 #define assert(x) if (!(x)) panic("[ASSERT FAILED] " __FILE__ " line " TOSTRING(__LINE__) ": " #x)
 #define unreachable(x) panic("[UNREACHABLE] " __FILE__ " line " TOSTRING(__LINE__) ": " x)

@@ -3,6 +3,8 @@
 #include "clover/type.h"
 #include "clover/clover.h"
 #include "clover/err.h"
+#include "jasmine/insn.h"
+#include "jasmine/type.h"
 #include "lib/str.h"
 #include "lib/utf.h"
 #include "lib/math.h"
@@ -1193,13 +1195,13 @@ void advance_parser(Module* mod) {
 #define casematch(kind, type, name) case kind : { type name = (type)ast;
 #define endmatch break; }
 
-inline void write_unary(stream& io, Module* mod, Unary* node, const char* op, i32 depth) {
+inline void write_unary(fd io, Module* mod, Unary* node, const char* op, i32 depth) {
     write(io, '(', op, ' ');
     format(io, mod, node->child, depth);
     write(io, ')');
 }
 
-inline void write_binary(stream& io, Module* mod, Binary* node, const char* op, i32 depth) {
+inline void write_binary(fd io, Module* mod, Binary* node, const char* op, i32 depth) {
     write(io, '(', op, ' ');
     format(io, mod, node->left, depth);
     write(io, ' ');
@@ -1207,11 +1209,11 @@ inline void write_binary(stream& io, Module* mod, Binary* node, const char* op, 
     write(io, ')');
 }
 
-void indent_ast(stream& io, i32 depth) {
+void indent_ast(fd io, i32 depth) {
     while (depth --) write(io, "  ");
 }
 
-void format(stream& io, Module* mod, const AST* const& ast, i32 depth) {
+void format(fd io, Module* mod, const AST* const& ast, i32 depth) {
     if (!ast) return write(io, "<null expr!>");
     switch (ast->kind) {
     casematch(AST_PROGRAM, ASTProgram*, p)
@@ -1421,7 +1423,7 @@ void format(stream& io, Module* mod, const AST* const& ast, i32 depth) {
         for (const auto& e : d->insts) {
             write(io, '\n');
             indent_ast(io, depth);
-            format(stdout, mod, e.value, depth);
+            format(io, mod, e.value, depth);
         }
         endmatch
     casematch(AST_ARGS, List*, d) 
@@ -3853,8 +3855,8 @@ void infer(Module* mod, Env* env, AST* ast) {
             env = fenv;
             Entry* e = env->parent->lookup(env->name);
             if (!e || e->kind != E_FUN) {
-                print(mod->interner->str(env->name), '\n');
-                env->parent->format(stdout, mod, 0);
+                // print(mod->interner->str(env->name), '\n');
+                // env->parent->format(stdout, mod, 0);
                 unreachable("Could not find definition for enclosing function.");
             }
             Type* ret = mod->typectx->defvar(mod, env);
@@ -4837,12 +4839,12 @@ void emit_c_prelude(Module* mod, Env* env, CContext& ctx, const i8* cpath, const
     VOID->mangled = mod->interner->intern("void");
 }
 
-i32 env_fq_name(Module* mod, Env* env, CContext& ctx) {
+i32 env_c_fq_name(Module* mod, Env* env, CContext& ctx) {
     if (env->fqname != -1) return env->fqname;
     i32 size = 0;
     const_slice<i8> parent((i8*)nullptr, 1);
     if (env->parent && env->parent->kind != ENV_ROOT && (env->parent->kind != ENV_GLOBAL)) {
-        parent = mod->interner->str(env_fq_name(mod, env->parent, ctx));
+        parent = mod->interner->str(env_c_fq_name(mod, env->parent, ctx));
         size += parent.n;
         size += 2;
     } 
@@ -4862,12 +4864,12 @@ i32 env_fq_name(Module* mod, Env* env, CContext& ctx) {
     return env->fqname;
 }
 
-void write_sym(stream& io, Module* mod, i32 sym) {
+void write_sym(fd io, Module* mod, i32 sym) {
     const const_slice<i8>& str = mod->interner->str(sym);
     write(io, str);
 }
 
-inline void indent(stream& stream, int n) {
+inline void indent(fd stream, int n) {
     while (n > 0) write(stream, ' '), n --;
 }
 
@@ -4877,7 +4879,20 @@ i32 mangle_tvar(Module* mod, Type* type) {
     else return inner->mangled;
 }
 
-void emit_c_typename(stream& io, Module* mod, Type* type, CContext& ctx) {
+void toposort_dfs(Module* m, vec<Module*, 64, arena>& toposort) {
+    if (m->mark == MARK_PERM) return;
+    if (m->mark == MARK_TEMP) fatal("Circular dependencies detected.");
+
+    m->mark = MARK_TEMP;
+    for (Module* m : m->deps) toposort_dfs(m, toposort);
+
+    m->mark = MARK_PERM;
+    toposort.push(m);
+}
+
+// C Backend
+
+void emit_c_typename(fd io, Module* mod, Type* type, CContext& ctx) {
     type = simplify(type);
     if (type->kind == T_VAR) type->mangled = mangle_tvar(mod, type);
     if (type->mangled != -1) write_sym(io, mod, type->mangled);
@@ -4901,10 +4916,10 @@ void emit_c_strcmp(Module* mod, Env* env, AST* left, AST* right, CContext& ctx, 
     write(ctx.c, ')', op, ')');
 }
 
-void emit_fqsym(stream& io, Module* mod, Env* env, Symbol sym, CContext& ctx) {
+void emit_c_fqsym(fd io, Module* mod, Env* env, Symbol sym, CContext& ctx) {
     env = env->find(sym);
     if (env && env->kind != ENV_ROOT && env->kind != ENV_GLOBAL) {
-        i32 envname = env_fq_name(mod, env, ctx);
+        i32 envname = env_c_fq_name(mod, env, ctx);
         write_sym(io, mod, envname);
         write(io, "__");
     }
@@ -5000,7 +5015,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
 
             if (element != I8) { // Byte slices are defined in cclover.h
                 write(ctx.h, "__clover__slice_def(");
-                emit_fqsym(ctx.h, mod, type_env(element)->parent, type_env(element)->name, ctx);
+                emit_c_fqsym(ctx.h, mod, type_env(element)->parent, type_env(element)->name, ctx);
                 write(ctx.h, ", ");
                 emit_c_typename(ctx.h, mod, element, ctx);
                 write(ctx.h, ");\n");
@@ -5035,7 +5050,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             t->mangled = mod->interner->intern(const_slice<i8>{name, array_name_len});
 
             write(ctx.h, "__clover__array_def(");
-            emit_fqsym(ctx.h, mod, type_env(element)->parent, type_env(element)->name, ctx);
+            emit_c_fqsym(ctx.h, mod, type_env(element)->parent, type_env(element)->name, ctx);
             write(ctx.h, ", ");
             emit_c_typename(ctx.h, mod, element, ctx);
             write(ctx.h, ", ", ((ArrayType*)t)->size, ");\n");
@@ -5061,7 +5076,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             break;
         }
         case T_STRUCT: {
-            t->mangled = env_fq_name(mod, t->env, ctx);
+            t->mangled = env_c_fq_name(mod, t->env, ctx);
             indent(ctx.h, ctx.h_indent), write(ctx.h, "typedef struct ");
             write_sym(ctx.h, mod, t->mangled);
             write(ctx.h, ' ');
@@ -5103,7 +5118,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
                 if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.__tag = ", t->caseid, ";\n");
                 for (const auto& p : ((StructType*)t)->fields) {
                     indent(ctx.h, ctx.h_indent), write(ctx.h, "out.");
-                    emit_fqsym(ctx.h, mod, t->env, p.first, ctx);
+                    emit_c_fqsym(ctx.h, mod, t->env, p.first, ctx);
                     write(ctx.h, " = ");
                     write_sym(ctx.h, mod, p.first);
                     write(ctx.h, "_in;\n");
@@ -5118,7 +5133,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             vec<i32, 256, arena> cases;
             cases.alloc = &mod->typectx->typespace;
             i32 i = 0;
-            t->mangled = env_fq_name(mod, t->env, ctx);
+            t->mangled = env_c_fq_name(mod, t->env, ctx);
             indent(ctx.h, ctx.h_indent), write(ctx.h, "typedef struct ");
             write_sym(ctx.h, mod, t->mangled);
             write(ctx.h, ' ');
@@ -5133,11 +5148,11 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef enum {\n");
             ctx.h_indent += 4;
             for (i32 i : cases) 
-                indent(ctx.h, ctx.h_indent), emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "__tag,\n");
+                indent(ctx.h, ctx.h_indent), emit_c_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "__tag,\n");
             indent(ctx.h, ctx.h_indent), write_sym(ctx.h, mod, t->env->name), write(ctx.h, "__MAX_TAG = ", 0x7fffffff, '\n'); // Force size to int.
             ctx.h_indent -= 4;
             indent(ctx.h, ctx.h_indent); write(ctx.h, "} ");
-            write_sym(ctx.h, mod, env_fq_name(mod, t->env, ctx));
+            write_sym(ctx.h, mod, env_c_fq_name(mod, t->env, ctx));
             write(ctx.h, "__tag;\n");
             indent(ctx.h, ctx.h_indent); write(ctx.h, "typedef struct ");
             write_sym(ctx.h, mod, t->mangled), write(ctx.h, " {\n");
@@ -5146,11 +5161,11 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             indent(ctx.h, ctx.h_indent); write(ctx.h, "union {\n");
             ctx.h_indent += 4;
             indent(ctx.h, ctx.h_indent);
-            write_sym(ctx.h, mod, env_fq_name(mod, t->env, ctx));
+            write_sym(ctx.h, mod, env_c_fq_name(mod, t->env, ctx));
             write(ctx.h, "__tag __case;\n");
             for (i32 i : cases) {
-                indent(ctx.h, ctx.h_indent), emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, " ");
-                emit_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "__var;\n");
+                indent(ctx.h, ctx.h_indent), emit_c_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, " ");
+                emit_c_fqsym(ctx.h, mod, t->env, i, ctx), write(ctx.h, "__var;\n");
             } 
             ctx.h_indent -= 4;
             indent(ctx.h, ctx.h_indent); write(ctx.h, "};\n");
@@ -5185,7 +5200,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             break;
         }
         case T_NAMED: {
-            t->mangled = env_fq_name(mod, t->env, ctx);
+            t->mangled = env_c_fq_name(mod, t->env, ctx);
             indent(ctx.h, ctx.h_indent), write(ctx.h, "typedef struct ");
             write_sym(ctx.h, mod, t->mangled);
             write(ctx.h, ' ');
@@ -5201,7 +5216,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             indent(ctx.h, ctx.h_indent);
             emit_c_typename(ctx.h, mod, ((NamedType*)t)->inner, ctx);
             write(ctx.h, ' ');
-            emit_fqsym(ctx.h, mod, t->env, mod->interner->intern("this"), ctx);
+            emit_c_fqsym(ctx.h, mod, t->env, mod->interner->intern("this"), ctx);
             write(ctx.h, ";\n");
             ctx.h_indent -= 4;
 
@@ -5218,7 +5233,7 @@ void emit_c_typedef(Module* mod, Type* t, CContext& ctx) {
             ctx.h_indent += 4;
             indent(ctx.h, ctx.h_indent), emit_c_typename(ctx.h, mod, t, ctx), write(ctx.h, " out;\n");
             if (is_case) indent(ctx.h, ctx.h_indent), write(ctx.h, "out.__tag = ", t->caseid, ";\n");
-            indent(ctx.h, ctx.h_indent), write(ctx.h, "out."), emit_fqsym(ctx.h, mod, t->env, mod->interner->intern("this"), ctx);
+            indent(ctx.h, ctx.h_indent), write(ctx.h, "out."), emit_c_fqsym(ctx.h, mod, t->env, mod->interner->intern("this"), ctx);
             write(ctx.h, " = in;\n");
             indent(ctx.h, ctx.h_indent), write(ctx.h, "return out;\n");
             ctx.h_indent -= 4;
@@ -5301,12 +5316,8 @@ bool should_gen_type(Module* mod, Type* type) {
     }
 }
 
-void emit_c_types(Module* mod, Env* env, CContext& ctx) {
-    for (Module* dep : mod->deps) {
-        write(ctx.h, "#include \"", (const i8*)dep->hpath, "\"\n");
-    }
+map<TypeKey, Type*> concretify_types(Module* mod, Env* env) {
     map<TypeKey, Type*> concrete_types;
-    map<TypeKey, Type*> type_manglings;
     auto typemap_copy = mod->typectx->typemap;
     for (auto& entry : typemap_copy) {
         // print("considering adding "), format(stdout, mod, entry.value), println(" to concrete types");
@@ -5319,17 +5330,25 @@ void emit_c_types(Module* mod, Env* env, CContext& ctx) {
         auto it = concrete_types.find(t);
         if (concrete_types.find(t) == concrete_types.end()) {
             concrete_types.put(t, t); 
-            type_manglings.put(entry.value, t);
+            concrete_types.put(entry.value, t);
         }
-        else type_manglings.put(entry.value, it->value);
+        else concrete_types.put(entry.value, it->value);
         if (mod->cnew_types.find(entry.value) != mod->cnew_types.end()) {
             mod->cnew_types.erase(entry.value);
             mod->cnew_types.insert(t);
         }
     }
+    return concrete_types;
+}
+
+void emit_c_types(Module* mod, Env* env, CContext& ctx) {
+    for (Module* dep : mod->deps) {
+        write(ctx.h, "#include \"", (const i8*)dep->hpath, "\"\n");
+    }
+    map<TypeKey, Type*> concrete_types = concretify_types(mod, env);
+    map<TypeKey, Type*> type_manglings;
     for (auto& entry : concrete_types) if (entry.value->mangled == -1 && !entry.value->is_case && !is_prototype(entry.value)) 
         if (should_gen_type(mod, entry.value)) emit_c_typedef(mod, entry.value, ctx);
-    for (auto& entry : type_manglings) if (entry.key.type->mangled == -1) entry.key.type->mangled = entry.value->mangled;
     for (Type* t : mod->cnew_types) {
         if (t->gen_placement_new && should_gen_type(mod, t)) emit_c_placement_new(mod, t, ctx);
     }
@@ -5356,7 +5375,7 @@ void emit_c_member(Module* mod, Env* env, AST* ast, CContext& ctx) {
         if (env->kind == ENV_GLOBAL) write(ctx.h, "extern ");
         emit_c_typename(ctx.h, mod, d->type, ctx);
         write(ctx.h, ' ');
-        emit_fqsym(ctx.h, mod, env, d->basename, ctx);
+        emit_c_fqsym(ctx.h, mod, env, d->basename, ctx);
         endmatch
     casematch(AST_PTRDECL, Binary*, b)
         emit_c_member(mod, env, b->left, ctx);
@@ -5408,8 +5427,6 @@ void emit_c_toplevel(Module* mod, Env* env, AST* ast, CContext& ctx, vec<pair<AS
                 return;
             if (ast->kind == AST_TYPEDECL && ((TypeDecl*)ast)->generic)
                 return;
-            if (ast->kind == AST_FUNDECL && ((FunDecl*)ast)->body && !((FunDecl*)ast)->generic)
-                emit_c_static_member(mod, ((FunDecl*)ast)->env, ((FunDecl*)ast)->body, ctx, main);
             if (ast->kind == AST_CASEDECL && ((CaseDecl*)ast)->env->kind == ENV_TYPE && ((CaseDecl*)ast)->body) 
                 return emit_c_static_member(mod, ((CaseDecl*)ast)->env, ((CaseDecl*)ast)->body, ctx, main);
             if (ast->kind == AST_TYPEDECL && ((TypeDecl*)ast)->body && !((TypeDecl*)ast)->generic) 
@@ -5643,17 +5660,6 @@ void emit_c_pattern_defs(Module* mod, Env* env, AST* ast, AST* val, CContext& ct
     }
 }
 
-void toposort_dfs(Module* m, vec<Module*, 64, arena>& toposort) {
-    if (m->mark == MARK_PERM) return;
-    if (m->mark == MARK_TEMP) fatal("Circular dependencies detected.");
-
-    m->mark = MARK_TEMP;
-    for (Module* m : m->deps) toposort_dfs(m, toposort);
-
-    m->mark = MARK_PERM;
-    toposort.push(m);
-}
-
 void emit_c_inits(Module* mod, CContext& ctx) {
     vec<Module*, 64, arena> toposort;
     toposort.alloc = &ctx.textspace;
@@ -5661,13 +5667,13 @@ void emit_c_inits(Module* mod, CContext& ctx) {
 
     for (Module* m : toposort) {
         indent(ctx.c, ctx.c_indent), write(ctx.c, "__init_"); 
-        i32 sym = env_fq_name(mod, m->parser->program->env, ctx);
+        i32 sym = env_c_fq_name(mod, m->parser->program->env, ctx);
         write_sym(ctx.c, m, sym); 
         write(ctx.c, "();\n");
     }
     for (i64 i = toposort.size() - 1; i >= 0; i --) {
         indent(ctx.c, ctx.c_indent), write(ctx.c, "__deinit_"); 
-        i32 sym = env_fq_name(mod, toposort[i]->parser->program->env, ctx);
+        i32 sym = env_c_fq_name(mod, toposort[i]->parser->program->env, ctx);
         write_sym(ctx.c, toposort[i], sym); 
         write(ctx.c, "();\n");
     }
@@ -5684,14 +5690,14 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
             emit_c_toplevel(mod, env, e, ctx, main);
         for (auto e : mod->automethods) 
             indent(ctx.c, ctx.c_indent), indent(ctx.h, ctx.h_indent), emit_c(mod, e.second, e.first, ctx), write(ctx.c, ";\n"), write(ctx.h, ";\n");
-        write(ctx.h, "extern void __init_"), write_sym(ctx.h, mod, env_fq_name(mod, env, ctx)), write(ctx.h, "();\n");
-        write(ctx.h, "extern void __deinit_"), write_sym(ctx.h, mod, env_fq_name(mod, env, ctx)), write(ctx.h, "();\n");
-        write(ctx.c, "void __init_"), write_sym(ctx.c, mod, env_fq_name(mod, env, ctx)), write(ctx.c, "() {\n");
+        write(ctx.h, "extern void __init_"), write_sym(ctx.h, mod, env_c_fq_name(mod, env, ctx)), write(ctx.h, "();\n");
+        write(ctx.h, "extern void __deinit_"), write_sym(ctx.h, mod, env_c_fq_name(mod, env, ctx)), write(ctx.h, "();\n");
+        write(ctx.c, "void __init_"), write_sym(ctx.c, mod, env_c_fq_name(mod, env, ctx)), write(ctx.c, "() {\n");
         ctx.c_indent += 4;
         for (const auto& p : main) indent(ctx.c, ctx.c_indent), emit_c(mod, p.second, p.first, ctx), write(ctx.c, ";\n");
         ctx.c_indent -= 4;
         write(ctx.c, "}\n");
-        write(ctx.c, "void __deinit_"), write_sym(ctx.c, mod, env_fq_name(mod, env, ctx)), write(ctx.c, "() {\n");
+        write(ctx.c, "void __deinit_"), write_sym(ctx.c, mod, env_c_fq_name(mod, env, ctx)), write(ctx.c, "() {\n");
         ctx.c_indent += 4;
         for (AST* ast : p->defers) indent(ctx.c, ctx.c_indent), emit_c(mod, p->deferred, ast, ctx), write(ctx.c, ";\n");
         ctx.c_indent -= 4;
@@ -5714,7 +5720,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
     casematch(AST_STRCONST, Const*, c) write(ctx.c, "(string){\"", const_slice<i8>{ mod->bytes.text + c->strconst.byteidx, c->strconst.len }, "\", ", c->strconst.len, "}"); endmatch
     casematch(AST_UNIT, Const*, c) write(ctx.c, '0'); endmatch
     casematch(AST_MODULENAME, Var*, v)
-        emit_fqsym(ctx.c, mod, env, v->name, ctx);
+        emit_c_fqsym(ctx.c, mod, env, v->name, ctx);
         endmatch
     casematch(AST_VAR, Var*, v)
         // print("looking up var ", mod->interner->str(v->name), " in "), env->format(stdout, mod, 0);
@@ -5731,10 +5737,10 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         }
         Env* parent = env->find(v->name);
         if (parent && parent->kind == ENV_TYPE && parent != env) {
-            emit_fqsym(ctx.c, mod, env, mod->interner->intern("this"), ctx);
+            emit_c_fqsym(ctx.c, mod, env, mod->interner->intern("this"), ctx);
             write(ctx.c, '.');
         }
-        emit_fqsym(ctx.c, mod, env, v->name, ctx);
+        emit_c_fqsym(ctx.c, mod, env, v->name, ctx);
         endmatch
     casematch(AST_PLUS, Unary*, u) write(ctx.c, "(+"); emit_c(mod, env, u->child, ctx); write(ctx.c, ')'); endmatch
     casematch(AST_NEG, Unary*, u) write(ctx.c, "(-"); emit_c(mod, env, u->child, ctx); write(ctx.c, ')'); endmatch
@@ -6172,13 +6178,13 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
             write(ctx.h, "extern ");
             emit_c_typename(ctx.h, mod, d->type, ctx);
             write(ctx.h, ' ');
-            emit_fqsym(ctx.h, mod, env, d->basename, ctx);
+            emit_c_fqsym(ctx.h, mod, env, d->basename, ctx);
         }
 
         // Implementation
         emit_c_typename(ctx.c, mod, d->type, ctx);
         write(ctx.c, ' ');
-        emit_fqsym(ctx.c, mod, env, d->basename, ctx);
+        emit_c_fqsym(ctx.c, mod, env, d->basename, ctx);
         if (d->init && env->kind != ENV_GLOBAL && env->kind != ENV_MOD) {
             write(ctx.c, " = ");
             emit_c(mod, env, d->init, ctx);
@@ -6199,7 +6205,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         emit_c_typename(ctx.h, mod, ((FunType*)d->type)->ret, ctx);
         slice<AST*>& args = ((Apply*)d->proto)->args;
         write(ctx.h, ' ');
-        write_sym(ctx.h, mod, env_fq_name(mod, d->env, ctx));
+        write_sym(ctx.h, mod, env_c_fq_name(mod, d->env, ctx));
         write(ctx.h, '(');
         bool first = true;
         for (AST* p : args) {
@@ -6208,7 +6214,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
             emit_c_typename(ctx.h, mod, p->type, ctx);
             write(ctx.h, " ");
             if (p->kind == AST_PTRDECL) p = ((Binary*)p)->left;
-            emit_fqsym(ctx.h, mod, d->env, ((VarDecl*)p)->basename, ctx);
+            emit_c_fqsym(ctx.h, mod, d->env, ((VarDecl*)p)->basename, ctx);
         }
         write(ctx.h, ")");
 
@@ -6216,7 +6222,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
             // Implementation
             emit_c_typename(ctx.c, mod, ((FunType*)d->type)->ret, ctx);
             write(ctx.c, ' ');
-            write_sym(ctx.c, mod, env_fq_name(mod, d->env, ctx));
+            write_sym(ctx.c, mod, env_c_fq_name(mod, d->env, ctx));
             write(ctx.c, '(');
             bool first = true;
             for (AST* p : ((Apply*)d->proto)->args) {
@@ -6225,7 +6231,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
                 emit_c_typename(ctx.c, mod, p->type, ctx);
                 write(ctx.c, " ");
                 if (p->kind == AST_PTRDECL) p = ((Binary*)p)->left;
-                emit_fqsym(ctx.c, mod, d->env, ((VarDecl*)p)->basename, ctx);
+                emit_c_fqsym(ctx.c, mod, d->env, ((VarDecl*)p)->basename, ctx);
             }
             write(ctx.c, ") {\n");
             ctx.c_indent += 4;
@@ -6273,6 +6279,385 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx) {
         endmatch
     default:
         unreachable("Unsupported expr!");
+    }
+}
+
+// Jasmine Backend
+
+#include "jasmine/obj.h"
+
+using jasmine::localidx;
+using jasmine::typeidx;
+using jasmine::stridx;
+using jasmine::funcidx;
+
+typeidx set_repr(Type* type, typeidx repr) {
+    type->codegen_data = new JasmineTypeinfo{repr};
+    return repr;
+}
+
+typeidx emit_jasmine_typedef(Module* mod, Type* type, JasmineGenContext& ctx) {
+    if (type->codegen_data)
+        return ((JasmineTypeinfo*)type->codegen_data)->repr;
+    switch (type->kind) {
+    case T_UNIT:
+    case T_BOOL:
+        return set_repr(type, jasmine::T_I8);
+    case T_NUMERIC:
+        if (type == INT)
+            return set_repr(type, jasmine::T_IWORD);
+        else if (((NumericType*)type)->floating)
+            return set_repr(type, ((NumericType*)type)->bytes == 4 ? jasmine::T_F32 : jasmine::T_F64);
+        else switch (((NumericType*)type)->bytes) {
+            case 1: return set_repr(type, jasmine::T_I8);
+            case 2: return set_repr(type, jasmine::T_I16);
+            case 4: return set_repr(type, jasmine::T_I32);
+            case 8: return set_repr(type, jasmine::T_I64);
+            default:
+                fatal("Tried to lower unexpected integer width!");
+                return jasmine::T_VOID;
+        }
+        break;
+    case T_CHAR:
+        return set_repr(type, jasmine::T_I32);
+    case T_STRING:
+        return set_repr(type, jasmine::t_tuple(
+            ctx.mod->types,
+            jasmine::T_PTR, jasmine::T_IWORD
+        ));
+    case T_VOID:
+        return set_repr(type, jasmine::T_VOID);
+    case T_PTR:
+        return set_repr(type, jasmine::T_PTR);
+    case T_ARRAY:
+        return set_repr(type, jasmine::t_array(
+            ctx.mod->types, 
+            emit_jasmine_typedef(mod, ((ArrayType*)type)->element, ctx), 
+            ((ArrayType*)type)->size
+        ));
+    case T_SLICE:
+        return set_repr(type, jasmine::t_tuple(
+            ctx.mod->types,
+            jasmine::T_PTR, jasmine::T_IWORD
+        ));
+    case T_FUN: {
+        jasmine::TypeVec args;
+        for (Type* type : ((FunType*)type)->arg)
+            args.push(emit_jasmine_typedef(mod, type, ctx));
+        return set_repr(type, jasmine::t_fun(
+            ctx.mod->types,
+            emit_jasmine_typedef(mod, ((FunType*)type)->ret, ctx),
+            args
+        ));
+    }
+    case T_VAR:
+        return set_repr(type, emit_jasmine_typedef(mod, *((VarType*)type)->binding, ctx));
+    case T_NAMED: {
+        jasmine::TypeVec args;
+        if (type->is_case) args.push(jasmine::T_I32);
+        args.push(emit_jasmine_typedef(mod, ((NamedType*)type)->inner, ctx));
+        return set_repr(type, args.size() == 1 ? args[0] : jasmine::t_tuple(
+            ctx.mod->types,
+            args
+        ));
+    }
+    case T_STRUCT: {
+        jasmine::TypeVec args;
+        if (type->is_case) args.push(jasmine::T_I32);
+        // TODO: Maybe optimize/pack fields better by reordering?
+        for (auto field : ((StructType*)type)->fields)
+            args.push(emit_jasmine_typedef(mod, field.second, ctx));
+        return set_repr(type, args.size() == 1 ? args[0] : jasmine::t_tuple(
+            ctx.mod->types,
+            args
+        ));
+    }
+    case T_UNION: {
+        jasmine::TypeVec args;
+        u32 size = 0, align = 4;
+        if (type->is_case) {
+            args.push(jasmine::T_I32); // Case tag, if member of another union.
+            size += 4;
+        }
+        u32 headersize = size;
+        // TODO: Be more specific, maybe involve native target.
+        for (auto field : ((StructType*)type)->fields) {
+            typeidx fieldt = emit_jasmine_typedef(mod, field.second, ctx);
+            u32 fieldalign = ctx.mod->types.conservative_alignof(fieldt);
+            u32 fieldsize = ctx.mod->types.conservative_sizeof(fieldt);
+            if (fieldalign > align)
+                align = fieldalign;
+            if (fieldsize > size)
+                size = fieldsize;
+        }
+        u32 totalsize = size + align - 1;
+        totalsize /= align;
+        totalsize *= align;
+        switch (align) {
+            case 1: args.push(jasmine::T_I8); break;
+            case 2: args.push(jasmine::T_I16); break;
+            case 4: args.push(jasmine::T_I32); break;
+            case 8: args.push(jasmine::T_I64); break;
+            default:
+                fatal("Unexpected alignment.");
+        }
+        totalsize -= align;
+        if (totalsize) 
+            args.push(jasmine::t_array(ctx.mod->types, jasmine::T_I8, totalsize));
+        return set_repr(type, args.size() == 1 ? args[0] : jasmine::t_tuple(
+            ctx.mod->types,
+            args
+        ));
+    }
+    case T_ANY_NUMERIC:
+    case T_ANY:
+    case T_TYPE:
+    case T_ERROR:
+        return jasmine::T_VOID;
+    }
+}
+
+void emit_jasmine_types(Module* mod, Env* env, JasmineGenContext& ctx) {
+    map<TypeKey, Type*> concrete_types = concretify_types(mod, env);
+    for (auto& entry : concrete_types) if (!entry.value->codegen_data && !entry.value->is_case && !is_prototype(entry.value)) 
+        if (should_gen_type(mod, entry.value)) 
+            emit_jasmine_typedef(mod, entry.value, ctx);
+}
+
+void emit_jasmine_prelude(Module* mod, Env* env, JasmineGenContext& ctx) {
+    //
+}
+
+void emit_jasmine_toplevel(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx, vec<pair<AST*, Env*>, 64, arena>& main);
+
+void emit_jasmine_static_member(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx, vec<pair<AST*, Env*>, 64, arena>& main) {
+    switch (ast->kind) {
+    casematch(AST_DO, List*, l)
+        for (AST* ast : l->items)
+            emit_jasmine_static_member(mod, env, ast, ctx, main);
+        endmatch
+    casematch(AST_CASEDECL, CaseDecl*, d)
+        emit_jasmine_toplevel(mod, d->env, d, ctx, main);
+        endmatch
+    casematch(AST_FUNDECL, FunDecl*, d)
+        emit_jasmine_toplevel(mod, d->env, d, ctx, main);
+        endmatch
+    casematch(AST_TYPEDECL, TypeDecl*, d)
+        emit_jasmine_toplevel(mod, d->env, d, ctx, main);
+        endmatch
+    casematch(AST_MODULEDECL, ModuleDecl*, d)
+        emit_jasmine_toplevel(mod, d->env, d, ctx, main);
+        endmatch
+    default:
+        break;
+    }
+}
+
+void emit_jasmine_toplevel(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx, vec<pair<AST*, Env*>, 64, arena>& main) {
+    if (ast->kind >= AST_FIRST_DECL && ast->kind < AST_LAST_DECL) {    
+        if (ast->kind == AST_MODULEDECL) {
+            emit_jasmine_toplevel(mod, ((ModuleDecl*)ast)->env, ((ModuleDecl*)ast)->body, ctx, main);
+        }
+        else if (ast->kind == AST_PTRDECL) {
+            emit_jasmine_toplevel(mod, env, ((Binary*)ast)->left, ctx, main);
+            return;
+        }
+        else {
+            if (ast->kind == AST_FUNDECL && ((FunDecl*)ast)->generic)
+                return;
+
+            if (ast->kind == AST_TYPEDECL && ((TypeDecl*)ast)->generic)
+                return;
+
+            if (ast->kind == AST_CASEDECL && ((CaseDecl*)ast)->env->kind == ENV_TYPE && ((CaseDecl*)ast)->body) 
+                return emit_jasmine_static_member(mod, ((CaseDecl*)ast)->env, ((CaseDecl*)ast)->body, ctx, main);
+
+            if (ast->kind == AST_TYPEDECL && ((TypeDecl*)ast)->body && !((TypeDecl*)ast)->generic) 
+                return emit_jasmine_static_member(mod, ((TypeDecl*)ast)->env, ((TypeDecl*)ast)->body, ctx, main);
+
+            emit_jasmine(mod, env, ast, ctx);
+            if (ast->kind == AST_VARDECL && ((VarDecl*)ast)->init) {
+                AST* assign = new(mod->parser->astspace) Binary(AST_ASSIGN, ast->pos, ((VarDecl*)ast)->name, ((VarDecl*)ast)->init);
+                assign->type = VOID;
+                main.push({ assign, env });
+            }
+        }
+    }
+    else if (ast->kind == AST_DO) {
+        for (AST* ast : ((List*)ast)->items) emit_jasmine_toplevel(mod, env, ast, ctx, main);
+    }
+    else if (mod == ctx.main) main.push({ ast, env });
+}
+
+i32 env_jasmine_fq_name(Module* mod, Env* env, JasmineGenContext& ctx) {
+    if (env->fqname != -1) return env->fqname;
+    i32 size = 0;
+    const_slice<i8> parent((i8*)nullptr, 1);
+    if (env->parent && env->parent->kind != ENV_ROOT && (env->parent->kind != ENV_GLOBAL)) {
+        parent = mod->interner->str(env_jasmine_fq_name(mod, env->parent, ctx));
+        size += parent.n;
+        size += 1;
+    } 
+    const_slice<i8> name = mod->interner->str(env->name);
+    size += name.n;
+    i8* fqname = (i8*)mod->envctx->envspace.alloc(size);
+    i8* writer = fqname;
+    if (env->parent && env->parent->kind != ENV_ROOT && (env->parent->kind != ENV_GLOBAL)) {
+        mcpy(writer, parent.ptr, parent.n);
+        writer += parent.n;
+        *writer ++ = '.';
+    } 
+    mcpy(writer, name.ptr, name.n);
+    for (i32 i = 0; i < size; i ++) if (fqname[i] == '/' || fqname[i] == '\\') fqname[i] = '.';
+    env->fqname = mod->interner->intern(const_slice<i8>{fqname, size});
+    return env->fqname;
+}
+
+stridx jasmine_mangle_sym(Module* mod, Env* env, Symbol sym, JasmineGenContext& ctx) {
+    env = env->find(sym);
+    i32 size = 0;
+    if (env && env->kind != ENV_ROOT && env->kind != ENV_GLOBAL) {
+        i32 envname = env_jasmine_fq_name(mod, env, ctx);
+        size += mod->interner->str(envname).n + 1;
+    }
+    const_slice<i8> name = mod->interner->str(sym);
+    size += name.n;
+    i8* fqname = (i8*)mod->envctx->envspace.alloc(size);
+    i8* writer = fqname;
+    if (env && env->kind != ENV_ROOT && env->kind != ENV_GLOBAL) {
+        i32 envname = env_jasmine_fq_name(mod, env, ctx);
+        auto text = mod->interner->str(envname);
+        writer = (i8*)mcpy(writer, text.ptr, text.n);
+        *writer ++ = '.';
+    }
+    mcpy(writer, name.ptr, name.n);
+    return ctx.mod->strings.intern(const_slice<i8>{fqname, size});
+}
+
+void jasmine_bind_var(Env* env, Symbol var, jasmine::Value value) {
+    Entry* e = env->lookup(var);
+    if (!e) return;
+    if (!e->codegen_data) e->codegen_data = new JasmineExprinfo{value};
+    else ((JasmineExprinfo*)e->codegen_data)->value = value;
+}
+
+jasmine::Value jasmine_bind(AST* ast, jasmine::Value value) {
+    if (!ast->codegen_data) ast->codegen_data = new JasmineExprinfo{value};
+    else ((JasmineExprinfo*)ast->codegen_data)->value = value;
+    return value;
+}
+
+jasmine::Value jasmine_eval(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx) {
+    emit_jasmine(mod, env, ast, ctx);
+    return ((JasmineExprinfo*)ast->codegen_data)->value;
+}
+
+void emit_jasmine_unary(jasmine::assembler::Op op, Module* mod, Env* env, Unary* u, JasmineGenContext& ctx) {
+    if (u->codegen_data) return;
+    auto child = jasmine_eval(mod, env, u->child, ctx);
+    using namespace jasmine::assembler;
+    localidx result = add(op, emit_jasmine_typedef(mod, u->child->type, ctx), child);
+    jasmine_bind(u, Reg(result));
+}
+
+void emit_jasmine_binary(jasmine::assembler::Op op, Module* mod, Env* env, Binary* b, JasmineGenContext& ctx) {
+    if (b->codegen_data) return;
+    auto lhs = jasmine_eval(mod, env, b->left, ctx);
+    auto rhs = jasmine_eval(mod, env, b->right, ctx);
+    using namespace jasmine::assembler;
+    localidx result = add(op, emit_jasmine_typedef(mod, b->left->type, ctx), lhs, rhs);
+    jasmine_bind(b, Reg(result));
+}
+
+void emit_jasmine(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx) {
+    switch (ast->kind) {
+    casematch(AST_PROGRAM, ASTProgram*, p)
+        vec<pair<AST*, Env*>, 64, arena> main;
+        main.alloc = &mod->parser->astspace;
+        for (AST* ast : p->toplevel)
+            emit_jasmine_toplevel(mod, env, ast, ctx, main);
+        endmatch
+    casematch(AST_ICONST, Const*, c)
+        if (!c->codegen_data)
+            jasmine_bind(c, jasmine::assembler::Int(c->iconst));
+        endmatch
+    casematch(AST_FCONST, Const*, c)
+        if (c->codegen_data) return;
+        if (((NumericType*)c)->bytes == 4)
+            jasmine_bind(c, jasmine::assembler::F32(c->fconst));
+        else
+            jasmine_bind(c, jasmine::assembler::F64(c->fconst));
+        endmatch
+    casematch(AST_UNIT, Const*, c)
+        if (!c->codegen_data)
+            jasmine_bind(c, jasmine::assembler::Int(0));
+        endmatch
+    casematch(AST_BOOL, Const*, c)
+        if (!c->codegen_data)
+            jasmine_bind(c, jasmine::assembler::Int(c->bconst ? 1 : 0));
+        endmatch
+    casematch(AST_CHCONST, Const*, c)
+        if (!c->codegen_data)
+            jasmine_bind(c, jasmine::assembler::Int(c->chconst.get()));
+        endmatch
+    casematch(AST_NEG, Unary*, u) emit_jasmine_unary(jasmine::assembler::NEG, mod, env, u, ctx); endmatch
+    casematch(AST_NOT, Unary*, u) emit_jasmine_unary(jasmine::assembler::LNOT, mod, env, u, ctx); endmatch
+    casematch(AST_BITNOT, Unary*, u) emit_jasmine_unary(jasmine::assembler::BNOT, mod, env, u, ctx); endmatch
+    casematch(AST_ADD, Binary*, b) emit_jasmine_binary(jasmine::assembler::ADD, mod, env, b, ctx); endmatch
+    casematch(AST_SUB, Binary*, b) emit_jasmine_binary(jasmine::assembler::SUB, mod, env, b, ctx); endmatch
+    casematch(AST_STAR, Binary*, b) emit_jasmine_binary(jasmine::assembler::MUL, mod, env, b, ctx); endmatch
+    casematch(AST_DIV, Binary*, b) emit_jasmine_binary(jasmine::assembler::DIV, mod, env, b, ctx); endmatch
+    casematch(AST_MOD, Binary*, b) emit_jasmine_binary(jasmine::assembler::REM, mod, env, b, ctx); endmatch
+    casematch(AST_BITAND, Binary*, b) emit_jasmine_binary(jasmine::assembler::BAND, mod, env, b, ctx); endmatch
+    casematch(AST_BITOR, Binary*, b) emit_jasmine_binary(jasmine::assembler::BOR, mod, env, b, ctx); endmatch
+    casematch(AST_BITXOR, Binary*, b) emit_jasmine_binary(jasmine::assembler::BXOR, mod, env, b, ctx); endmatch
+    casematch(AST_BITLEFT, Binary*, b) emit_jasmine_binary(jasmine::assembler::SHL, mod, env, b, ctx); endmatch
+    casematch(AST_BITRIGHT, Binary*, b) emit_jasmine_binary(jasmine::assembler::SHR, mod, env, b, ctx); endmatch
+    casematch(AST_VAR, Var*, v)
+        Entry* e = env->lookup(v->name);
+        if (e && e->codegen_data) jasmine_bind(v, ((JasmineExprinfo*)e->codegen_data)->value);
+        else fatal("Tried to read undefined variable in Jasmine codegen.");
+        endmatch
+    casematch(AST_FUNDECL, FunDecl*, d)
+        if (d->codegen_data) return;
+
+        typeidx ft = emit_jasmine_typedef(mod, d->type, ctx);
+        stridx fname = jasmine_mangle_sym(mod, d->env->parent, d->basename, ctx);
+        jasmine::Function* fn = new jasmine::Function(ctx.mod, ft, fname);
+        jasmine::Value fnid = jasmine::assembler::Func(fn->idx);
+        jasmine_bind(d, fnid);
+        jasmine_bind_var(env, d->basename, fnid);
+
+        jasmine::assembler::writeTo(*fn);
+        i32 argid = 0;
+        for (AST* ast : ((Apply*)d->proto)->args) if (ast->kind == AST_VARDECL) {
+            using namespace jasmine::assembler;
+            typeidx argt = ctx.mod->types.types[ft].members[argid];
+            localidx arg = add(ARG, argt, Int(argid));
+            jasmine_bind_var(d->env, ((VarDecl*)ast)->basename, Reg(arg));
+        }
+        emit_jasmine(mod, d->env, d->body, ctx);
+        jasmine::assembler::finishFunction();
+        endmatch
+    casematch(AST_DO, List*, l)
+        if (l->codegen_data) return;
+
+        void* result;
+        for (AST* ast : l->items) {
+            emit_jasmine(mod, env, ast, ctx);
+            result = ast->codegen_data;
+        }
+        jasmine_bind(l, result ? ((JasmineExprinfo*)result)->value : jasmine::assembler::Int(0));
+        endmatch
+    casematch(AST_RETURN, Unary*, u)
+        using namespace jasmine::assembler;
+        if (u->child)
+            add(RET, emit_jasmine_typedef(mod, u->child->type, ctx), jasmine_eval(mod, env, u->child, ctx));
+        else
+            add(RET, jasmine::T_VOID, Int(0));
+        endmatch
+    default:
+        fatal("Tried to emit Jasmine IR for unsupported AST node!");
     }
 }
 

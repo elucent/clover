@@ -4,7 +4,7 @@
 #include "clover/type.h"
 #include "lib/vec.h"
 
-void space(stream& io, i32 indent) {
+void space(fd io, i32 indent) {
     while (indent --) write(io, ' ');
 }
 
@@ -12,7 +12,7 @@ static const i8* ENV_LABELS[] = {
     "ROOT ", "GLOBAL ", "FUN ", "MOD ", "TYPE ", "LOCAL "
 };
 
-void Env::format(stream& io, Module* mod, i32 indent) {
+void Env::format(fd io, Module* mod, i32 indent) {
     space(io, indent);
     write(io, ENV_LABELS[kind], mod->interner->str(name), ":\n");
     for (auto& p : entries) {

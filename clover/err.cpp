@@ -991,7 +991,7 @@ static const i8* RED = "\e[0;91m";
 static const i8* PURPLE = "\e[0;35m";
 static const i8* RESET = "\e[0m";
 
-void print_line(Module* mod, stream& io, i32 pos, i32 len, i16 col, const i8* color = RED) {
+void print_line(Module* mod, fd io, i32 pos, i32 len, i16 col, const i8* color = RED) {
     i8* p = mod->bytes.text + pos;
     i8* begin = p - col;
     i8* end = begin;
@@ -1011,24 +1011,24 @@ void print_line(Module* mod, stream& io, i32 pos, i32 len, i16 col, const i8* co
     write(io, RESET, '\n');
 }
 
-void print_line(Module* mod, stream& io, SourcePos pos, const i8* color = RED) {
+void print_line(Module* mod, fd io, SourcePos pos, const i8* color = RED) {
     print_line(mod, io, pos.start, pos.end - pos.start, pos.column, color);
 }
 
-void print_line(Module* mod, stream& io, AST* ast, const i8* color = RED) {
+void print_line(Module* mod, fd io, AST* ast, const i8* color = RED) {
     if (ast->pos.start != 0 || ast->pos.end != 0)
         print_line(mod, io, ast->pos, color);
 }
 
-void print_loc(Module* mod, stream& io, i32 line, i32 col) {
+void print_loc(Module* mod, fd io, i32 line, i32 col) {
     write(io, mod->path, ':', line + 1, ':', col + 1, ' ');
 }
 
-void print_loc(Module* mod, stream& io, SourcePos pos) {
+void print_loc(Module* mod, fd io, SourcePos pos) {
     print_loc(mod, io, pos.line, pos.column);
 }
 
-void print_loc(Module* mod, stream& io, AST* ast) {
+void print_loc(Module* mod, fd io, AST* ast) {
     if (ast->pos.start == 0 && ast->pos.end == 0) write(io, mod->path, ":?:? ");
     else print_loc(mod, io, ast->pos);
 }
@@ -1043,18 +1043,18 @@ struct APrint {
     AST* ast;
 };
 
-inline void write_impl(stream& io, const TPrint& p) {
+inline void write_impl(fd io, const TPrint& p) {
     format(io, p.m, p.t);
 }
 
-inline void write_impl(stream& io, const APrint& p) {
+inline void write_impl(fd io, const APrint& p) {
     format(io, p.m, p.ast);
 }
 
 #define AP(x) APrint{mod, x}
 #define TP(x) TPrint{mod, x}
 
-void print_error(stream& io, bool verbose, const Error& e) {
+void print_error(fd io, bool verbose, const Error& e) {
     Module* mod = e.mod;
     switch (e.kind) {
     case ERR_UTF8_FORMAT:
@@ -1755,7 +1755,7 @@ void print_error(stream& io, bool verbose, const Error& e) {
 #undef TP
 #undef AP
 
-void print_errors(stream& io, bool verbose) {
+void print_errors(fd io, bool verbose) {
     for (i64 i = 0; i < n_errors; i ++) print_error(io, verbose, errors[i]);
     n_errors = 0;
 }

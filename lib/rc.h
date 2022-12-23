@@ -6,45 +6,46 @@
 
 template<typename T>
 struct rc {
-    struct blob {
-        i64 count;
-        union blob_union {
-            i8 data[sizeof(T)];
-            T item;
-
-            blob_union() {}
-        };
+    union pointee {
+        i64 words[1];
+        i8 data[sizeof(T)];
+        T item;
     };
 
-    blob* ptr;
+    struct blob {
+        i64 count;
+        pointee payload;
+    };
+
+    pointee* ptr;
 
     template<typename... Args>
-    rc(Args... args): ptr(new blob) {
-        ptr->count = 1;
+    rc(Args... args): ptr(&(new blob)->payload) {
+        ptr->words[-1] = 1;
         new (&ptr->item) T(args...);
     }
 
     rc(): ptr(nullptr) {}
 
     ~rc() {
-        if (!--ptr->count) {
+        if (!--ptr->words[-1]) {
             ptr->item.~T(); 
-            delete ptr;
+            delete (ptr->words - 1);
         }
     }
 
     rc(const rc& other): ptr(other.ptr) {
-        if (ptr) ptr->count ++;
+        if (ptr) ptr->words[-1] ++;
     }
 
     rc& operator=(const rc& other) {
         if (this != &other) {
-            if (!--ptr->count) {
+            if (!--ptr->words[-1]) {
                 ptr->item.~T(); 
-                delete ptr;
+                delete (ptr->words - 1);
             }
             ptr = other.ptr;
-            if (ptr) ptr->count ++;
+            if (ptr) ptr->words[-1] ++;
         }
     }
 
@@ -54,9 +55,9 @@ struct rc {
 
     rc& operator=(rc&& other) {
         if (this != &other) {
-            if (!--ptr->count) {
+            if (!--ptr->words[-1]) {
                 ptr->item.~T(); 
-                delete ptr;
+                delete (ptr->words - 1);
             }
             ptr = other.ptr;
             other.ptr = nullptr;
@@ -81,6 +82,14 @@ struct rc {
 
     T* operator->() {
         return &ptr->item;
+    }
+
+    template<typename U>
+    operator rc<U>() const {
+        rc<U> newref;
+        newref->ptr = static_cast<U*>(ptr);
+        ptr->words[-1] ++;
+        return newref;
     }
 };
 

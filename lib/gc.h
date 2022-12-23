@@ -183,14 +183,14 @@ extern gc_stats stats;
 inline slice<page> map_aligned(uptr bytes, uptr align) {
     iptr padded = bytes + align + PAGESIZE - 1;
     iptr rounded = bytes + PAGESIZE - 1;
-    auto mapped = mreq(padded / PAGESIZE);
+    auto mapped = memory_map(padded / PAGESIZE);
     uptr addr = (uptr)mapped.ptr, aligned_addr = ((addr + align - 1ul) & ~(align - 1ul));
     if (addr != aligned_addr) {
         iptr diff = padded / PAGESIZE - rounded / PAGESIZE;
         iptr prepages = (aligned_addr - addr) / PAGESIZE;
         
-        mfree({ mapped.ptr, prepages });
-        mfree({ (page*)aligned_addr + rounded / PAGESIZE, diff - prepages });
+        memory_free({ mapped.ptr, prepages });
+        memory_free({ (page*)aligned_addr + rounded / PAGESIZE, diff - prepages });
         mapped = { (page*)aligned_addr, rounded / PAGESIZE };
     }
     return mapped;
@@ -235,7 +235,7 @@ struct gc_heap {
             info[i].size_class = -1;
         mset(live_page_bitmap, 0, sizeof(live_page_bitmap));
 
-        extra_roots = (gc_root*)mreq(1).ptr;
+        extra_roots = (gc_root*)memory_map(1).ptr;
         n_extra_roots = 0;
         root_capacity = PAGESIZE / sizeof(gc_root);
     }
@@ -247,9 +247,9 @@ struct gc_heap {
     inline void add_root(void* start, void* end) {
         if (n_extra_roots >= root_capacity) {
             int n_pages = root_capacity * sizeof(gc_root) / PAGESIZE;
-            gc_root* new_pages = (gc_root*)mreq((root_capacity *= 2) / PAGESIZE).ptr;
+            gc_root* new_pages = (gc_root*)memory_map((root_capacity *= 2) / PAGESIZE).ptr;
             mcpy(new_pages, extra_roots, n_pages * PAGESIZE);
-            mfree({(page*)extra_roots, n_pages});
+            memory_free({(page*)extra_roots, n_pages});
             extra_roots = new_pages;
         }
         extra_roots[n_extra_roots ++] = {start, end};
@@ -346,7 +346,7 @@ struct gc_heap {
      * page, an out-of-memory crash occurs.
      */
 
-    inline __attribute((noinline)) pair<gc_page*, gc_page_info> alloc_page_for(i32 size_class) {
+    inline NO_INLINE pair<gc_page*, gc_page_info> alloc_page_for(i32 size_class) {
         i32 result;
         if (top_page < page_limit) // If there are bump-allocatable pages in the arena.
             result = top_page ++;
@@ -379,7 +379,7 @@ struct gc_heap {
      * in the first page's info, and the offsets of all other pages relative to the first.
      */
 
-    inline __attribute((noinline)) void* alloc_huge(i32 size) {
+    inline NO_INLINE void* alloc_huge(i32 size) {
         i32 n_pages = (size + BYTES_PER_PAGE - 1) / BYTES_PER_PAGE;
         if (top_page + n_pages <= page_limit) {
             void* result = pages + top_page;

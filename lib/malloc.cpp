@@ -2,7 +2,7 @@
 #include "core/sys.h"
 #include "lib/gc.h"
 
-arena::arena(iptr size_in): pages(mreq(size_in)), top((u8*)pages.ptr), size(size_in) { 
+arena::arena(iptr size_in): pages(memory_map(size_in)), top((u8*)pages.ptr), size(size_in) { 
     *(page**)top = nullptr;
     *((u8**)top + 1) = nullptr;
     top += sizeof(iptr) * 2; 
@@ -17,7 +17,7 @@ arena* arena::instance = nullptr;
 iptr arena::alloc_block(iptr bytes) {
     slice<page> old_pages = pages;
     u8* old_top = top - bytes;
-    pages = mreq(size);
+    pages = memory_map(size);
     top = (u8*)pages.ptr;
     *((page**)top) = old_pages.ptr;
     *((u8**)top + 1) = old_top;
@@ -29,7 +29,7 @@ iptr arena::alloc_huge(iptr bytes) {
     iptr n_pages = (bytes + sizeof(iptr) * 2 + PAGESIZE - 1) / PAGESIZE;
     slice<page> old_pages = pages;
     u8* old_top = top - bytes;
-    pages = mreq(n_pages);
+    pages = memory_map(n_pages);
     top = (u8*)pages.ptr;
     *((page**)top) = old_pages.ptr;
     *((u8**)top + 1) = old_top;
@@ -39,7 +39,7 @@ iptr arena::alloc_huge(iptr bytes) {
     bytes = 0;  // Allocate new empty arena after big block.
     old_pages = pages;
     old_top = top;
-    pages = mreq(size);
+    pages = memory_map(size);
     top = (u8*)pages.ptr;
     *((page**)top) = old_pages.ptr;
     *((u8**)top + 1) = old_top;

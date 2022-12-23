@@ -6,6 +6,8 @@
 #include "lib/buffer.h"
 #include "jasmine/tab.h"
 
+MODULE(jasmine)
+
 struct JasmineModule;
 
 constexpr typeidx
@@ -53,13 +55,13 @@ struct Type {
     TypeKind kind;
     TypeFlags flags = NO_TYPE_FLAGS;
     u16 align;
-    u32 size;
+    u32 size = 0;
 
     bool operator==(const Type& other) const;
 };
 
-using TypeTableVec = vec<Type, 16, arena>;
-using TypeTableMap = map<Type, typeidx, 16, arena>;
+using TypeTableVec = vec<Type, 16>;
+using TypeTableMap = map<Type, typeidx, 16>;
 
 struct Target;
 
@@ -71,9 +73,99 @@ struct TypeTable {
     TypeTable(JasmineModule* obj_in);
 
     u32 size() const;
-    void write(bytebuf<arena>& buf) const;
-    void read(bytebuf<arena>& buf);
-    void format(stream& io) const;
+    void write(bytebuf<>& buf) const;
+    void read(bytebuf<>& buf);
+    void format(fd io) const;
+
+    inline u32 conservative_sizeof(typeidx i) {
+        if (i < 0) switch (i8(i)) {
+            case T_VOID: 
+                return 0;
+            case T_U8:
+            case T_I8: 
+                return 1;
+            case T_U16:
+            case T_I16: 
+                return 2;
+            case T_U32:
+            case T_F32:
+            case T_I32: 
+                return 4;
+            case T_U64:
+            case T_F64:
+            case T_I64:
+            case T_PTR:
+            case T_REF:
+            case T_IWORD:
+            case T_UWORD:
+                return 8;
+            default:
+                fatal("Can't take size of type.");
+                return 0;
+        }
+        compute_conservative_sizeof(i);
+        return types[i].size;
+    }
+
+    inline u32 conservative_alignof(typeidx i) {
+        if (i < 0) switch (i8(i)) {
+            case T_VOID: 
+                return 0;
+            case T_U8:
+            case T_I8: 
+                return 1;
+            case T_U16:
+            case T_I16: 
+                return 2;
+            case T_U32:
+            case T_F32:
+            case T_I32: 
+                return 4;
+            case T_U64:
+            case T_F64:
+            case T_I64:
+            case T_PTR:
+            case T_REF:
+            case T_IWORD:
+            case T_UWORD:
+                return 8;
+            default:
+                fatal("Can't take align of type.");
+                return 0;
+        }
+        compute_conservative_sizeof(i);
+        return types[i].align;
+    }
+
+    inline void compute_conservative_sizeof(typeidx i) {
+        Type& t = types[i];
+        if (!t.size) switch (t.kind) {
+            case TK_ARR: 
+                t.size = t.nelts * conservative_sizeof(t.elt);
+                t.align = conservative_alignof(t.elt);
+                break;
+            case TK_FUN:
+                t.size = 0;
+                t.align = 0;
+                break;
+            case TK_TUP: {
+                u32 size = 0, align = 0;
+                for (u32 i = 0; i < t.len; i ++) {
+                    u32 a = conservative_alignof(t.members[i]);
+                    while (size & a - 1) size ++;
+                    align = a > align ? a : align;
+                    size += conservative_sizeof(t.members[i]);
+                }
+                t.size = size;
+                t.align = align;
+                break;
+            }
+            case TK_VEC:
+                t.size = t.nvelts * conservative_sizeof(t.velt); 
+                t.align = conservative_alignof(t.nvelts * t.velt);
+                break;
+        }
+    }
 
     template<typename Target>
     u32 native_sizeof(typeidx i) const {
@@ -121,7 +213,7 @@ struct TypeTable {
     }
 };
 
-void format_type(const TypeTable& table, typeidx id, stream& io);
+void format_type(const TypeTable& table, typeidx id, fd io);
 
 inline u64 hash(const Type& t) {
     return t.h;
@@ -143,6 +235,13 @@ inline TypeFlags tflags(TypeTable& tab, typeidx elt) {
         if (elt == T_F32 || elt == T_F64) return TF_HAS_FLOAT;
         else return TF_HAS_INT;
     else return tab.types[elt].flags;
+}
+
+template<typename... Args>
+TypeVec tvec(const Args&... args) {
+    TypeVec v;
+    vec_fill<typeidx>(v, args...);
+    return v;
 }
 
 inline typeidx t_array(TypeTable& tab, typeidx elt, u32 len) {
@@ -171,6 +270,11 @@ inline typeidx t_tuple(TypeTable& tab, const TypeVec& elts) {
     return try_insert(tab, t);
 }
 
+template<typename... Args>
+inline typeidx t_tuple(TypeTable& tab, const Args&... args) {
+    return t_tuple(tab, tvec(args...));
+}
+
 inline typeidx t_fun(TypeTable& tab, typeidx ret, const TypeVec& args) {
     Type t;
     t.kind = TK_FUN;
@@ -182,6 +286,11 @@ inline typeidx t_fun(TypeTable& tab, typeidx ret, const TypeVec& args) {
         ^ t.nargs * 9861267878043082691ul;
     for (typeidx u : args) t.h *= 1404551109701180041ul, t.h ^= 10559527727229159863ul * u;
     return try_insert(tab, t);
+}
+
+template<typename... Args>
+inline typeidx t_fun(TypeTable& tab, typeidx ret, const Args&... args) {
+    return t_fun(tab, ret, tvec(args...));
 }
 
 inline typeidx t_vec(TypeTable& tab, typeidx elt, u32 len) {
@@ -196,12 +305,6 @@ inline typeidx t_vec(TypeTable& tab, typeidx elt, u32 len) {
     return try_insert(tab, t);
 }
 
-template<typename... Args>
-TypeVec tvec(TypeTable& tab, const Args&... args) {
-    TypeVec v;
-    v.alloc = tab.types.alloc;
-    vec_fill<typeidx>(v, args...);
-    return v;
-}
+ENDMODULE()
 
 #endif

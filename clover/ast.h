@@ -44,6 +44,7 @@ struct AST {
     Type* type;   // General-purpose type information. For expressions, this is the type of the resulting value. For
                   // type nodes, this is the type represented by that expression. For declarations, this is the type 
                   // of the declared entity.
+    void* codegen_data = nullptr;   // Abstract pointer to backend-specific metadata.
 
     inline AST(ASTKind kind_in, SourcePos pos_in): kind(kind_in), pos(pos_in), type(nullptr) {}
 
@@ -592,7 +593,7 @@ void advance_parser(Module* mod);
  *
  * Writes a textual representation of the provided AST to the provided IO stream.
  */
-void format(stream& io, Module* mod, const AST* const& ast, i32 depth = 0);
+void format(fd io, Module* mod, const AST* const& ast, i32 depth = 0);
 
 /*
  * compute_envs(mod, env, ast)
@@ -636,13 +637,17 @@ void typecheck(Module* mod, Env* env, AST* ast);
  */
 Fold tryfold(Module* mod, Env* env, AST* ast);
 
+//
+// C TARGET
+//
+
 /*
  * CContext
  *
  * Contains contextual information for writing C source.
  */
 struct CContext {
-    stream& h, &c;      // Streams for the associated header and C source.
+    fd h, c;      // Streams for the associated header and C source.
     i32 anon = 0;       // Index for anonymous variables.
     i32 h_indent = 0;   // Indentation levels for new lines.
     i32 c_indent = 0;
@@ -650,15 +655,8 @@ struct CContext {
     Module* main;       // Pointer to the module containing the entry point, can be null if no entry point is needed.
     vec<pair<AST*, AST*>, 8, arena> patn_defs; // List of patterns to revisit in the body of a conditional expression.
 
-    inline CContext(stream& h_in, stream& c_in, Module* main_in): h(h_in), c(c_in), main(main_in) { patn_defs.alloc = &main->parser->astspace; }
+    inline CContext(fd h_in, fd c_in, Module* main_in): h(h_in), c(c_in), main(main_in) { patn_defs.alloc = &main->parser->astspace; }
 };
-
-/*
- * emit_c_prelude(mod, env, cctx)
- *
- * Prints shared C header all source files share, and initializes some printing information.
- */
-void emit_c_prelude(Module* mod, Env* env, CContext& ctx, const i8* cpath, const i8* hpath);
 
 /*
  * emit_c_types(mod, env, cctx)
@@ -669,11 +667,74 @@ void emit_c_prelude(Module* mod, Env* env, CContext& ctx, const i8* cpath, const
 void emit_c_types(Module* mod, Env* env, CContext& ctx);
 
 /*
+ * emit_c_prelude(mod, env, cctx)
+ *
+ * Prints shared C header all source files share, and initializes some printing information.
+ */
+void emit_c_prelude(Module* mod, Env* env, CContext& ctx, const i8* cpath, const i8* hpath);
+
+/*
  * emit_c(mod, env, ast, cctx)
  *
  * Compiles the provided typechecked AST to C source code, updating the provided C context and
  * printing the source to the stream contained within.
  */
 void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx);
+
+//
+// JASMINE TARGET
+//
+
+#include "jasmine/insn.h"
+
+/*
+ * JasmineGenContext 
+ *
+ * Contains contextual information necessary for compiling a project using the Jasmine backend.
+ */
+struct JasmineGenContext {
+    Module* main;
+    jasmine::JasmineModule* mod;
+    map<Symbol, jasmine::localidx> locals;
+};
+
+/*
+ * JasmineTypeinfo
+ *
+ * Jasmine-specific type information for each Clover type.
+ */
+struct JasmineTypeinfo {
+    jasmine::typeidx repr;
+};
+
+/*
+ * JasmineExprinfo
+ *
+ * Jasmine-specific information for each Clover expression.
+ */
+struct JasmineExprinfo {
+    jasmine::Value value; // The Jasmine representation of the value produced by this expression.
+};
+
+/*
+ * emit_jasmine_types(mod, env, cctx)
+ *
+ * Lowers all Clover types to concrete forms and associates them with Jasmine type representations.
+ */
+void emit_jasmine_types(Module* mod, Env* env, JasmineGenContext& ctx);
+
+/*
+ * emit_jasmine_prelude(mod, env, cctx)
+ *
+ * Emits preliminary definitions before generating Jasmine IR.
+ */
+void emit_jasmine_prelude(Module* mod, Env* env, JasmineGenContext& ctx);
+
+/*
+ * emit_jasmine(mod, env, ast, cctx)
+ *
+ * Compiles the provided typechecked AST to Jasmine IR.
+ */
+void emit_jasmine(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx);
 
 #endif

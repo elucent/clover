@@ -26,6 +26,7 @@ struct Entry {
     AST* ast;
     Type* type;
     EntryKind kind;
+    void* codegen_data = nullptr;
 };
 
 inline Entry e_const(Type* type, AST* decl) {
@@ -113,7 +114,7 @@ struct Env {
         return false;
     }
 
-    void format(stream& io, Module* mod, i32 indent);
+    void format(fd io, Module* mod, i32 indent);
 };
 
 struct FunDecl;

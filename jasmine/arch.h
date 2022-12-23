@@ -7,6 +7,8 @@
 #include "jasmine/type.h"
 #include "jasmine/tab.h"
 
+MODULE(jasmine)
+
 enum Arch : u8 {
     ARCH_X86,
     ARCH_AMD64,
@@ -46,8 +48,8 @@ struct TargetDesc {
 
 using mreg = i8;   // Generic type of machine register.
 
-inline void write_impl(stream& io, const TargetDesc& target) {
-    ::write(io, OS_NAMES[target.os], '_', ARCH_NAMES[target.arch]);
+inline void write_impl(fd io, const TargetDesc& target) {
+    ::write(io, OS_NAMES[target.os], '-', ARCH_NAMES[target.arch]);
 }
 
 struct Function;
@@ -82,7 +84,7 @@ struct RegSet {
 
 struct Binding {
     enum Kind : u8 {
-        NONE, GPREG, FPREG, STACK
+        NONE, GP, FP, STACK
     };
 
     union {
@@ -100,16 +102,16 @@ struct Binding {
         return b;
     }
 
-    inline static Binding gpreg(mreg reg) {
+    inline static Binding gp(mreg reg) {
         Binding b;
-        b.kind = GPREG;
+        b.kind = GP;
         b.reg = reg;
         return b;
     }
 
-    inline static Binding fpreg(mreg reg) {
+    inline static Binding fp(mreg reg) {
         Binding b;
-        b.kind = FPREG;
+        b.kind = FP;
         b.reg = reg;
         return b;
     }
@@ -160,14 +162,14 @@ struct CallBindings {
 };
 
 // Machine-level value.
-union MVal {
+union ASMVal {
     double dval;
     u64 uval;
     
     enum Kind : u16 { 
         F64 = 0xfff0,
-        GPREG = 0xfff9,
-        FPREG = 0xfffa,
+        GP  = 0xfff9,
+        FP  = 0xfffa,
         IMM = 0xfffb,
         F32 = 0xfffc,
         MEM = 0xfffd
@@ -185,8 +187,8 @@ union MVal {
         union {
             i32 imm;
             float f32;
-            mreg gpreg;
-            mreg fpreg;
+            mreg gp;
+            mreg fp;
             i32 offset;
             i32 sym;
         };
@@ -195,26 +197,26 @@ union MVal {
         Kind kind;
     } payload;
 
-    inline static MVal fpreg(mreg r) {
-        MVal m;
+    inline static ASMVal fp(mreg r) {
+        ASMVal m;
         m.uval = 0;
-        m.payload.kind = FPREG;
+        m.payload.kind = FP;
         m.payload.base = m.payload.memkind = MemKind(0);
-        m.payload.fpreg = r;
+        m.payload.fp = r;
         return m;
     }
 
-    inline static MVal gpreg(mreg r) {
-        MVal m;
+    inline static ASMVal gp(mreg r) {
+        ASMVal m;
         m.uval = 0;
-        m.payload.kind = GPREG;
+        m.payload.kind = GP;
         m.payload.base = m.payload.memkind = MemKind(0);
-        m.payload.gpreg = r;
+        m.payload.gp = r;
         return m;
     }
 
-    inline static MVal imm(i32 imm) {
-        MVal m;
+    inline static ASMVal imm(i32 imm) {
+        ASMVal m;
         m.uval = 0;
         m.payload.kind = IMM;
         m.payload.base = m.payload.memkind = MemKind(0);
@@ -222,8 +224,8 @@ union MVal {
         return m;
     }
 
-    inline static MVal f32(float imm) {
-        MVal m;
+    inline static ASMVal f32(float imm) {
+        ASMVal m;
         m.uval = 0;
         m.payload.kind = F32;
         m.payload.base = m.payload.memkind = MemKind(0);
@@ -231,16 +233,16 @@ union MVal {
         return m;
     }
 
-    inline static MVal f64(double imm) {
-        MVal m;
+    inline static ASMVal f64(double imm) {
+        ASMVal m;
         if (*(u64*)&imm > 0xfff8000000000000ul) // Purify NaNs
             *(u64*)&imm = 0xfff8000000000000ul;
         m.dval = imm;
         return m;
     }
 
-    inline static MVal mem(mreg base, i32 offset) {
-        MVal m;
+    inline static ASMVal mem(mreg base, i32 offset) {
+        ASMVal m;
         m.uval = 0;
         m.payload.kind = MEM;
         m.payload.memkind = REG_OFFSET;
@@ -249,8 +251,8 @@ union MVal {
         return m;
     }
 
-    inline static MVal func(stridx sym) {
-        MVal m;
+    inline static ASMVal func(stridx sym) {
+        ASMVal m;
         m.uval = 0;
         m.payload.kind = MEM;
         m.payload.memkind = FUNC_LABEL;
@@ -259,8 +261,8 @@ union MVal {
         return m;
     }
 
-    inline static MVal label(stridx sym) {
-        MVal m;
+    inline static ASMVal label(stridx sym) {
+        ASMVal m;
         m.uval = 0;
         m.payload.kind = MEM;
         m.payload.memkind = LOCAL_LABEL;
@@ -269,8 +271,8 @@ union MVal {
         return m;
     }
 
-    inline static MVal data(stridx sym) {
-        MVal m;
+    inline static ASMVal data(stridx sym) {
+        ASMVal m;
         m.uval = 0;
         m.payload.kind = MEM;
         m.payload.memkind = DATA_LABEL;
@@ -279,8 +281,8 @@ union MVal {
         return m;
     }
 
-    inline static MVal stat(stridx sym) {
-        MVal m;
+    inline static ASMVal stat(stridx sym) {
+        ASMVal m;
         m.uval = 0;
         m.payload.kind = MEM;
         m.payload.memkind = STATIC_LABEL;
@@ -294,7 +296,7 @@ union MVal {
         else return payload.kind;
     }
 
-    inline bool operator==(MVal other) const {
+    inline bool operator==(ASMVal other) const {
         return uval == other.uval;
     }
 };
@@ -403,9 +405,13 @@ constexpr static const i8* ASM_SIZE_NAMES[] = {
     "8", "16", "32", "64", "f32", "f64", "", ""
 };
 
-inline void write_impl(stream& io, Size size) {
-    write_impl(io, ASM_SIZE_NAMES[(unsigned)size]);
+ENDMODULE()
+
+inline void write_impl(fd io, jasmine::Size size) {
+    write_impl(io, jasmine::ASM_SIZE_NAMES[(unsigned)size]);
 }
+
+MODULE(jasmine)
 
 enum class ASMOpcode {
     ADD8, ADD16, ADD32, ADD64,
@@ -424,9 +430,6 @@ enum class ASMOpcode {
     FREM32, FREM64,
     FNEG32, FNEG64,
     FSQRT32, FSQRT64,
-    FSIN32, FSIN64,
-    FCOS32, FCOS64,
-    FTAN32, FTAN64,
     FMIN32, FMIN64,
     FMAX32, FMAX64,
     FROUND32, FROUND64,
@@ -507,9 +510,6 @@ constexpr static const i8* ASM_OPCODE_NAMES[] = {
     "frem32", "frem64",
     "fneg32", "fneg64",
     "fsqrt32", "fsqrt64",
-    "fsin32", "fsin64",
-    "fcos32", "fcos64",
-    "ftan32", "ftan64",
     "fmin32", "fmin64",
     "fmax32", "fmax64",
     "fround32", "fround64",
@@ -610,11 +610,11 @@ struct FakeTarget {
         return const_slice<mreg>{FPREGS, 32};
     }
 
-    static inline bool is_gpreg(mreg r) {
+    static inline bool is_gp(mreg r) {
         return r < 32;
     }
 
-    static inline bool is_fpreg(mreg r) {
+    static inline bool is_fp(mreg r) {
         return r >= 32 && r < 64;
     }
 
@@ -634,7 +634,7 @@ struct FakeTarget {
         return -1;
     }
 
-    static inline RegSet clobbers(const Insn& insn) {
+    static inline RegSet clobbers(ASMOpcode opcode) {
         return RegSet();
     }
 
@@ -655,37 +655,37 @@ struct FakeTarget {
 // You can use this as an example of the static interface of backend target types.
 template<typename Target = FakeTarget>
 struct ASMPrinter : public Target {
-    static void write_mval(stream& io, Assembly& as, const MVal& val) {
+    static void write_mval(fd io, Assembly& as, const ASMVal& val) {
         switch (val.kind()) {
-            case MVal::FPREG:
-                ::write(io, Target::reg_name(val.payload.fpreg));
+            case ASMVal::FP:
+                ::write(io, Target::reg_name(val.payload.fp));
                 break;
-            case MVal::GPREG:
-                ::write(io, Target::reg_name(val.payload.gpreg));
+            case ASMVal::GP:
+                ::write(io, Target::reg_name(val.payload.gp));
                 break;
-            case MVal::IMM:
+            case ASMVal::IMM:
                 ::write(io, val.payload.imm);
                 break;
-            case MVal::F32:
+            case ASMVal::F32:
                 ::write(io, val.payload.f32);
                 break;
-            case MVal::F64:
+            case ASMVal::F64:
                 ::write(io, val.dval);
                 break;
-            case MVal::MEM: switch (val.payload.memkind) {
-                case MVal::REG_OFFSET:
+            case ASMVal::MEM: switch (val.payload.memkind) {
+                case ASMVal::REG_OFFSET:
                     ::write(io, '[', Target::reg_name(val.payload.base), val.payload.offset < 0 ? " - " : " + ", val.payload.offset < 0 ? -val.payload.offset : val.payload.offset, ']');
                     break;
-                case MVal::FUNC_LABEL:
+                case ASMVal::FUNC_LABEL:
                     ::write(io, "func ", as.symtab->str(val.payload.sym));
                     break;
-                case MVal::LOCAL_LABEL:
+                case ASMVal::LOCAL_LABEL:
                     ::write(io, '.', as.symtab->str(val.payload.sym));
                     break;
-                case MVal::DATA_LABEL:
+                case ASMVal::DATA_LABEL:
                     ::write(io, "data ", as.symtab->str(val.payload.sym));
                     break;
-                case MVal::STATIC_LABEL:
+                case ASMVal::STATIC_LABEL:
                     ::write(io, "static ", as.symtab->str(val.payload.sym));
                     break;
             }
@@ -693,21 +693,21 @@ struct ASMPrinter : public Target {
         }
     }
 
-    static void write_label(stream& io, Assembly& as, const i8* prefix, stridx label) {
+    static void write_label(fd io, Assembly& as, const i8* prefix, stridx label) {
         ::write(io, prefix, as.symtab->str(label), ":\n");
     }
 
-    static void write_nullary(stream& io, Assembly& as, ASMOpcode opcode) {
+    static void write_nullary(fd io, Assembly& as, ASMOpcode opcode) {
         ::write(io, "  ", ASM_OPCODE_NAMES[(unsigned)opcode], '\n');
     }
 
-    static void write_unary(stream& io, Assembly& as, ASMOpcode opcode, const MVal& dst) {
+    static void write_unary(fd io, Assembly& as, ASMOpcode opcode, const ASMVal& dst) {
         ::write(io, "  ", ASM_OPCODE_NAMES[(unsigned)opcode], ' ');
         write_mval(io, as, dst);
         ::write(io, '\n');
     }
 
-    static void write_binary(stream& io, Assembly& as, ASMOpcode opcode, const MVal& dst, const MVal& src) {
+    static void write_binary(fd io, Assembly& as, ASMOpcode opcode, const ASMVal& dst, const ASMVal& src) {
         ::write(io, "  ", ASM_OPCODE_NAMES[(unsigned)opcode], ' ');
         write_mval(io, as, dst);
         ::write(io, ", ");
@@ -715,7 +715,7 @@ struct ASMPrinter : public Target {
         ::write(io, '\n');
     }
 
-    static void write_ternary(stream& io, Assembly& as, ASMOpcode opcode, const MVal& dst, const MVal& a, const MVal& b) {
+    static void write_ternary(fd io, Assembly& as, ASMOpcode opcode, const ASMVal& dst, const ASMVal& a, const ASMVal& b) {
         ::write(io, "  ", ASM_OPCODE_NAMES[(unsigned)opcode], ' ');
         write_mval(io, as, dst);
         ::write(io, ", ");
@@ -725,7 +725,7 @@ struct ASMPrinter : public Target {
         ::write(io, '\n');
     }
 
-    static void write_quaternary(stream& io, Assembly& as, ASMOpcode opcode, const MVal& dst, const MVal& a, const MVal& b, const MVal& c) {
+    static void write_quaternary(fd io, Assembly& as, ASMOpcode opcode, const ASMVal& dst, const ASMVal& a, const ASMVal& b, const ASMVal& c) {
         ::write(io, "  ", ASM_OPCODE_NAMES[(unsigned)opcode], ' ');
         write_mval(io, as, dst);
         ::write(io, ", ");
@@ -737,7 +737,7 @@ struct ASMPrinter : public Target {
         ::write(io, '\n');
     }
 
-    static void write_compare(stream& io, Assembly& as, const i8* prefix, Condition condition, const i8* suffix, const MVal& dst, const MVal& a, const MVal& b) {
+    static void write_compare(fd io, Assembly& as, const i8* prefix, Condition condition, const i8* suffix, const ASMVal& dst, const ASMVal& a, const ASMVal& b) {
         ::write(io, "  ", prefix, ASM_CONDITION_NAMES[(unsigned)condition], suffix, ' ');
         write_mval(io, as, dst);
         ::write(io, ", ");
@@ -747,255 +747,246 @@ struct ASMPrinter : public Target {
         ::write(io, '\n');
     }
 
-    static stream* output;
+    static fd output;
 
-    static void write_to(stream& output_in) {
-        output = &output_in;
+    static void write_to(fd output_in) {
+        output = output_in;
     }
 
-    #define NULLARY(opcode) { write_nullary(*output, as, ASMOpcode::opcode); }
-    #define UNARY(opcode) { write_unary(*output, as, ASMOpcode::opcode, dst); }
-    #define BINARY(opcode) { write_binary(*output, as, ASMOpcode::opcode, dst, src); }
-    #define TERNARY(opcode) { write_ternary(*output, as, ASMOpcode::opcode, dst, a, b); }
-    #define QUATERNARY(opcode) { write_quaternary(*output, as, ASMOpcode::opcode, dst, a, b, c); }
-    #define CONDITIONAL(p, s) { write_compare(*output, as, #p, cc, #s, dst, a, b); }
-    #define FCONDITIONAL(p, s) { write_compare(*output, as, #p, (Condition)cc, #s, dst, a, b); }
-    #define LABEL(p, label) { write_label(*output, as, p, sym); }
+    #define NULLARY(opcode) { write_nullary(output, as, ASMOpcode::opcode); }
+    #define UNARY(opcode) { write_unary(output, as, ASMOpcode::opcode, dst); }
+    #define BINARY(opcode) { write_binary(output, as, ASMOpcode::opcode, dst, src); }
+    #define TERNARY(opcode) { write_ternary(output, as, ASMOpcode::opcode, dst, a, b); }
+    #define QUATERNARY(opcode) { write_quaternary(output, as, ASMOpcode::opcode, dst, a, b, c); }
+    #define CONDITIONAL(p, s) { write_compare(output, as, #p, cc, #s, dst, a, b); }
+    #define FCONDITIONAL(p, s) { write_compare(output, as, #p, (Condition)cc, #s, dst, a, b); }
+    #define LABEL(p, label) { write_label(output, as, p, sym); }
 
     // Arithmetic
 
-    static void add8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ADD8)
-    static void add16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ADD16)
-    static void add32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ADD32)
-    static void add64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ADD64)
+    static void add8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ADD8)
+    static void add16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ADD16)
+    static void add32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ADD32)
+    static void add64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ADD64)
 
-    static void sub8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SUB8)
-    static void sub16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SUB16)
-    static void sub32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SUB32)
-    static void sub64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SUB64)
+    static void sub8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SUB8)
+    static void sub16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SUB16)
+    static void sub32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SUB32)
+    static void sub64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SUB64)
 
-    static void mul8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MUL8)
-    static void mul16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MUL16)
-    static void mul32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MUL32)
-    static void mul64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MUL64)
+    static void mul8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MUL8)
+    static void mul16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MUL16)
+    static void mul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MUL32)
+    static void mul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MUL64)
 
-    static void div8s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(DIV8S)
-    static void div16s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(DIV16S)
-    static void div32s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(DIV32S)
-    static void div64s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(DIV64S)
+    static void div8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV8S)
+    static void div16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV16S)
+    static void div32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV32S)
+    static void div64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV64S)
 
-    static void div8u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(DIV8U)
-    static void div16u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(DIV16U)
-    static void div32u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(DIV32U)
-    static void div64u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(DIV64U)
+    static void div8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV8U)
+    static void div16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV16U)
+    static void div32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV32U)
+    static void div64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV64U)
 
-    static void rem8s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(REM8S)
-    static void rem16s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(REM16S)
-    static void rem32s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(REM32S)
-    static void rem64s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(REM64S)
+    static void rem8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM8S)
+    static void rem16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM16S)
+    static void rem32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM32S)
+    static void rem64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM64S)
 
-    static void rem8u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(REM8U)
-    static void rem16u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(REM16U)
-    static void rem32u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(REM32U)
-    static void rem64u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(REM64U)
+    static void rem8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM8U)
+    static void rem16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM16U)
+    static void rem32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM32U)
+    static void rem64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM64U)
 
-    static void neg8(Assembly& as, MVal dst, MVal src) BINARY(NEG8)
-    static void neg16(Assembly& as, MVal dst, MVal src) BINARY(NEG16)
-    static void neg32(Assembly& as, MVal dst, MVal src) BINARY(NEG32)
-    static void neg64(Assembly& as, MVal dst, MVal src) BINARY(NEG64)
+    static void neg8(Assembly& as, ASMVal dst, ASMVal src) BINARY(NEG8)
+    static void neg16(Assembly& as, ASMVal dst, ASMVal src) BINARY(NEG16)
+    static void neg32(Assembly& as, ASMVal dst, ASMVal src) BINARY(NEG32)
+    static void neg64(Assembly& as, ASMVal dst, ASMVal src) BINARY(NEG64)
 
     // Floating-Point Arithmetic
 
-    static void fadd32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FADD32)
-    static void fadd64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FADD64)
+    static void fadd32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FADD32)
+    static void fadd64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FADD64)
 
-    static void fsub32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FSUB32)
-    static void fsub64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FSUB64)
+    static void fsub32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FSUB32)
+    static void fsub64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FSUB64)
 
-    static void fmul32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FMUL32)
-    static void fmul64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FMUL64)
+    static void fmul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FMUL32)
+    static void fmul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FMUL64)
 
-    static void fdiv32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FDIV32)
-    static void fdiv64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FDIV64)
+    static void fdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FDIV32)
+    static void fdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FDIV64)
 
-    static void frem32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FREM32)
-    static void frem64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FREM64)
+    static void frem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FREM32)
+    static void frem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FREM64)
 
-    static void fneg32(Assembly& as, MVal dst, MVal src) BINARY(FNEG32)
-    static void fneg64(Assembly& as, MVal dst, MVal src) BINARY(FNEG64)
+    static void fneg32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FNEG32)
+    static void fneg64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FNEG64)
 
-    static void fsqrt32(Assembly& as, MVal dst, MVal src) BINARY(FSQRT32)
-    static void fsqrt64(Assembly& as, MVal dst, MVal src) BINARY(FSQRT64)
+    static void fsqrt32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FSQRT32)
+    static void fsqrt64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FSQRT64)
 
-    static void fsin32(Assembly& as, MVal dst, MVal src) BINARY(FSIN32)
-    static void fsin64(Assembly& as, MVal dst, MVal src) BINARY(FSIN64)
+    static void fround32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FROUND32)
+    static void fround64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FROUND64)
 
-    static void fcos32(Assembly& as, MVal dst, MVal src) BINARY(FCOS32)
-    static void fcos64(Assembly& as, MVal dst, MVal src) BINARY(FCOS64)
+    static void ffloor32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FFLOOR32)
+    static void ffloor64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FFLOOR64)
 
-    static void ftan32(Assembly& as, MVal dst, MVal src) BINARY(FTAN32)
-    static void ftan64(Assembly& as, MVal dst, MVal src) BINARY(FTAN64)
+    static void fceil32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FCEIL32)
+    static void fceil64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FCEIL64)
 
-    static void fround32(Assembly& as, MVal dst, MVal src) BINARY(FROUND32)
-    static void fround64(Assembly& as, MVal dst, MVal src) BINARY(FROUND64)
+    static void fmin32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FMIN32)
+    static void fmin64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FMIN64)
 
-    static void ffloor32(Assembly& as, MVal dst, MVal src) BINARY(FFLOOR32)
-    static void ffloor64(Assembly& as, MVal dst, MVal src) BINARY(FFLOOR64)
+    static void fmax32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FMIN64)
+    static void fmax64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FMIN64)
 
-    static void fceil32(Assembly& as, MVal dst, MVal src) BINARY(FCEIL32)
-    static void fceil64(Assembly& as, MVal dst, MVal src) BINARY(FCEIL64)
-
-    static void fmin32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FMIN32)
-    static void fmin64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FMIN64)
-
-    static void fmax32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FMIN64)
-    static void fmax64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FMIN64)
-
-    static void fabs32(Assembly& as, MVal dst, MVal src) BINARY(FABS32)
-    static void fabs64(Assembly& as, MVal dst, MVal src) BINARY(FABS64)
+    static void fabs32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FABS32)
+    static void fabs64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FABS64)
 
     // Bitwise Operations
 
-    static void and8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(AND8)
-    static void and16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(AND16)
-    static void and32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(AND32)
-    static void and64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(AND64)
+    static void and8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(AND8)
+    static void and16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(AND16)
+    static void and32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(AND32)
+    static void and64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(AND64)
 
-    static void xor8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(XOR8)
-    static void xor16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(XOR16)
-    static void xor32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(XOR32)
-    static void xor64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(XOR64)
+    static void xor8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(XOR8)
+    static void xor16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(XOR16)
+    static void xor32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(XOR32)
+    static void xor64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(XOR64)
 
-    static void or8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(OR8)
-    static void or16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(OR16)
-    static void or32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(OR32)
-    static void or64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(OR64)
+    static void or8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(OR8)
+    static void or16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(OR16)
+    static void or32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(OR32)
+    static void or64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(OR64)
 
-    static void not8(Assembly& as, MVal dst, MVal src) BINARY(NOT8)
-    static void not16(Assembly& as, MVal dst, MVal src) BINARY(NOT16)
-    static void not32(Assembly& as, MVal dst, MVal src) BINARY(NOT32)
-    static void not64(Assembly& as, MVal dst, MVal src) BINARY(NOT64)
+    static void not8(Assembly& as, ASMVal dst, ASMVal src) BINARY(NOT8)
+    static void not16(Assembly& as, ASMVal dst, ASMVal src) BINARY(NOT16)
+    static void not32(Assembly& as, ASMVal dst, ASMVal src) BINARY(NOT32)
+    static void not64(Assembly& as, ASMVal dst, ASMVal src) BINARY(NOT64)
 
-    static void shl8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SHL8)
-    static void shl16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SHL16)
-    static void shl32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SHL32)
-    static void shl64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SHL64)
+    static void shl8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SHL8)
+    static void shl16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SHL16)
+    static void shl32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SHL32)
+    static void shl64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SHL64)
 
-    static void shr8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SHR8)
-    static void shr16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SHR16)
-    static void shr32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SHR32)
-    static void shr64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SHR64)
+    static void shr8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SHR8)
+    static void shr16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SHR16)
+    static void shr32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SHR32)
+    static void shr64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SHR64)
 
-    static void sar8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SAR8)
-    static void sar16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SAR16)
-    static void sar32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SAR32)
-    static void sar64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(SAR64)
+    static void sar8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SAR8)
+    static void sar16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SAR16)
+    static void sar32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SAR32)
+    static void sar64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SAR64)
 
-    static void rol8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ROL8)
-    static void rol16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ROL16)
-    static void rol32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ROL32)
-    static void rol64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ROL64)
+    static void rol8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ROL8)
+    static void rol16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ROL16)
+    static void rol32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ROL32)
+    static void rol64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ROL64)
 
-    static void ror8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ROR8)
-    static void ror16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ROR16)
-    static void ror32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ROR32)
-    static void ror64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ROR64)
+    static void ror8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ROR8)
+    static void ror16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ROR16)
+    static void ror32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ROR32)
+    static void ror64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ROR64)
 
-    static void bitc8(Assembly& as, MVal dst, MVal src) BINARY(BITC8)
-    static void bitc16(Assembly& as, MVal dst, MVal src) BINARY(BITC16)
-    static void bitc32(Assembly& as, MVal dst, MVal src) BINARY(BITC32)
-    static void bitc64(Assembly& as, MVal dst, MVal src) BINARY(BITC64)
+    static void bitc8(Assembly& as, ASMVal dst, ASMVal src) BINARY(BITC8)
+    static void bitc16(Assembly& as, ASMVal dst, ASMVal src) BINARY(BITC16)
+    static void bitc32(Assembly& as, ASMVal dst, ASMVal src) BINARY(BITC32)
+    static void bitc64(Assembly& as, ASMVal dst, ASMVal src) BINARY(BITC64)
 
-    static void lzc8(Assembly& as, MVal dst, MVal src) BINARY(LZC8)
-    static void lzc16(Assembly& as, MVal dst, MVal src) BINARY(LZC16)
-    static void lzc32(Assembly& as, MVal dst, MVal src) BINARY(LZC32)
-    static void lzc64(Assembly& as, MVal dst, MVal src) BINARY(LZC64)
+    static void lzc8(Assembly& as, ASMVal dst, ASMVal src) BINARY(LZC8)
+    static void lzc16(Assembly& as, ASMVal dst, ASMVal src) BINARY(LZC16)
+    static void lzc32(Assembly& as, ASMVal dst, ASMVal src) BINARY(LZC32)
+    static void lzc64(Assembly& as, ASMVal dst, ASMVal src) BINARY(LZC64)
 
-    static void tzc8(Assembly& as, MVal dst, MVal src) BINARY(TZC8)
-    static void tzc16(Assembly& as, MVal dst, MVal src) BINARY(TZC16)
-    static void tzc32(Assembly& as, MVal dst, MVal src) BINARY(TZC32)
-    static void tzc64(Assembly& as, MVal dst, MVal src) BINARY(TZC64)
+    static void tzc8(Assembly& as, ASMVal dst, ASMVal src) BINARY(TZC8)
+    static void tzc16(Assembly& as, ASMVal dst, ASMVal src) BINARY(TZC16)
+    static void tzc32(Assembly& as, ASMVal dst, ASMVal src) BINARY(TZC32)
+    static void tzc64(Assembly& as, ASMVal dst, ASMVal src) BINARY(TZC64)
 
     // Comparisons
 
-    static void isz(Assembly& as, MVal dst, MVal src) BINARY(ISZ)
-    static void isnz(Assembly& as, MVal dst, MVal src) BINARY(ISNZ)
+    static void isz(Assembly& as, ASMVal dst, ASMVal src) BINARY(ISZ)
+    static void isnz(Assembly& as, ASMVal dst, ASMVal src) BINARY(ISNZ)
 
-    static void ccc8(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(c, 8)
-    static void ccc16(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(c, 16)
-    static void ccc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(c, 32)
-    static void ccc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(c, 64)
+    static void ccc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(c, 8)
+    static void ccc16(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(c, 16)
+    static void ccc32(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(c, 32)
+    static void ccc64(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(c, 64)
 
-    static void fccc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(cf, 32)
-    static void fccc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(cf, 64)
+    static void fccc32(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) FCONDITIONAL(cf, 32)
+    static void fccc64(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) FCONDITIONAL(cf, 64)
 
     // Memory
 
-    static void push8(Assembly& as, MVal dst) UNARY(PUSH8)
-    static void push16(Assembly& as, MVal dst) UNARY(PUSH16)
-    static void push32(Assembly& as, MVal dst) UNARY(PUSH32)
-    static void push64(Assembly& as, MVal dst) UNARY(PUSH64)
+    static void push8(Assembly& as, ASMVal dst) UNARY(PUSH8)
+    static void push16(Assembly& as, ASMVal dst) UNARY(PUSH16)
+    static void push32(Assembly& as, ASMVal dst) UNARY(PUSH32)
+    static void push64(Assembly& as, ASMVal dst) UNARY(PUSH64)
 
-    static void pop8(Assembly& as, MVal dst) UNARY(POP8)
-    static void pop16(Assembly& as, MVal dst) UNARY(POP16)
-    static void pop32(Assembly& as, MVal dst) UNARY(POP32)
-    static void pop64(Assembly& as, MVal dst) UNARY(POP64)
+    static void pop8(Assembly& as, ASMVal dst) UNARY(POP8)
+    static void pop16(Assembly& as, ASMVal dst) UNARY(POP16)
+    static void pop32(Assembly& as, ASMVal dst) UNARY(POP32)
+    static void pop64(Assembly& as, ASMVal dst) UNARY(POP64)
 
-    static void fpush32(Assembly& as, MVal dst) UNARY(FPUSH32)
-    static void fpush64(Assembly& as, MVal dst) UNARY(FPUSH64)
+    static void fpush32(Assembly& as, ASMVal dst) UNARY(FPUSH32)
+    static void fpush64(Assembly& as, ASMVal dst) UNARY(FPUSH64)
 
-    static void fpop32(Assembly& as, MVal dst) UNARY(FPOP32)
-    static void fpop64(Assembly& as, MVal dst) UNARY(FPOP64)
+    static void fpop32(Assembly& as, ASMVal dst) UNARY(FPOP32)
+    static void fpop64(Assembly& as, ASMVal dst) UNARY(FPOP64)
 
-    static void mov8(Assembly& as, MVal dst, MVal src) BINARY(MOV8)
-    static void mov16(Assembly& as, MVal dst, MVal src) BINARY(MOV16)
-    static void mov32(Assembly& as, MVal dst, MVal src) BINARY(MOV32)
-    static void mov64(Assembly& as, MVal dst, MVal src) BINARY(MOV64)
+    static void mov8(Assembly& as, ASMVal dst, ASMVal src) BINARY(MOV8)
+    static void mov16(Assembly& as, ASMVal dst, ASMVal src) BINARY(MOV16)
+    static void mov32(Assembly& as, ASMVal dst, ASMVal src) BINARY(MOV32)
+    static void mov64(Assembly& as, ASMVal dst, ASMVal src) BINARY(MOV64)
 
-    static void fmov32(Assembly& as, MVal dst, MVal src) BINARY(FMOV32)
-    static void fmov64(Assembly& as, MVal dst, MVal src) BINARY(FMOV64)
+    static void fmov32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FMOV32)
+    static void fmov64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FMOV64)
 
-    static void ld8(Assembly& as, MVal dst, MVal src) BINARY(LD8)
-    static void ld16(Assembly& as, MVal dst, MVal src) BINARY(LD16)
-    static void ld32(Assembly& as, MVal dst, MVal src) BINARY(LD32)
-    static void ld64(Assembly& as, MVal dst, MVal src) BINARY(LD64)
+    static void ld8(Assembly& as, ASMVal dst, ASMVal src) BINARY(LD8)
+    static void ld16(Assembly& as, ASMVal dst, ASMVal src) BINARY(LD16)
+    static void ld32(Assembly& as, ASMVal dst, ASMVal src) BINARY(LD32)
+    static void ld64(Assembly& as, ASMVal dst, ASMVal src) BINARY(LD64)
 
-    static void st8(Assembly& as, MVal dst, MVal src) BINARY(ST8)
-    static void st16(Assembly& as, MVal dst, MVal src) BINARY(ST16)
-    static void st32(Assembly& as, MVal dst, MVal src) BINARY(ST32)
-    static void st64(Assembly& as, MVal dst, MVal src) BINARY(ST64)
+    static void st8(Assembly& as, ASMVal dst, ASMVal src) BINARY(ST8)
+    static void st16(Assembly& as, ASMVal dst, ASMVal src) BINARY(ST16)
+    static void st32(Assembly& as, ASMVal dst, ASMVal src) BINARY(ST32)
+    static void st64(Assembly& as, ASMVal dst, ASMVal src) BINARY(ST64)
     
-    static void ldi8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(LDI8)
-    static void ldi16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(LDI16)
-    static void ldi32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(LDI32)
-    static void ldi64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(LDI64)
+    static void ldi8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(LDI8)
+    static void ldi16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(LDI16)
+    static void ldi32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(LDI32)
+    static void ldi64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(LDI64)
     
-    static void ldai8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(LDAI8)
-    static void ldai16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(LDAI16)
-    static void ldai32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(LDAI32)
-    static void ldai64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(LDAI64)
+    static void ldai8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(LDAI8)
+    static void ldai16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(LDAI16)
+    static void ldai32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(LDAI32)
+    static void ldai64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(LDAI64)
     
-    static void sti8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(STI8)
-    static void sti16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(STI16)
-    static void sti32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(STI32)
-    static void sti64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(STI64)
+    static void sti8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(STI8)
+    static void sti16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(STI16)
+    static void sti32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(STI32)
+    static void sti64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(STI64)
 
-    static void fld32(Assembly& as, MVal dst, MVal src) BINARY(FLD32)
-    static void fld64(Assembly& as, MVal dst, MVal src) BINARY(FLD64)
+    static void fld32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FLD32)
+    static void fld64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FLD64)
 
-    static void fst32(Assembly& as, MVal dst, MVal src) BINARY(FST32)
-    static void fst64(Assembly& as, MVal dst, MVal src) BINARY(FST64)
+    static void fst32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FST32)
+    static void fst64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FST64)
 
-    static void fldi32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FLDI32)
-    static void fldi64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FLDI64)
+    static void fldi32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FLDI32)
+    static void fldi64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FLDI64)
 
-    static void fsti32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FSTI32)
-    static void fsti64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FSTI64)
+    static void fsti32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FSTI32)
+    static void fsti64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FSTI64)
     
-    static void lda(Assembly& as, MVal dst, MVal src) BINARY(LDA)
+    static void lda(Assembly& as, ASMVal dst, ASMVal src) BINARY(LDA)
 
-    static void ldc(Assembly& as, MVal dst, i64 imm) {
-        ::write(*output, "  ", ASM_OPCODE_NAMES[(unsigned)ASMOpcode::LDC], ' ', dst, ", ", imm, '\n');
+    static void ldc(Assembly& as, ASMVal dst, i64 imm) {
+        ::write(output, "  ", ASM_OPCODE_NAMES[(unsigned)ASMOpcode::LDC], ' ', dst, ", ", imm, '\n');
     }
 
     // Labels
@@ -1005,74 +996,74 @@ struct ASMPrinter : public Target {
 
     // Jumps
 
-    static void j(Assembly& as, MVal dst) UNARY(J)
+    static void j(Assembly& as, ASMVal dst) UNARY(J)
 
-    static void jz(Assembly& as, MVal dst, MVal src) BINARY(JZ)
-    static void jnz(Assembly& as, MVal dst, MVal src) BINARY(JNZ)
+    static void jz(Assembly& as, ASMVal dst, ASMVal src) BINARY(JZ)
+    static void jnz(Assembly& as, ASMVal dst, ASMVal src) BINARY(JNZ)
 
-    static void jcc8(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(j, 8)
-    static void jcc16(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(j, 16)
-    static void jcc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(j, 32)
-    static void jcc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(j, 64)
+    static void jcc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(j, 8)
+    static void jcc16(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(j, 16)
+    static void jcc32(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(j, 32)
+    static void jcc64(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(j, 64)
     
-    static void fjcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(jf, 32)
-    static void fjcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) FCONDITIONAL(jf, 64)
+    static void fjcc32(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) FCONDITIONAL(jf, 32)
+    static void fjcc64(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) FCONDITIONAL(jf, 64)
 
     // Functions
 
     static void enter(Assembly& as) NULLARY(ENTER)
-    static void stack(Assembly& as, MVal dst) UNARY(STACK)
-    static void alloca(Assembly& as, MVal dst, MVal src) BINARY(ALLOCA)
-    static void unstack(Assembly& as, MVal dst) UNARY(UNSTACK)
+    static void stack(Assembly& as, ASMVal dst) UNARY(STACK)
+    static void alloca(Assembly& as, ASMVal dst, ASMVal src) BINARY(ALLOCA)
+    static void unstack(Assembly& as, ASMVal dst) UNARY(UNSTACK)
     static void leave(Assembly& as) NULLARY(LEAVE)
 
-    static void call(Assembly& as, MVal dst) UNARY(CALL)
+    static void call(Assembly& as, ASMVal dst) UNARY(CALL)
     static void ret(Assembly& as) NULLARY(RET)
 
     // Conversions
 
-    static void sxt8(Assembly& as, MVal dst, MVal src) BINARY(SXT8)
-    static void sxt16(Assembly& as, MVal dst, MVal src) BINARY(SXT16)
-    static void sxt32(Assembly& as, MVal dst, MVal src) BINARY(SXT32)
+    static void sxt8(Assembly& as, ASMVal dst, ASMVal src) BINARY(SXT8)
+    static void sxt16(Assembly& as, ASMVal dst, ASMVal src) BINARY(SXT16)
+    static void sxt32(Assembly& as, ASMVal dst, ASMVal src) BINARY(SXT32)
 
-    static void zxt8(Assembly& as, MVal dst, MVal src) BINARY(ZXT8)
-    static void zxt16(Assembly& as, MVal dst, MVal src) BINARY(ZXT16)
-    static void zxt32(Assembly& as, MVal dst, MVal src) BINARY(ZXT32)
+    static void zxt8(Assembly& as, ASMVal dst, ASMVal src) BINARY(ZXT8)
+    static void zxt16(Assembly& as, ASMVal dst, ASMVal src) BINARY(ZXT16)
+    static void zxt32(Assembly& as, ASMVal dst, ASMVal src) BINARY(ZXT32)
 
-    static void i8tof32(Assembly& as, MVal dst, MVal src) BINARY(I8TOF32)
-    static void i16tof32(Assembly& as, MVal dst, MVal src) BINARY(I16TOF32)
-    static void i32tof32(Assembly& as, MVal dst, MVal src) BINARY(I32TOF32)
-    static void i64tof32(Assembly& as, MVal dst, MVal src) BINARY(I64TOF32)
+    static void i8tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(I8TOF32)
+    static void i16tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(I16TOF32)
+    static void i32tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(I32TOF32)
+    static void i64tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(I64TOF32)
 
-    static void i8tof64(Assembly& as, MVal dst, MVal src) BINARY(I8TOF64)
-    static void i16tof64(Assembly& as, MVal dst, MVal src) BINARY(I16TOF64)
-    static void i32tof64(Assembly& as, MVal dst, MVal src) BINARY(I32TOF64)
-    static void i64tof64(Assembly& as, MVal dst, MVal src) BINARY(I64TOF64)
+    static void i8tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(I8TOF64)
+    static void i16tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(I16TOF64)
+    static void i32tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(I32TOF64)
+    static void i64tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(I64TOF64)
 
-    static void f32toi8(Assembly& as, MVal dst, MVal src) BINARY(F32TOI8)
-    static void f32toi16(Assembly& as, MVal dst, MVal src) BINARY(F32TOI16)
-    static void f32toi32(Assembly& as, MVal dst, MVal src) BINARY(F32TOI32)
-    static void f32toi64(Assembly& as, MVal dst, MVal src) BINARY(F32TOI64)
+    static void f32toi8(Assembly& as, ASMVal dst, ASMVal src) BINARY(F32TOI8)
+    static void f32toi16(Assembly& as, ASMVal dst, ASMVal src) BINARY(F32TOI16)
+    static void f32toi32(Assembly& as, ASMVal dst, ASMVal src) BINARY(F32TOI32)
+    static void f32toi64(Assembly& as, ASMVal dst, ASMVal src) BINARY(F32TOI64)
 
-    static void f64toi8(Assembly& as, MVal dst, MVal src) BINARY(F64TOI8)
-    static void f64toi16(Assembly& as, MVal dst, MVal src) BINARY(F64TOI16)
-    static void f64toi32(Assembly& as, MVal dst, MVal src) BINARY(F64TOI32)
-    static void f64toi64(Assembly& as, MVal dst, MVal src) BINARY(F64TOI64)
+    static void f64toi8(Assembly& as, ASMVal dst, ASMVal src) BINARY(F64TOI8)
+    static void f64toi16(Assembly& as, ASMVal dst, ASMVal src) BINARY(F64TOI16)
+    static void f64toi32(Assembly& as, ASMVal dst, ASMVal src) BINARY(F64TOI32)
+    static void f64toi64(Assembly& as, ASMVal dst, ASMVal src) BINARY(F64TOI64)
 
-    static void f32tof64(Assembly& as, MVal dst, MVal src) BINARY(F32TOF64)
-    static void f64tof32(Assembly& as, MVal dst, MVal src) BINARY(F64TOF32)
+    static void f32tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(F32TOF64)
+    static void f64tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(F64TOF32)
 
-    static void f32frombits(Assembly& as, MVal dst, MVal src) BINARY(F32FROMBITS)
-    static void f64frombits(Assembly& as, MVal dst, MVal src) BINARY(F64FROMBITS)
-    static void f32tobits(Assembly& as, MVal dst, MVal src) BINARY(F32TOBITS)
-    static void f64tobits(Assembly& as, MVal dst, MVal src) BINARY(F64TOBITS)
+    static void f32frombits(Assembly& as, ASMVal dst, ASMVal src) BINARY(F32FROMBITS)
+    static void f64frombits(Assembly& as, ASMVal dst, ASMVal src) BINARY(F64FROMBITS)
+    static void f32tobits(Assembly& as, ASMVal dst, ASMVal src) BINARY(F32TOBITS)
+    static void f64tobits(Assembly& as, ASMVal dst, ASMVal src) BINARY(F64TOBITS)
 
     // Memory
     
-    static void mcpy(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MCPY)
-    static void mmov(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MMOV)
-    static void mset(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MSET)
-    static void mcmp(Assembly& as, MVal dst, MVal a, MVal b, MVal c) QUATERNARY(MCMP)
+    static void mcpy(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MCPY)
+    static void mmov(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MMOV)
+    static void mset(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MSET)
+    static void mcmp(Assembly& as, ASMVal dst, ASMVal a, ASMVal b, ASMVal c) QUATERNARY(MCMP)
 
     #undef NULLARY
     #undef UNARY
@@ -1085,23 +1076,23 @@ struct ASMPrinter : public Target {
 };
 
 template<typename Target>
-stream* ASMPrinter<Target>::output = nullptr;
+fd ASMPrinter<Target>::output = -1;
 
 // Verifies instructions both independent of target and using target information if available.
 template<typename Target = FakeTarget>
 struct ASMVerifier : public Target {
-    #define GP(x) assert(x.kind() == MVal::GPREG); assert(Target::is_gpreg(x.payload.gpreg))
-    #define FP(x) assert(x.kind() == MVal::FPREG); assert(Target::is_fpreg(x.payload.fpreg))
-    #define IMM(x) assert(x.kind() == MVal::IMM)
-    #define GP_OR_IMM(x) assert(x.kind() == MVal::IMM || x.kind() == MVal::GPREG); if (x.kind() == MVal::GPREG) assert(Target::is_gpreg(x.payload.gpreg));
-    #define FP_OR_F32(x) assert(x.kind() == MVal::F32 || x.kind() == MVal::FPREG); if (x.kind() == MVal::FPREG) assert(Target::is_fpreg(x.payload.fpreg));
-    #define FP_OR_F64(x) assert(x.kind() == MVal::F64 || x.kind() == MVal::FPREG); if (x.kind() == MVal::FPREG) assert(Target::is_fpreg(x.payload.fpreg));
-    #define ONLY_ONE_IMM(x, y) assert(x.kind() != MVal::IMM || y.kind() != MVal::IMM);
-    #define ONLY_ONE_F32(x, y) assert(x.kind() != MVal::F32 || y.kind() != MVal::F32);
-    #define ONLY_ONE_F64(x, y) assert(x.kind() != MVal::F64 || y.kind() != MVal::F64);
-    #define MEM(x) assert(x.kind() == MVal::MEM); if (x.payload.memkind == MVal::REG_OFFSET) assert(Target::is_gpreg(x.payload.base));
-    #define LABEL(x) assert(x.kind() == MVal::MEM && x.payload.memkind != MVal::REG_OFFSET)
-    #define GP_OR_LABEL(x) assert(x.kind() == MVal::GPREG || (x.kind() == MVal::MEM && x.payload.memkind != MVal::REG_OFFSET))
+    #define GP(x) assert(x.kind() == ASMVal::GP); assert(Target::is_gpreg(x.payload.gp))
+    #define FP(x) assert(x.kind() == ASMVal::FP); assert(Target::is_fpreg(x.payload.fp))
+    #define IMM(x) assert(x.kind() == ASMVal::IMM)
+    #define GP_OR_IMM(x) assert(x.kind() == ASMVal::IMM || x.kind() == ASMVal::GP); if (x.kind() == ASMVal::GP) assert(Target::is_gp(x.payload.gp));
+    #define FP_OR_F32(x) assert(x.kind() == ASMVal::F32 || x.kind() == ASMVal::FP); if (x.kind() == ASMVal::FP) assert(Target::is_fp(x.payload.fp));
+    #define FP_OR_F64(x) assert(x.kind() == ASMVal::F64 || x.kind() == ASMVal::FP); if (x.kind() == ASMVal::FP) assert(Target::is_fp(x.payload.fp));
+    #define ONLY_ONE_IMM(x, y) assert(x.kind() != ASMVal::IMM || y.kind() != ASMVal::IMM);
+    #define ONLY_ONE_F32(x, y) assert(x.kind() != ASMVal::F32 || y.kind() != ASMVal::F32);
+    #define ONLY_ONE_F64(x, y) assert(x.kind() != ASMVal::F64 || y.kind() != ASMVal::F64);
+    #define MEM(x) assert(x.kind() == ASMVal::MEM); if (x.payload.memkind == ASMVal::REG_OFFSET) assert(Target::is_gpreg(x.payload.base));
+    #define LABEL(x) assert(x.kind() == ASMVal::MEM && x.payload.memkind != ASMVal::REG_OFFSET)
+    #define GP_OR_LABEL(x) assert(x.kind() == ASMVal::GP || (x.kind() == ASMVal::MEM && x.payload.memkind != ASMVal::REG_OFFSET))
     #define TRUE(a, b) (void)true
 
     #define NULLARY {}
@@ -1110,237 +1101,228 @@ struct ASMVerifier : public Target {
     #define TERNARY(DSTPRED, APRED, BPRED, ABPRED) { DSTPRED(dst); APRED(a); BPRED(b); ABPRED(a, b); }
     #define QUATERNARY(DSTPRED, APRED, BPRED, CPRED) { DSTPRED(dst); APRED(a); BPRED(b); CPRED(c); }
 
-    static void add8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void add16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void add32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void add64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void add8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void add16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void add32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void add64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void sub8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void sub16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void sub32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void sub64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sub8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sub16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sub32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sub64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void mul8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void mul16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void mul32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void mul64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void mul8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void mul16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void mul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void mul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void div8s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div16s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div32s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div64s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void div8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void div16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void div32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void div64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void div8u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div16u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div32u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div64u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void div8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void div16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void div32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void div64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void rem8s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem16s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem32s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem64s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rem8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rem16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rem32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rem64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void rem8u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem16u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem32u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem64u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rem8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rem16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rem32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rem64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void neg8(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void neg16(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void neg32(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void neg64(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
+    static void neg8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void neg16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void neg32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void neg64(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
 
     // Floating-Point Arithmetic
 
-    static void fadd32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void fadd64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
+    static void fadd32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fadd64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
-    static void fsub32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void fsub64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
+    static void fsub32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fsub64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
-    static void fmul32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void fmul64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
+    static void fmul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fmul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
-    static void fdiv32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void fdiv64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
+    static void fdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
-    static void frem32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void frem64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
+    static void frem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void frem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
-    static void fneg32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void fneg64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
+    static void fneg32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
+    static void fneg64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
 
-    static void fsqrt32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void fsqrt64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
+    static void fsqrt32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
+    static void fsqrt64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
 
-    static void fsin32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void fsin64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
+    static void fround32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
+    static void fround64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
 
-    static void fcos32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void fcos64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
+    static void ffloor32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
+    static void ffloor64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
 
-    static void ftan32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void ftan64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
+    static void fceil32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
+    static void fceil64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
 
-    static void fround32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void fround64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
+    static void fmin32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fmin64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
-    static void ffloor32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void ffloor64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
+    static void fmax32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fmax64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
-    static void fceil32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void fceil64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-
-    static void fmin32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void fmin64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
-
-    static void fmax32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void fmax64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
-
-    static void fabs32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void fabs64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
+    static void fabs32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
+    static void fabs64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
 
     // Bitwise Operations
 
-    static void and8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void and16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void and32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void and64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void and8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void and16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void and32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void and64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void xor8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void xor16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void xor32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void xor64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void xor8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void xor16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void xor32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void xor64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void or8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void or16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void or32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void or64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void or8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void or16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void or32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void or64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void not8(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void not16(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void not32(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void not64(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
+    static void not8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void not16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void not32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void not64(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
 
-    static void shl8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void shl16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void shl32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void shl64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void shl8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void shl16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void shl32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void shl64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void shr8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void shr16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void shr32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void shr64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void shr8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void shr16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void shr32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void shr64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void sar8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void sar16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void sar32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void sar64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sar8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sar16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sar32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sar64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void rol8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rol16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rol32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rol64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rol8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rol16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rol32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void rol64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void ror8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void ror16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void ror32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void ror64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void ror8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void ror16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void ror32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void ror64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void bitc8(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void bitc16(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void bitc32(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void bitc64(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
+    static void bitc8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void bitc16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void bitc32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void bitc64(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
 
-    static void lzc8(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void lzc16(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void lzc32(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void lzc64(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
+    static void lzc8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void lzc16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void lzc32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void lzc64(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
 
-    static void tzc8(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void tzc16(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void tzc32(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void tzc64(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
+    static void tzc8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void tzc16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void tzc32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void tzc64(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
 
     // Comparisons
 
-    static void isz(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void isnz(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
+    static void isz(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void isnz(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
 
-    static void ccc8(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void ccc16(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void ccc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void ccc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void ccc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void ccc16(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void ccc32(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void ccc64(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void fccc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void fccc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
+    static void fccc32(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fccc64(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
     // Memory
 
-    static void push8(Assembly& as, MVal dst) UNARY(GP)
-    static void push16(Assembly& as, MVal dst) UNARY(GP)
-    static void push32(Assembly& as, MVal dst) UNARY(GP)
-    static void push64(Assembly& as, MVal dst) UNARY(GP)
+    static void push8(Assembly& as, ASMVal dst) UNARY(GP)
+    static void push16(Assembly& as, ASMVal dst) UNARY(GP)
+    static void push32(Assembly& as, ASMVal dst) UNARY(GP)
+    static void push64(Assembly& as, ASMVal dst) UNARY(GP)
 
-    static void pop8(Assembly& as, MVal dst) UNARY(GP)
-    static void pop16(Assembly& as, MVal dst) UNARY(GP)
-    static void pop32(Assembly& as, MVal dst) UNARY(GP)
-    static void pop64(Assembly& as, MVal dst) UNARY(GP)
+    static void pop8(Assembly& as, ASMVal dst) UNARY(GP)
+    static void pop16(Assembly& as, ASMVal dst) UNARY(GP)
+    static void pop32(Assembly& as, ASMVal dst) UNARY(GP)
+    static void pop64(Assembly& as, ASMVal dst) UNARY(GP)
 
-    static void fpush32(Assembly& as, MVal dst) UNARY(FP)
-    static void fpush64(Assembly& as, MVal dst) UNARY(FP)
+    static void fpush32(Assembly& as, ASMVal dst) UNARY(FP)
+    static void fpush64(Assembly& as, ASMVal dst) UNARY(FP)
 
-    static void fpop32(Assembly& as, MVal dst) UNARY(FP)
-    static void fpop64(Assembly& as, MVal dst) UNARY(FP)
+    static void fpop32(Assembly& as, ASMVal dst) UNARY(FP)
+    static void fpop64(Assembly& as, ASMVal dst) UNARY(FP)
 
-    static void mov8(Assembly& as, MVal dst, MVal src) BINARY(GP, GP_OR_IMM)
-    static void mov16(Assembly& as, MVal dst, MVal src) BINARY(GP, GP_OR_IMM)
-    static void mov32(Assembly& as, MVal dst, MVal src) BINARY(GP, GP_OR_IMM)
-    static void mov64(Assembly& as, MVal dst, MVal src) BINARY(GP, GP_OR_IMM)
+    static void mov8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP_OR_IMM)
+    static void mov16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP_OR_IMM)
+    static void mov32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP_OR_IMM)
+    static void mov64(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP_OR_IMM)
 
-    static void fmov32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP_OR_F32)
-    static void fmov64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP_OR_F64)
+    static void fmov32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP_OR_F32)
+    static void fmov64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP_OR_F64)
 
-    static void ld8(Assembly& as, MVal dst, MVal src) BINARY(GP, MEM)
-    static void ld16(Assembly& as, MVal dst, MVal src) BINARY(GP, MEM)
-    static void ld32(Assembly& as, MVal dst, MVal src) BINARY(GP, MEM)
-    static void ld64(Assembly& as, MVal dst, MVal src) BINARY(GP, MEM)
+    static void ld8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, MEM)
+    static void ld16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, MEM)
+    static void ld32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, MEM)
+    static void ld64(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, MEM)
 
-    static void st8(Assembly& as, MVal dst, MVal src) BINARY(MEM, GP_OR_IMM)
-    static void st16(Assembly& as, MVal dst, MVal src) BINARY(MEM, GP_OR_IMM)
-    static void st32(Assembly& as, MVal dst, MVal src) BINARY(MEM, GP_OR_IMM)
-    static void st64(Assembly& as, MVal dst, MVal src) BINARY(MEM, GP_OR_IMM)
+    static void st8(Assembly& as, ASMVal dst, ASMVal src) BINARY(MEM, GP_OR_IMM)
+    static void st16(Assembly& as, ASMVal dst, ASMVal src) BINARY(MEM, GP_OR_IMM)
+    static void st32(Assembly& as, ASMVal dst, ASMVal src) BINARY(MEM, GP_OR_IMM)
+    static void st64(Assembly& as, ASMVal dst, ASMVal src) BINARY(MEM, GP_OR_IMM)
     
-    static void ldi8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, MEM, GP, TRUE)
-    static void ldi16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, MEM, GP, TRUE)
-    static void ldi32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, MEM, GP, TRUE)
-    static void ldi64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, MEM, GP, TRUE)
+    static void ldi8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, MEM, GP, TRUE)
+    static void ldi16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, MEM, GP, TRUE)
+    static void ldi32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, MEM, GP, TRUE)
+    static void ldi64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, MEM, GP, TRUE)
     
-    static void ldai8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, MEM, GP, TRUE)
-    static void ldai16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, MEM, GP, TRUE)
-    static void ldai32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, MEM, GP, TRUE)
-    static void ldai64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(GP, MEM, GP, TRUE)
+    static void ldai8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, MEM, GP, TRUE)
+    static void ldai16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, MEM, GP, TRUE)
+    static void ldai32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, MEM, GP, TRUE)
+    static void ldai64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, MEM, GP, TRUE)
     
-    static void sti8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MEM, GP, GP, TRUE)
-    static void sti16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MEM, GP, GP, TRUE)
-    static void sti32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MEM, GP, GP, TRUE)
-    static void sti64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MEM, GP, GP, TRUE)
+    static void sti8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MEM, GP, GP, TRUE)
+    static void sti16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MEM, GP, GP, TRUE)
+    static void sti32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MEM, GP, GP, TRUE)
+    static void sti64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MEM, GP, GP, TRUE)
 
-    static void fld32(Assembly& as, MVal dst, MVal src) BINARY(FP, MEM)
-    static void fld64(Assembly& as, MVal dst, MVal src) BINARY(FP, MEM)
+    static void fld32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, MEM)
+    static void fld64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, MEM)
 
-    static void fst32(Assembly& as, MVal dst, MVal src) BINARY(MEM, FP_OR_F32)
-    static void fst64(Assembly& as, MVal dst, MVal src) BINARY(MEM, FP_OR_F64)
+    static void fst32(Assembly& as, ASMVal dst, ASMVal src) BINARY(MEM, FP_OR_F32)
+    static void fst64(Assembly& as, ASMVal dst, ASMVal src) BINARY(MEM, FP_OR_F64)
 
-    static void fldi32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, MEM, GP, TRUE)
-    static void fldi64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(FP, MEM, GP, TRUE)
+    static void fldi32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, MEM, GP, TRUE)
+    static void fldi64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(FP, MEM, GP, TRUE)
 
-    static void fsti32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MEM, GP, FP, TRUE)
-    static void fsti64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MEM, GP, FP, TRUE)
+    static void fsti32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MEM, GP, FP, TRUE)
+    static void fsti64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MEM, GP, FP, TRUE)
     
-    static void lda(Assembly& as, MVal dst, MVal src) BINARY(GP, MEM)
+    static void lda(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, MEM)
 
-    static void ldc(Assembly& as, MVal dst, i64 imm) UNARY(GP)
+    static void ldc(Assembly& as, ASMVal dst, i64 imm) UNARY(GP)
 
     // Labels
 
@@ -1349,74 +1331,74 @@ struct ASMVerifier : public Target {
 
     // Jumps
 
-    static void j(Assembly& as, MVal dst) UNARY(GP_OR_LABEL)
+    static void j(Assembly& as, ASMVal dst) UNARY(GP_OR_LABEL)
 
-    static void jz(Assembly& as, MVal dst, MVal src) BINARY(GP_OR_LABEL, GP)
-    static void jnz(Assembly& as, MVal dst, MVal src) BINARY(GP_OR_LABEL, GP)
+    static void jz(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP_OR_LABEL, GP)
+    static void jnz(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP_OR_LABEL, GP)
 
-    static void jcc8(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void jcc16(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void jcc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void jcc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void jcc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void jcc16(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void jcc32(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void jcc64(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP_OR_LABEL, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
     
-    static void fjcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
-    static void fjcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) TERNARY(GP_OR_LABEL, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
+    static void fjcc32(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP_OR_LABEL, FP_OR_F32, FP_OR_F32, ONLY_ONE_F32)
+    static void fjcc64(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP_OR_LABEL, FP_OR_F64, FP_OR_F64, ONLY_ONE_F64)
 
     // Functions
 
     static void enter(Assembly& as) NULLARY
-    static void stack(Assembly& as, MVal dst) UNARY(GP_OR_IMM)
-    static void alloca(Assembly& as, MVal dst, MVal src) BINARY(GP, GP_OR_IMM)
-    static void unstack(Assembly& as, MVal dst) UNARY(GP_OR_IMM)
+    static void stack(Assembly& as, ASMVal dst) UNARY(GP_OR_IMM)
+    static void alloca(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP_OR_IMM)
+    static void unstack(Assembly& as, ASMVal dst) UNARY(GP_OR_IMM)
     static void leave(Assembly& as) NULLARY
 
-    static void call(Assembly& as, MVal dst) UNARY(GP_OR_LABEL)
+    static void call(Assembly& as, ASMVal dst) UNARY(GP_OR_LABEL)
     static void ret(Assembly& as) NULLARY
 
     // Conversions
 
-    static void sxt8(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void sxt16(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void sxt32(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
+    static void sxt8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void sxt16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void sxt32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
 
-    static void zxt8(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void zxt16(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
-    static void zxt32(Assembly& as, MVal dst, MVal src) BINARY(GP, GP)
+    static void zxt8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void zxt16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
+    static void zxt32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
 
-    static void i8tof32(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
-    static void i16tof32(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
-    static void i32tof32(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
-    static void i64tof32(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
+    static void i8tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
+    static void i16tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
+    static void i32tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
+    static void i64tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
 
-    static void i8tof64(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
-    static void i16tof64(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
-    static void i32tof64(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
-    static void i64tof64(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
+    static void i8tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
+    static void i16tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
+    static void i32tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
+    static void i64tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
 
-    static void f32toi8(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
-    static void f32toi16(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
-    static void f32toi32(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
-    static void f32toi64(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
+    static void f32toi8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
+    static void f32toi16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
+    static void f32toi32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
+    static void f32toi64(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
 
-    static void f64toi8(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
-    static void f64toi16(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
-    static void f64toi32(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
-    static void f64toi64(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
+    static void f64toi8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
+    static void f64toi16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
+    static void f64toi32(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
+    static void f64toi64(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
 
-    static void f32tof64(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
-    static void f64tof32(Assembly& as, MVal dst, MVal src) BINARY(FP, FP)
+    static void f32tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
+    static void f64tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, FP)
 
-    static void f32frombits(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
-    static void f64frombits(Assembly& as, MVal dst, MVal src) BINARY(FP, GP)
-    static void f32tobits(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
-    static void f64tobits(Assembly& as, MVal dst, MVal src) BINARY(GP, FP)
+    static void f32frombits(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
+    static void f64frombits(Assembly& as, ASMVal dst, ASMVal src) BINARY(FP, GP)
+    static void f32tobits(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
+    static void f64tobits(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, FP)
 
     // Memory
     
-    static void mcpy(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MEM, MEM, GP_OR_IMM, TRUE)
-    static void mmov(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MEM, MEM, GP_OR_IMM, TRUE)
-    static void mset(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(MEM, MEM, GP_OR_IMM, TRUE)
-    static void mcmp(Assembly& as, MVal dst, MVal a, MVal b, MVal c) QUATERNARY(GP, MEM, MEM, GP_OR_IMM)
+    static void mcpy(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MEM, MEM, GP_OR_IMM, TRUE)
+    static void mmov(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MEM, MEM, GP_OR_IMM, TRUE)
+    static void mset(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MEM, MEM, GP_OR_IMM, TRUE)
+    static void mcmp(Assembly& as, ASMVal dst, ASMVal a, ASMVal b, ASMVal c) QUATERNARY(GP, MEM, MEM, GP_OR_IMM)
     
     #undef GP
     #undef FP
@@ -1450,237 +1432,228 @@ struct ASMCompose : public A, public B {
     #define QUATERNARY(fn) { A::fn(as, dst, a, b, c); B::fn(as, dst, a, b, c); }
 
 
-    static void add8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(add8)
-    static void add16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(add16)
-    static void add32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(add32)
-    static void add64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(add64)
+    static void add8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(add8)
+    static void add16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(add16)
+    static void add32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(add32)
+    static void add64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(add64)
 
-    static void sub8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sub8)
-    static void sub16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sub16)
-    static void sub32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sub32)
-    static void sub64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sub64)
+    static void sub8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sub8)
+    static void sub16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sub16)
+    static void sub32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sub32)
+    static void sub64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sub64)
 
-    static void mul8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(mul8)
-    static void mul16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(mul16)
-    static void mul32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(mul32)
-    static void mul64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(mul64)
+    static void mul8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mul8)
+    static void mul16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mul16)
+    static void mul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mul32)
+    static void mul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mul64)
 
-    static void div8s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(div8s)
-    static void div16s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(div16s)
-    static void div32s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(div32s)
-    static void div64s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(div64s)
+    static void div8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div8s)
+    static void div16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div16s)
+    static void div32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div32s)
+    static void div64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div64s)
 
-    static void div8u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(div8u)
-    static void div16u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(div16u)
-    static void div32u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(div32u)
-    static void div64u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(div64u)
+    static void div8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div8u)
+    static void div16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div16u)
+    static void div32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div32u)
+    static void div64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div64u)
 
-    static void rem8s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rem8s)
-    static void rem16s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rem16s)
-    static void rem32s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rem32s)
-    static void rem64s(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rem64s)
+    static void rem8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem8s)
+    static void rem16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem16s)
+    static void rem32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem32s)
+    static void rem64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem64s)
 
-    static void rem8u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rem8u)
-    static void rem16u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rem16u)
-    static void rem32u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rem32u)
-    static void rem64u(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rem64u)
+    static void rem8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem8u)
+    static void rem16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem16u)
+    static void rem32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem32u)
+    static void rem64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem64u)
 
-    static void neg8(Assembly& as, MVal dst, MVal src) BINARY(neg8)
-    static void neg16(Assembly& as, MVal dst, MVal src) BINARY(neg16)
-    static void neg32(Assembly& as, MVal dst, MVal src) BINARY(neg32)
-    static void neg64(Assembly& as, MVal dst, MVal src) BINARY(neg64)
+    static void neg8(Assembly& as, ASMVal dst, ASMVal src) BINARY(neg8)
+    static void neg16(Assembly& as, ASMVal dst, ASMVal src) BINARY(neg16)
+    static void neg32(Assembly& as, ASMVal dst, ASMVal src) BINARY(neg32)
+    static void neg64(Assembly& as, ASMVal dst, ASMVal src) BINARY(neg64)
 
     // Floating-Point Arithmetic
 
-    static void fadd32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fadd32)
-    static void fadd64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fadd64)
+    static void fadd32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fadd32)
+    static void fadd64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fadd64)
 
-    static void fsub32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fsub32)
-    static void fsub64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fsub64)
+    static void fsub32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fsub32)
+    static void fsub64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fsub64)
 
-    static void fmul32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fmul32)
-    static void fmul64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fmul64)
+    static void fmul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fmul32)
+    static void fmul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fmul64)
 
-    static void fdiv32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fdiv32)
-    static void fdiv64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fdiv64)
+    static void fdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fdiv32)
+    static void fdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fdiv64)
 
-    static void frem32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(frem32)
-    static void frem64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(frem64)
+    static void frem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(frem32)
+    static void frem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(frem64)
 
-    static void fneg32(Assembly& as, MVal dst, MVal src) BINARY(fneg32)
-    static void fneg64(Assembly& as, MVal dst, MVal src) BINARY(fneg64)
+    static void fneg32(Assembly& as, ASMVal dst, ASMVal src) BINARY(fneg32)
+    static void fneg64(Assembly& as, ASMVal dst, ASMVal src) BINARY(fneg64)
 
-    static void fsqrt32(Assembly& as, MVal dst, MVal src) BINARY(fsqrt32)
-    static void fsqrt64(Assembly& as, MVal dst, MVal src) BINARY(fsqrt64)
+    static void fsqrt32(Assembly& as, ASMVal dst, ASMVal src) BINARY(fsqrt32)
+    static void fsqrt64(Assembly& as, ASMVal dst, ASMVal src) BINARY(fsqrt64)
 
-    static void fsin32(Assembly& as, MVal dst, MVal src) BINARY(fsin32)
-    static void fsin64(Assembly& as, MVal dst, MVal src) BINARY(fsin64)
+    static void fround32(Assembly& as, ASMVal dst, ASMVal src) BINARY(fround32)
+    static void fround64(Assembly& as, ASMVal dst, ASMVal src) BINARY(fround64)
 
-    static void fcos32(Assembly& as, MVal dst, MVal src) BINARY(fcos32)
-    static void fcos64(Assembly& as, MVal dst, MVal src) BINARY(fcos64)
+    static void ffloor32(Assembly& as, ASMVal dst, ASMVal src) BINARY(ffloor32)
+    static void ffloor64(Assembly& as, ASMVal dst, ASMVal src) BINARY(ffloor64)
 
-    static void ftan32(Assembly& as, MVal dst, MVal src) BINARY(ftan32)
-    static void ftan64(Assembly& as, MVal dst, MVal src) BINARY(ftan64)
+    static void fceil32(Assembly& as, ASMVal dst, ASMVal src) BINARY(fceil32)
+    static void fceil64(Assembly& as, ASMVal dst, ASMVal src) BINARY(fceil64)
 
-    static void fround32(Assembly& as, MVal dst, MVal src) BINARY(fround32)
-    static void fround64(Assembly& as, MVal dst, MVal src) BINARY(fround64)
+    static void fmin32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fmin32)
+    static void fmin64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fmin64)
 
-    static void ffloor32(Assembly& as, MVal dst, MVal src) BINARY(ffloor32)
-    static void ffloor64(Assembly& as, MVal dst, MVal src) BINARY(ffloor64)
+    static void fmax32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fmax32)
+    static void fmax64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fmax64)
 
-    static void fceil32(Assembly& as, MVal dst, MVal src) BINARY(fceil32)
-    static void fceil64(Assembly& as, MVal dst, MVal src) BINARY(fceil64)
-
-    static void fmin32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fmin32)
-    static void fmin64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fmin64)
-
-    static void fmax32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fmax32)
-    static void fmax64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fmax64)
-
-    static void fabs32(Assembly& as, MVal dst, MVal src) BINARY(fabs32)
-    static void fabs64(Assembly& as, MVal dst, MVal src) BINARY(fabs64)
+    static void fabs32(Assembly& as, ASMVal dst, ASMVal src) BINARY(fabs32)
+    static void fabs64(Assembly& as, ASMVal dst, ASMVal src) BINARY(fabs64)
 
     // Bitwise Operations
 
-    static void and8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(and8)
-    static void and16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(and16)
-    static void and32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(and32)
-    static void and64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(and64)
+    static void and8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(and8)
+    static void and16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(and16)
+    static void and32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(and32)
+    static void and64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(and64)
 
-    static void xor8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(xor8)
-    static void xor16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(xor16)
-    static void xor32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(xor32)
-    static void xor64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(xor64)
+    static void xor8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(xor8)
+    static void xor16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(xor16)
+    static void xor32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(xor32)
+    static void xor64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(xor64)
 
-    static void or8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(or8)
-    static void or16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(or16)
-    static void or32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(or32)
-    static void or64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(or64)
+    static void or8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(or8)
+    static void or16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(or16)
+    static void or32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(or32)
+    static void or64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(or64)
 
-    static void not8(Assembly& as, MVal dst, MVal src) BINARY(not8)
-    static void not16(Assembly& as, MVal dst, MVal src) BINARY(not16)
-    static void not32(Assembly& as, MVal dst, MVal src) BINARY(not32)
-    static void not64(Assembly& as, MVal dst, MVal src) BINARY(not64)
+    static void not8(Assembly& as, ASMVal dst, ASMVal src) BINARY(not8)
+    static void not16(Assembly& as, ASMVal dst, ASMVal src) BINARY(not16)
+    static void not32(Assembly& as, ASMVal dst, ASMVal src) BINARY(not32)
+    static void not64(Assembly& as, ASMVal dst, ASMVal src) BINARY(not64)
 
-    static void shl8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(shl8)
-    static void shl16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(shl16)
-    static void shl32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(shl32)
-    static void shl64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(shl64)
+    static void shl8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(shl8)
+    static void shl16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(shl16)
+    static void shl32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(shl32)
+    static void shl64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(shl64)
 
-    static void shr8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(shr8)
-    static void shr16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(shr16)
-    static void shr32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(shr32)
-    static void shr64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(shr64)
+    static void shr8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(shr8)
+    static void shr16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(shr16)
+    static void shr32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(shr32)
+    static void shr64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(shr64)
 
-    static void sar8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sar8)
-    static void sar16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sar16)
-    static void sar32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sar32)
-    static void sar64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sar64)
+    static void sar8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sar8)
+    static void sar16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sar16)
+    static void sar32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sar32)
+    static void sar64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sar64)
 
-    static void rol8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rol8)
-    static void rol16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rol16)
-    static void rol32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rol32)
-    static void rol64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(rol64)
+    static void rol8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rol8)
+    static void rol16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rol16)
+    static void rol32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rol32)
+    static void rol64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rol64)
 
-    static void ror8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ror8)
-    static void ror16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ror16)
-    static void ror32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ror32)
-    static void ror64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ror64)
+    static void ror8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ror8)
+    static void ror16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ror16)
+    static void ror32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ror32)
+    static void ror64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ror64)
 
-    static void bitc8(Assembly& as, MVal dst, MVal src) BINARY(bitc8)
-    static void bitc16(Assembly& as, MVal dst, MVal src) BINARY(bitc16)
-    static void bitc32(Assembly& as, MVal dst, MVal src) BINARY(bitc32)
-    static void bitc64(Assembly& as, MVal dst, MVal src) BINARY(bitc64)
+    static void bitc8(Assembly& as, ASMVal dst, ASMVal src) BINARY(bitc8)
+    static void bitc16(Assembly& as, ASMVal dst, ASMVal src) BINARY(bitc16)
+    static void bitc32(Assembly& as, ASMVal dst, ASMVal src) BINARY(bitc32)
+    static void bitc64(Assembly& as, ASMVal dst, ASMVal src) BINARY(bitc64)
 
-    static void lzc8(Assembly& as, MVal dst, MVal src) BINARY(lzc8)
-    static void lzc16(Assembly& as, MVal dst, MVal src) BINARY(lzc16)
-    static void lzc32(Assembly& as, MVal dst, MVal src) BINARY(lzc32)
-    static void lzc64(Assembly& as, MVal dst, MVal src) BINARY(lzc64)
+    static void lzc8(Assembly& as, ASMVal dst, ASMVal src) BINARY(lzc8)
+    static void lzc16(Assembly& as, ASMVal dst, ASMVal src) BINARY(lzc16)
+    static void lzc32(Assembly& as, ASMVal dst, ASMVal src) BINARY(lzc32)
+    static void lzc64(Assembly& as, ASMVal dst, ASMVal src) BINARY(lzc64)
 
-    static void tzc8(Assembly& as, MVal dst, MVal src) BINARY(tzc8)
-    static void tzc16(Assembly& as, MVal dst, MVal src) BINARY(tzc16)
-    static void tzc32(Assembly& as, MVal dst, MVal src) BINARY(tzc32)
-    static void tzc64(Assembly& as, MVal dst, MVal src) BINARY(tzc64)
+    static void tzc8(Assembly& as, ASMVal dst, ASMVal src) BINARY(tzc8)
+    static void tzc16(Assembly& as, ASMVal dst, ASMVal src) BINARY(tzc16)
+    static void tzc32(Assembly& as, ASMVal dst, ASMVal src) BINARY(tzc32)
+    static void tzc64(Assembly& as, ASMVal dst, ASMVal src) BINARY(tzc64)
 
     // Comparisons
 
-    static void isz(Assembly& as, MVal dst, MVal src) BINARY(isz)
-    static void isnz(Assembly& as, MVal dst, MVal src) BINARY(isnz)
+    static void isz(Assembly& as, ASMVal dst, ASMVal src) BINARY(isz)
+    static void isnz(Assembly& as, ASMVal dst, ASMVal src) BINARY(isnz)
 
-    static void ccc8(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(ccc8)
-    static void ccc16(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(ccc16)
-    static void ccc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(ccc32)
-    static void ccc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(ccc64)
+    static void ccc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(ccc8)
+    static void ccc16(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(ccc16)
+    static void ccc32(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(ccc32)
+    static void ccc64(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(ccc64)
 
-    static void fccc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(fccc32)
-    static void fccc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(fccc64)
+    static void fccc32(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(fccc32)
+    static void fccc64(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(fccc64)
 
     // Memory
 
-    static void push8(Assembly& as, MVal dst) UNARY(push8)
-    static void push16(Assembly& as, MVal dst) UNARY(push16)
-    static void push32(Assembly& as, MVal dst) UNARY(push32)
-    static void push64(Assembly& as, MVal dst) UNARY(push64)
+    static void push8(Assembly& as, ASMVal dst) UNARY(push8)
+    static void push16(Assembly& as, ASMVal dst) UNARY(push16)
+    static void push32(Assembly& as, ASMVal dst) UNARY(push32)
+    static void push64(Assembly& as, ASMVal dst) UNARY(push64)
 
-    static void pop8(Assembly& as, MVal dst) UNARY(pop8)
-    static void pop16(Assembly& as, MVal dst) UNARY(pop16)
-    static void pop32(Assembly& as, MVal dst) UNARY(pop32)
-    static void pop64(Assembly& as, MVal dst) UNARY(pop64)
+    static void pop8(Assembly& as, ASMVal dst) UNARY(pop8)
+    static void pop16(Assembly& as, ASMVal dst) UNARY(pop16)
+    static void pop32(Assembly& as, ASMVal dst) UNARY(pop32)
+    static void pop64(Assembly& as, ASMVal dst) UNARY(pop64)
 
-    static void fpush32(Assembly& as, MVal dst) UNARY(fpush32)
-    static void fpush64(Assembly& as, MVal dst) UNARY(fpush64)
+    static void fpush32(Assembly& as, ASMVal dst) UNARY(fpush32)
+    static void fpush64(Assembly& as, ASMVal dst) UNARY(fpush64)
 
-    static void fpop32(Assembly& as, MVal dst) UNARY(fpop32)
-    static void fpop64(Assembly& as, MVal dst) UNARY(fpop64)
+    static void fpop32(Assembly& as, ASMVal dst) UNARY(fpop32)
+    static void fpop64(Assembly& as, ASMVal dst) UNARY(fpop64)
 
-    static void mov8(Assembly& as, MVal dst, MVal src) BINARY(mov8)
-    static void mov16(Assembly& as, MVal dst, MVal src) BINARY(mov16)
-    static void mov32(Assembly& as, MVal dst, MVal src) BINARY(mov32)
-    static void mov64(Assembly& as, MVal dst, MVal src) BINARY(mov64)
+    static void mov8(Assembly& as, ASMVal dst, ASMVal src) BINARY(mov8)
+    static void mov16(Assembly& as, ASMVal dst, ASMVal src) BINARY(mov16)
+    static void mov32(Assembly& as, ASMVal dst, ASMVal src) BINARY(mov32)
+    static void mov64(Assembly& as, ASMVal dst, ASMVal src) BINARY(mov64)
 
-    static void fmov32(Assembly& as, MVal dst, MVal src) BINARY(fmov32)
-    static void fmov64(Assembly& as, MVal dst, MVal src) BINARY(fmov64)
+    static void fmov32(Assembly& as, ASMVal dst, ASMVal src) BINARY(fmov32)
+    static void fmov64(Assembly& as, ASMVal dst, ASMVal src) BINARY(fmov64)
 
-    static void ld8(Assembly& as, MVal dst, MVal src) BINARY(ld8)
-    static void ld16(Assembly& as, MVal dst, MVal src) BINARY(ld16)
-    static void ld32(Assembly& as, MVal dst, MVal src) BINARY(ld32)
-    static void ld64(Assembly& as, MVal dst, MVal src) BINARY(ld64)
+    static void ld8(Assembly& as, ASMVal dst, ASMVal src) BINARY(ld8)
+    static void ld16(Assembly& as, ASMVal dst, ASMVal src) BINARY(ld16)
+    static void ld32(Assembly& as, ASMVal dst, ASMVal src) BINARY(ld32)
+    static void ld64(Assembly& as, ASMVal dst, ASMVal src) BINARY(ld64)
 
-    static void st8(Assembly& as, MVal dst, MVal src) BINARY(st8)
-    static void st16(Assembly& as, MVal dst, MVal src) BINARY(st16)
-    static void st32(Assembly& as, MVal dst, MVal src) BINARY(st32)
-    static void st64(Assembly& as, MVal dst, MVal src) BINARY(st64)
+    static void st8(Assembly& as, ASMVal dst, ASMVal src) BINARY(st8)
+    static void st16(Assembly& as, ASMVal dst, ASMVal src) BINARY(st16)
+    static void st32(Assembly& as, ASMVal dst, ASMVal src) BINARY(st32)
+    static void st64(Assembly& as, ASMVal dst, ASMVal src) BINARY(st64)
     
-    static void ldi8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ldi8)
-    static void ldi16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ldi16)
-    static void ldi32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ldi32)
-    static void ldi64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ldi64)
+    static void ldi8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ldi8)
+    static void ldi16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ldi16)
+    static void ldi32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ldi32)
+    static void ldi64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ldi64)
     
-    static void ldai8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ldai8)
-    static void ldai16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ldai16)
-    static void ldai32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ldai32)
-    static void ldai64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(ldai64)
+    static void ldai8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ldai8)
+    static void ldai16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ldai16)
+    static void ldai32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ldai32)
+    static void ldai64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(ldai64)
     
-    static void sti8(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sti8)
-    static void sti16(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sti16)
-    static void sti32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sti32)
-    static void sti64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(sti64)
+    static void sti8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sti8)
+    static void sti16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sti16)
+    static void sti32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sti32)
+    static void sti64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sti64)
 
-    static void fld32(Assembly& as, MVal dst, MVal src) BINARY(fld32)
-    static void fld64(Assembly& as, MVal dst, MVal src) BINARY(fld64)
+    static void fld32(Assembly& as, ASMVal dst, ASMVal src) BINARY(fld32)
+    static void fld64(Assembly& as, ASMVal dst, ASMVal src) BINARY(fld64)
 
-    static void fst32(Assembly& as, MVal dst, MVal src) BINARY(fst32)
-    static void fst64(Assembly& as, MVal dst, MVal src) BINARY(fst64)
+    static void fst32(Assembly& as, ASMVal dst, ASMVal src) BINARY(fst32)
+    static void fst64(Assembly& as, ASMVal dst, ASMVal src) BINARY(fst64)
 
-    static void fldi32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fldi32)
-    static void fldi64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fldi64)
+    static void fldi32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fldi32)
+    static void fldi64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fldi64)
 
-    static void fsti32(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fsti32)
-    static void fsti64(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(fsti64)
+    static void fsti32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fsti32)
+    static void fsti64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(fsti64)
     
-    static void lda(Assembly& as, MVal dst, MVal src) BINARY(lda)
+    static void lda(Assembly& as, ASMVal dst, ASMVal src) BINARY(lda)
 
-    static void ldc(Assembly& as, MVal dst, i64 imm) {
+    static void ldc(Assembly& as, ASMVal dst, i64 imm) {
         A::ldc(as, dst, imm);
         B::ldc(as, dst, imm);
     }
@@ -1699,74 +1672,76 @@ struct ASMCompose : public A, public B {
 
     // Jumps
 
-    static void j(Assembly& as, MVal dst) UNARY(j)
+    static void j(Assembly& as, ASMVal dst) UNARY(j)
 
-    static void jz(Assembly& as, MVal dst, MVal src) BINARY(jz)
-    static void jnz(Assembly& as, MVal dst, MVal src) BINARY(jnz)
+    static void jz(Assembly& as, ASMVal dst, ASMVal src) BINARY(jz)
+    static void jnz(Assembly& as, ASMVal dst, ASMVal src) BINARY(jnz)
 
-    static void jcc8(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(jcc8)
-    static void jcc16(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(jcc16)
-    static void jcc32(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(jcc32)
-    static void jcc64(Assembly& as, Condition cc, MVal dst, MVal a, MVal b) CONDITIONAL(jcc64)
+    static void jcc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(jcc8)
+    static void jcc16(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(jcc16)
+    static void jcc32(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(jcc32)
+    static void jcc64(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(jcc64)
     
-    static void fjcc32(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(fjcc32)
-    static void fjcc64(Assembly& as, FloatCondition cc, MVal dst, MVal a, MVal b) CONDITIONAL(fjcc64)
+    static void fjcc32(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(fjcc32)
+    static void fjcc64(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) CONDITIONAL(fjcc64)
 
     // Functions
 
     static void enter(Assembly& as) NULLARY(enter)
-    static void stack(Assembly& as, MVal dst) UNARY(stack)
-    static void alloca(Assembly& as, MVal dst, MVal src) BINARY(alloca)
-    static void unstack(Assembly& as, MVal dst) UNARY(unstack)
+    static void stack(Assembly& as, ASMVal dst) UNARY(stack)
+    static void alloca(Assembly& as, ASMVal dst, ASMVal src) BINARY(alloca)
+    static void unstack(Assembly& as, ASMVal dst) UNARY(unstack)
     static void leave(Assembly& as) NULLARY(leave)
 
-    static void call(Assembly& as, MVal dst) UNARY(call)
+    static void call(Assembly& as, ASMVal dst) UNARY(call)
     static void ret(Assembly& as) NULLARY(ret)
 
     // Conversions
 
-    static void sxt8(Assembly& as, MVal dst, MVal src) BINARY(sxt8)
-    static void sxt16(Assembly& as, MVal dst, MVal src) BINARY(sxt16)
-    static void sxt32(Assembly& as, MVal dst, MVal src) BINARY(sxt32)
+    static void sxt8(Assembly& as, ASMVal dst, ASMVal src) BINARY(sxt8)
+    static void sxt16(Assembly& as, ASMVal dst, ASMVal src) BINARY(sxt16)
+    static void sxt32(Assembly& as, ASMVal dst, ASMVal src) BINARY(sxt32)
 
-    static void zxt8(Assembly& as, MVal dst, MVal src) BINARY(zxt8)
-    static void zxt16(Assembly& as, MVal dst, MVal src) BINARY(zxt16)
-    static void zxt32(Assembly& as, MVal dst, MVal src) BINARY(zxt32)
+    static void zxt8(Assembly& as, ASMVal dst, ASMVal src) BINARY(zxt8)
+    static void zxt16(Assembly& as, ASMVal dst, ASMVal src) BINARY(zxt16)
+    static void zxt32(Assembly& as, ASMVal dst, ASMVal src) BINARY(zxt32)
 
-    static void i8tof32(Assembly& as, MVal dst, MVal src) BINARY(i8tof32)
-    static void i16tof32(Assembly& as, MVal dst, MVal src) BINARY(i16tof32)
-    static void i32tof32(Assembly& as, MVal dst, MVal src) BINARY(i32tof32)
-    static void i64tof32(Assembly& as, MVal dst, MVal src) BINARY(i64tof32)
+    static void i8tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(i8tof32)
+    static void i16tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(i16tof32)
+    static void i32tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(i32tof32)
+    static void i64tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(i64tof32)
 
-    static void i8tof64(Assembly& as, MVal dst, MVal src) BINARY(i8tof64)
-    static void i16tof64(Assembly& as, MVal dst, MVal src) BINARY(i16tof64)
-    static void i32tof64(Assembly& as, MVal dst, MVal src) BINARY(i32tof64)
-    static void i64tof64(Assembly& as, MVal dst, MVal src) BINARY(i64tof64)
+    static void i8tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(i8tof64)
+    static void i16tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(i16tof64)
+    static void i32tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(i32tof64)
+    static void i64tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(i64tof64)
 
-    static void f32toi8(Assembly& as, MVal dst, MVal src) BINARY(f32toi8)
-    static void f32toi16(Assembly& as, MVal dst, MVal src) BINARY(f32toi16)
-    static void f32toi32(Assembly& as, MVal dst, MVal src) BINARY(f32toi32)
-    static void f32toi64(Assembly& as, MVal dst, MVal src) BINARY(f32toi64)
+    static void f32toi8(Assembly& as, ASMVal dst, ASMVal src) BINARY(f32toi8)
+    static void f32toi16(Assembly& as, ASMVal dst, ASMVal src) BINARY(f32toi16)
+    static void f32toi32(Assembly& as, ASMVal dst, ASMVal src) BINARY(f32toi32)
+    static void f32toi64(Assembly& as, ASMVal dst, ASMVal src) BINARY(f32toi64)
 
-    static void f64toi8(Assembly& as, MVal dst, MVal src) BINARY(f64toi8)
-    static void f64toi16(Assembly& as, MVal dst, MVal src) BINARY(f64toi16)
-    static void f64toi32(Assembly& as, MVal dst, MVal src) BINARY(f64toi32)
-    static void f64toi64(Assembly& as, MVal dst, MVal src) BINARY(f64toi64)
+    static void f64toi8(Assembly& as, ASMVal dst, ASMVal src) BINARY(f64toi8)
+    static void f64toi16(Assembly& as, ASMVal dst, ASMVal src) BINARY(f64toi16)
+    static void f64toi32(Assembly& as, ASMVal dst, ASMVal src) BINARY(f64toi32)
+    static void f64toi64(Assembly& as, ASMVal dst, ASMVal src) BINARY(f64toi64)
 
-    static void f32tof64(Assembly& as, MVal dst, MVal src) BINARY(f32tof64)
-    static void f64tof32(Assembly& as, MVal dst, MVal src) BINARY(f64tof32)
+    static void f32tof64(Assembly& as, ASMVal dst, ASMVal src) BINARY(f32tof64)
+    static void f64tof32(Assembly& as, ASMVal dst, ASMVal src) BINARY(f64tof32)
 
-    static void f32frombits(Assembly& as, MVal dst, MVal src) BINARY(f32frombits)
-    static void f64frombits(Assembly& as, MVal dst, MVal src) BINARY(f64frombits)
-    static void f32tobits(Assembly& as, MVal dst, MVal src) BINARY(f32tobits)
-    static void f64tobits(Assembly& as, MVal dst, MVal src) BINARY(f64tobits)
+    static void f32frombits(Assembly& as, ASMVal dst, ASMVal src) BINARY(f32frombits)
+    static void f64frombits(Assembly& as, ASMVal dst, ASMVal src) BINARY(f64frombits)
+    static void f32tobits(Assembly& as, ASMVal dst, ASMVal src) BINARY(f32tobits)
+    static void f64tobits(Assembly& as, ASMVal dst, ASMVal src) BINARY(f64tobits)
 
     // Memory
     
-    static void mcpy(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(mcpy)
-    static void mmov(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(mmov)
-    static void mset(Assembly& as, MVal dst, MVal a, MVal b) TERNARY(mset)
-    static void mcmp(Assembly& as, MVal dst, MVal a, MVal b, MVal c) QUATERNARY(mcmp)
+    static void mcpy(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mcpy)
+    static void mmov(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mmov)
+    static void mset(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mset)
+    static void mcmp(Assembly& as, ASMVal dst, ASMVal a, ASMVal b, ASMVal c) QUATERNARY(mcmp)
 };
+
+ENDMODULE()
 
 #endif

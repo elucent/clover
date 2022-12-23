@@ -17,6 +17,22 @@ type Vec(T):
     T[] items():
         T*(data)[:size]
 
+    type Iterator:
+        Vec(T)* v
+        int i
+
+        bool empty():
+            i == v.size
+
+        T read():
+            v.items()[i]
+        
+        Iterator next():
+            Iterator(v, i + 1)
+
+    fun Vec(T)*.iter():
+        Iterator(&this, 0)
+
     fun set(T t, int i):
         this.items()[i] = t
 
@@ -35,8 +51,4 @@ type Vec(T):
 
 module vec:
     fun of(T? t, int n):
-        var v: Vec(T)(new 0[|T| * n], n)
-        int i: 0
-        until i == v.size:
-            v.items()[i ++] = t
-        return v
+        return Vec(T)(new t[|T| * n], n)

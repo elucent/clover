@@ -157,6 +157,6 @@ inline ErrorKind get_error() {
     return err_kind;
 }
 
-void print_errors(stream& io, bool verbose);
+void print_errors(fd io, bool verbose);
 
 #endif

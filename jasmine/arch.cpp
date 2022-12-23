@@ -1,12 +1,14 @@
 #include "jasmine/arch.h"
 
+MODULE(jasmine)
+
 void LinkedAssembly::load() {
     iptr n_code = (data - code) / PAGESIZE;
     iptr n_data = (stat - data) / PAGESIZE;
     iptr n_static = pages.n - n_data - n_code;
-    mpermit({pages.ptr, n_code}, VM_READ | VM_EXEC);
-    mpermit({pages.ptr + n_code, n_data}, VM_READ);
-    mpermit({pages.ptr + n_code + n_data, n_static}, VM_READ | VM_WRITE);
+    memory_tag({pages.ptr, n_code}, VM_READ | VM_EXEC);
+    memory_tag({pages.ptr + n_code, n_data}, VM_READ);
+    memory_tag({pages.ptr + n_code + n_data, n_static}, VM_READ | VM_WRITE);
 }
 
 inline iptr up_to_nearest_page(iptr p) {
@@ -20,7 +22,7 @@ LinkedAssembly Assembly::link() {
     iptr totalsize = staticstart + up_to_nearest_page(stat.size());
     
     LinkedAssembly linked;
-    linked.pages = mreq(totalsize / PAGESIZE);
+    linked.pages = memory_map(totalsize / PAGESIZE);
     linked.code = (i8*)linked.pages.ptr + codestart;
     linked.data = (i8*)linked.pages.ptr + datastart;
     linked.stat = (i8*)linked.pages.ptr + staticstart;
@@ -90,3 +92,5 @@ LinkedAssembly Assembly::link() {
 
     return linked;
 }
+
+ENDMODULE()

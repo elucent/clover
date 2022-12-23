@@ -113,7 +113,7 @@ of the element type multiplied by the vector's length.
 
 Vector values are encoded by encoding each of their elements in order of increasing index.
 
-#### 1.5 Type Encoding
+#### 1.6 Type Encoding
 
 In general, types themselves are encoded as _type indices_. The grammar for a type index is as follows:
 
@@ -163,22 +163,39 @@ in a Jasmine source, or imported from another module.
 
 When a function is implemented, that implementation is made up of _instructions_. Instructions are the fundamental unit of executable Jasmine code, representing 
 operations over values and memory. The behavior of an instruction is defined by its _opcode_, a number representing a unique operation Jasmine supports. This behavior
-is further refined by the instruction's _type_, which defines the type of operands the function operates over. Instructions take zero or more _source operands_, 
-depending on the _arity_ of the opcode, and may write the operation's result to a _destination_. Instead of the destination being encoded in the instruction directly, 
-the index of the instruction within the containing function may be used to identify the value produced by that instruction, referred to as a _local_.
+is further refined by the instruction's _type_, which defines the type of operands the function operates over. Instructions are nodes in a function's _code graph_,
+and are connected to other instructions via different kinds of edges. These can be thought of as structurally encoding different kinds of inter-node dependencies,
+such as the flow of control or data. This isn't entirely dissimilar from how most IRs operate, but overall, Jasmine most resembles a sea-of-nodes approach.
 
-Source operands can take several distinct forms within Jasmine instructions:
+Instructions are typically written in the following form:
+
+```
+[<id>:] [<type>.]<opcode> <parameters> [-> <effects>]
+```
+
+The _id_ of an instruction is a unique (within a function) integer that identifies that instruction in the function's graph. If omitted, one will be automatically
+assigned by the Jasmine compiler.
+
+The _type_ of an instruction is a type that reflects the general usage of the instruction. For most instructions, this is the type of its operands, and of the result
+it creates. This isn't always the case though - for instructions with a variety of input types, but only one output type, this type is used to describe the operands. 
+For instructions with arbitrarily many inputs, like calls, this type may be a tuple or function type describing each of the types of its inputs. Not all instructions 
+require a type, so this may be omitted only for those instructions.
+
+The _opcode_ of an instruction is a mnemonic for the kind of instruction it is. Examples include `add` to add two values, or `load` to load a value from memory. These
+are usually somewhat abstract, supporting a variety of operand types, and the specific behavior of an instruction will usually depend on both the instruction's opcode
+and type annotation.
+
+An instruction's _parameters_ represent the values it takes as inputs. These may be any of the following:
 
 | Name | Example | Description |
 |---|---|---|
-| None | | The absence of an operand, used to encode unary instructions. |
-| Register | `%0` | A local virtual register, referring to the result of another instruction inside the containing function by index. |
-| Immediate | `42`, `1.3`, `'a'` | An integer or floating-point constant. |
-| Label | `.0` | The address of a label within the current function. |
-| Data | `foo` | The address of a constant data entry defined within the current module. |
-| Static | `bar` | The address of a non-constant data entry defined within the current module. |
-| Function | `baz` | The address of a function defined within the current module. |
-| Variadic | `(1, %0)` | Multiple source operands packed together after the instruction. Only permitted by certain arities. |
+| Data Input | `%0` | The id of another node within the function. Indicates a use of that node's data output. |
+| Immediate | `#42`, `#1.3`, `#'a'` | An integer or floating-point constant. |
+| Control Edge | `->0` | The id of a successor node within the current function. |
+| Data Reference | `[data foo]` | The address of a constant data entry defined within the current module. |
+| Static Reference | `[static bar]` | The address of a non-constant data entry defined within the current module. |
+| Function Reference | `[func baz]` | The address of a function defined within the current module. |
+| Variadic | `(1, %0)` | Multiple source operands packed together after the instruction. Only permitted in certain instructions. | 
 
 Depending on the opcode, instructions also have one of several arities, which must be one of the following:
 

@@ -5,14 +5,16 @@
 #include "lib/malloc.h"
 #include "lib/io.h"
 
+MODULE(jasmine)
+
 struct WasmContext;
 
 struct WasmModule {
     const_slice<i8> name;
     arena modspace; // Module-specific arena.
 
-    void save(stream& io);
-    void load(stream& io);
+    void save(fd io);
+    void load(fd io);
 };
 
 struct WasmContext {
@@ -302,5 +304,7 @@ namespace wasm {
     void i64truncsatf64s();
     void i64truncsatf64u();
 }
+
+ENDMODULE()
 
 #endif

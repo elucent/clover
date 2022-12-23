@@ -4,6 +4,8 @@
 #include "jasmine/tab.h"
 #include "jasmine/type.h"
 
+MODULE(jasmine)
+
 union DVal {
     i8 int8;
     i16 int16;
@@ -38,9 +40,9 @@ union DVal {
     inline DVal() {}
 
     u32 size(TypeTable* tab, typeidx t) const;
-    void write(TypeTable* tab, typeidx t, bytebuf<arena>& buf) const;
-    void read(TypeTable* tab, typeidx t, bytebuf<arena>& buf);
-    void format(stream &io, TypeTable* tab, typeidx t) const;
+    void write(TypeTable* tab, typeidx t, bytebuf<>& buf) const;
+    void read(TypeTable* tab, typeidx t, bytebuf<>& buf);
+    void format(fd io, TypeTable* tab, typeidx t) const;
 };
 
 template<typename T>
@@ -134,7 +136,7 @@ inline DVal data<const_slice<i8>>(TypeTable* tab, typeidx t, const const_slice<i
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_i8 = {new (*tab->types.alloc) i8[arr.n], arr.n};
+    d.arr_i8 = {new i8[arr.n], arr.n};
     for (i64 i = 0; i < arr.n; i ++) d.arr_i8[i] = arr[i];
     return d;
 }
@@ -147,7 +149,7 @@ inline DVal data<const_slice<i16>>(TypeTable* tab, typeidx t, const const_slice<
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_i16 = {new (*tab->types.alloc) i16[arr.n], arr.n};
+    d.arr_i16 = {new i16[arr.n], arr.n};
     for (i64 i = 0; i < arr.n; i ++) d.arr_i16[i] = arr[i];
     return d;
 }
@@ -160,7 +162,7 @@ inline DVal data<const_slice<i32>>(TypeTable* tab, typeidx t, const const_slice<
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_i32 = {new (*tab->types.alloc) i32[arr.n], arr.n};
+    d.arr_i32 = {new i32[arr.n], arr.n};
     for (i64 i = 0; i < arr.n; i ++) d.arr_i32[i] = arr[i];
     return d;
 }
@@ -173,7 +175,7 @@ inline DVal data<const_slice<i64>>(TypeTable* tab, typeidx t, const const_slice<
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_i64 = {new (*tab->types.alloc) i64[arr.n], arr.n};
+    d.arr_i64 = {new i64[arr.n], arr.n};
     for (i64 i = 0; i < arr.n; i ++) d.arr_i64[i] = arr[i];
     return d;
 }
@@ -186,7 +188,7 @@ inline DVal data<const_slice<float>>(TypeTable* tab, typeidx t, const const_slic
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_f32 = {new (*tab->types.alloc) float[arr.n], arr.n};
+    d.arr_f32 = {new float[arr.n], arr.n};
     for (i64 i = 0; i < arr.n; i ++) d.arr_f32[i] = arr[i];
     return d;
 }
@@ -199,7 +201,7 @@ inline DVal data<const_slice<double>>(TypeTable* tab, typeidx t, const const_sli
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_f64 = {new (*tab->types.alloc) double[arr.n], arr.n};
+    d.arr_f64 = {new double[arr.n], arr.n};
     for (i64 i = 0; i < arr.n; i ++) d.arr_f64[i] = arr[i];
     return d;
 }
@@ -212,7 +214,7 @@ inline DVal data<const_slice<u8>>(TypeTable* tab, typeidx t, const const_slice<u
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_u8 = {new (*tab->types.alloc) u8[arr.n], arr.n};
+    d.arr_u8 = {new u8[arr.n], arr.n};
     for (u64 i = 0; i < arr.n; i ++) d.arr_u8[i] = arr[i];
     return d;
 }
@@ -225,7 +227,7 @@ inline DVal data<const_slice<u16>>(TypeTable* tab, typeidx t, const const_slice<
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_u16 = {new (*tab->types.alloc) u16[arr.n], arr.n};
+    d.arr_u16 = {new u16[arr.n], arr.n};
     for (u64 i = 0; i < arr.n; i ++) d.arr_u16[i] = arr[i];
     return d;
 }
@@ -238,7 +240,7 @@ inline DVal data<const_slice<u32>>(TypeTable* tab, typeidx t, const const_slice<
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_u32 = {new (*tab->types.alloc) u32[arr.n], arr.n};
+    d.arr_u32 = {new u32[arr.n], arr.n};
     for (u64 i = 0; i < arr.n; i ++) d.arr_u32[i] = arr[i];
     return d;
 }
@@ -251,7 +253,7 @@ inline DVal data<const_slice<u64>>(TypeTable* tab, typeidx t, const const_slice<
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.arr_u64 = {new (*tab->types.alloc) u64[arr.n], arr.n};
+    d.arr_u64 = {new u64[arr.n], arr.n};
     for (u64 i = 0; i < arr.n; i ++) d.arr_u64[i] = arr[i];
     return d;
 }
@@ -263,7 +265,7 @@ inline DVal data<const_slice<DVal>>(TypeTable* tab, typeidx t, const const_slice
     else if (type.nelts != arr.n) fatal("Array data size mismatch.");
 
     DVal d;
-    d.fields = {new (*tab->types.alloc) DVal[arr.n], arr.n};
+    d.fields = {new DVal[arr.n], arr.n};
     for (u64 i = 0; i < arr.n; i ++) d.fields[i] = arr[i];
     return d;
 }
@@ -273,7 +275,7 @@ inline DVal datatup(TypeTable* tab, typeidx t, const const_slice<DVal>& arr) {
     if (type.kind != TK_TUP) fatal("Expected tuple type.");
 
     DVal d;
-    d.fields = {new(*tab->types.alloc) DVal[arr.n], arr.n};
+    d.fields = {new DVal[arr.n], arr.n};
     for (u64 i = 0; i < arr.n; i ++) d.fields[i] = arr[i];
     return d;
 }
@@ -304,7 +306,7 @@ template<typename... Args>
 inline DVal datatup(TypeTable* tab, typeidx t, const Args&... args) {
     constexpr u64 len = sizeof...(Args);
     DVal d;
-    d.fields = slice<DVal>{new(*tab->types.alloc) DVal[len], (iptr)len};
+    d.fields = slice<DVal>{new DVal[len], (iptr)len};
     populate_data(tab, t, d.fields, 0, args...);
     return d;
 }
@@ -327,20 +329,20 @@ struct GlobalEntry {
 
 struct GlobalTable {
     JasmineModule* obj;
-    vec<GlobalEntry, 16, arena> entries;
-    map<const_slice<i8>, GlobalEntry, 16, arena> entrymap;
+    vec<GlobalEntry, 16> entries;
+    map<const_slice<i8>, GlobalEntry, 16> entrymap;
 
     GlobalTable(JasmineModule* obj_in);
 
-    void write(bytebuf<arena>& buf) const;
-    void read(bytebuf<arena>& buf);
+    void write(bytebuf<>& buf) const;
+    void read(bytebuf<>& buf);
     TypeTable* ttable();
     void def(const GlobalEntry& e);
 };
 
 struct DataTable : public GlobalTable {
     DataTable(JasmineModule* obj_in);
-    void format(stream& io) const;
+    void format(fd io) const;
 
     inline dataidx def(typeidx type, stridx name, DVal dat) {
         GlobalTable::def({type, name, dat});
@@ -368,7 +370,7 @@ struct DataTable : public GlobalTable {
 
 struct StaticTable : public GlobalTable {
     StaticTable(JasmineModule* obj_in);
-    void format(stream& io) const;
+    void format(fd io) const;
 
     inline statidx def(typeidx type, stridx name, DVal dat) {
         GlobalTable::def({type, name, dat});
@@ -393,5 +395,7 @@ struct StaticTable : public GlobalTable {
         return entries.size() - 1;
     }
 };
+
+ENDMODULE()
 
 #endif

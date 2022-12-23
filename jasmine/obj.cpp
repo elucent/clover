@@ -1,9 +1,9 @@
 #include "jasmine/obj.h"
-#include "jasmine/pass.h"
-#include "jasmine/pass_target.h"
 
-void JasmineModule::write(bytebuf<arena>& buf) {
-    bytebuf<arena> strbuf(&modspace), metabuf(&modspace), typebuf(&modspace), databuf(&modspace), statbuf(&modspace), codebuf(&modspace);
+MODULE(jasmine)
+
+void JasmineModule::write(bytebuf<>& buf) {
+    bytebuf<> strbuf, metabuf, typebuf, databuf, statbuf, codebuf;
     strings.write(strbuf);
     meta.write(metabuf);
     types.write(typebuf);
@@ -25,7 +25,7 @@ void JasmineModule::write(bytebuf<arena>& buf) {
     while (codebuf.size()) buf.write(codebuf.read());
 }
 
-void JasmineModule::read(bytebuf<arena>& buf) {
+void JasmineModule::read(bytebuf<>& buf) {
     i8 magic[12];
     buf.read(magic, 12);
     u32 sz = buf.readLE<u32>();
@@ -37,18 +37,18 @@ void JasmineModule::read(bytebuf<arena>& buf) {
 
     u32 nfuncs = buf.readULEB();
     for (u32 i = 0; i < nfuncs; i ++) {
-        Function* f = new(modspace) Function(this);
+        Function* f = new Function(this, 0, 0);
         funcs.push(f);
         funcs.back()->read(buf);
     }
-    format(stdout);
+    format(io_stdout);
 }
 
-void JasmineModule::formatshort(stream& io) {
+void JasmineModule::formatshort(fd io) {
     ::write(io, strings.strings[meta.modname], ' ', meta.ver);
 }
 
-void JasmineModule::format(stream& io) {
+void JasmineModule::format(fd io) {
     meta.format(io);
     strings.format(io);
     types.format(io);
@@ -59,65 +59,71 @@ void JasmineModule::format(stream& io) {
     for (const auto& func : funcs) func->format(io);
 }
 
-void JasmineModule::opt(OptLevel level) {
-    types.compute_native_sizes<DefaultTarget>();
-    delete info;
-    info = makepassinfo();
-    for (Function* func : funcs) {
-        print(" === jasmine IR === \n");
-        func->format(stdout), print('\n');
-        if (level >= OPT_1) {
-            inlining(*func, *info);
-            cfg(*func, *info);
-
-            // print(" === after inline === \n");
-            // func->format(stdout), print('\n');
-            // foldc(*func, *info);
-
-            // print(" === after foldc === \n");
-            // func->format(stdout), print('\n');
-            // dce(*func, *info);   
-
-            // print(" === after dce === \n");
-            // func->format(stdout), print('\n');
-        }
-        regalloc<DefaultTarget>(*func, *info);
-        // else stackalloc<DefaultTarget>(*func, *info);
+void JasmineModule::dumpDOT(fd io) {
+    for (Function* fn : funcs) {
+        fn->dumpDOT(io);
     }
 }
 
-void JasmineModule::compile(Assembly& as) {
-    print(" === asm-level IR === \n");
-    ASMPrinter<DefaultTarget>::write_to(stdout);
-    for (Function* func : funcs) {
-        lower<ASMPrinter<DefaultTarget>>(*func, *info, as);
-        lower<DefaultTarget>(*func, *info, as);
-    }
-    println();
+// void JasmineModule::opt(OptLevel level) {
+//     types.compute_native_sizes<DefaultTarget>();
+//     delete info;
+//     info = makepassinfo();
+//     for (Function* func : funcs) {
+//         print(" === jasmine IR === \n");
+//         func->format(io_stdout), print('\n');
+//         if (level >= OPT_1) {
+//             inlining(*func, *info);
+//             cfg(*func, *info);
 
-    print(" === machine code === \n");
-    auto codesize = as.code.size();
-    LinkedAssembly linkasm = as.link();
-    for (i32 i = 0; i < codesize; i ++)
-        write_hex(stdout, (u8)linkasm.code[i]), print(' ');
-    println();
-    println();
-}
+//             // print(" === after inline === \n");
+//             // func->format(stdout), print('\n');
+//             // foldc(*func, *info);
 
-void JasmineObject::write(bytebuf<arena>& buf) {
+//             // print(" === after foldc === \n");
+//             // func->format(stdout), print('\n');
+//             // dce(*func, *info);   
+
+//             // print(" === after dce === \n");
+//             // func->format(stdout), print('\n');
+//         }
+//         regalloc<DefaultTarget>(*func, *info);
+//         // else stackalloc<DefaultTarget>(*func, *info);
+//     }
+// }
+
+// void JasmineModule::compile(Assembly& as) {
+//     print(" === asm-level IR === \n");
+//     ASMPrinter<DefaultTarget>::write_to(io_stdout);
+//     for (Function* func : funcs) {
+//         lower<ASMPrinter<DefaultTarget>>(*func, *info, as);
+//         lower<DefaultTarget>(*func, *info, as);
+//     }
+//     println();
+
+//     print(" === machine code === \n");
+//     auto codesize = as.code.size();
+//     LinkedAssembly linkasm = as.link();
+//     for (i32 i = 0; i < codesize; i ++)
+//         write_hex(io_stdout, (u8)linkasm.code[i]), print(' ');
+//     println();
+//     println();
+// }
+
+void JasmineObject::write(bytebuf<>& buf) {
     for (const auto& e : modules) e.value->write(buf);
 }
 
-void JasmineObject::read(bytebuf<arena>& buf) {
+void JasmineObject::read(bytebuf<>& buf) {
     while (buf.size()) {
-        JasmineModule* m = new(objspace) JasmineModule(buf);
+        JasmineModule* m = new JasmineModule(buf);
         modules.put(m->strings.strings[m->meta.modname], m);
         moduleseq.push(m);
     }
 }
 
-void JasmineObject::write(stream& io) {
-    bytebuf<arena> buf(&objspace);
+void JasmineObject::write(fd io) {
+    bytebuf<> buf;
     write(buf);
     if (buf._start > buf._end) {
         ::write(io, const_slice<i8>(buf._data + buf._start, buf._capacity - buf._start));
@@ -126,15 +132,17 @@ void JasmineObject::write(stream& io) {
     else ::write(io, const_slice<i8>{buf._data + buf._start, buf._end - buf._start});
 }
 
-void JasmineObject::read(stream& io) {
+void JasmineObject::read(fd io) {
     i8 buf[65536];
     slice<i8> dest = {buf, 65536};
-    bytebuf<arena> bytes(&objspace, 65536);
+    bytebuf<> bytes;
 
-    while (iptr amt = fdread(io.fd, dest)) bytes.write(buf, amt);
+    while (iptr amt = file_read(io, dest)) bytes.write(buf, amt);
     read(bytes);
 }
 
-void JasmineObject::format(stream& io) {
+void JasmineObject::format(fd io) {
     for (const auto& mod : modules) mod.value->format(io);
 }
+
+ENDMODULE()

@@ -7,6 +7,8 @@
 #include "lib/io.h"
 #include "lib/buffer.h"
 
+MODULE(jasmine)
+
 using dataidx = i32;
 using statidx = i32;
 using funcidx = i32;
@@ -41,7 +43,7 @@ struct Version {
     inline bool operator>=(const Version& v) { return !(*this < v); }
 };
 
-inline void write_impl(stream& io, const Version& v) {
+inline void write_impl(fd io, const Version& v) {
     write(io, (u16)v.major, '.', (u16)v.minor, '.', (u16)v.patch);
 }
 
@@ -51,7 +53,7 @@ struct MetaTable {
     u8 encoding; 
     stridx modname;
     funcidx entry;
-    map<const_slice<i8>, const_slice<i8>, 8, arena> entries;
+    map<const_slice<i8>, const_slice<i8>, 8> entries;
 
     MetaTable(JasmineModule* obj_in, Version ver_in, u16 encoding_in, stridx modname_in);
 
@@ -60,14 +62,14 @@ struct MetaTable {
     }
 
     u32 size() const;
-    void write(bytebuf<arena>& buf) const;
-    void read(bytebuf<arena>& buf);
-    void format(stream& io) const;
+    void write(bytebuf<>& buf) const;
+    void read(bytebuf<>& buf);
+    void format(fd io) const;
 };
 
 struct SymbolTable {
-    vec<const_slice<i8>, 16, arena> strings;
-    map<const_slice<i8>, stridx, 16, arena> strtab;
+    vec<const_slice<i8>, 16> strings;
+    map<const_slice<i8>, stridx, 16> strtab;
 
     inline stridx intern(const_slice<i8> str) {
         auto it = strtab.find(str);
@@ -102,9 +104,11 @@ struct StringTable : public SymbolTable {
     StringTable(JasmineModule* obj_in);
 
     u32 size() const;
-    void write(bytebuf<arena>& buf) const;
-    void read(bytebuf<arena>& buf);
-    void format(stream& io) const;
+    void write(bytebuf<>& buf) const;
+    void read(bytebuf<>& buf);
+    void format(fd io) const;
 };
+
+ENDMODULE()
 
 #endif

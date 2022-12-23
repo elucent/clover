@@ -15,7 +15,7 @@ extern "C" iptr _initial_sp;
  */
 
 void gc_init() {
-    spbase = _initial_sp;
+    spbase = _initial_sp ? _initial_sp : getsp() + sizeof(iptr) * 2;
     new(&THE_HEAP) gc_heap();
 }
 
@@ -32,13 +32,13 @@ struct gc_bitmap {
     inline gc_bitmap(): 
         base((iptr*)THE_HEAP.pages) {
         i64 bitmap_size = THE_HEAP.page_limit * WORDS_PER_PAGE * 2 / 8;
-        bits = (i64*)mreq(bitmap_size / PAGESIZE).ptr;
+        bits = (i64*)memory_map(bitmap_size / PAGESIZE).ptr;
         mset(bits, bitmap_size, 0);
     }
 
     inline void destroy() {
         i64 bitmap_size = THE_HEAP.page_limit * WORDS_PER_PAGE * 2 / 8;
-        mfree({ (page*)bits, bitmap_size / PAGESIZE });
+        memory_free({ (page*)bits, bitmap_size / PAGESIZE });
     }
 
     /*
@@ -100,11 +100,11 @@ struct gc_mark_stack_fifo {
     iptr start, end, capacity;
 
     gc_mark_stack_fifo(iptr capacity_in): start(0), end(0), capacity(capacity_in) {
-        refs = (iptr*)mreq(capacity * sizeof(iptr) / PAGESIZE).ptr;
+        refs = (iptr*)memory_map(capacity * sizeof(iptr) / PAGESIZE).ptr;
     }
 
     ~gc_mark_stack_fifo() {
-        mfree({ (page*)refs, iptr(capacity * sizeof(iptr) / PAGESIZE) });
+        memory_free({ (page*)refs, iptr(capacity * sizeof(iptr) / PAGESIZE) });
     }
 
     gc_mark_stack_fifo(const gc_mark_stack_fifo&) = delete;
@@ -112,14 +112,14 @@ struct gc_mark_stack_fifo {
 
     void grow() {
         iptr* old = refs;
-        refs = (iptr*)mreq(capacity * 2 * sizeof(iptr) / PAGESIZE).ptr;
+        refs = (iptr*)memory_map(capacity * 2 * sizeof(iptr) / PAGESIZE).ptr;
         if (end > start)
             mcpy(refs, old + start, (end - start) * sizeof(iptr));
         else {
             mcpy(refs, old + start, (capacity - start) * sizeof(iptr));
             mcpy(refs + capacity - start, old, end * sizeof(iptr));
         }
-        mfree({ (page*)old, iptr(capacity * sizeof(iptr) / PAGESIZE) });
+        memory_free({ (page*)old, iptr(capacity * sizeof(iptr) / PAGESIZE) });
         start = 0, end = capacity - 1;
         capacity *= 2;
     }
@@ -154,11 +154,11 @@ struct gc_mark_stack_lifo {
     iptr n_refs, capacity;
 
     gc_mark_stack_lifo(iptr capacity_in): n_refs(0), capacity(capacity_in) {
-        refs = (iptr*)mreq(capacity * sizeof(iptr) / PAGESIZE).ptr;
+        refs = (iptr*)memory_map(capacity * sizeof(iptr) / PAGESIZE).ptr;
     }
 
     ~gc_mark_stack_lifo() {
-        mfree({ (page*)refs, iptr(capacity * sizeof(iptr) / PAGESIZE) });
+        memory_free({ (page*)refs, iptr(capacity * sizeof(iptr) / PAGESIZE) });
     }
 
     gc_mark_stack_lifo(const gc_mark_stack_lifo&) = delete;
@@ -166,9 +166,9 @@ struct gc_mark_stack_lifo {
 
     void grow() {
         iptr* old = refs;
-        refs = (iptr*)mreq(capacity * 2 * sizeof(iptr) / PAGESIZE).ptr;
+        refs = (iptr*)memory_map(capacity * 2 * sizeof(iptr) / PAGESIZE).ptr;
         mcpy(refs, old, n_refs * sizeof(iptr));
-        mfree({ (page*)old, iptr(capacity * sizeof(iptr) / PAGESIZE) });
+        memory_free({ (page*)old, iptr(capacity * sizeof(iptr) / PAGESIZE) });
         capacity *= 2;
     }
 
@@ -316,7 +316,7 @@ gc_stats stats;
  * these can be exposed via an environment variable or other command-line interface?
  */
 
-#define LOG_GC 1
+#define LOG_GC 0
 
 void print_info(gc_heap& heap) {
     print(" * Heap blocks: [");
@@ -433,10 +433,10 @@ void scan_pages(gc_bitmap bitmap, gc_mark_stack& mark_stack) {
  */
 
 void gc() {
-    stats.since_gc_ns = nanotime() - stats.last_gc_ns;
+    stats.since_gc_ns = time_nanos() - stats.last_gc_ns;
     stats.freed_bytes = 0;
 
-    i64 timer = nanotime();
+    i64 timer = time_nanos();
     gc_bitmap bitmap;
 
     /*
@@ -450,12 +450,12 @@ void gc() {
     iptr* stack_bottom = (iptr*)getsp();
     if (LOG_GC) println("Doing GC");
     scan_region(bitmap, stack_bottom, stack_top);
-    if (LOG_GC) println(" * Marking stack took ", (nanotime() - timer) / 1000000.0, " ms");
+    if (LOG_GC) println(" * Marking stack took ", (time_nanos() - timer) / 1000000.0, " ms");
 
     /*
      * Mark freelists to ensure we don't break them.
      */
-    i64 premarklist = nanotime();
+    i64 premarklist = time_nanos();
     for (i32 i = 0; i < N_SIZE_CLASSES; i ++) {
         pair<u32, i32> list = THE_HEAP.free_lists[i];
         iptr p = (iptr)(THE_HEAP.pages[list.first].words + list.second);
@@ -465,22 +465,22 @@ void gc() {
             p = (iptr)(THE_HEAP.pages[list.first].words + list.second);
         }
     }
-    if (LOG_GC) println(" * Marking free lists took ", (nanotime() - premarklist) / 1000000.0, " ms");
+    if (LOG_GC) println(" * Marking free lists took ", (time_nanos() - premarklist) / 1000000.0, " ms");
 
     /* 
      * Mark additional, non-stack, non-freelist roots.
      */ 
-    i64 premarkothers = nanotime();
+    i64 premarkothers = time_nanos();
     for (i64 i = 0; i < THE_HEAP.n_extra_roots; i ++) {
         gc_root root = THE_HEAP.extra_roots[i];
         scan_region(bitmap, (iptr*)root.start, (iptr*)root.end);
     }
-    if (LOG_GC) println(" * Marking extra roots took ", (nanotime() - premarkothers) / 1000000.0, " ms");
+    if (LOG_GC) println(" * Marking extra roots took ", (time_nanos() - premarkothers) / 1000000.0, " ms");
 
     /*
      * Transitively mark objects visible through other heap objects.
      */
-    i64 premarkheap = nanotime();
+    i64 premarkheap = time_nanos();
     gc_mark_stack mark_stack(16777216 / sizeof(iptr));
     // Spend a few iterations detecting objects with low nesting.
     for (u32 k = 0; k < 2; k ++) {
@@ -490,9 +490,9 @@ void gc() {
     // Initialize mark stack with already-marked objects.
     mark_pages(bitmap);
     scan_pages<scan_page>(bitmap, mark_stack);
-    if (LOG_GC) println(" * Initial heap marking took ", (nanotime() - premarkheap) / 1000000.0, " ms");
+    if (LOG_GC) println(" * Initial heap marking took ", (time_nanos() - premarkheap) / 1000000.0, " ms");
     // Consume mark stack until no more objects can be reached.
-    i64 predrainstack = nanotime();
+    i64 predrainstack = time_nanos();
     while (mark_stack) {
         iptr p = mark_stack.pop();
         auto info = THE_HEAP.info[(p - (iptr)THE_HEAP.pages) / BYTES_PER_PAGE];
@@ -507,12 +507,12 @@ void gc() {
         p = round_to_size_class(p, info.size_class);
         scan_heap_object(bitmap, mark_stack, (iptr*)p, (iptr*)p + SIZE_CLASSES[info.size_class] * PTRS_PER_WORD);
     }
-    if (LOG_GC) println(" * Draining mark stack took ", (nanotime() - predrainstack) / 1000000.0, " ms");
+    if (LOG_GC) println(" * Draining mark stack took ", (time_nanos() - predrainstack) / 1000000.0, " ms");
 
     /*
      * Free all unmarked objects.
      */
-    i64 prefree = nanotime();
+    i64 prefree = time_nanos();
     // Update which pages are marked.
     mark_pages(bitmap);
     for (u32 i = 0; i < THE_HEAP.page_limit; i ++) {
@@ -536,12 +536,12 @@ void gc() {
         else if (size_class >= 0)
             free_page(bitmap, (iptr*)(THE_HEAP.pages + i), (iptr*)(THE_HEAP.pages + i + 1), size_class, i, stats);
     }
-    if (LOG_GC) println(" * Freeing took ", (nanotime() - prefree) / 1000000.0, " ms");
+    if (LOG_GC) println(" * Freeing took ", (time_nanos() - prefree) / 1000000.0, " ms");
 
     bitmap.destroy();
 
     stats.n_gcs ++;
-    stats.last_gc_ns = nanotime();
+    stats.last_gc_ns = time_nanos();
     stats.gc_time_ns = stats.last_gc_ns - timer;
     if (LOG_GC) println(" * GC cycle took ", double(stats.gc_time_ns) / 1000000.0, "ms and freed ", stats.freed_bytes / 1000000.0, "mb out of ", THE_HEAP.page_limit * BYTES_PER_PAGE / 1000000.0, "mb heap (", double(100 * stats.freed_bytes) / (THE_HEAP.page_limit * BYTES_PER_PAGE), "%)");
 }

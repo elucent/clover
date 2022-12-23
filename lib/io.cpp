@@ -1,89 +1,56 @@
 #include "lib/io.h"
+#include "core/sys.h"
 #include "lib/utf.h"
 
-stream* new_stream(i32 fd) {
-    stream* s = (stream*)mreq(STREAM_SIZE / PAGESIZE).ptr;
-    s->fd = fd;
-    s->start = 0;
-    s->end = 0;
-    return s;
+static void flush_input(fd io) {
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
+    mcpy(buf, buf + info.meta.start, info.meta.end - info.meta.start);
+    info.meta.end -= info.meta.start, info.meta.start = 0;
+    i64 amt = file_read(io, { buf + info.meta.end, FDBUF_SIZE - (info.meta.end - info.meta.start) });
+    info.meta.end += amt;
 }
 
-static stream* streams[N_STREAMS];
-
-static_assert(STREAM_SIZE % PAGESIZE == 0, "Stream is not a multiple of the page size.");
-static_assert(sizeof(stream) == STREAM_SIZE, "Stream is different from constant stream size.");
-
-stream& io_for_fd(i64 i) {
-    return *streams[i];
+static void flush_output(fd io) {
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
+    file_write(io, { buf + info.meta.start, info.meta.end - info.meta.start });
+    info.meta.end = info.meta.start = info.pathlen + sizeof(FileInfo);
 }
 
-static void flush_input(stream& io) {
-    mcpy(io.buf, io.buf + io.start, io.end - io.start);
-    io.end -= io.start, io.start = 0;
-    i64 amt = fdread(io.fd, { io.buf + io.end, STREAMBUF_SIZE - (io.end - io.start) });
-    io.end += amt;
-}
-
-static void flush_output(stream& io) {
-    fdwrite(io.fd, { io.buf + io.start, io.end - io.start });
-    io.end = io.start;
-}
-
-stream* open(const i8* path, FDFLAGS flags) {
-    i64 fd = fdopen(path, flags);
-    if (fd < 0) return nullptr;
-    else {
-        stream* s = nullptr;
-        for (u32 i = 3; i < N_STREAMS; i ++) { // skip fds 0-2 since they're standard
-            if (!streams[i]) {
-                s = streams[i] = new_stream(fd);
-                break;
-            }
-        }
-        return s; // returns -1 if we couldn't find an open stream
-    }
-}
-
-void close(stream* file) {
-    if (!file) return;
-    i32 i = file->fd;
-    if (i < 0 || i >= N_STREAMS || !streams[i]) return;
-    if (streams[i]->end != streams[i]->start) flush_output(*streams[i]);
-    fdclose(streams[i]->fd);
-    mfree({ (page*)streams[i], sizeof(stream) / PAGESIZE });
-    streams[i] = nullptr;
-}
+extern "C" fd libcore_map_new_fd(FileMeta::Kind, i32, const_slice<i8>);
 
 extern "C" void io_init() {
-    stdin.fd = 0;
-    stdout.fd = 1;
-    stderr.fd = 2;
-    streams[BASIL_STDIN_FD] = &stdin;
-    streams[BASIL_STDOUT_FD] = &stdout;
-    streams[BASIL_STDERR_FD] = &stderr;
+    io_stdin = libcore_map_new_fd(FileMeta::FILE, file_stdin, {"stdin", 6});
+    io_stdout = libcore_map_new_fd(FileMeta::FILE, file_stdout, {"stdout", 7});
+    io_stderr = libcore_map_new_fd(FileMeta::FILE, file_stderr, {"stderr", 7});
 }
 
 extern "C" void io_deinit() {
-    for (u32 i = 0; i < N_STREAMS; i ++)
-        if (streams[i]) flush(*streams[i]);
-
-    for (u32 i = 3; i < N_STREAMS; i ++)
-        if (streams[i]) mfree({ (page*)streams[i], sizeof(stream) / PAGESIZE });
-        else break;
+    for (u32 i = 0; i < MAX_FDS; i ++) {
+        if (fd_table[i] && fd_table[i]->meta.kind == FileMeta::FILE) 
+            flush(i);
+        if (fd_table[i])
+            memory_free({ (page*)fd_table[i], FDBUF_SIZE / PAGESIZE });
+    }
 }
 
-static inline void push_if_necessary(stream& io, u32 n = 64) {
-    if (STREAMBUF_SIZE - io.end < n) flush_output(io);
+static inline void push_if_necessary(fd io, u32 n = 64) {
+    FileInfo& info = *fd_table[io];
+    if (FDBUF_SIZE - info.meta.end < n) flush_output(io);
 }
 
-static inline void pull_if_necessary(stream& io, u32 n = 64) {
-    if (io.end - io.start < n) flush_input(io);
+static inline void pull_if_necessary(fd io, u32 n = 64) {
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
+    if (info.meta.end - info.meta.start < n) flush_input(io);
 }
 
-static inline void put(stream& io, u8 c) {
-    io.buf[io.end ++] = c;
-    if (&io == &io_for_fd(BASIL_STDOUT_FD) && c == '\n') flush_output(io);
+static inline void put(fd io, u8 c) {
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
+    buf[info.meta.end ++] = c;
+    if (io == io_stdout && c == '\n') flush_output(io);
 }
 
 const i8* digits[] = {
@@ -99,23 +66,25 @@ const i8* digits[] = {
     "90", "91", "92", "93", "94", "95", "96", "97", "98", "99"
 };
 
-void write_uint(stream& io, u64 u) {
+void write_uint(fd io, u64 u) {
     push_if_necessary(io, 24);
     if (!u) return put(io, '0');
     u32 c = 0, d = 0;
     u64 p = 1;
     while (p <= u) p *= 10, ++ c;
     d = c;
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
     while (c >= 2) {
-        *(u16*)(io.buf + io.end + c - 2) = *(u16*)(digits[u % 100]); 
+        *(u16*)(buf + info.meta.end + c - 2) = *(u16*)(digits[u % 100]); 
         u /= 100;
         c -= 2;
     }
-    if (c) io.buf[io.end + c - 1] = "0123456789"[u % 10];
-    io.end += d;
+    if (c) buf[info.meta.end + c - 1] = "0123456789"[u % 10];
+    info.meta.end += d;
 }
 
-void write_int(stream& io, i64 i) {
+void write_int(fd io, i64 i) {
     push_if_necessary(io, 24);
     if (i < 0) put(io, '-'), i = -i;
     write_uint(io, i); 
@@ -127,7 +96,7 @@ inline double abs(double f) {
 
 #define FP_PRECISION 7
 
-void write_float(stream& io, double f) {
+void write_float(fd io, double f) {
     push_if_necessary(io, 1);
     if (f < 0) f = -f, put(io, '-');
     i64 ipart = i64(f + 0.00000001);
@@ -145,7 +114,7 @@ void write_float(stream& io, double f) {
     write_uint(io, i64(frac));
 }
 
-void write_hex(stream& io, u64 u, i64 min) {
+void write_hex(fd io, u64 u, i64 min) {
     push_if_necessary(io, 16);
     if (!u) write_byte(io, '0'), write_byte(io, '0');
     else {
@@ -159,86 +128,98 @@ void write_hex(stream& io, u64 u, i64 min) {
     }
 }
 
-void write_string(stream& io, const i8* str, uptr n) {
+void write_string(fd io, const i8* str, uptr n) {
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
     u32 i = 0;
-    if (&io == &io_for_fd(BASIL_STDOUT_FD)) for (i = 0; i < n; i ++) {
+    if (io == io_stdout) for (i = 0; i < n; i ++) {
         push_if_necessary(io, 1);
-        io.buf[io.end ++] = str[i];
+        buf[info.meta.end ++] = str[i];
         if (str[i] == '\n') flush_output(io);
     }
     else while (n) {
-        u32 chunk = n > STREAMBUF_SIZE ? STREAMBUF_SIZE : n;
+        u32 chunk = n > FDBUF_SIZE ? FDBUF_SIZE : n;
         push_if_necessary(io, chunk);
-        mcpy(io.buf + io.end, str + i, chunk);
-        io.end += chunk;
+        mcpy(buf + info.meta.end, str + i, chunk);
+        info.meta.end += chunk;
         i += chunk;
         n -= chunk;
     }
 }
 
-void write_char(stream& io, i32 c) {
+void write_char(fd io, i32 c) {
     push_if_necessary(io, 4);
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
     rune r = c;
-    io.end += utf8_encode(&r, 1, io.buf + io.end, 4);
-    if (&io == &io_for_fd(BASIL_STDOUT_FD) && c == '\n') flush_output(io);
+    info.meta.end += utf8_encode(&r, 1, buf + info.meta.end, 4);
+    if (io == io_stdout && c == '\n') flush_output(io);
 }
 
-void write_rune(stream& io, const rune& r) {
+void write_rune(fd io, const rune& r) {
     write_char(io, r.u);
 }
 
-void write_byte(stream& io, i8 c) {
+void write_byte(fd io, i8 c) {
     push_if_necessary(io, 1);
     put(io, c);
-    if (&io == &io_for_fd(BASIL_STDOUT_FD) && c == '\n') flush_output(io);
+    if (io == io_stdout && c == '\n') flush_output(io);
 }
 
 bool isdigit(char c) {
     return c >= '0' && c <= '9';
 }
 
-u64 read_digits(stream& io) {
+u64 read_digits(fd io) {
     u64 acc = 0;
     u8 i = 0;
-    while (isdigit(io.buf[io.start]) && i < 18) {
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
+    while (isdigit(buf[info.meta.start]) && i < 18) {
         acc *= 10;
-        acc += io.buf[io.start] - '0';
+        acc += buf[info.meta.start] - '0';
         i ++;
-        io.start ++;
+        info.meta.start ++;
     }
     return acc;
 }
 
-u64 read_uint(stream& io) {
+u64 read_uint(fd io) {
     pull_if_necessary(io);
     return read_digits(io);
 }
 
-i64 read_int(stream& io) {
+i64 read_int(fd io) {
     pull_if_necessary(io);
     i64 i = 1;
-    if (io.buf[io.start] == '-') i = -1, io.start ++;
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
+    if (buf[info.meta.start] == '-') i = -1, info.meta.start ++;
     pull_if_necessary(io);
     return i * read_digits(io);
 }
 
-void read_string(stream& io, i8* str, uptr n) {
-    while (n >= STREAMBUF_SIZE) {
+void read_string(fd io, i8* str, uptr n) {
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
+    while (n >= FDBUF_SIZE) {
         flush_input(io);
-        mcpy(str, io.buf + io.start, io.end - io.start);
-        n -= STREAMBUF_SIZE;
+        mcpy(str, buf + info.meta.start, info.meta.end - info.meta.start);
+        n -= FDBUF_SIZE;
     }
     pull_if_necessary(io, n);
-    mcpy(str, io.buf + io.start, n);
+    mcpy(str, buf + info.meta.start, n);
 }
 
-i8 read_byte(stream& io) {
-    pull_if_necessary(io);
-    return io.buf[io.start ++];
+i8 read_byte(fd io) {
+    pull_if_necessary(io, 1);
+    FileInfo& info = *fd_table[io];
+    i8* buf = info.path + info.pathlen;
+    return buf[info.meta.start ++];
 }
 
-void flush(stream& io) {
+void flush(fd io) {
     flush_output(io);
 }
 
-stream stdin, stdout, stderr;
+fd io_stdin, io_stdout, io_stderr;

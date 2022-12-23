@@ -33,11 +33,11 @@ struct arena {
     inline void free() {
         page* prev = *(page**)pages.ptr;
         while (prev) {
-            mfree(pages);
+            memory_free(pages);
             pages.ptr = prev;
             prev = *(page**)pages.ptr;
         }
-        mfree(pages);
+        memory_free(pages);
     }
 
     iptr alloc_block(iptr bytes);
@@ -61,7 +61,7 @@ struct arena {
 
     inline void empty() {
         free();
-        pages = mreq(size);
+        pages = memory_map(size);
         top = (u8*)pages.ptr;
         *(page**)top = nullptr;
         *((u8**)top + 1) = nullptr;

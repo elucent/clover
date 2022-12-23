@@ -1,6 +1,8 @@
 #include "jasmine/type.h"
 #include "jasmine/obj.h"
 
+MODULE(jasmine)
+
 bool Type::operator==(const Type& other) const {
     if (kind != other.kind) return false;
     switch (kind) {
@@ -19,7 +21,7 @@ bool Type::operator==(const Type& other) const {
     }
 }
 
-void format_type(const TypeTable& table, typeidx t, stream& io) {
+void format_type(const TypeTable& table, typeidx t, fd io) {
     if (t < 0) {
         switch (i8(t)) {
             case T_I8: return write(io, "i8");
@@ -77,16 +79,13 @@ void format_type(const TypeTable& table, typeidx t, stream& io) {
     }
 }
 
-TypeTable::TypeTable(JasmineModule* obj_in): obj(obj_in) {
-    types.alloc = &obj->modspace;
-    table.alloc = &obj->modspace;
-}
+TypeTable::TypeTable(JasmineModule* obj_in): obj(obj_in) {}
 
 u32 TypeTable::size() const {
     return 8 + 8 * types.size();
 }
 
-void TypeTable::write(bytebuf<arena>& buf) const {
+void TypeTable::write(bytebuf<>& buf) const {
     buf.writeULEB(types.size());
 
     for (u64 i = 0; i < types.size();) {
@@ -116,7 +115,7 @@ void TypeTable::write(bytebuf<arena>& buf) const {
     }
 }
 
-void TypeTable::read(bytebuf<arena>& buf) {
+void TypeTable::read(bytebuf<>& buf) {
     u64 n = buf.readULEB(); // Number of types.
     while (types.size() < n) {
         Type t;
@@ -151,8 +150,10 @@ void TypeTable::read(bytebuf<arena>& buf) {
     }
 }
 
-void TypeTable::format(stream& io) const {
+void TypeTable::format(fd io) const {
     ::write(io, " === Type Table === \n");
     for (const auto& e : table) ::write(io, "  "), ::write_hex(io, e.value), ::write(io, ": "), format_type(*this, e.value, io), ::write(io, '\n');
     ::write(io, '\n');
 }
+
+ENDMODULE()

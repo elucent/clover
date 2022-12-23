@@ -1,15 +1,37 @@
 #include "core/sys.h"
-#include "clover/clover.h"
-#include "jasmine/jasmine.h"
+#include "jasmine/obj.h"
 
-#include "jasmine/arch/amd64.h"
+using namespace jasmine;
 
-using Verifier = ASMVerifier<AMD64LinuxTarget>;
-using Printer = ASMPrinter<AMD64LinuxTarget>;
-using ASM = ASMCompose<Verifier, ASMCompose<Printer, AMD64LinuxTarget>>;
+// #include "jasmine/arch/amd64.h"
+
+// using Verifier = ASMVerifier<AMD64LinuxTarget>;
+// using Printer = ASMPrinter<AMD64LinuxTarget>;
+// using ASM = ASMCompose<Verifier, ASMCompose<Printer, AMD64LinuxTarget>>;
 
 i32 main(i32 argc, i8** argv) {
-    return jasmine_main(argc, argv);
+    JasmineModule* mod = new JasmineModule(Version(0, 0, 1), const_slice<i8>{"test", 4});
+    
+    Function* fn = new Function(mod, t_fun(mod->types, T_I32, tvec(T_I32)), mod->strings.intern({"fib", 3}));
+    {
+        using namespace assembler;
+        writeTo(*fn);
+        auto arg = add(ARG, T_I32, Int(0));
+        auto cmp = add(CLT, T_I32, Reg(arg), Int(2));
+        auto ifLess = add(BRNZ, T_I32, Reg(cmp), Branch(), Branch());
+        link(ifLess, 1);
+        add(RET, T_I32, Reg(arg));
+        auto minus1 = add(SUB, T_I32, Reg(arg), Int(1));
+        auto call1 = add(CALL, t_fun(mod->types, T_I32, tvec(T_I32)), Func(fn->idx), Reg(minus1));
+        auto minus2 = add(SUB, T_I32, Reg(arg), Int(2));
+        auto call2 = add(CALL, t_fun(mod->types, T_I32, tvec(T_I32)), Func(fn->idx), Reg(minus2));
+        auto sum = add(ADD, T_I32, Reg(call1), Reg(call2));
+        add(RET, T_I32, Reg(sum));
+    }
+
+    fn->dumpDOT(file_stdout);
+
+    return 0;
     // Printer::write_to(stdout);
     // SymbolTable syms;
 

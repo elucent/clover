@@ -8,7 +8,7 @@ extern "C" iptr cidx(const i8* str, i8 val) {
 }
 
 extern "C" void panic(const i8* msg) {
-    fdwrite(1, {msg, cidx(msg, '\0')});
-    fdwrite(1, {"\n", 1});
-    pexit(42);
+    file_write(1, {msg, cidx(msg, '\0')});
+    file_write(1, {"\n", 1});
+    process_exit(42);
 }

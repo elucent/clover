@@ -8,90 +8,207 @@
 #include "jasmine/tab.h"
 #include "jasmine/arch.h"
 
+MODULE(jasmine)
+
 struct OpMeta {
-    bool hasoutput, hastype, isjump;
+    enum Flags : u8 {
+        NONE = 0, OUTPUT = 1, CONTROL = 2, EXITS = 4, CALL = 8, MEMORY = 16, TYPED = 32
+    };
+    u8 flags;
+
+    inline bool has_output() const {
+        return flags & OUTPUT;
+    }
+
+    inline bool is_control() const {
+        return flags & CONTROL;
+    }
+
+    inline bool exits() const {
+        return flags & EXITS;
+    }
+
+    inline bool is_call() const {
+        return flags & CALL;
+    }
+
+    inline bool is_memory() const {
+        return flags & MEMORY;
+    }
+
+    inline bool is_typed() const {
+        return flags & TYPED;
+    }
 };
 
-constexpr OpMeta HAS_OUTPUT = { true, true, false }, NO_OUTPUT = { false, true, false }, JUMP = { false, false, true }, RETURN = { false, true, false };
+constexpr OpMeta 
+    HAS_OUTPUT = { OpMeta::OUTPUT | OpMeta::TYPED },
+    NO_OUTPUT = { OpMeta::NONE | OpMeta::TYPED },
+    UNTYPED = { OpMeta::NONE },
+    JUMP = { OpMeta::CONTROL },
+    BRANCH = { OpMeta::CONTROL | OpMeta::TYPED },
+    RETURN = { OpMeta::CONTROL | OpMeta::TYPED | OpMeta::EXITS },
+    CALLMETA = { OpMeta::OUTPUT | OpMeta::CALL | OpMeta::TYPED },
+    LOAD = { OpMeta::OUTPUT | OpMeta::MEMORY | OpMeta::TYPED },
+    STORE = { OpMeta::MEMORY | OpMeta::TYPED };
 
 enum Arity : u8 {
-    NULLARY, UNARY, VUNARY, BINARY, VBINARY, TERNARY,
+    UNARY, BINARY, VBINARY, TERNARY, QUATERNARY
 };
 
-enum Op : u8 {
-    /* Nullary */   OP_NOP, OP_VAR, OP_LAST_NULLARY = OP_VAR,
-    /* Unary */     OP_NEG, OP_NOT, OP_LOAD, OP_ADDR, OP_NEW, OP_CAST, OP_CONV, 
-                    OP_ZXT, OP_SXT, OP_RET, OP_ARG, OP_JUMP, OP_LABEL, OP_MOV,
-    /* Unary* */    OP_PHI, OP_LAST_UNARY = OP_PHI,
-    /* Binary */    OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_REM, 
-                    OP_AND, OP_OR, OP_XOR, OP_SHL, OP_SHR,
-                    OP_STORE, OP_FIELD_LOAD, OP_FIELD_ADDR, OP_INDEX_LOAD, OP_INDEX_ADDR,
-                    OP_EQ, OP_NEQ, OP_LT, OP_LEQ, OP_GT, OP_GEQ,
-                    OP_JZ, OP_JNZ,
-    /* Binary* */   OP_CALL, OP_LAST_BINARY = OP_CALL, 
-    /* Ternary */   OP_FIELD_STORE, OP_INDEX_STORE, OP_LAST_TERNARY = OP_INDEX_STORE, N_OPCODES = OP_LAST_TERNARY + 1
+namespace assembler {
+    enum Op {
+        /* Unary */     NOP,                    // Does nothing. No output.
+                        VAR,                    // Declares undefined variable of type.
+                        NEW,                    // new t : () -> ref. Allocates new instance of t.
+                        RET,                    // ret : t -> !. Returns operand from function. 
+                        BR,                     // br (branch) : () -> (). Jumps to target.
+                        LAST_UNARY = BR,
+
+        /* Binary */    NEG,                    // neg (Num t) : t -> t. Negates operand.
+                        LNOT,                   // lnot (Int t) : t -> t. NOTs operand.
+                        BNOT,                   // bnot (Int t) : t -> t. NOTs operand.
+                        LD,                     // ld t : ptr|ref -> t. Loads value from pointer or reference.
+                        LA,                     // la (ptr|ref t) : t -> t. Loads address from pointer or reference expression.
+                        CAST,                   // cast t : u -> t. Bitcasts operand into t.
+                        CVT,                    // cvt t : u -> t. Converts operand to t.
+                        ZXT,                    // zxt (Int t) : u -> t. Zero-extends narrower integer type to wider integer type.
+                        SXT,                    // sxt (Int t) : u -> t. Sign-extends narrower integer type to wider integer type.
+                        ARG,                    // arg t : n -> t. Returns nth argument to block.
+                        FWD,                    // fwd t : t -> t. Returns operand.
+                        LZC,                    // lzc (Int t) : t -> t. Counts leading zeroes in operand.
+                        TZC,                    // tzc (Int t) : t -> t. Counts trailing zeroes in operand.
+                        POPC,                   // popc (Int t) : t -> t. Counts set bits in operand.
+
+        /* Binary* */   CALL,                   // call (func f), (ptr|ref p) : (p, f.args) -> f.ret. Calls address with parameters.
+                        LAST_BINARY = CALL,
+
+        /* Ternary */   ADD,                    // add (Num t) : (t, t) -> t. Adds operands.
+                        SUB,                    // sub (Num t) : (t, t) -> t. Subtracts second operand from first.
+                        MUL,                    // mul (Num t) : (t, t) -> t. Multiplies operands.
+                        DIV,                    // div (Num t) : (t, t) -> t. Divides first operand by second.
+                        REM,                    // rem (Num t) : (t, t) -> t. Finds remainder dividing first operand by second.
+                        LAND,                   // land (Int t) : (t, t) -> t. ANDs operands.
+                        LOR,                    // lor (Int t) : (t, t) -> t.  ORs operands.
+                        LXOR,                   // lxor (Int t) : (t, t) -> t. XORs operands.
+                        BAND,                   // band (Int t) : (t, t) -> t. ANDs operands.
+                        BOR,                    // bor (Int t) : (t, t) -> t.  ORs operands.
+                        BXOR,                   // bxor (Int t) : (t, t) -> t. XORs operands.
+                        SHL,                    // shl (Int t) : (t, t) -> t. Shifts first operand left by second.
+                        SHR,                    // shr (Int t) : (t, t) -> t. Shifts first operand right by second.
+                        ST,                     // st (ptr|ref p) t : (p, t) -> (). Stores second operand at first.
+                        FLD,                    // fld t (ptr|ref p) : (p, n) -> t.n. Loads nth field of struct pointed at by first operand.
+                        FLA,                    // fla t (ptr|ref p) : (p, n) -> p. Loads address of nth field of struct.
+                        ILD,                    // ild t, (ptr|ref p) (Int i): (p, i) -> t. Loads ith element of array pointed at by first operand.
+                        ILA,                    // ila t, (ptr|ref p) (Int i): (p, i) -> t. Loads address of ith element of array pointed at by first operand.
+                        CEQ,                    // ceq t : (t, t) -> u8. Compares equality of operands.
+                        CNEQ,                   // cneq t : (t, t) -> u8. Compares inequality of operands.
+                        CLT,                    // clt t : (t, t) -> u8. Compares less than of operands.
+                        CLEQ,                   // cleq t : (t, t) -> u8. Compares less or equal of operands.
+                        CGT,                    // cgt t : (t, t) -> u8. Compares greater of operands.
+                        CGEQ,                   // cgeq t : (t, t) -> u8. Compares greater or equal of operands.
+                        BRZ,
+                        BRNZ,
+
+                        /* 
+                        Atomics
+                        CXG,                    // cxg t : (t, t) -> t. Atomic compare and exchange.
+                        LDX,                    // Atomic load.
+                        FLDX,                   // Atomic load field.
+                        ILDX,                   // Atomic load index.
+                        STX,                    // Atomic store.
+                        FSTX,                   // Atomic store field.
+                        ISTX,                   // Atomic store index.
+                        */
+
+                        LAST_TERNARY = BRNZ,
+
+        /* Quaternary */    FST,                    // fst t (ptr|ref p) : (p, n, t.n) -> (). Stores into nth field of pointed-to struct.
+                            IST,                    // ist t (ptr|ref p) (Int i) : (p, i, t.n) -> (). Stores into ith element of pointed-to array.
+                            LAST_QUATERNARY = IST, 
+                            N_OPCODES = LAST_QUATERNARY + 1
+    };
 };
 
 constexpr const i8* OP_NAMES[] = {
-    "nop", "var",
-    "neg", "not", "ld", "lea", "new", "cast", "conv",
-    "zxt", "sxt", "ret", "arg", "jump", "label", "mov",
-    "phi",
-    "add", "sub", "mul", "div", "rem",
-    "and", "or", "xor", "shl", "shr",
-    "st", "ld.field", "lea.field", "ld.index", "lea.index",
-    "eq", "neq", "lt", "leq", "gt", "geq",
-    "jz", "jnz",
+    "nop", "var", "new", "ret", "br",
+    "neg", "lnot", "bnot", "ld", "la", "cast", "cvt",
+    "zxt", "sxt", "arg", "fwd",
+    "lzc", "tzc", "popc",
     "call",
-    "st.field", "st.index"
+    "add", "sub", "mul", "div", "rem",
+    "land", "lor", "lxor", "band", "bor", "bxor", "shl", "shr",
+    "st", "fld", "fla", "ild", "ila",
+    "ceq", "cneq", "clt", "cleq", "cgt", "cgeq",
+    "brz", "brnz",
+    "fst", "ist"
 };
+
+static_assert(sizeof(OP_NAMES) / sizeof(i8*) == assembler::N_OPCODES, "OP_NAMES out of sync");
 
 constexpr Arity OP_ARITIES[] = {
-    NULLARY, NULLARY,
-    UNARY, UNARY, UNARY, UNARY, UNARY, UNARY, UNARY,
-    UNARY, UNARY, UNARY, UNARY, UNARY, UNARY, UNARY,
-    VUNARY,
-    BINARY, BINARY, BINARY, BINARY, BINARY, 
-    BINARY, BINARY, BINARY, BINARY, BINARY, 
-    BINARY, BINARY, BINARY, BINARY, BINARY, 
-    BINARY, BINARY, BINARY, BINARY, BINARY, BINARY, 
-    BINARY, BINARY, 
+    UNARY, UNARY, UNARY, UNARY, UNARY,
+
+    BINARY, BINARY, BINARY, BINARY, BINARY, BINARY, BINARY,
+    BINARY, BINARY, BINARY, BINARY,
+    BINARY, BINARY, BINARY,
+
     VBINARY,
-    TERNARY, TERNARY
+
+    TERNARY, TERNARY, TERNARY, TERNARY, TERNARY, 
+    TERNARY, TERNARY, TERNARY, TERNARY, TERNARY, TERNARY, TERNARY, TERNARY, 
+    TERNARY, TERNARY, TERNARY, TERNARY, TERNARY, 
+    TERNARY, TERNARY, TERNARY, TERNARY, TERNARY, TERNARY, 
+    TERNARY, TERNARY,
+
+    QUATERNARY, QUATERNARY
 };
+
+static_assert(sizeof(OP_ARITIES) / sizeof(Arity) == assembler::N_OPCODES, "OP_ARITIES out of sync");
 
 constexpr OpMeta OP_META[] = {
-    NO_OUTPUT, HAS_OUTPUT,
-    HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, 
-    HAS_OUTPUT, HAS_OUTPUT, RETURN, HAS_OUTPUT, JUMP, NO_OUTPUT, HAS_OUTPUT,
-    HAS_OUTPUT,
+    UNTYPED, HAS_OUTPUT, HAS_OUTPUT, RETURN, JUMP,
+
+    HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, LOAD, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, 
+    HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, NO_OUTPUT,
+    HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT,
+
+    CALLMETA,
+
     HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT,
-    HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT,
-    NO_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT,
+    HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT,
+    STORE, LOAD, HAS_OUTPUT, LOAD, HAS_OUTPUT,
     HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT, HAS_OUTPUT,
-    JUMP, JUMP,
-    HAS_OUTPUT,
-    NO_OUTPUT, NO_OUTPUT
+    BRANCH, BRANCH,
+
+    STORE, STORE
 };
+
+static_assert(sizeof(OP_META) / sizeof(OpMeta) == assembler::N_OPCODES, "OP_META out of sync");
 
 enum Param : u8 {
-    P_NONE = 0, P_REG = 1, P_IMM = 2, P_DATA = 3, P_STATIC = 4, P_LABEL = 5, P_FUNC = 6, P_VAR = 7
+    P_NONE = 0, P_TYPE = 1, P_REG = 2, P_BRANCH = 3, P_INT = 4, P_F32 = 5, P_F64 = 6, P_DATA = 7, P_STATIC = 8, P_FUNC = 9
 };
 
-inline constexpr u8 argsof(Param lhs, Param rhs) {
-    return u8(lhs) << 4 | u8(rhs);
-}
+enum class BranchFlags : u8 {
+    NONE = 0, CONDITIONAL = 1, UNLIKELY = 2
+};
 
 union Arg {
     localidx reg;
     i64 imm;
     float f32imm;
     double f64imm;
+    typeidx type;
     dataidx data;
     statidx stat;
     labelidx lbl;
     funcidx func;
     stridx str;
+    struct {
+        localidx dest;
+        i32 flags;
+    } branch;
 
     inline Arg() {}
     inline Arg(i64 n): imm(n) {}
@@ -100,10 +217,9 @@ union Arg {
 struct Function;
 
 struct Insn {
-    u32 pidx; // Number of args, index of first param, index of first arg
-    typeidx type; // Insn type
-    Op op; // Opcode
-    u8 nparams;
+    u32 pidx; // Starting index of parameters.
+    u8 op; // Opcode
+    u8 nparams; // Number of parameters.
 
     inline Insn() {}
 
@@ -111,181 +227,224 @@ struct Insn {
     inline slice<Param> params(Function&);
     inline const_slice<Arg> args(const Function&) const;
     inline slice<Arg> args(Function&);
+    inline typeidx type(const Function&) const;
 
     inline bool has_output() const {
-        return OP_META[op].hasoutput;
+        return OP_META[op].has_output();
     }
 
-    inline bool is_jump() const {
-        return OP_META[op].isjump;
+    inline bool is_control() const {
+        return OP_META[op].is_control();
     }
 
-    inline typeidx result_type(const TypeTable& tab) const {
-        if (op == OP_CALL) return tab.types[type].ret;
-        else return type;
+    inline bool exits() const {
+        return OP_META[op].exits();
     }
+
+    inline bool is_call() const {
+        return OP_META[op].is_call();
+    }
+
+    inline bool is_memory() const {
+        return OP_META[op].is_memory();
+    }
+
+    inline typeidx result_type(const TypeTable& tab, const Function& fn) const {
+        if (op == assembler::CALL) return tab.types[type(fn)].ret;
+        else return type(fn);
+    }
+
+    inline localidx jump_target(const Function&) const;
 };
 
 using InsnVec = vec<Insn, 8, arena>;
 
 struct JasmineModule;
 
-struct Label {
-    localidx insn;
-    stridx name;
-};
-
 struct Function {
     JasmineModule* obj;
     typeidx type;
+    funcidx idx;
+    localidx idCounter = 0;
     bool isextern = false;
     InsnVec insns;
-    vec<Param, 16, arena> params;
-    vec<Arg, 16, arena> args;
-    vec<Label, 8, arena> labels;
+    vec<Param, 16> params;
+    vec<Arg, 16> args;
     stridx modname, name;
 
-    Function(JasmineModule* obj_in);
+    Function(JasmineModule* obj_in, typeidx type, stridx name);
 
-    void write(bytebuf<arena>& buf) const;
-    void read(bytebuf<arena>& buf);
-    void format(stream& io, u32 indent = 2) const;
-    void formatshort(stream& io) const;
-
-    inline labelidx label(stridx name) {
-        labels.push({-1, name});
-        return labels.size() - 1;
+    inline localidx newLocal() {
+        return idCounter ++;
     }
+
+    void write(bytebuf<>& buf) const;
+    void read(bytebuf<>& buf);
+    void format(fd io, u32 indent = 2) const;
+    void formatshort(fd io) const;
+    void dumpDOT(fd io) const;
 };
 
 inline const_slice<Param> Insn::params(const Function& fn) const {
-    return { &fn.params[pidx], nparams };
+    return { &fn.params[pidx + 1], nparams };
 }
 
 inline slice<Param> Insn::params(Function& fn) {
-    return { &fn.params[pidx], nparams };
+    return { &fn.params[pidx + 1], nparams };
 }
 
 inline const_slice<Arg> Insn::args(const Function& fn) const {
-    return { &fn.args[pidx], nparams };
+    return { &fn.args[pidx + 1], nparams };
 }
 
 inline slice<Arg> Insn::args(Function& fn) {
-    return { &fn.args[pidx], nparams };
+    return { &fn.args[pidx + 1], nparams };
 }
 
-void format_insn(const Function& fn, const Insn& insn, stream& io);
-void format_func(const Function& fn, stream& io, u32 indent);
+inline typeidx Insn::type(const Function& fn) const {
+    return fn.args[pidx].type;
+}
 
-namespace jasm {
+void format_insn(const Function& fn, const Insn& insn, fd io, bool showLabel = true);
+void format_func(const Function& fn, fd io, u32 indent);
+
+struct Value {
+    Param kind;
+    Arg data;
+};
+
+namespace assembler {
     extern Function* targetfn;
 
-    struct ParamArg {
-        Param p;
-        Arg a;
-    };
-
-    inline ParamArg reg(u64 r) {
-        ParamArg uarg;
-        uarg.p = P_REG;
-        uarg.a.reg = r;
+    inline Value Reg(localidx r) {
+        Value uarg;
+        uarg.kind = P_REG;
+        uarg.data.reg = r;
         return uarg;
     }
 
-    inline ParamArg imm(i64 i) {
-        ParamArg uarg;
-        uarg.p = P_IMM;
-        uarg.a.imm = i;
+    inline Value Branch(localidx r) {
+        Value uarg;
+        uarg.kind = P_BRANCH;
+        uarg.data.branch.dest = r;
+        uarg.data.branch.flags = (i32)BranchFlags::NONE;
         return uarg;
     }
 
-    inline ParamArg f32imm(float f) {
-        ParamArg uarg;
-        uarg.p = P_IMM;
-        uarg.a.f32imm = f;
+    inline Value Branch() {
+        return Branch(-1);
+    }
+
+    inline Value Int(i64 i) {
+        Value uarg;
+        uarg.kind = P_INT;
+        uarg.data.imm = i;
         return uarg;
     }
 
-    inline ParamArg f64imm(double f) {
-        ParamArg uarg;
-        uarg.p = P_IMM;
-        uarg.a.f64imm = f;
+    inline Value F32(float f) {
+        Value uarg;
+        uarg.kind = P_F32;
+        uarg.data.f32imm = f;
         return uarg;
     }
 
-    inline ParamArg lbl(labelidx l) {
-        ParamArg uarg;
-        uarg.p = P_LABEL;
-        uarg.a.lbl = l;
+    inline Value F64(double f) {
+        Value uarg;
+        uarg.kind = P_F64;
+        uarg.data.f64imm = f;
         return uarg;
     }
 
-    inline ParamArg func(funcidx i) {
-        ParamArg uarg;
-        uarg.p = P_FUNC;
-        uarg.a.func = i;
+    inline Value Func(funcidx i) {
+        Value uarg;
+        uarg.kind = P_FUNC;
+        uarg.data.func = i;
         return uarg;
     }
 
-    funcidx externfunc(JasmineModule& obj, const_slice<i8> name, typeidx type);
-    funcidx beginfunc(JasmineModule& obj, const_slice<i8> name, typeidx type);
-    void endfunc();
+    void writeTo(Function& fn);
+    void finishFunction();
 
-    localidx add(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx sub(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx mul(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx div(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx rem(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx neg(typeidx t, const ParamArg& param);
+    extern Function* currentFn;
 
-    localidx band(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx bor(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx bxor(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx bnot(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx shl(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx shr(typeidx t, const ParamArg& param);
+    inline void appendArgs(Insn& insn) {}
 
-    void st(typeidx t, const ParamArg& addr, const ParamArg& val);
-    localidx ld(typeidx t, const ParamArg& addr);
-    localidx lea(typeidx t, const ParamArg& val);
-    localidx ld_field(typeidx t, const ParamArg& tup, const ParamArg& ord);
-    localidx lea_field(typeidx t, const ParamArg& tup, const ParamArg& ord);
-    localidx ld_index(typeidx t, const ParamArg& arr, const ParamArg& idx);
-    localidx lea_index(typeidx t, const ParamArg& arr, const ParamArg& idx);
-    localidx load(typeidx t, const ParamArg& addr);
-    localidx mov(typeidx t, const ParamArg& dest, const ParamArg& src);
-    localidx mnew(typeidx t);
-    void st_field(typeidx t, const ParamArg& tup, const ParamArg& ord, const ParamArg& src);
-    void st_index(typeidx t, const ParamArg& tup, const ParamArg& arr, const ParamArg& idx);
+    template<typename... Args>
+    inline void appendArgs(Insn& insn, const Value& arg, const Args&... args) {
+        currentFn->params.push(arg.kind);
+        currentFn->args.push(arg.data);
+        appendArgs(insn, args...);
+    }
 
-    localidx cast(typeidx t, const ParamArg& param);
-    localidx conv(typeidx t, const ParamArg& param);
-    localidx zxt(typeidx t, const ParamArg& param);
-    localidx sxt(typeidx t, const ParamArg& param);
+    template<typename... Args>
+    inline Insn createInsn(Op opcode, typeidx type, const Args&... args) {
+        assert(currentFn != nullptr);
+        assert(OP_META[opcode].is_typed());
+        Insn insn;
+        insn.op = opcode;
+        insn.nparams = sizeof...(args);
+        insn.pidx = currentFn->params.size();
+        currentFn->params.push(P_TYPE);
+        currentFn->args.push(Arg(type));
+        appendArgs(insn, args...);
+        if (!OP_META[insn.op].is_control()) {
+            insn.nparams ++;
+            currentFn->params.push(P_BRANCH);
+            currentFn->args.push(Arg(0));
+        }
+        return insn;
+    }
 
-    localidx begincall(typeidx t, const ParamArg& param);
-    void callarg(const ParamArg& param);
-    void endcall();
+    template<typename... Args>
+    inline Insn createInsn(Op opcode, const Args&... args) {
+        assert(currentFn != nullptr);
+        assert(!OP_META[opcode].is_typed());
+        Insn insn;
+        insn.op = opcode;
+        insn.nparams = sizeof...(args);
+        insn.pidx = currentFn->params.size();
+        currentFn->params.push(P_TYPE);
+        currentFn->args.push(Arg(T_VOID));
+        appendArgs(insn, args...);
+        if (!OP_META[insn.op].is_control()) {
+            insn.nparams ++;
+            currentFn->params.push(P_BRANCH);
+            currentFn->args.push(Arg(0));
+        }
+        return insn;
+    }
 
-    void ret(typeidx t, const ParamArg& param);
-    localidx arg(typeidx t, i64 idx);
-    localidx jump(const ParamArg& param);
-    void label(labelidx lbl);
-    localidx beginphi(typeidx t);
-    void phiarg(const ParamArg& param);
-    void endphi();
+    inline void link(localidx branch, i32 operand, localidx dest) {
+        Insn& insn = currentFn->insns[branch];
+        assert(insn.params(*currentFn)[operand] == P_BRANCH);
+        insn.args(*currentFn)[operand].branch.dest = dest;
+    }
 
-    localidx eq(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx neq(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx gt(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx geq(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx lt(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
-    localidx leq(typeidx t, const ParamArg& lhs, const ParamArg& rhs);
+    inline void link(localidx branch, i32 operand) {
+        link(branch, operand, currentFn->insns.size());
+    }
 
-    void jz(const ParamArg& dest, const ParamArg& cond);
-    void jnz(const ParamArg& dest, const ParamArg& cond);
+    template<typename... Args>
+    inline localidx add(const Args&... args) {
+        localidx id = currentFn->newLocal();
 
-    localidx var(typeidx t);
+        // Implicit successor operand for non-control instructions
+        if (id > 0) {
+            Insn& prev = currentFn->insns.back();
+            if (!OP_META[prev.op].is_control()) {
+                prev.args(*currentFn)[prev.args(*currentFn).n - 1].branch.dest = id;
+            }
+        }
+
+        Insn insn = createInsn(args...);
+        
+        currentFn->insns.push(insn);
+        assert(currentFn->insns.size() - 1 == id);
+        return id;
+    }
 }
+
+ENDMODULE()
 
 #endif

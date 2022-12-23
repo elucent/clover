@@ -3,23 +3,23 @@
 #include "clover/err.h"
 
 ByteSource read_bytes(const i8* path) {
-    fd file = fdopen(path, FP_READ);
+    fd file = file_open({path, cidx(path, 0)}, FP_READ);
     if (file < 0) fatal("Couldn't open file.");
 
     i8 buffer[65536];
     iptr length = 0, bytes;
     do {
-        bytes = fdread(file, {buffer, 65536});
+        bytes = file_read(file, {buffer, 65536});
         length += bytes;
     } while (bytes > 0);
 
-    fdclose(file);
-    file = fdopen(path, FP_READ);
+    file_close(file);
+    file = file_open({path, cidx(path, 0)}, FP_READ);
 
     i8* persistent_buf = new i8[length + 1];
-    iptr actually_read = fdread(file, {persistent_buf, length});
+    iptr actually_read = file_read(file, {persistent_buf, length});
     assert(actually_read == length);
-    fdclose(file);
+    file_close(file);
     if (persistent_buf[length - 1] != '\n') persistent_buf[length ++] = '\n';
     return ByteSource{length, persistent_buf};
 }

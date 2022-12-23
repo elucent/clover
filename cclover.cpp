@@ -95,17 +95,3 @@ extern "C" iword __clover__malloc(iword size) {
 extern "C" void __clover__del(void* ptr) {
     gc_free_untyped(ptr);
 }
-
-// Libcore bindings.
-
-extern CLINKAGE slice<page> memory__map(i64 n) {
-    return mreq(n);
-}
-
-extern CLINKAGE void memory__unmap(slice<page> pages) {
-    mfree(pages);
-}
-
-extern CLINKAGE void memory__tag(slice<page> pages, i8 flags) {
-    mpermit(pages, flags);
-}
