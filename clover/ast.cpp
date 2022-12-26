@@ -6534,11 +6534,21 @@ stridx jasmine_mangle_sym(Module* mod, Env* env, Symbol sym, JasmineGenContext& 
     return ctx.mod->strings.intern(const_slice<i8>{fqname, size});
 }
 
-void jasmine_bind_var(Env* env, Symbol var, jasmine::Value value) {
-    Entry* e = env->lookup(var);
-    if (!e) return;
+void jasmine_bind_var(Env* env, Symbol var, jasmine::Value value, JasmineGenContext& ctx) {
+    Env* defenv = env->find(var);
+    if (!defenv) fatal("Couldn't find variable.");
+    Entry* e = defenv->lookup(var);
     if (!e->codegen_data) e->codegen_data = new JasmineExprinfo{value};
     else ((JasmineExprinfo*)e->codegen_data)->value = value;
+    ctx.locals.put({defenv, var}, value);
+}
+
+jasmine::Value* jasmine_get_var(Env* env, Symbol var, JasmineGenContext& ctx) {
+    Env* defenv = env->find(var);
+    if (!defenv) fatal("Couldn't find variable.");
+    auto it = ctx.locals.find({defenv, var});
+    if (it != ctx.locals.end()) return &it->value;
+    else return nullptr;
 }
 
 jasmine::Value jasmine_bind(AST* ast, jasmine::Value value) {
@@ -6550,6 +6560,41 @@ jasmine::Value jasmine_bind(AST* ast, jasmine::Value value) {
 jasmine::Value jasmine_eval(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx) {
     emit_jasmine(mod, env, ast, ctx);
     return ((JasmineExprinfo*)ast->codegen_data)->value;
+}
+
+void jasmine_merge_ctx(Module* mod, JasmineGenContext& dest, const JasmineGenContext& src) {
+    for (const auto& [k, v] : dest.locals) {
+        auto it = src.locals.find(k);
+        if (it != src.locals.end() && it->value != v) {
+            using namespace jasmine::assembler;
+            jasmine::Value args[2] = {
+                v, it->value
+            };
+            Entry* e = k.env->lookup(k.sym);
+            assert(e);
+            localidx phi = add(PHI, emit_jasmine_typedef(mod, e->type, dest), const_slice<jasmine::Value>{args, 2});
+            jasmine_bind_var(k.env, k.sym, Reg(phi), dest);
+        }
+    }
+}
+
+void jasmine_merge_ctx_loopback(Module* mod, JasmineGenContext& dest, const JasmineGenContext& src, pair<localidx, localidx> header, pair<localidx, localidx> body) {
+    using namespace jasmine::assembler;
+    for (const auto& [k, v] : dest.locals) {
+        auto it = src.locals.find(k);
+        if (it != src.locals.end() && it->value != v) {
+            jasmine::Value args[2] = {
+                v, it->value
+            };
+            Entry* e = k.env->lookup(k.sym);
+            assert(e);
+            localidx phi = addAfter(header.first, PHI, emit_jasmine_typedef(mod, e->type, dest), const_slice<jasmine::Value>{args, 2});
+            header.first = phi;
+            jasmine_bind_var(k.env, k.sym, Reg(phi), dest);
+            subst(body.first, body.second, args[0], Reg(phi)); // TODO: Make this more generalizable than just an index range.
+        }
+    }
+    follow(header.first, header.second);
 }
 
 void emit_jasmine_unary(jasmine::assembler::Op op, Module* mod, Env* env, Unary* u, JasmineGenContext& ctx) {
@@ -6613,9 +6658,16 @@ void emit_jasmine(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx) {
     casematch(AST_BITXOR, Binary*, b) emit_jasmine_binary(jasmine::assembler::BXOR, mod, env, b, ctx); endmatch
     casematch(AST_BITLEFT, Binary*, b) emit_jasmine_binary(jasmine::assembler::SHL, mod, env, b, ctx); endmatch
     casematch(AST_BITRIGHT, Binary*, b) emit_jasmine_binary(jasmine::assembler::SHR, mod, env, b, ctx); endmatch
+    casematch(AST_EQUAL, Binary*, b) emit_jasmine_binary(jasmine::assembler::CEQ, mod, env, b, ctx); endmatch
+    casematch(AST_INEQUAL, Binary*, b) emit_jasmine_binary(jasmine::assembler::CNEQ, mod, env, b, ctx); endmatch
+    casematch(AST_LESS, Binary*, b) emit_jasmine_binary(jasmine::assembler::CLT, mod, env, b, ctx); endmatch
+    casematch(AST_LEQUAL, Binary*, b) emit_jasmine_binary(jasmine::assembler::CLEQ, mod, env, b, ctx); endmatch
+    casematch(AST_GREATER, Binary*, b) emit_jasmine_binary(jasmine::assembler::CGT, mod, env, b, ctx); endmatch
+    casematch(AST_GEQUAL, Binary*, b) emit_jasmine_binary(jasmine::assembler::CGEQ, mod, env, b, ctx); endmatch
     casematch(AST_VAR, Var*, v)
-        Entry* e = env->lookup(v->name);
-        if (e && e->codegen_data) jasmine_bind(v, ((JasmineExprinfo*)e->codegen_data)->value);
+        Env* defenv = env->find(v->name);
+        auto it = ctx.locals.find({defenv, v->name});
+        if (it != ctx.locals.end()) jasmine_bind(v, it->value);
         else fatal("Tried to read undefined variable in Jasmine codegen.");
         endmatch
     casematch(AST_FUNDECL, FunDecl*, d)
@@ -6626,7 +6678,7 @@ void emit_jasmine(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx) {
         jasmine::Function* fn = new jasmine::Function(ctx.mod, ft, fname);
         jasmine::Value fnid = jasmine::assembler::Func(fn->idx);
         jasmine_bind(d, fnid);
-        jasmine_bind_var(env, d->basename, fnid);
+        jasmine_bind_var(env, d->basename, fnid, ctx);
 
         jasmine::assembler::writeTo(*fn);
         i32 argid = 0;
@@ -6634,10 +6686,83 @@ void emit_jasmine(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx) {
             using namespace jasmine::assembler;
             typeidx argt = ctx.mod->types.types[ft].members[argid];
             localidx arg = add(ARG, argt, Int(argid));
-            jasmine_bind_var(d->env, ((VarDecl*)ast)->basename, Reg(arg));
+            jasmine_bind_var(d->env, ((VarDecl*)ast)->basename, Reg(arg), ctx);
         }
         emit_jasmine(mod, d->env, d->body, ctx);
         jasmine::assembler::finishFunction();
+        endmatch
+    casematch(AST_VARDECL, VarDecl*, d)
+        if (d->codegen_data) return;
+        jasmine::Value init;
+        using namespace jasmine::assembler;
+        typeidx vart = emit_jasmine_typedef(mod, d->type, ctx);
+        if (d->init) {
+            init = jasmine_eval(mod, env, d->init, ctx);
+            init = Reg(add(DEF, vart, init));
+        }
+        else
+            init = Reg(add(VAR, vart));
+        assert(!jasmine_get_var(env, d->basename, ctx));
+        jasmine_bind_var(env, d->basename, init, ctx);
+        jasmine_bind(d, init);
+        endmatch
+    casematch(AST_ASSIGN, Binary*, b)
+        if (b->codegen_data) return;
+        using namespace jasmine::assembler;
+        jasmine::Value src = jasmine_eval(mod, env, b->right, ctx);
+        assert(b->left->kind == AST_VAR); // TODO: other lvalue exprs
+        localidx def = add(DEF, emit_jasmine_typedef(mod, b->right->type, ctx), src);
+        jasmine_bind_var(env, ((Var*)b->left)->name, Reg(def), ctx);
+        jasmine_bind(b, Reg(def));
+        endmatch
+    casematch(AST_APPLY, Apply*, a)
+        if (a->codegen_data) return;
+        jasmine::Value func;
+        if (auto p = call_parent(mod, env, a)) func = jasmine_eval(mod, p->second, a->fn, ctx);
+        else func = jasmine_eval(mod, env, a->fn, ctx);
+        
+        slice<jasmine::Value> args = { new(mod->parser->astspace) jasmine::Value[a->args.n], a->args.n };
+        for (i32 i = 0; i < args.n; i ++)
+            args[i] = jasmine_eval(mod, env, a->args[i], ctx);
+
+        using namespace jasmine::assembler;
+        localidx result = add(CALL, emit_jasmine_typedef(mod, a->fn->type, ctx), func, args);
+        jasmine_bind(a, Reg(result));
+        endmatch
+    casematch(AST_IF, If*, i)
+        if (i->codegen_data) return;
+
+        using namespace jasmine::assembler;
+        jasmine::Value cond = jasmine_eval(mod, i->env, i->cond, ctx);
+        localidx branch = add(JNZERO, jasmine::T_I8, cond, Branch(), Branch());
+        link(branch, 1);
+        JasmineGenContext copy = ctx;
+        emit_jasmine(mod, env, i->ifTrue, ctx);
+        localidx jump;
+        if (i->ifFalse) jump = add(JUMP, Branch());
+        link(branch, 2);
+        if (i->ifFalse) {
+            emit_jasmine(mod, env, i->ifFalse, copy);
+            link(jump, 0);
+        }
+        jasmine_merge_ctx(mod, ctx, copy);
+        jasmine_bind(i, Int(0));
+        endmatch
+    casematch(AST_WHILE, Loop*, l)
+        if (l->codegen_data) return;
+
+        using namespace jasmine::assembler;
+        localidx top = add(NOP);
+        localidx next = tip();
+        jasmine::Value cond = jasmine_eval(mod, l->env, l->cond, ctx);
+        localidx branch = add(JNZERO, jasmine::T_I8, cond, Branch(), Branch());
+        JasmineGenContext copy = ctx;
+        link(branch, 1);
+        emit_jasmine(mod, l->env, l->body, copy);
+        add(JUMP, Branch(top));
+        localidx end = tip();
+        jasmine_merge_ctx_loopback(mod, ctx, copy, {top, next}, {next, end});
+        link(branch, 2);
         endmatch
     casematch(AST_DO, List*, l)
         if (l->codegen_data) return;
@@ -6654,7 +6779,7 @@ void emit_jasmine(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx) {
         if (u->child)
             add(RET, emit_jasmine_typedef(mod, u->child->type, ctx), jasmine_eval(mod, env, u->child, ctx));
         else
-            add(RET, jasmine::T_VOID, Int(0));
+            add(RETVOID);
         endmatch
     default:
         fatal("Tried to emit Jasmine IR for unsupported AST node!");

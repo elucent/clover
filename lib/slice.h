@@ -112,6 +112,22 @@ struct slice {
     operator const_slice<T>() const {
         return { ptr, n };
     }
+
+    const T& front() const {
+        return ptr[0];
+    }
+
+    T& front() {
+        return ptr[0];
+    }
+
+    const T& back() const {
+        return ptr[n - 1];
+    }
+
+    T& back() {
+        return ptr[n - 1];
+    }
 };
 
 #endif

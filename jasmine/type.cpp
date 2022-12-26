@@ -152,7 +152,9 @@ void TypeTable::read(bytebuf<>& buf) {
 
 void TypeTable::format(fd io) const {
     ::write(io, " === Type Table === \n");
-    for (const auto& e : table) ::write(io, "  "), ::write_hex(io, e.value), ::write(io, ": "), format_type(*this, e.value, io), ::write(io, '\n');
+    for (i32 i = 0; i < types.size(); i ++) {
+        ::write(io, "  "), ::write_hex(io, i), ::write(io, ": "), format_type(*this, i, io), ::write(io, '\n');
+    }
     ::write(io, '\n');
 }
 

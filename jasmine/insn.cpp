@@ -6,6 +6,7 @@ MODULE(jasmine)
 Function::Function(JasmineModule* obj_in, typeidx type_in, stridx name_in): obj(obj_in), type(type_in), modname(obj->meta.modname), name(name_in) {
     idx = obj->funcs.size();
     obj->funcs.push(this);
+    entrypoint = 0;
 }
 
 inline u8 argsof(Param first, Param second) {
@@ -31,9 +32,22 @@ void Function::write(bytebuf<>& buf) const {
             if (OP_META[insn.op].is_typed()) // Write type only if necessary.
                 buf.writeLEB(insn.type(*this));
             switch (OP_ARITIES[insn.op]) {
+                case NULLARY:
+                    break;
                 case UNARY:
                     buf.write<u8>(argsof(params[0], P_NONE));
                     buf.writeLEB(args[0].reg);
+                    break;
+                case VUNARY:
+                    buf.write<u8>(argsof(params[0], P_NONE));
+                    buf.writeLEB(args[0].reg);
+                    buf.writeULEB(args.size() - 1);
+                    for (u32 i = 1; i < params.n; i += 2) {
+                        Param a = params[i];
+                        Param b = i + 1 < params.n ? params[i + 1] : P_NONE;
+                        buf.write<u8>(argsof(a, b));
+                    }
+                    for (u32 i = 1; i < args.n; i ++) buf.writeLEB(args[i].reg);
                     break;
                 case BINARY:
                     buf.write<u8>(argsof(params[0], params[1]));
@@ -89,11 +103,25 @@ void Function::read(bytebuf<>& buf) {
                 params.push(P_TYPE), args.push(Arg(buf.readLEB()));
             insn.pidx = params.size();
             switch (OP_ARITIES[insn.op]) {
+                case NULLARY:
+                    break;
                 case UNARY:
                     insn.nparams = 1;
                     unpackArgs(buf.read<u8>(), first, second);
                     params.push(first);
                     args.push(buf.readLEB());
+                    break;
+                case VUNARY:
+                    unpackArgs(buf.read<u8>(), first, second);
+                    params.push(first);
+                    args.push(buf.readLEB());
+                    insn.nparams = 1 + buf.readULEB();
+                    for (u64 i = 1; i < insn.nparams; i += 2) {
+                        unpackArgs(buf.read<u8>(), first, second);
+                        params.push(first);
+                        if (i + 1 < insn.nparams) params.push(second);
+                    }
+                    for (u64 i = 1; i < insn.nparams; i ++) args.push(buf.readLEB());
                     break;
                 case BINARY:
                     unpackArgs(buf.read<u8>(), first, second);
@@ -191,13 +219,22 @@ void DOTInsnName(fd io, const Function& fn, const Insn& insn, localidx id) {
 }
 
 void Function::dumpDOT(fd io) const {
+    dumpDOTPrelude(io);
+    dumpDOTInsns(io);
+    dumpDOTEpilogue(io);
+}
+
+void Function::dumpDOTPrelude(fd io) const {
     ::write(io, "digraph \"", obj->strings.str(modname), ":", obj->strings.str(name), "\" {\n");
     ::write(io, "  label=\"", obj->strings.str(modname), ":", obj->strings.str(name), "\";\n");
     ::write(io, "  labelloc=\"t\";\n");
     ::write(io, "  fontsize=24;\n");
+}
+
+void Function::dumpDOTInsns(fd io) const {
     if (insns.size()) {
         ::write(io, "  entry -> ");
-        DOTInsnName(io, *this, insns[0], 0);
+        DOTInsnName(io, *this, insns[entrypoint], entrypoint);
         ::write(io, '\n');
     }
     for (localidx i = 0; i < insns.size(); i ++) {
@@ -227,6 +264,9 @@ void Function::dumpDOT(fd io) const {
             }
         }
     }
+}
+
+void Function::dumpDOTEpilogue(fd io) const {
     ::write(io, "}\n");
 }
 

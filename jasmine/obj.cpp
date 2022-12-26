@@ -1,4 +1,5 @@
 #include "jasmine/obj.h"
+#include "jasmine/pass.h"
 
 MODULE(jasmine)
 
@@ -65,32 +66,37 @@ void JasmineModule::dumpDOT(fd io) {
     }
 }
 
-// void JasmineModule::opt(OptLevel level) {
-//     types.compute_native_sizes<DefaultTarget>();
-//     delete info;
-//     info = makepassinfo();
-//     for (Function* func : funcs) {
-//         print(" === jasmine IR === \n");
-//         func->format(io_stdout), print('\n');
-//         if (level >= OPT_1) {
-//             inlining(*func, *info);
-//             cfg(*func, *info);
+void JasmineModule::dumpDOT(fd io, PassInfo& info) {
+    for (Function* fn : funcs) {
+        fn->dumpDOT(io, info);
+    }
+}
 
-//             // print(" === after inline === \n");
-//             // func->format(stdout), print('\n');
-//             // foldc(*func, *info);
+void JasmineModule::opt(PassInfo& info, OptLevel level) {
+    types.compute_native_sizes<DefaultTarget>();
+    for (Function* func : funcs) {
+        // print(" === jasmine IR === \n");
+        // func->format(io_stdout), print('\n');
+        cfg(info, *func);
+        if (level >= OPT_1) {
+            // inlining(*func, *info);
 
-//             // print(" === after foldc === \n");
-//             // func->format(stdout), print('\n');
-//             // dce(*func, *info);   
+            // print(" === after inline === \n");
+            // func->format(stdout), print('\n');
+            // foldc(*func, *info);
 
-//             // print(" === after dce === \n");
-//             // func->format(stdout), print('\n');
-//         }
-//         regalloc<DefaultTarget>(*func, *info);
-//         // else stackalloc<DefaultTarget>(*func, *info);
-//     }
-// }
+            // print(" === after foldc === \n");
+            // func->format(stdout), print('\n');
+            // dce(*func, *info);   
+
+            // print(" === after dce === \n");
+            // func->format(stdout), print('\n');
+        }
+        renumber(info, *func);
+        // regalloc<DefaultTarget>(*func, *info);
+        // else stackalloc<DefaultTarget>(*func, *info);
+    }
+}
 
 // void JasmineModule::compile(Assembly& as) {
 //     print(" === asm-level IR === \n");

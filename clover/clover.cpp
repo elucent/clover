@@ -9,6 +9,7 @@
 #include "core/util.h"
 #include "lib/io.h"
 #include "jasmine/obj.h"
+#include "jasmine/pass.h"
 
 #define CLOVER_VERSION_MAJOR 0
 #define CLOVER_VERSION_MINOR 1
@@ -101,7 +102,10 @@ void jasmine_backend(Module* mod) {
     emit_jasmine_prelude(mod, mod->parser->program->env, ctx);
     emit_jasmine(mod, mod->parser->program->env, mod->parser->program, ctx);
 
-    ctx.mod->dumpDOT(file_stdout);
+    jasmine::PassInfo info;
+    ctx.mod->opt(info, jasmine::OPT_2);
+    // ctx.mod->format(file_stdout);
+    ctx.mod->dumpDOT(file_stdout, info);
 }
 
 Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx, EnvContext* envctx, const_slice<i8> path) {

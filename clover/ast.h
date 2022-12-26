@@ -3,6 +3,7 @@
 
 #include "clover/lex.h"
 #include "lib/tuple.h"
+#include "lib/hash.h"
 #include "clover/type.h"
 
 struct Env;
@@ -687,6 +688,28 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx);
 
 #include "jasmine/insn.h"
 
+struct UniqueSymbol {
+    Env* env;
+    Symbol sym;
+
+    inline bool operator==(const UniqueSymbol& other) const {
+        return env == other.env && sym == other.sym;
+    }
+};
+
+inline u64 hash(const UniqueSymbol& sym) {
+    return ::hash(u64(sym.env)) * 31 ^ ::hash(sym.sym);
+}
+
+/*
+ * JasmineExprinfo
+ *
+ * Jasmine-specific information for each Clover expression.
+ */
+struct JasmineExprinfo {
+    jasmine::Value value; // The Jasmine representation of the value produced by this expression.
+};
+
 /*
  * JasmineGenContext 
  *
@@ -695,7 +718,7 @@ void emit_c(Module* mod, Env* env, AST* ast, CContext& ctx);
 struct JasmineGenContext {
     Module* main;
     jasmine::JasmineModule* mod;
-    map<Symbol, jasmine::localidx> locals;
+    map<UniqueSymbol, jasmine::Value> locals;
 };
 
 /*
@@ -705,15 +728,6 @@ struct JasmineGenContext {
  */
 struct JasmineTypeinfo {
     jasmine::typeidx repr;
-};
-
-/*
- * JasmineExprinfo
- *
- * Jasmine-specific information for each Clover expression.
- */
-struct JasmineExprinfo {
-    jasmine::Value value; // The Jasmine representation of the value produced by this expression.
 };
 
 /*

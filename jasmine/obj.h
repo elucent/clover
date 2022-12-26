@@ -60,8 +60,9 @@ struct JasmineModule {
     void formatshort(fd io);
     void format(fd io);
     void dumpDOT(fd io);
+    void dumpDOT(fd io, PassInfo& info);
 
-    void opt(OptLevel level);
+    void opt(PassInfo& info, OptLevel level);
     void compile(Assembly& as);
 };
 
