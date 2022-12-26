@@ -99,26 +99,26 @@ struct deque {
 
     T popl() {
         T elt = front();
-        start = (start + 1) & (N - 1);
+        start = (start + 1) & (capacity - 1);
         return elt;
     }
 
     T popr() {
         T elt = back();
-        end = (end - 1) & (N - 1);
+        end = (end - 1) & (capacity - 1);
         return elt;
+    }
+
+    void pushl(const T& t) {
+        if (full()) grow();
+        start = (start - 1) & (capacity - 1);
+        data[start] = t;
     }
 
     void pushr(const T& t) {
         if (full()) grow();
         data[end] = t;
-        end = (end + 1) & (N - 1);
-    }
-
-    void pushl(const T& t) {
-        if (full()) grow();
-        start = (start - 1) & (N - 1);
-        data[start] = t;
+        end = (end + 1) & (capacity - 1);
     }
 
     bool full() {
