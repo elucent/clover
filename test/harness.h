@@ -51,7 +51,8 @@ struct TestResults {
 };
 
 #define TEST(name) extern "C" void test_##name##_fn(TestResults& results)
-#define ASSERT(expr, ...) do { if (!(expr)) results.results.push([](){ println("[FAILED] " __FILE__ " line " TOSTRING(__LINE__) ": ", __VA_ARGS__); }); } while (false)
+#define ASSERT(expr, ...) do { if (!(expr)) { results.results.push([](){ println("[FAILED] " __FILE__ " line " TOSTRING(__LINE__) ": ", __VA_ARGS__); }); return; } } while (false)
+#define ASSERT_EQUAL(exp1, exp2, ...) do { if (!((exp1) == (exp2))) { results.results.push([](){ println("[FAILED] " __FILE__ " line " TOSTRING(__LINE__) ": ", (exp1), " != ", (exp2), __VA_ARGS__); }); return; } } while (false)
 
 inline void setup_harness(int argc, char** argv) {
     //

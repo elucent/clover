@@ -104,8 +104,10 @@ void jasmine_backend(Module* mod) {
 
     jasmine::PassInfo info;
     ctx.mod->opt(info, jasmine::OPT_2);
-    // ctx.mod->format(file_stdout);
-    ctx.mod->dumpDOT(file_stdout, info);
+    jasmine::Assembly as(&ctx.mod->strings);
+    ctx.mod->compile(info, as);
+    ctx.mod->format(file_stdout);
+    // ctx.mod->dumpDOT(file_stdout, info);
 }
 
 Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx, EnvContext* envctx, const_slice<i8> path) {
@@ -152,7 +154,9 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     iptr timer;
     iptr decns = 0, lexns = 0, parsens = 0, envns = 0, typns = 0, chkns = 0, emitns = 0, cycles = 0;
 
-    if (show_lex) print("\nLexed tokens:\n\n");
+    if (show_lex) {
+        print(" === Clover Tokens === \n");
+    }
     while (ubuf.byteidx < mod->bytes.length) { // while there are still bytes to read
         timer = time_nanos();
         advance_decoder(ubuf, mod);
@@ -177,6 +181,8 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
         }
         cycles ++;
     }
+    if (show_lex) 
+        println();
     if (mod->lexer->scratch.kind == TK_STRCONST || mod->lexer->scratch.kind == TK_CHCONST)
         unexpected_eof_error(mod, mod->bytes.length, mod->lexer->line, 1, mod->lexer->column);
     Token eof = mod->lexer->tokens.elts[(mod->lexer->tokens.start - 1) & (mod->lexer->tokens.size() - 1)];
@@ -190,8 +196,9 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
         bindlocal<arena> astspace(&mod->parser->astspace);
         for (AST* ast : mod->parser->nodes) mod->parser->program->toplevel.push((Statement*)ast);
         if (show_ast) {
-            print("\nParsed nodes:\n\n");
+            print(" === Clover AST === \n");
             format(io_stdout, mod, mod->parser->program);
+            println();
         }
     }
 
@@ -202,9 +209,9 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     if (get_error()) return print_errors(io_stderr, verbose), nullptr; // Typechecker env error.
 
     if (show_envs) {
-        print("\nEnv tree:\n\n");
+        print(" === Clover Scope Tree === \n");
         mod->envctx->root->format(io_stdout, mod, 0);
-        format(io_stdout, mod, mod->parser->program);
+        println();
     }
 
     timer = time_nanos();
@@ -213,8 +220,9 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     if (get_error()) return print_errors(io_stderr, verbose), nullptr; // Typechecker decl error.
     
     if (show_types) {
-        print("\nDetected types:\n\n");
-        format(io_stdout, mod, mod->parser->program);
+        // print(" === Clover Detected Types === \n");
+        // format(io_stdout, mod, mod->parser->program);
+        // println();
     }
 
     timer = time_nanos();
@@ -223,12 +231,12 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     if (get_error()) return print_errors(io_stderr, verbose), nullptr; // Typechecker checking error.
     
     if (show_types) {
-        print("\nInferred types:\n\n");
-        for (AST* ast : mod->parser->program->toplevel) {
-            format(io_stdout, mod, ast);
-            write(io_stdout, "\n");
-        }
-        print("\n\n");
+        // print("\nInferred types:\n\n");
+        // for (AST* ast : mod->parser->program->toplevel) {
+        //     format(io_stdout, mod, ast);
+        //     write(io_stdout, "\n");
+        // }
+        // print("\n\n");
     }
 
     typecheck(mod, mod->envctx->root, mod->parser->program);
@@ -237,12 +245,12 @@ Module* compile_module(Clover* clover, Interner* interner, TypeContext* typectx,
     if (get_error()) return print_errors(io_stderr, verbose), nullptr; // Typechecker checking error.
     
     if (show_types) {
-        print("\nChecked types:\n\n");
+        print(" === Clover Typed AST === \n");
         for (AST* ast : mod->parser->program->toplevel) {
             format(io_stdout, mod, ast);
             write(io_stdout, "\n");
         }
-        print("\n\n");
+        println();
     }
 
     timer = time_nanos();

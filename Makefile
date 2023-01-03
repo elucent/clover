@@ -7,7 +7,7 @@
 ##########################################
 
 CXX := clang++
-CXXFLAGS := -nostartfiles -std=c++17 -fPIC -Wall -Wno-char-subscripts -Wno-unused -Wno-return-type-c-linkage -DINCLUDE_UTF8_LOOKUP_TABLE -nodefaultlibs -fno-rtti -ffunction-sections -fno-omit-frame-pointer -fno-exceptions -nostdlib -I. -Wno-inaccessible-base -masm=intel
+CXXFLAGS := -std=c++17 -fPIC -Wall -Wno-char-subscripts -Wno-unused -Wno-return-type-c-linkage -DINCLUDE_UTF8_LOOKUP_TABLE -nodefaultlibs -fno-rtti -ffunction-sections -fno-omit-frame-pointer -fno-exceptions -nostdlib -I. -Wno-inaccessible-base -masm=intel
 LDFLAGS := -Wl,--gc-sections
 ASM := as
 ASMFLAGS := 
@@ -89,6 +89,9 @@ libcore-compat-debug: CXXFLAGS += -O0 -g3
 libcore-debug: CXXFLAGS += -O0 -g3
 libcclover-debug: CXXFLAGS += -O0 -g3
 gctest-debug: CXXFLAGS += -O0 -g3
+
+bin/test/core-tests: CXXFLAGS += -O0 -g3
+bin/test/jasmine-tests: CXXFLAGS += -O1 -g3
 
 bin/libcore-compat.a: $(CORE_OBJS) $(LIB_OBJS)
 	mkdir -p bin
@@ -172,9 +175,13 @@ bin/test/core-tests: $(CORE_TEST_OBJS) $(CORE_ENTRY_OBJ) $(CORE_OBJS) $(LIB_OBJS
 	mkdir -p bin/test/core
 	test/link.sh bin/test/core-tests.cpp $(CORE_TEST_OBJS)
 	$(CXX) $(CXXFLAGS) $^ test/harness.cpp -Ibin/test $@.cpp -o $@
-	rm -f $@.cpp $@.h
 
-test: bin/test/core-tests
+bin/test/jasmine-tests: $(JASMINE_TEST_OBJS) $(CORE_ENTRY_OBJ) $(CORE_OBJS) $(LIB_OBJS) $(JASMINE_OBJS)
+	mkdir -p bin/test/jasmine
+	test/link.sh bin/test/jasmine-tests.cpp $(JASMINE_TEST_OBJS)
+	$(CXX) $(CXXFLAGS) $^ test/harness.cpp -Ibin/test $@.cpp -o $@
+
+test: bin/test/core-tests bin/test/jasmine-tests
 	@test/run-tests.sh $^
 
 ###############
@@ -190,5 +197,5 @@ EXAMPLE_PRODUCTS := $(EXAMPLE_SRCS:.cl=.c) $(EXAMPLE_SRCS:.cl=.h)
 STD_PRODUCTS := $(STD_SRCS:.cl=.c) $(STD_SRCS:.cl=.h)
 
 clean:
-	rm -rf bin/test bin/*-tests
+	rm -rf bin/test bin/*-tests $(CORE_TEST_OBJS) $(JASMINE_TEST_OBJS)
 	rm -f $(CORE_OBJS) $(CORE_ENTRY_OBJ) $(LIB_OBJS) $(BASIL_OBJS) $(CLOVER_OBJS) $(JASMINE_OBJS) $(EXAMPLE_PRODUCTS) $(STD_PRODUCTS) bin/libcore.a cclover.o bin/libcclover.a bin/clover bin/jasmine

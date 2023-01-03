@@ -1,5 +1,6 @@
 #include "jasmine/obj.h"
 #include "jasmine/pass.h"
+#include "jasmine/pass_target.h"
 
 MODULE(jasmine)
 
@@ -75,9 +76,8 @@ void JasmineModule::dumpDOT(fd io, PassInfo& info) {
 void JasmineModule::opt(PassInfo& info, OptLevel level) {
     types.compute_native_sizes<DefaultTarget>();
     for (Function* func : funcs) {
-        // print(" === jasmine IR === \n");
-        // func->format(io_stdout), print('\n');
         cfg(info, *func);
+        dce(info, *func);
         if (level >= OPT_1) {
             // inlining(*func, *info);
 
@@ -92,29 +92,33 @@ void JasmineModule::opt(PassInfo& info, OptLevel level) {
             // print(" === after dce === \n");
             // func->format(stdout), print('\n');
         }
-        renumber(info, *func);
-        // regalloc<DefaultTarget>(*func, *info);
-        // else stackalloc<DefaultTarget>(*func, *info);
+        renumber(info, *func); // Regularize node indices for the control flow graph.
+        live(info, *func);
+        irg(info, *func);
+        regalloc<DefaultTarget>(info, *func); // Allocate registers to variables.
+        // pie(info, *func); // Eliminate phi nodes.
+        print(" === jasmine IR === \n");
+        func->format(io_stdout), print('\n');
     }
 }
 
-// void JasmineModule::compile(Assembly& as) {
-//     print(" === asm-level IR === \n");
-//     ASMPrinter<DefaultTarget>::write_to(io_stdout);
-//     for (Function* func : funcs) {
-//         lower<ASMPrinter<DefaultTarget>>(*func, *info, as);
-//         lower<DefaultTarget>(*func, *info, as);
-//     }
-//     println();
+void JasmineModule::compile(PassInfo& info, Assembly& as) {
+    print(" === asm-level IR === \n");
+    ASMPrinter<DefaultTarget>::write_to(io_stdout);
+    for (Function* func : funcs) {
+        lower<ASMPrinter<DefaultTarget>>(info, *func, as);
+        lower<DefaultTarget>(info, *func, as);
+    }
+    println();
 
-//     print(" === machine code === \n");
-//     auto codesize = as.code.size();
-//     LinkedAssembly linkasm = as.link();
-//     for (i32 i = 0; i < codesize; i ++)
-//         write_hex(io_stdout, (u8)linkasm.code[i]), print(' ');
-//     println();
-//     println();
-// }
+    print(" === machine code === \n");
+    auto codesize = as.code.size();
+    LinkedAssembly linkasm = as.link();
+    for (i32 i = 0; i < codesize; i ++)
+        write_hex(io_stdout, (u8)linkasm.code[i]), print(' ');
+    println();
+    println();
+}
 
 void JasmineObject::write(bytebuf<>& buf) {
     for (const auto& e : modules) e.value->write(buf);

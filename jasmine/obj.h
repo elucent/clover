@@ -63,7 +63,7 @@ struct JasmineModule {
     void dumpDOT(fd io, PassInfo& info);
 
     void opt(PassInfo& info, OptLevel level);
-    void compile(Assembly& as);
+    void compile(PassInfo& info, Assembly& as);
 };
 
 struct JasmineObject {

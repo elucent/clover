@@ -1,4 +1,5 @@
 #include "jasmine/arch.h"
+#include "jasmine/obj.h"
 
 MODULE(jasmine)
 
@@ -91,6 +92,21 @@ LinkedAssembly Assembly::link() {
     }
 
     return linked;
+}
+
+void write_impl(fd io, const Binding& binding) {
+    switch (binding.kind) {
+        case jasmine::Binding::NONE:
+            write(io, "none");
+            break;
+        case jasmine::Binding::FP:
+        case jasmine::Binding::GP:
+            write(io, DefaultTarget::reg_name(binding.reg));
+            break;
+        case jasmine::Binding::STACK:
+            write(io, "[fp - ", binding.offset, "]");
+            break;
+    }
 }
 
 ENDMODULE()

@@ -59,6 +59,11 @@ struct vec {
         init(N);
     }
 
+    inline vec(const T& item, i32 n): vec() {
+        for (i32 i = 0; i < n; i ++) 
+            push(item);
+    }
+
     inline ~vec() {
         if (data != fixed) free(data);
     }

@@ -19,7 +19,7 @@ struct deque {
     }
 
     void free() {
-        if (data != fixed) {
+        if ((i8*)data != fixed) {
             for (u32 i = start; i != end; i = (i + 1) & (capacity - 1))
                 data[i].~T();
             delete[] (i8*)data;
@@ -42,7 +42,7 @@ struct deque {
         start = 0;
         end = 0;
         capacity *= 2;
-        data = new i8[sizeof(T) * capacity];
+        data = (T*)new i8[sizeof(T) * capacity];
 
         // Copy from old buffer
         while (old_start != old_end) {
@@ -52,7 +52,8 @@ struct deque {
         }
 
         // Free old buffer
-        delete (i8*)old_data;
+        if ((i8*)old_data != fixed)
+            delete (i8*)old_data;
     }
 
     deque(u32 size = N) { init(N); }

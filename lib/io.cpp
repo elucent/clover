@@ -118,9 +118,10 @@ void write_hex(fd io, u64 u, i64 min) {
     push_if_necessary(io, 16);
     if (!u) write_byte(io, '0'), write_byte(io, '0');
     else {
-        u64 digits = 0, mask = 15;
-        while (mask < u) mask <<= 4, digits ++;
-        if (digits % 2 == 0) digits ++;
+        u64 copy = u, digits = 0;
+        while (copy) copy >>= 4, digits ++;
+        if (digits < 2) digits = 2;
+        if (digits % 2 == 0) digits --;
         for (i64 i = digits * 4; i >= 0; i -= 4) {
             u8 digit = u >> i & 15;
             put(io, "0123456789abcdef"[digit]);

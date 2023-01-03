@@ -211,7 +211,7 @@ constexpr OpMeta OP_META[] = {
 static_assert(sizeof(OP_META) / sizeof(OpMeta) == assembler::N_OPCODES, "OP_META out of sync");
 
 enum Param : u8 {
-    P_NONE = 0, P_TYPE = 1, P_REG = 2, P_BRANCH = 3, P_INT = 4, P_F32 = 5, P_F64 = 6, P_DATA = 7, P_STATIC = 8, P_FUNC = 9
+    P_NONE = 0, P_TYPE = 1, P_REG = 2, P_BRANCH = 3, P_INT = 4, P_F32 = 5, P_F64 = 6, P_DATA = 7, P_STATIC = 8, P_FUNC = 9, P_INCOMING = 10
 };
 
 enum class BranchFlags : u8 {
@@ -366,6 +366,7 @@ namespace assembler {
     inline Value Reg(localidx r) {
         Value uarg;
         uarg.kind = P_REG;
+        uarg.data.reg = 0;
         uarg.data.reg = r;
         return uarg;
     }
@@ -382,9 +383,18 @@ namespace assembler {
         return Branch(-1);
     }
 
+    inline Value IncomingBranch(localidx r) {
+        Value uarg;
+        uarg.kind = P_INCOMING;
+        uarg.data.branch.dest = r;
+        uarg.data.branch.flags = (i32)BranchFlags::NONE;
+        return uarg;
+    }
+
     inline Value Int(i64 i) {
         Value uarg;
         uarg.kind = P_INT;
+        uarg.data.reg = 0;
         uarg.data.imm = i;
         return uarg;
     }
@@ -392,6 +402,7 @@ namespace assembler {
     inline Value F32(float f) {
         Value uarg;
         uarg.kind = P_F32;
+        uarg.data.reg = 0;
         uarg.data.f32imm = f;
         return uarg;
     }
@@ -399,6 +410,7 @@ namespace assembler {
     inline Value F64(double f) {
         Value uarg;
         uarg.kind = P_F64;
+        uarg.data.reg = 0;
         uarg.data.f64imm = f;
         return uarg;
     }
@@ -406,6 +418,7 @@ namespace assembler {
     inline Value Func(funcidx i) {
         Value uarg;
         uarg.kind = P_FUNC;
+        uarg.data.reg = 0;
         uarg.data.func = i;
         return uarg;
     }
@@ -415,31 +428,31 @@ namespace assembler {
 
     extern Function* currentFn;
 
-    inline void appendArgs(Insn& insn) {}
+    inline void appendArgs(Function& fn, Insn& insn) {}
 
     template<typename... Args>
-    inline void appendArgs(Insn& insn, const slice<Value>& arg, const Args&... args) {
+    inline void appendArgs(Function& fn, Insn& insn, const slice<Value>& arg, const Args&... args) {
         for (const Value& v : arg) {
-            currentFn->params.push(v.kind);
-            currentFn->args.push(v.data);
+            fn.params.push(v.kind);
+            fn.args.push(v.data);
         }
-        appendArgs(insn, args...);
+        appendArgs(fn, insn, args...);
     }
 
     template<typename... Args>
-    inline void appendArgs(Insn& insn, const const_slice<Value>& arg, const Args&... args) {
+    inline void appendArgs(Function& fn, Insn& insn, const const_slice<Value>& arg, const Args&... args) {
         for (const Value& v : arg) {
-            currentFn->params.push(v.kind);
-            currentFn->args.push(v.data);
+            fn.params.push(v.kind);
+            fn.args.push(v.data);
         }
-        appendArgs(insn, args...);
+        appendArgs(fn, insn, args...);
     }
 
     template<typename... Args>
-    inline void appendArgs(Insn& insn, const Value& arg, const Args&... args) {
-        currentFn->params.push(arg.kind);
-        currentFn->args.push(arg.data);
-        appendArgs(insn, args...);
+    inline void appendArgs(Function& fn, Insn& insn, const Value& arg, const Args&... args) {
+        fn.params.push(arg.kind);
+        fn.args.push(arg.data);
+        appendArgs(fn, insn, args...);
     }
 
     inline u32 insnArgsCount() {
@@ -471,11 +484,29 @@ namespace assembler {
         insn.pidx = currentFn->params.size();
         currentFn->params.push(P_TYPE);
         currentFn->args.push(Arg(type));
-        appendArgs(insn, args...);
+        appendArgs(*currentFn, insn, args...);
         if (!OP_META[insn.op].is_control()) {
             insn.nparams ++;
             currentFn->params.push(P_BRANCH);
             currentFn->args.push(Arg(-1));
+        }
+        return insn;
+    }
+
+    template<typename... Args>
+    inline Insn createInsn(Function& fn, Op opcode, typeidx type, const Args&... args) {
+        assert(OP_META[opcode].is_typed());
+        Insn insn;
+        insn.op = opcode;
+        insn.nparams = insnArgsCount(args...);
+        insn.pidx = fn.params.size();
+        fn.params.push(P_TYPE);
+        fn.args.push(Arg(type));
+        appendArgs(fn, insn, args...);
+        if (!OP_META[insn.op].is_control()) {
+            insn.nparams ++;
+            fn.params.push(P_BRANCH);
+            fn.args.push(Arg(-1));
         }
         return insn;
     }
@@ -490,11 +521,29 @@ namespace assembler {
         insn.pidx = currentFn->params.size();
         currentFn->params.push(P_TYPE);
         currentFn->args.push(Arg(T_VOID));
-        appendArgs(insn, args...);
+        appendArgs(*currentFn, insn, args...);
         if (!OP_META[insn.op].is_control()) {
             insn.nparams ++;
             currentFn->params.push(P_BRANCH);
             currentFn->args.push(Arg(-1));
+        }
+        return insn;
+    }
+
+    template<typename... Args>
+    inline Insn createInsn(Function& fn, Op opcode, const Args&... args) {
+        assert(!OP_META[opcode].is_typed());
+        Insn insn;
+        insn.op = opcode;
+        insn.nparams = insnArgsCount(args...);
+        insn.pidx = fn.params.size();
+        fn.params.push(P_TYPE);
+        fn.args.push(Arg(T_VOID));
+        appendArgs(fn, insn, args...);
+        if (!OP_META[insn.op].is_control()) {
+            insn.nparams ++;
+            fn.params.push(P_BRANCH);
+            fn.args.push(Arg(-1));
         }
         return insn;
     }

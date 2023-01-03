@@ -5,10 +5,25 @@
 
 MODULE(jasmine)
 
+constexpr const i32 EXPECTED_INSNS = 64;
+
 using Pred = vec<localidx, 2>;
 
 struct BasicBlock {
     vec<localidx> seq;
+};
+
+struct LiveInterval {
+    localidx start, end;
+    bool inclusive;
+};
+
+struct GraphNode {
+    localidx idx, n;
+    Binding binding = Binding::none(), hint = Binding::none();
+    RegSet gps, fps;
+
+    inline const_slice<localidx> edges(PassInfo& info) const;
 };
 
 struct PassInfo {
@@ -27,12 +42,13 @@ struct PassInfo {
         PREISEL = 2048
     };
 
-    // vec<vec<LiveInterval, 2>> live;
-    // vec<GraphNode> rg;
-    // CallBindings callinfo;
-    vec<BasicBlock> bb;
-    vec<localidx> ib;
-    vec<Pred> pred;
+    vec<vec<LiveInterval, 2>, EXPECTED_INSNS> live; // List of live intervals per variable.
+    vec<GraphNode, EXPECTED_INSNS> rg;              // Interference graph.
+    vec<localidx> ifer;                             // Interference edge arena.
+    CallBindings callinfo;
+    vec<BasicBlock> bb;                             // List of basic blocks.
+    vec<localidx, EXPECTED_INSNS> ib;               // Lists which basic block index each instruction is in.
+    vec<Pred, EXPECTED_INSNS> pred;                 // Predecessor list for each instruction.
     i32 stack;
     i32 status = 0;
 
@@ -48,6 +64,10 @@ struct PassInfo {
         status &= ~phase;
     }
 };
+
+inline const_slice<localidx> GraphNode::edges(PassInfo& info) const {
+    return {&info.ifer[idx], n};
+}
 
 // Reduce strength of certain operations.
 void reduce(PassInfo& info, Function& fn);

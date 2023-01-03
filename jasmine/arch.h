@@ -62,15 +62,15 @@ struct RegSet {
         regs(0) {}
 
     inline void add(mreg r) {
-        regs |= 1 << r;
+        regs |= u64(1) << r;
     }
 
     inline void remove(mreg r) {
-        regs &= ~(1 << r);
+        regs &= ~(u64(1) << r);
     }
 
     inline bool operator[](mreg r) const {
-        return regs & 1 << r;
+        return regs & u64(1) << r;
     }
 
     inline operator bool() const {
@@ -91,10 +91,6 @@ struct Binding {
         struct { Kind kind; mreg reg; };
         struct { Kind pad; i32 offset : 24; };
     };
-
-    inline operator bool() const {
-        return kind != NONE;
-    }
 
     inline static Binding none() {
         Binding b;
@@ -338,6 +334,10 @@ struct LinkedAssembly {
 
     void load();
 
+    inline void unload() {
+        memory_free(pages);
+    }
+
     template<typename T>
     T* lookup(stridx sym) {
         auto it = defs.find(sym);
@@ -417,10 +417,10 @@ enum class ASMOpcode {
     ADD8, ADD16, ADD32, ADD64,
     SUB8, SUB16, SUB32, SUB64,
     MUL8, MUL16, MUL32, MUL64,
-    DIV8S, DIV16S, DIV32S, DIV64S,
-    DIV8U, DIV16U, DIV32U, DIV64U,
-    REM8S, REM16S, REM32S, REM64S,
-    REM8U, REM16U, REM32U, REM64U,
+    SDIV8, SDIV16, SDIV32, SDIV64,
+    UDIV8, UDIV16, UDIV32, UDIV64,
+    SREM8, SREM16, SREM32, SREM64,
+    UREM8, UREM16, UREM32, UREM64,
     NEG8, NEG16, NEG32, NEG64,
 
     FADD32, FADD64,
@@ -497,10 +497,10 @@ constexpr static const i8* ASM_OPCODE_NAMES[] = {
     "add8", "add16", "add32", "add64",
     "sub8", "sub16", "sub32", "sub64",
     "mul8", "mul16", "mul32", "mul64",
-    "div8s", "div16s", "div32s", "div64s",
-    "div8u", "div16u", "div32u", "div64u",
-    "rem8s", "rem16s", "rem32s", "rem64s",
-    "rem8u", "rem16u", "rem32u", "rem64u",
+    "sdiv8", "sdiv16", "sdiv32", "sdiv64",
+    "udiv8", "udiv16", "udiv32", "udiv64",
+    "srem8", "srem16", "srem32", "srem64",
+    "urem8", "urem16", "urem32", "urem64",
     "neg8", "neg16", "neg32", "neg64",
 
     "fadd32", "fadd64",
@@ -602,11 +602,11 @@ struct FakeTarget {
     constexpr static mreg fp = 30;
     constexpr static mreg sp = 31;
 
-    static inline const_slice<mreg> gpregs() {
+    static inline const_slice<mreg> gps() {
         return const_slice<mreg>{GPREGS, 32};
     }
 
-    static inline const_slice<mreg> fpregs() {
+    static inline const_slice<mreg> fps() {
         return const_slice<mreg>{FPREGS, 32};
     }
 
@@ -779,25 +779,25 @@ struct ASMPrinter : public Target {
     static void mul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MUL32)
     static void mul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(MUL64)
 
-    static void div8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV8S)
-    static void div16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV16S)
-    static void div32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV32S)
-    static void div64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV64S)
+    static void sdiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SDIV8)
+    static void sdiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SDIV16)
+    static void sdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SDIV32)
+    static void sdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SDIV64)
 
-    static void div8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV8U)
-    static void div16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV16U)
-    static void div32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV32U)
-    static void div64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(DIV64U)
+    static void udiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(UDIV8)
+    static void udiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(UDIV16)
+    static void udiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(UDIV32)
+    static void udiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(UDIV64)
 
-    static void rem8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM8S)
-    static void rem16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM16S)
-    static void rem32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM32S)
-    static void rem64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM64S)
+    static void srem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SREM8)
+    static void srem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SREM16)
+    static void srem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SREM32)
+    static void srem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(SREM64)
 
-    static void rem8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM8U)
-    static void rem16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM16U)
-    static void rem32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM32U)
-    static void rem64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(REM64U)
+    static void urem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(UREM8)
+    static void urem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(UREM16)
+    static void urem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(UREM32)
+    static void urem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(UREM64)
 
     static void neg8(Assembly& as, ASMVal dst, ASMVal src) BINARY(NEG8)
     static void neg16(Assembly& as, ASMVal dst, ASMVal src) BINARY(NEG16)
@@ -1116,25 +1116,25 @@ struct ASMVerifier : public Target {
     static void mul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
     static void mul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void div8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sdiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sdiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void sdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void div8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void div64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void udiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void udiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void udiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void udiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void rem8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void srem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void srem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void srem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void srem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
-    static void rem8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
-    static void rem64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void urem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void urem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void urem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
+    static void urem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(GP, GP_OR_IMM, GP_OR_IMM, ONLY_ONE_IMM)
 
     static void neg8(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
     static void neg16(Assembly& as, ASMVal dst, ASMVal src) BINARY(GP, GP)
@@ -1447,25 +1447,25 @@ struct ASMCompose : public A, public B {
     static void mul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mul32)
     static void mul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mul64)
 
-    static void div8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div8s)
-    static void div16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div16s)
-    static void div32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div32s)
-    static void div64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div64s)
+    static void sdiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sdiv8)
+    static void sdiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sdiv16)
+    static void sdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sdiv32)
+    static void sdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(sdiv64)
 
-    static void div8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div8u)
-    static void div16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div16u)
-    static void div32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div32u)
-    static void div64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(div64u)
+    static void udiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(udiv8)
+    static void udiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(udiv16)
+    static void udiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(udiv32)
+    static void udiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(udiv64)
 
-    static void rem8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem8s)
-    static void rem16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem16s)
-    static void rem32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem32s)
-    static void rem64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem64s)
+    static void srem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(srem8)
+    static void srem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(srem16)
+    static void srem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(srem32)
+    static void srem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(srem64)
 
-    static void rem8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem8u)
-    static void rem16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem16u)
-    static void rem32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem32u)
-    static void rem64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(rem64u)
+    static void urem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(urem8)
+    static void urem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(urem16)
+    static void urem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(urem32)
+    static void urem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(urem64)
 
     static void neg8(Assembly& as, ASMVal dst, ASMVal src) BINARY(neg8)
     static void neg16(Assembly& as, ASMVal dst, ASMVal src) BINARY(neg16)
@@ -1741,6 +1741,8 @@ struct ASMCompose : public A, public B {
     static void mset(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) TERNARY(mset)
     static void mcmp(Assembly& as, ASMVal dst, ASMVal a, ASMVal b, ASMVal c) QUATERNARY(mcmp)
 };
+
+void write_impl(fd io, const Binding&);
 
 ENDMODULE()
 

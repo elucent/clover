@@ -1550,8 +1550,8 @@ void format(fd io, Module* mod, const AST* const& ast, i32 depth) {
     static const i8* GREEN = "\e[0;92m";
     static const i8* RESET = "\e[0m";
 
-    // if (ast->type && ast->kind >= AST_FIRST_EXPR && ast->kind <= AST_LAST_EXPR) 
-    //     write(io, GRAY, ':', GREEN), format(io, mod, ast->type), write(io, RESET);
+    if (ast->type && ast->kind >= AST_FIRST_EXPR && ast->kind <= AST_LAST_EXPR) 
+        write(io, GRAY, ':', GREEN), format(io, mod, ast->type), write(io, RESET);
 }
 
 Var* anon_var(Module* mod, Env* env, SourcePos pos) {
@@ -6562,36 +6562,36 @@ jasmine::Value jasmine_eval(Module* mod, Env* env, AST* ast, JasmineGenContext& 
     return ((JasmineExprinfo*)ast->codegen_data)->value;
 }
 
-void jasmine_merge_ctx(Module* mod, JasmineGenContext& dest, const JasmineGenContext& src) {
+void jasmine_merge_ctx(Module* mod, JasmineGenContext& dest, const JasmineGenContext& src, localidx dest_tail, localidx src_tail) {
     for (const auto& [k, v] : dest.locals) {
         auto it = src.locals.find(k);
         if (it != src.locals.end() && it->value != v) {
             using namespace jasmine::assembler;
-            jasmine::Value args[2] = {
-                v, it->value
+            jasmine::Value args[4] = {
+                IncomingBranch(dest_tail), v, IncomingBranch(src_tail), it->value
             };
             Entry* e = k.env->lookup(k.sym);
             assert(e);
-            localidx phi = add(PHI, emit_jasmine_typedef(mod, e->type, dest), const_slice<jasmine::Value>{args, 2});
+            localidx phi = add(PHI, emit_jasmine_typedef(mod, e->type, dest), const_slice<jasmine::Value>{args, 4});
             jasmine_bind_var(k.env, k.sym, Reg(phi), dest);
         }
     }
 }
 
-void jasmine_merge_ctx_loopback(Module* mod, JasmineGenContext& dest, const JasmineGenContext& src, pair<localidx, localidx> header, pair<localidx, localidx> body) {
+void jasmine_merge_ctx_loopback(Module* mod, JasmineGenContext& dest, const JasmineGenContext& src, pair<localidx, localidx> header, pair<localidx, localidx> body, localidx dest_tail, localidx src_tail) {
     using namespace jasmine::assembler;
     for (const auto& [k, v] : dest.locals) {
         auto it = src.locals.find(k);
         if (it != src.locals.end() && it->value != v) {
-            jasmine::Value args[2] = {
-                v, it->value
+            jasmine::Value args[4] = {
+                IncomingBranch(dest_tail), v, IncomingBranch(src_tail), it->value
             };
             Entry* e = k.env->lookup(k.sym);
             assert(e);
-            localidx phi = addAfter(header.first, PHI, emit_jasmine_typedef(mod, e->type, dest), const_slice<jasmine::Value>{args, 2});
-            header.first = phi;
+            localidx phi = addAfter(header.first, PHI, emit_jasmine_typedef(mod, e->type, dest), const_slice<jasmine::Value>{args, 4});
             jasmine_bind_var(k.env, k.sym, Reg(phi), dest);
-            subst(body.first, body.second, args[0], Reg(phi)); // TODO: Make this more generalizable than just an index range.
+            subst(body.first, body.second, args[1], Reg(phi)); // TODO: Make this more generalizable than just an index range.
+            header.first = phi;
         }
     }
     follow(header.first, header.second);
@@ -6738,20 +6738,21 @@ void emit_jasmine(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx) {
         link(branch, 1);
         JasmineGenContext copy = ctx;
         emit_jasmine(mod, env, i->ifTrue, ctx);
-        localidx jump;
+        localidx jump, from = predecessor();
         if (i->ifFalse) jump = add(JUMP, Branch());
         link(branch, 2);
         if (i->ifFalse) {
             emit_jasmine(mod, env, i->ifFalse, copy);
             link(jump, 0);
         }
-        jasmine_merge_ctx(mod, ctx, copy);
+        jasmine_merge_ctx(mod, ctx, copy, from, predecessor());
         jasmine_bind(i, Int(0));
         endmatch
     casematch(AST_WHILE, Loop*, l)
         if (l->codegen_data) return;
 
         using namespace jasmine::assembler;
+        localidx from = predecessor();
         localidx top = add(NOP);
         localidx next = tip();
         jasmine::Value cond = jasmine_eval(mod, l->env, l->cond, ctx);
@@ -6759,9 +6760,10 @@ void emit_jasmine(Module* mod, Env* env, AST* ast, JasmineGenContext& ctx) {
         JasmineGenContext copy = ctx;
         link(branch, 1);
         emit_jasmine(mod, l->env, l->body, copy);
-        add(JUMP, Branch(top));
+        localidx last = predecessor();
+        localidx jump = add(JUMP, Branch(top));
         localidx end = tip();
-        jasmine_merge_ctx_loopback(mod, ctx, copy, {top, next}, {next, end});
+        jasmine_merge_ctx_loopback(mod, ctx, copy, {top, next}, {next, end}, from, last);
         link(branch, 2);
         endmatch
     casematch(AST_DO, List*, l)

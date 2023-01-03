@@ -191,7 +191,7 @@ void format_insn(const Function& fn, const Insn& insn, fd io, bool showLabel) {
     for (u32 i = 0; i < params.n; i ++) {
         if (insn.op == assembler::CALL && i == 1) write(io, "(");
         else if (insn.op == assembler::CALL && i == params.n - 1) write(io, "), ");
-        else if (params[i] != P_NONE && !first) write(io, ", ");
+        else if (params[i] != P_NONE && !first && params[i - 1] != P_INCOMING) write(io, ", ");
         first = false;
         switch (params[i]) {
             case P_REG: write(io, '%', args[i].reg); break;
@@ -201,11 +201,12 @@ void format_insn(const Function& fn, const Insn& insn, fd io, bool showLabel) {
                 else
                     write(io, "-> ", args[i].branch.dest); 
                 break;
+            case P_INCOMING: write(io, args[i].branch.dest, " -> "); break;
             case P_INT: write(io, '#', args[i].imm); break;
             case P_F32: write(io, '#', args[i].f32imm); break;
             case P_F64: write(io, '#', args[i].f64imm); break;
             case P_DATA: write(io, "data ", args[i].imm); break;
-            case P_STATIC: write(io, "data ", args[i].imm); break;
+            case P_STATIC: write(io, "static ", args[i].imm); break;
             case P_FUNC: write(io, strings.str(obj.funcs[args[i].func]->name)); break;
             default: break;
         }

@@ -82,8 +82,12 @@ struct AMD64Target {
 
     static inline bool needsREX(AMD64Size size, ASMVal v) {
         if (v.payload.kind == ASMVal::FP) return v.payload.fp >= XMM8;
-        else if (v.payload.kind == ASMVal::GP) return v.payload.gp >= R8 || (size == BYTE && v.payload.gp >= RSP);
+        else if (v.payload.kind == ASMVal::GP) return v.payload.gp >= R8;
         else return false;
+    }
+
+    static inline bool needs8BitREX(AMD64Size size, ASMVal v) {
+        return size == BYTE && v.payload.gp >= RSP;
     }
     
     static inline void nullary_prefix(Assembly& as, AMD64Size size, ASMVal reg, ASMVal rm) {
@@ -95,7 +99,7 @@ struct AMD64Target {
         if (size == WORD) as.code.write<u8>(0x66);
         u8 b = size == QWORD ? 0x48 : 0x40;
         if (needsREX(size, rm)) b |= 0x01;
-        if (b != 0x40) as.code.write<u8>(b);
+        if (b != 0x40 || needs8BitREX(size, rm)) as.code.write<u8>(b);
     }
     
     static inline void binary_prefix(Assembly& as, AMD64Size size, ASMVal reg, ASMVal rm) {
@@ -103,7 +107,7 @@ struct AMD64Target {
         u8 b = size == QWORD ? 0x48 : 0x40;
         if (needsREX(size, reg)) b |= 0x04;
         if (needsREX(size, rm)) b |= 0x01;
-        if (b != 0x40) as.code.write<u8>(b);
+        if (b != 0x40 || needs8BitREX(size, reg) || needs8BitREX(size, rm)) as.code.write<u8>(b);
     }
 
     static inline void modrm(Assembly& as, ASMVal reg, ASMVal rm) {
@@ -232,14 +236,20 @@ struct AMD64Target {
         else modrm(as, ASMVal::gp(opcode.ext), reg);
         if (rm.payload.kind == ASMVal::IMM) {
             if (rm.payload.imm < 128 && rm.payload.imm > -129) as.code.write<i8>(rm.payload.imm);
+            else if (size == AMD64Size::WORD) as.code.writeLE<i16>(rm.payload.imm);
             else as.code.writeLE<i32>(rm.payload.imm);
         }
+    }
+
+    static inline bool is_immediate8(i64 imm) {
+        return imm < 128 && imm >= -129;
     }
 
     static inline void binaryop(Assembly& as, AMD64Size size, Opcode opcode, ASMVal dst, ASMVal src) {
         if (size != BYTE && !opcode.lit) 
             opcode.base ++;
-        if ((src.payload.kind == ASMVal::MEM || src.payload.kind == ASMVal::IMM) && !opcode.lit)
+        if (((src.payload.kind == ASMVal::MEM 
+            || (src.payload.kind == ASMVal::IMM && is_immediate8(src.payload.imm) && size != BYTE)) && !opcode.lit))
             opcode.base += 2;
 
         ASMVal reg = src, rm = dst;
@@ -388,6 +398,7 @@ struct AMD64Target {
 
     static inline void add8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (dst == b) swap(a, b);
+        if (a.payload.kind == ASMVal::IMM) swap(a, b);
         Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0x80, 0x00) : Opcode::from(0x00);
         mov8(as, dst, a);
         binaryop(as, BYTE, op, dst, b);
@@ -395,6 +406,7 @@ struct AMD64Target {
 
     static inline void add16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (dst == b) swap(a, b);
+        if (a.payload.kind == ASMVal::IMM) swap(a, b);
         Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0x80, 0x00) : Opcode::from(0x00);
         mov16(as, dst, a);
         binaryop(as, WORD, op, dst, b);
@@ -402,6 +414,7 @@ struct AMD64Target {
 
     static inline void add32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (dst == b) swap(a, b);
+        if (a.payload.kind == ASMVal::IMM) swap(a, b);
         Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0x80, 0x00) : Opcode::from(0x00);
         mov32(as, dst, a);
         binaryop(as, DWORD, op, dst, b);
@@ -409,13 +422,16 @@ struct AMD64Target {
 
     static inline void add64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (dst == b) swap(a, b);
+        if (a.payload.kind == ASMVal::IMM) swap(a, b);
         Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0x80, 0x00) : Opcode::from(0x00);
         mov64(as, dst, a);
         binaryop(as, QWORD, op, dst, b);
     }
 
     static inline void sub8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (a.payload.kind == ASMVal::IMM)
+        if (a == b)
+            return xor8(as, dst, dst, dst);
+        if (a.payload.kind == ASMVal::IMM || dst == b)
             return neg8(as, b, b), add8(as, dst, a, b);
 
         Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0x80, 0x05) : Opcode::from(0x28);
@@ -424,7 +440,9 @@ struct AMD64Target {
     }
 
     static inline void sub16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (a.payload.kind == ASMVal::IMM)
+        if (a == b)
+            return xor16(as, dst, dst, dst);
+        if (a.payload.kind == ASMVal::IMM || dst == b)
             return neg16(as, b, b), add16(as, dst, a, b);
 
         Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0x80, 0x05) : Opcode::from(0x28);
@@ -433,7 +451,9 @@ struct AMD64Target {
     }
 
     static inline void sub32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (a.payload.kind == ASMVal::IMM)
+        if (a == b)
+            return xor32(as, dst, dst, dst);
+        if (a.payload.kind == ASMVal::IMM || dst == b)
             return neg32(as, b, b), add32(as, dst, a, b);
 
         Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0x80, 0x05) : Opcode::from(0x28);
@@ -442,7 +462,9 @@ struct AMD64Target {
     }
 
     static inline void sub64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (a.payload.kind == ASMVal::IMM)
+        if (a == b)
+            return xor64(as, dst, dst, dst);
+        if (a.payload.kind == ASMVal::IMM || dst == b)
             return neg64(as, b, b), add64(as, dst, a, b);
 
         Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0x80, 0x05) : Opcode::from(0x28);
@@ -453,40 +475,48 @@ struct AMD64Target {
     static inline void mul8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (a.payload.kind == ASMVal::IMM) swap(a, b);
         if (b.payload.kind == ASMVal::IMM) {
-            binaryop(as, WORD, Opcode::literal(0x6b), dst, a); // WORD because no byte multiply exists.
+            binaryop(as, WORD, Opcode::literal(0x6b), a, dst); // WORD because no byte multiply exists.
             as.code.write<i8>(b.payload.imm);
+            return;
         }
-        else mov8(as, dst, a), binaryop(as, WORD, Opcode::literal(0x0f, 0xaf), dst, b);
+        if (dst == b) swap(a, b);
+        mov8(as, dst, a), binaryop(as, WORD, Opcode::literal(0x0f, 0xaf), b, dst);
     }
 
     static inline void mul16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (a.payload.kind == ASMVal::IMM) swap(a, b);
         if (b.payload.kind == ASMVal::IMM) {
-            binaryop(as, WORD, Opcode::literal(0x69), dst, a);
+            binaryop(as, WORD, Opcode::literal(0x69), a, dst);
             as.code.writeLE<i16>(b.payload.imm);
+            return;
         }
-        else mov8(as, dst, a), binaryop(as, WORD, Opcode::literal(0x0f, 0xaf), dst, b);
+        if (dst == b) swap(a, b);
+        mov16(as, dst, a), binaryop(as, WORD, Opcode::literal(0x0f, 0xaf), b, dst);
     }
 
     static inline void mul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (a.payload.kind == ASMVal::IMM) swap(a, b);
         if (b.payload.kind == ASMVal::IMM) {
-            binaryop(as, DWORD, Opcode::literal(0x69), dst, a);
+            binaryop(as, DWORD, Opcode::literal(0x69), a, dst);
             as.code.writeLE<i32>(b.payload.imm);
+            return;
         }
-        else mov8(as, dst, a), binaryop(as, DWORD, Opcode::literal(0x0f, 0xaf), dst, b);
+        if (dst == b) swap(a, b);
+        mov32(as, dst, a), binaryop(as, DWORD, Opcode::literal(0x0f, 0xaf), b, dst);
     }
 
     static inline void mul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (a.payload.kind == ASMVal::IMM) swap(a, b);
         if (b.payload.kind == ASMVal::IMM) {
-            binaryop(as, QWORD, Opcode::literal(0x69), dst, a);
+            binaryop(as, QWORD, Opcode::literal(0x69), a, dst);
             as.code.writeLE<i32>(b.payload.imm);
+            return;
         }
-        else mov8(as, dst, a), binaryop(as, QWORD, Opcode::literal(0x0f, 0xaf), dst, b);
+        if (dst == b) swap(a, b);
+        mov64(as, dst, a), binaryop(as, QWORD, Opcode::literal(0x0f, 0xaf), b, dst);
     }
 
-    static inline void div8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void sdiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mov8(as, ASMVal::gp(RAX), a);
         as.code.write<u8>(0x66); // cbw
         as.code.write<u8>(0x98);
@@ -496,7 +526,7 @@ struct AMD64Target {
         mov8(as, dst, ASMVal::gp(RAX));
     }
 
-    static inline void div16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void sdiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mov16(as, ASMVal::gp(RAX), a);
         as.code.write<u8>(0x66); // cwd
         as.code.write<u8>(0x99);
@@ -506,7 +536,7 @@ struct AMD64Target {
         mov16(as, dst, ASMVal::gp(RAX));
     }
 
-    static inline void div32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void sdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mov32(as, ASMVal::gp(RAX), a);
         as.code.write<u8>(0x99); // cdq
         if (b.payload.kind == ASMVal::IMM) 
@@ -515,7 +545,7 @@ struct AMD64Target {
         mov32(as, dst, ASMVal::gp(RAX));
     }
 
-    static inline void div64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void sdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mov64(as, ASMVal::gp(RAX), a);
         as.code.write<u8>(0x48); // cqo
         as.code.write<u8>(0x99);
@@ -525,42 +555,45 @@ struct AMD64Target {
         mov64(as, dst, ASMVal::gp(RAX));
     }
 
-    static inline void div8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        zxt8(as, ASMVal::gp(RAX), a);
+    static inline void udiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        if (a.payload.kind == ASMVal::IMM)
+            mov16(as, ASMVal::gp(RAX), a);
+        else
+            zxt8(as, ASMVal::gp(RAX), a);
         if (b.payload.kind == ASMVal::IMM) 
             mov8(as, ASMVal::gp(RDX), b), b = ASMVal::gp(RDX);
         unaryop(as, BYTE, Opcode::withExt(0xf6, 0x06), b);
         mov8(as, dst, ASMVal::gp(RAX));
     }
 
-    static inline void div16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        zxt16(as, ASMVal::gp(RAX), a);
-        xor16(as, ASMVal::gp(RCX), ASMVal::gp(RCX), ASMVal::gp(RCX));
+    static inline void udiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        mov16(as, ASMVal::gp(RAX), a), a = ASMVal::gp(RAX);
+        xor16(as, ASMVal::gp(RDX), ASMVal::gp(RDX), ASMVal::gp(RDX));
         if (b.payload.kind == ASMVal::IMM) 
             mov16(as, ASMVal::gp(RCX), b), b = ASMVal::gp(RCX);
         unaryop(as, WORD, Opcode::withExt(0xf6, 0x06), b);
         mov16(as, dst, ASMVal::gp(RAX));
     }
 
-    static inline void div32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        zxt32(as, ASMVal::gp(RAX), a);
-        xor32(as, ASMVal::gp(RCX), ASMVal::gp(RCX), ASMVal::gp(RCX));
+    static inline void udiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        mov32(as, ASMVal::gp(RAX), a);
+        xor32(as, ASMVal::gp(RDX), ASMVal::gp(RDX), ASMVal::gp(RDX));
         if (b.payload.kind == ASMVal::IMM) 
             mov32(as, ASMVal::gp(RCX), b), b = ASMVal::gp(RCX);
         unaryop(as, DWORD, Opcode::withExt(0xf6, 0x06), b);
         mov32(as, dst, ASMVal::gp(RAX));
     }
 
-    static inline void div64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void udiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mov64(as, ASMVal::gp(RAX), a);
-        xor64(as, ASMVal::gp(RCX), ASMVal::gp(RCX), ASMVal::gp(RCX));
+        xor64(as, ASMVal::gp(RDX), ASMVal::gp(RDX), ASMVal::gp(RDX));
         if (b.payload.kind == ASMVal::IMM) 
             mov64(as, ASMVal::gp(RCX), b), b = ASMVal::gp(RCX);
         unaryop(as, QWORD, Opcode::withExt(0xf6, 0x06), b);
         mov64(as, dst, ASMVal::gp(RAX));
     }
 
-    static inline void rem8s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void srem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         unreachable("TODO: implement grabbing AH");
         mov8(as, ASMVal::gp(RAX), a);
         as.code.write<u8>(0x66); // cbw
@@ -571,7 +604,7 @@ struct AMD64Target {
         mov8(as, dst, ASMVal::gp(RDX));
     }
 
-    static inline void rem16s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void srem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mov16(as, ASMVal::gp(RAX), a);
         as.code.write<u8>(0x66); // cwd
         as.code.write<u8>(0x99);
@@ -581,7 +614,7 @@ struct AMD64Target {
         mov16(as, dst, ASMVal::gp(RDX));
     }
 
-    static inline void rem32s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void srem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mov32(as, ASMVal::gp(RAX), a);
         as.code.write<u8>(0x99); // cdq
         if (b.payload.kind == ASMVal::IMM) 
@@ -590,7 +623,7 @@ struct AMD64Target {
         mov32(as, dst, ASMVal::gp(RDX));
     }
 
-    static inline void rem64s(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void srem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mov64(as, ASMVal::gp(RAX), a);
         as.code.write<u8>(0x48); // cqo
         as.code.write<u8>(0x99);
@@ -600,7 +633,7 @@ struct AMD64Target {
         mov64(as, dst, ASMVal::gp(RDX));
     }
 
-    static inline void rem8u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void urem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         unreachable("TODO: implement grabbing AH");
         zxt8(as, ASMVal::gp(RAX), a);
         if (b.payload.kind == ASMVal::IMM) 
@@ -609,7 +642,7 @@ struct AMD64Target {
         mov8(as, dst, ASMVal::gp(RAX));
     }
 
-    static inline void rem16u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void urem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         zxt16(as, ASMVal::gp(RAX), a);
         xor16(as, ASMVal::gp(RCX), ASMVal::gp(RCX), ASMVal::gp(RCX));
         if (b.payload.kind == ASMVal::IMM) 
@@ -618,7 +651,7 @@ struct AMD64Target {
         mov16(as, dst, ASMVal::gp(RDX));
     }
 
-    static inline void rem32u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void urem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         zxt32(as, ASMVal::gp(RAX), a);
         xor32(as, ASMVal::gp(RCX), ASMVal::gp(RCX), ASMVal::gp(RCX));
         if (b.payload.kind == ASMVal::IMM) 
@@ -627,7 +660,7 @@ struct AMD64Target {
         mov32(as, dst, ASMVal::gp(RDX));
     }
 
-    static inline void rem64u(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    static inline void urem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mov64(as, ASMVal::gp(RAX), a);
         xor64(as, ASMVal::gp(RCX), ASMVal::gp(RCX), ASMVal::gp(RCX));
         if (b.payload.kind == ASMVal::IMM) 
@@ -638,7 +671,7 @@ struct AMD64Target {
 
     static inline void neg8(Assembly& as, ASMVal dst, ASMVal src) {
         mov8(as, dst, src);
-        unary_args(as, BYTE, Opcode::withExt(0xf6, 0x03), dst);
+        unaryop(as, BYTE, Opcode::withExt(0xf6, 0x03), dst);
     }
 
     static inline void neg16(Assembly& as, ASMVal dst, ASMVal src) {
@@ -885,207 +918,266 @@ struct AMD64Target {
     }
 
     static void shl8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC0, 0x04) : Opcode::withExt(0xD2, 0x04);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC0, 0x04) : Opcode::litExt(0xD2, 0x04);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov8(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, BYTE, op, dst, ASMVal::gp(RCX));
+        unaryop(as, BYTE, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void shl16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x04) : Opcode::withExt(0xD3, 0x04);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x04) : Opcode::litExt(0xD3, 0x04);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov16(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, WORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, WORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void shl32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x04) : Opcode::withExt(0xD3, 0x04);
-        mov32(as, dst, a);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x04) : Opcode::litExt(0xD3, 0x04);
         mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, DWORD, op, dst, ASMVal::gp(RCX));
+        mov32(as, dst, a);
+        unaryop(as, DWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void shl64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x04) : Opcode::withExt(0xD3, 0x04);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x04) : Opcode::litExt(0xD3, 0x04);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov64(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, QWORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, QWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void shr8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC0, 0x05) : Opcode::withExt(0xD2, 0x05);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC0, 0x05) : Opcode::litExt(0xD2, 0x05);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov8(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, BYTE, op, dst, ASMVal::gp(RCX));
+        unaryop(as, BYTE, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void shr16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x05) : Opcode::withExt(0xD3, 0x05);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x05) : Opcode::litExt(0xD3, 0x05);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov16(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, WORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, WORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void shr32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x05) : Opcode::withExt(0xD3, 0x05);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x05) : Opcode::litExt(0xD3, 0x05);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov32(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, DWORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, DWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void shr64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x05) : Opcode::withExt(0xD3, 0x05);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x05) : Opcode::litExt(0xD3, 0x05);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov64(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, QWORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, QWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void sar8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC0, 0x07) : Opcode::withExt(0xD2, 0x07);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC0, 0x07) : Opcode::litExt(0xD2, 0x07);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov8(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, BYTE, op, dst, ASMVal::gp(RCX));
+        unaryop(as, BYTE, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void sar16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x07) : Opcode::withExt(0xD3, 0x07);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x07) : Opcode::litExt(0xD3, 0x07);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov16(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, WORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, WORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void sar32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x07) : Opcode::withExt(0xD3, 0x07);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x07) : Opcode::litExt(0xD3, 0x07);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov32(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, DWORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, DWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void sar64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x07) : Opcode::withExt(0xD3, 0x07);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x07) : Opcode::litExt(0xD3, 0x07);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov64(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, QWORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, QWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void rol8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC0, 0x00) : Opcode::withExt(0xD2, 0x00);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC0, 0x00) : Opcode::litExt(0xD2, 0x00);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov8(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, BYTE, op, dst, ASMVal::gp(RCX));
+        unaryop(as, BYTE, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void rol16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x00) : Opcode::withExt(0xD3, 0x00);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x00) : Opcode::litExt(0xD3, 0x00);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov16(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, WORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, WORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void rol32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x00) : Opcode::withExt(0xD3, 0x00);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x00) : Opcode::litExt(0xD3, 0x00);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov32(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, DWORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, DWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void rol64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x00) : Opcode::withExt(0xD3, 0x00);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x00) : Opcode::litExt(0xD3, 0x00);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov64(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, QWORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, QWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void ror8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC0, 0x01) : Opcode::withExt(0xD2, 0x01);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC0, 0x01) : Opcode::litExt(0xD2, 0x01);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov8(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, BYTE, op, dst, ASMVal::gp(RCX));
+        unaryop(as, BYTE, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void ror16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x01) : Opcode::withExt(0xD3, 0x01);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x01) : Opcode::litExt(0xD3, 0x01);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov16(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, WORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, WORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void ror32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x01) : Opcode::withExt(0xD3, 0x01);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x01) : Opcode::litExt(0xD3, 0x01);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov32(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, DWORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, DWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void ror64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::withExt(0xC1, 0x01) : Opcode::withExt(0xD3, 0x01);
+        Opcode op = b.payload.kind == ASMVal::IMM ? Opcode::litExt(0xC1, 0x01) : Opcode::litExt(0xD3, 0x01);
+        if (b.payload.kind != ASMVal::IMM)
+            mov8(as, ASMVal::gp(RCX), b);
         mov64(as, dst, a);
-        mov8(as, ASMVal::gp(RCX), b);
-        binaryop(as, QWORD, op, dst, ASMVal::gp(RCX));
+        unaryop(as, QWORD, op, dst);
+        if (b.payload.kind == ASMVal::IMM) 
+            as.code.write<i8>(b.payload.imm);
     }
 
     static void bitc8(Assembly& as, ASMVal dst, ASMVal src) {
-        and8(as, dst, src, ASMVal::imm(255));
+        and16(as, dst, src, ASMVal::imm(255));
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, WORD, Opcode::literal(0x0f, 0xb8), dst, dst);
     }
 
     static void bitc16(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
-        binaryop(as, WORD, Opcode::literal(0x0f, 0xb8), dst, src);
+        binaryop(as, WORD, Opcode::literal(0x0f, 0xb8), src, dst);
     }
 
     static void bitc32(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
-        binaryop(as, DWORD, Opcode::literal(0x0f, 0xb8), dst, src);
+        binaryop(as, DWORD, Opcode::literal(0x0f, 0xb8), src, dst);
     }
 
     static void bitc64(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
-        binaryop(as, QWORD, Opcode::literal(0x0f, 0xb8), dst, src);
+        binaryop(as, QWORD, Opcode::literal(0x0f, 0xb8), src, dst);
     }
 
     static void lzc8(Assembly& as, ASMVal dst, ASMVal src) {
-        shl8(as, dst, src, ASMVal::imm(8));
-        or8(as, dst, dst, ASMVal::imm(255));
+        shl16(as, dst, src, ASMVal::imm(8));
+        or16(as, dst, dst, ASMVal::imm(255));
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, WORD, Opcode::literal(0x0f, 0xbd), dst, dst);
     }
 
     static void lzc16(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
-        binaryop(as, WORD, Opcode::literal(0x0f, 0xbd), dst, src);
+        binaryop(as, WORD, Opcode::literal(0x0f, 0xbd), src, dst);
     }
 
     static void lzc32(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
-        binaryop(as, DWORD, Opcode::literal(0x0f, 0xbd), dst, src);
+        binaryop(as, DWORD, Opcode::literal(0x0f, 0xbd), src, dst);
     }
 
     static void lzc64(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
-        binaryop(as, QWORD, Opcode::literal(0x0f, 0xbd), dst, src);
+        binaryop(as, QWORD, Opcode::literal(0x0f, 0xbd), src, dst);
     }
 
     static void tzc8(Assembly& as, ASMVal dst, ASMVal src) {
-        or16(as, dst, src, ASMVal::imm(65280));
+        or16(as, dst, src, ASMVal::imm(0xff00));
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, WORD, Opcode::literal(0x0f, 0xbc), dst, dst);
     }
 
     static void tzc16(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
-        binaryop(as, WORD, Opcode::literal(0x0f, 0xbc), dst, src);
+        binaryop(as, WORD, Opcode::literal(0x0f, 0xbc), src, dst);
     }
 
     static void tzc32(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
-        binaryop(as, DWORD, Opcode::literal(0x0f, 0xbc), dst, src);
+        binaryop(as, DWORD, Opcode::literal(0x0f, 0xbc), src, dst);
     }
 
     static void tzc64(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
-        binaryop(as, QWORD, Opcode::literal(0x0f, 0xbc), dst, src);
+        binaryop(as, QWORD, Opcode::literal(0x0f, 0xbc), src, dst);
     }
 
     // Comparisons
@@ -1270,7 +1362,7 @@ struct AMD64Target {
         if (src.payload.kind == ASMVal::IMM) {
             if (src.payload.imm == 0) return xor8(as, dst, dst, dst);
 
-            unary_prefix(as, BYTE, src);
+            unary_prefix(as, BYTE, dst);
             as.code.write<u8>(0xB0 + (dst.payload.gp & 0b111));
             as.code.write<i8>(src.payload.imm);
         }
@@ -1281,10 +1373,9 @@ struct AMD64Target {
         if (dst == src) return;
         if (src.payload.kind == ASMVal::IMM) {
             if (src.payload.imm == 0) return xor16(as, dst, dst, dst);
-
-            unary_prefix(as, WORD, src);
+            unary_prefix(as, WORD, dst);
             as.code.write<u8>(0xB8 + (dst.payload.gp & 0b111));
-            as.code.writeLE<i32>(src.payload.imm);
+            as.code.writeLE<i16>(src.payload.imm);
         }
         else binaryop(as, WORD, Opcode::from(0x88), dst, src);
     }
@@ -1294,7 +1385,7 @@ struct AMD64Target {
         if (src.payload.kind == ASMVal::IMM) {
             if (src.payload.imm == 0) return xor32(as, dst, dst, dst);
 
-            unary_prefix(as, DWORD, src);
+            unary_prefix(as, DWORD, dst);
             as.code.write<u8>(0xB8 + (dst.payload.gp & 0b111));
             as.code.writeLE<i32>(src.payload.imm);
         }
@@ -1306,9 +1397,12 @@ struct AMD64Target {
         if (src.payload.kind == ASMVal::IMM) {
             if (src.payload.imm == 0) return xor64(as, dst, dst, dst);
 
-            unary_prefix(as, DWORD, src); // DWORD, not QWORD, since imm can only be 32 bits
+            unary_prefix(as, DWORD, dst); // DWORD, not QWORD, since imm can only be 32 bits
             as.code.write<u8>(0xB8 + (dst.payload.gp & 0b111));
             as.code.writeLE<i32>(src.payload.imm);
+
+            if (src.payload.imm < 0)
+                binaryop(as, QWORD, Opcode::literal(0x63), dst, dst); // movsxd
         }
         else binaryop(as, QWORD, Opcode::from(0x88), dst, src);
     }
