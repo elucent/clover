@@ -1,0 +1,4 @@
+bin/
+.vscode/
+clover/design/
+*.o

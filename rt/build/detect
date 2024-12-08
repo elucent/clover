@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+
+import sys
+import platform
+import os
+from shutil import which
+
+config = None
+if os.path.isfile('bin/config'):
+    with open('bin/config') as f:
+        config = f.readline()
+
+def error(msg):
+    print("[ERROR]\t" + msg)
+    exit(42)
+
+def detectArch():
+    if config is not None:
+        configFields = config.split()
+        return (configFields[0], configFields[1])
+    arch = platform.machine().lower()
+    knownArchs = {
+        'x86': 'x86',
+        'i386': 'x86',
+        'i486': 'x86',
+        'i586': 'x86',
+        'i686': 'x86',
+        'amd64': 'amd64',
+        'x86_64': 'amd64',
+        'arm': 'arm32',
+        'arm64': 'arm64',
+        'aarch64': 'arm64',
+    }
+    archBits = {
+        'x86': '32',
+        'arm32': '32',
+        'amd64': '64',
+        'arm64': '64'
+    }
+    if arch in knownArchs:
+        arch = knownArchs[arch]
+        return (arch, archBits[arch])
+    else:
+        error('Unknown system architecture \'' + arch + '\'')
+
+def detectOS():
+    if config is not None:
+        configFields = config.split()
+        return configFields[2]
+    os = platform.system().lower()
+    knownOSes = {
+        'windows': 'windows',
+        'win32': 'windows',
+        'win64': 'windows',
+        'osx': 'osx',
+        'macosx': 'osx',
+        'darwin': 'osx',
+        'apple': 'osx',
+        'linux': 'linux'
+    }
+    if os in knownOSes:
+        os = knownOSes[os]
+        return os
+    else:
+        error('Unknown operating system \'' + os + '\'')
+
+knownCCs = []
+knownCCs.append(('clang', 'clang'))
+knownCCs.append(('gcc', 'gcc'))
+knownCCs.append(('cl', 'msvc'))
+knownCCs.append(('cl.exe', 'msvc'))
+for i in range(0, 100):
+    knownCCs.append((f'clang-{i}', 'clang'))
+    knownCCs.append((f'gcc-{i}', 'gcc'))
+
+def detectCC():
+    if config is not None:
+        configFields = config.split()
+        return (configFields[3], configFields[5])
+    if 'CC' in os.environ:
+        return os.environ['CC']
+    for compiler in knownCCs:
+        found = which(compiler[0])
+        if found is not None:
+            return (found, compiler[1])
+
+knownCXXs = []
+knownCXXs.append(('clang++', 'clang'))
+knownCXXs.append(('g++', 'gcc'))
+knownCXXs.append(('cl', 'msvc'))
+knownCXXs.append(('cl.exe', 'msvc'))
+for i in range(0, 100):
+    knownCXXs.append((f'clang++-{i}', 'clang'))
+    knownCXXs.append((f'g++-{i}', 'gcc'))
+
+def detectCXX():
+    if config is not None:
+        configFields = config.split()
+        return (configFields[4], configFields[5])
+    if 'CXX' in os.environ:
+        return os.environ['CXX']
+    for compiler in knownCXXs:
+        found = which(compiler[0])
+        if found is not None:
+            return (found, compiler[1])
+
+match sys.argv[1]:
+    case 'os': print(detectOS())
+    case 'arch': print(detectArch()[0])
+    case 'wordsize': print(detectArch()[1])
+    case 'cc': print(detectCC()[0])
+    case 'cxx': print(detectCXX()[0])
+    case 'toolchain': print(detectCXX()[1])
+    case 'write':
+        with open(sys.argv[2], 'w') as f:
+            f.write(' '.join([
+                detectArch()[0],
+                detectArch()[1],
+                detectOS(),
+                detectCC()[0],
+                detectCXX()[0],
+                detectCXX()[1]
+            ]))

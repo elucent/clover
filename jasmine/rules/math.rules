@@ -1,0 +1,72 @@
+# Integer addition rules.
+
+iadd_commute_constant(add T:int a:i b:v):
+    (add T b:v a:i)
+
+iadd_zero_identity(add T:int a:v 0:i):
+    a:v
+
+iadd_combine_constants(add T:int (add T a:v b:i) (add T c:v d:i)):
+    (add T (add T a:v c:v) [b + d]:i)
+
+iadd_fold(add int a:i b:i):
+    [a + b]:i
+
+# Integer negation rules.
+
+ineg_fold(neg T:int a:i):
+    [-a]:i
+
+ineg_combine(neg T:int (neg T:int x:v)):
+    x:v
+
+# Integer subtraction rules.
+
+isub_zero_identity(sub T:int a:v 0:i):
+    a:v
+
+isub_from_zero_identity(sub T:int 0:i a:v):
+    (neg T a:v)
+
+isub_self_identity(sub T:int a:v b:v) where a == b:
+    0:i
+
+isub_constant_rhs(sub T:sint a:v b:i):
+    (add T a:v [-b]:i)
+
+isub_fold(sub T:int a:i b:i):
+    [a - b]:i
+
+# Integer multiplication rules.
+
+imul_commute_constant(mul T:int a:i b:v):
+    (mul T b:v a:i)
+
+imul_zero_identity(mul int a:v 0:i):
+    0:i
+
+imul_one_identity(mul int a:v 1:i):
+    a:v
+
+imul_two_becomes_add(mul T:int a:v 2:i):
+    (add T a:v a:v)
+
+imul_powerOfTwo_becomes_shl(mul T:int a:v b:i) where isPowerOfTwo(b):
+    (shl T a:v [intLog2(b)]:i)
+
+imul_combine_constants(mul T:int (mul T a:v b:i) (mul T c:v d:i)):
+    (mul T (mul T a:v c:v) [b * d]:i)
+
+imul_fold(mul T:int a:i b:i):
+    [a * b]:i
+
+# Integer division rules.
+
+idiv_zero_identity(div int 0:i a:v):
+    0:i
+
+idiv_one_identity(div int a:v 1:i):
+    a:v
+
+idiv_minus_one_identity(idiv T:sint a:v -1:i):
+    (neg T a:v)
