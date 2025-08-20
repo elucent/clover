@@ -1189,30 +1189,30 @@ namespace clover {
             typeList.push(0); // Ext
             constraintNodes.push({});
 
-            assert(encode<TypeKind::Bottom>().index == ReservedTypes::Bottom);
-            assert(encode<TypeKind::Void>().index == ReservedTypes::Void);
-            assert(encode<TypeKind::Bool>().index == ReservedTypes::Bool);
-            assert(encode<TypeKind::Char>().index == ReservedTypes::Char);
-            assert(encode<TypeKind::Any>().index == ReservedTypes::Any);
+            type_assert(encode<TypeKind::Bottom>().index == ReservedTypes::Bottom);
+            type_assert(encode<TypeKind::Void>().index == ReservedTypes::Void);
+            type_assert(encode<TypeKind::Bool>().index == ReservedTypes::Bool);
+            type_assert(encode<TypeKind::Char>().index == ReservedTypes::Char);
+            type_assert(encode<TypeKind::Any>().index == ReservedTypes::Any);
 
-            assert(encode<TypeKind::Numeric>(true, false, 8u).index == ReservedTypes::I8);
-            assert(encode<TypeKind::Numeric>(true, false, 16u).index == ReservedTypes::I16);
-            assert(encode<TypeKind::Numeric>(true, false, 32u).index == ReservedTypes::I32);
-            assert(encode<TypeKind::Numeric>(true, false, 64u).index == ReservedTypes::I64);
+            type_assert(encode<TypeKind::Numeric>(true, false, 8u).index == ReservedTypes::I8);
+            type_assert(encode<TypeKind::Numeric>(true, false, 16u).index == ReservedTypes::I16);
+            type_assert(encode<TypeKind::Numeric>(true, false, 32u).index == ReservedTypes::I32);
+            type_assert(encode<TypeKind::Numeric>(true, false, 64u).index == ReservedTypes::I64);
 
-            assert(encode<TypeKind::Numeric>(false, false, 8u).index == ReservedTypes::U8);
-            assert(encode<TypeKind::Numeric>(false, false, 16u).index == ReservedTypes::U16);
-            assert(encode<TypeKind::Numeric>(false, false, 32u).index == ReservedTypes::U32);
-            assert(encode<TypeKind::Numeric>(false, false, 64u).index == ReservedTypes::U64);
+            type_assert(encode<TypeKind::Numeric>(false, false, 8u).index == ReservedTypes::U8);
+            type_assert(encode<TypeKind::Numeric>(false, false, 16u).index == ReservedTypes::U16);
+            type_assert(encode<TypeKind::Numeric>(false, false, 32u).index == ReservedTypes::U32);
+            type_assert(encode<TypeKind::Numeric>(false, false, 64u).index == ReservedTypes::U64);
 
-            assert(encode<TypeKind::Numeric>(true, true, 32u).index == ReservedTypes::F32);
-            assert(encode<TypeKind::Numeric>(true, true, 64u).index == ReservedTypes::F64);
-            assert(encode<TypeKind::Slice>(get(I8)).index == ReservedTypes::String);
+            type_assert(encode<TypeKind::Numeric>(true, true, 32u).index == ReservedTypes::F32);
+            type_assert(encode<TypeKind::Numeric>(true, true, 64u).index == ReservedTypes::F64);
+            type_assert(encode<TypeKind::Slice>(get(I8)).index == ReservedTypes::String);
 
-            assert(encode<TypeKind::Numeric>(false, false, 0u).index == ReservedTypes::BottomNumber);
-            assert(encode<TypeKind::Numeric>(true, true, 0u).index == ReservedTypes::BottomFloat);
-            assert(encode<TypeKind::Numeric>(true, false, 65u).index == ReservedTypes::TopInteger);
-            assert(encode<TypeKind::Range>(get(F32), get(F64)).index == ReservedTypes::RangeF32F64);
+            type_assert(encode<TypeKind::Numeric>(false, false, 0u).index == ReservedTypes::BottomNumber);
+            type_assert(encode<TypeKind::Numeric>(true, true, 0u).index == ReservedTypes::BottomFloat);
+            type_assert(encode<TypeKind::Numeric>(true, false, 65u).index == ReservedTypes::TopInteger);
+            type_assert(encode<TypeKind::Range>(get(F32), get(F64)).index == ReservedTypes::RangeF32F64);
 
             for (u32 i = 0; i < 66; i ++)
                 signedTypeCache[i] = unsignedTypeCache[i] = signedRangeCache[i] = unsignedRangeCache[i] = InvalidType;
