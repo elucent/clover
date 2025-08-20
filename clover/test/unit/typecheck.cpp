@@ -69,63 +69,63 @@ inline Type testableType(Module* mod, TypeIndex t) {
     }()
 
 TEST(typecheck_integer_constants) {
-    ASSERT_HAS_LOWER_BOUND("0", unsignedType(0));
-    ASSERT_HAS_LOWER_BOUND("1", unsignedType(1));
-    ASSERT_HAS_LOWER_BOUND("127", unsignedType(7));
-    ASSERT_HAS_LOWER_BOUND("128", unsignedType(8));
-    ASSERT_HAS_LOWER_BOUND("255", unsignedType(8));
-    ASSERT_HAS_LOWER_BOUND("256", unsignedType(9));
-    ASSERT_HAS_LOWER_BOUND("32767", unsignedType(15));
-    ASSERT_HAS_LOWER_BOUND("32768", unsignedType(16));
-    ASSERT_HAS_LOWER_BOUND("65535", unsignedType(16));
-    ASSERT_HAS_LOWER_BOUND("65536", unsignedType(17));
-    ASSERT_HAS_LOWER_BOUND("2147483647", unsignedType(31));
-    ASSERT_HAS_LOWER_BOUND("2147483648", unsignedType(32));
-    ASSERT_HAS_LOWER_BOUND("4294967295", unsignedType(32));
-    ASSERT_HAS_LOWER_BOUND("4294967296", unsignedType(33));
-    ASSERT_HAS_LOWER_BOUND("9223372036854775807", unsignedType(63));
-    ASSERT_HAS_LOWER_BOUND("9223372036854775808", unsignedType(64));
-    ASSERT_HAS_LOWER_BOUND("18446744073709551615", unsignedType(64));
+    ASSERT_HAS_TYPE("0", unsignedType(64));
+    ASSERT_HAS_TYPE("1", unsignedType(64));
+    ASSERT_HAS_TYPE("127", unsignedType(64));
+    ASSERT_HAS_TYPE("128", unsignedType(64));
+    ASSERT_HAS_TYPE("255", unsignedType(64));
+    ASSERT_HAS_TYPE("256", unsignedType(64));
+    ASSERT_HAS_TYPE("32767", unsignedType(64));
+    ASSERT_HAS_TYPE("32768", unsignedType(64));
+    ASSERT_HAS_TYPE("65535", unsignedType(64));
+    ASSERT_HAS_TYPE("65536", unsignedType(64));
+    ASSERT_HAS_TYPE("2147483647", unsignedType(64));
+    ASSERT_HAS_TYPE("2147483648", unsignedType(64));
+    ASSERT_HAS_TYPE("4294967295", unsignedType(64));
+    ASSERT_HAS_TYPE("4294967296", unsignedType(64));
+    ASSERT_HAS_TYPE("9223372036854775807", unsignedType(64));
+    ASSERT_HAS_TYPE("9223372036854775808", unsignedType(64));
+    ASSERT_HAS_TYPE("18446744073709551615", unsignedType(64));
 }
 
 TEST(typecheck_integer_plus_minus_constants) {
-    ASSERT_HAS_LOWER_BOUND("-0", unsignedType(0));
-    ASSERT_HAS_LOWER_BOUND("+0", unsignedType(0));
-    ASSERT_HAS_LOWER_BOUND("-1", signedType(1));
-    ASSERT_HAS_LOWER_BOUND("+1", unsignedType(1));
-    ASSERT_HAS_LOWER_BOUND("-128", signedType(8));
-    ASSERT_HAS_LOWER_BOUND("+128", unsignedType(8));
-    ASSERT_HAS_LOWER_BOUND("-255", signedType(9));
-    ASSERT_HAS_LOWER_BOUND("+255", unsignedType(8));
-    ASSERT_HAS_LOWER_BOUND("-256", signedType(9));
-    ASSERT_HAS_LOWER_BOUND("+256", unsignedType(9));
-    ASSERT_HAS_LOWER_BOUND("-32768", signedType(16));
-    ASSERT_HAS_LOWER_BOUND("+32768", unsignedType(16));
-    ASSERT_HAS_LOWER_BOUND("-65535", signedType(17));
-    ASSERT_HAS_LOWER_BOUND("+65535", unsignedType(16));
-    ASSERT_HAS_LOWER_BOUND("-65536", signedType(17));
-    ASSERT_HAS_LOWER_BOUND("+65536", unsignedType(17));
-    ASSERT_HAS_LOWER_BOUND("-2147483648", signedType(32));
-    ASSERT_HAS_LOWER_BOUND("+2147483648", unsignedType(32));
-    ASSERT_HAS_LOWER_BOUND("-4294967295", signedType(33));
-    ASSERT_HAS_LOWER_BOUND("+4294967295", unsignedType(32));
-    ASSERT_HAS_LOWER_BOUND("-4294967296", signedType(33));
-    ASSERT_HAS_LOWER_BOUND("+4294967296", unsignedType(33));
-    ASSERT_HAS_LOWER_BOUND("-9223372036854775808", signedType(64));
-    ASSERT_HAS_LOWER_BOUND("+9223372036854775808", unsignedType(64));
-    ASSERT_HAS_LOWER_BOUND("+18446744073709551615", unsignedType(64));
+    ASSERT_HAS_TYPE("-0", unsignedType(64));
+    ASSERT_HAS_TYPE("+0", unsignedType(64));
+    ASSERT_HAS_TYPE("-1", signedType(64));
+    ASSERT_HAS_TYPE("+1", unsignedType(64));
+    ASSERT_HAS_TYPE("-128", signedType(64));
+    ASSERT_HAS_TYPE("+128", unsignedType(64));
+    ASSERT_HAS_TYPE("-255", signedType(64));
+    ASSERT_HAS_TYPE("+255", unsignedType(64));
+    ASSERT_HAS_TYPE("-256", signedType(64));
+    ASSERT_HAS_TYPE("+256", unsignedType(64));
+    ASSERT_HAS_TYPE("-32768", signedType(64));
+    ASSERT_HAS_TYPE("+32768", unsignedType(64));
+    ASSERT_HAS_TYPE("-65535", signedType(64));
+    ASSERT_HAS_TYPE("+65535", unsignedType(64));
+    ASSERT_HAS_TYPE("-65536", signedType(64));
+    ASSERT_HAS_TYPE("+65536", unsignedType(64));
+    ASSERT_HAS_TYPE("-2147483648", signedType(64));
+    ASSERT_HAS_TYPE("+2147483648", unsignedType(64));
+    ASSERT_HAS_TYPE("-4294967295", signedType(64));
+    ASSERT_HAS_TYPE("+4294967295", unsignedType(64));
+    ASSERT_HAS_TYPE("-4294967296", signedType(64));
+    ASSERT_HAS_TYPE("+4294967296", unsignedType(64));
+    ASSERT_HAS_TYPE("-9223372036854775808", signedType(64));
+    ASSERT_HAS_TYPE("+9223372036854775808", unsignedType(64));
+    ASSERT_HAS_TYPE("+18446744073709551615", unsignedType(64));
 
     // TODO: Check that we reject the following:
     // ASSERT_HAS_TYPE("+18446744073709551616", u64Type());
 }
 
 TEST(typecheck_add_constants) {
-    ASSERT_HAS_LOWER_BOUND("0 + 0", unsignedType(0));
-    ASSERT_HAS_LOWER_BOUND("0 + 1", unsignedType(1));
-    ASSERT_HAS_LOWER_BOUND("1 + -1", unsignedType(0));
-    ASSERT_HAS_LOWER_BOUND("500 + 1", unsignedType(9));
-    ASSERT_HAS_LOWER_BOUND("0.1 + 0.2", f32Type());
-    ASSERT_HAS_LOWER_BOUND("0.1 + 1", f32Type());
+    ASSERT_HAS_TYPE("0 + 0", unsignedType(64));
+    ASSERT_HAS_TYPE("0 + 1", unsignedType(64));
+    ASSERT_HAS_TYPE("1 + -1", unsignedType(64));
+    ASSERT_HAS_TYPE("500 + 1", unsignedType(64));
+    ASSERT_HAS_TYPE("0.1 + 0.2", f32Type());
+    ASSERT_HAS_TYPE("0.1 + 1", f32Type());
 }
 
 TEST(typecheck_string_literal) {
@@ -261,9 +261,9 @@ x
 }
 
 TEST(typecheck_paren_simple) {
-    ASSERT_HAS_LOWER_BOUND("(1)", unsignedType(1));
-    ASSERT_HAS_LOWER_BOUND("(1 + 2)", unsignedType(2));
-    ASSERT_HAS_LOWER_BOUND("(1 + 2.0)", f32Type());
+    ASSERT_HAS_TYPE("(1)", unsignedType(64));
+    ASSERT_HAS_TYPE("(1 + 2)", unsignedType(64));
+    ASSERT_HAS_TYPE("(1 + 2.0)", f32Type());
     ASSERT_HAS_TYPE("i32 x\n(x)", i32Type());
     ASSERT_HAS_TYPE("i32 x\n(((x)))", i32Type());
 }
