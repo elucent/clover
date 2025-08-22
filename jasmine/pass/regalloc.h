@@ -361,7 +361,7 @@ namespace jasmine {
                         availablePerEdge[adj - edgeOffset].remove(assignment);
                         if UNLIKELY(config::verboseRegalloc)
                             print(" edge[bb", fn.edge(adj - edgeOffset).srcIndex(), "->bb", fn.edge(adj - edgeOffset).destIndex(), "]");
-                    } else if (!graph[adj].isMemory) {
+                    } else {
                         graph[adj].allowed.remove(assignment);
                         if UNLIKELY(config::verboseRegalloc)
                             print(" ", OperandLogger { fn, fn.variableById(liveness[graph[adj].range].var) }, "[bb", graph[adj].block, ":", liveness[graph[adj].range].start, ":", liveness[graph[adj].range].end, "]");
