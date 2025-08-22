@@ -333,6 +333,7 @@ namespace jasmine {
             case Opcode::POP:
             case Opcode::VAR:
             case Opcode::TRAP:
+            case Opcode::COMMENT:
                 return 0;
             default:
                 unreachable("Unspecified clobbers for node with opcode ", OPCODE_NAMES[(u32)node.opcode()]);

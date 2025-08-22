@@ -772,6 +772,11 @@ namespace jasmine {
                         operands.push(o);
                 }
                 switch (n.opcode()) {
+                    case Opcode::NOP:
+                        break;
+                    case Opcode::COMMENT:
+                        b.addNode(n);
+                        break;
                     case Opcode::VAR:
                         // These only exist to reserve space for a variable, so
                         // now that we've assigned stack slots to variables,

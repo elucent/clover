@@ -250,6 +250,8 @@ namespace jasmine {
                 unreachable("Can't lower type operand.");
             case Operand::Sizeof:
                 unreachable("Should have already lowered to integer constant.");
+            case Operand::String:
+                unreachable("Shouldn't try to lower string operand in comment.");
         }
     }
 
@@ -604,6 +606,7 @@ namespace jasmine {
                         break;
                     }
                     case Opcode::NOP:
+                    case Opcode::COMMENT:
                         break;
                     default:
                         unreachable("Unimplemented assembly lowering for opcode ", OPCODE_NAMES[(u32)n.opcode()], ".");

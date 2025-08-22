@@ -29,6 +29,7 @@ namespace jasmine {
         for (Block block : fn.blocks()) {
             for (Node node : block.nodes()) switch (node.opcode()) {
                 case Opcode::NOP:
+                case Opcode::COMMENT:
                     break;
                 case Opcode::VAR:
                 case Opcode::PACK:
@@ -270,6 +271,9 @@ namespace jasmine {
             for (Node node : block.nodes()) switch (node.opcode()) {
                 case Opcode::NOP:
                     validateArity(block, node, 0);
+                    break;
+                case Opcode::COMMENT:
+                    validateArity(block, node, 1);
                     break;
                 case Opcode::VAR:
                     if (!validateArityAndDest(block, node, 1))

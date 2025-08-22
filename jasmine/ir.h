@@ -108,7 +108,8 @@ namespace jasmine {
         macro(RET, ret) \
         \
         /* Misc. */ \
-        macro(TRAP, trap)
+        macro(TRAP, trap) \
+        macro(COMMENT, comment)
 
     #define DEFINE_ENUM_CASE(upper, ...) upper,
     enum class Opcode : i8 {
@@ -116,7 +117,7 @@ namespace jasmine {
     };
     #undef DEFINE_ENUM_CASE
 
-    constexpr u32 NUM_OPCODES = u32(Opcode::TRAP) + 1;
+    constexpr u32 NUM_OPCODES = u32(Opcode::COMMENT) + 1;
 
     extern const char* OPCODE_NAMES[NUM_OPCODES];
     extern const char* OPCODE_NAMES_UPPER[NUM_OPCODES];
@@ -176,6 +177,7 @@ namespace jasmine {
             case Opcode::STORE_FIELD:
             case Opcode::STORE_INDEX:
             case Opcode::NOP:
+            case Opcode::COMMENT:
             case Opcode::SET_FIELD:
             case Opcode::SET_INDEX:
             case Opcode::CALL_VOID:
@@ -264,7 +266,7 @@ namespace jasmine {
             Var = 0, IntConst = 1, F32Const = 2, F64Const = 3,
             GP = 4, FP = 5, RegPair = 6, Memory = 7, Branch = 8,
             Func = 9, Data = 10, Static = 11, Type = 12,
-            Sizeof = 13,
+            Sizeof = 13, String = 14,
             Invalid = 15
         };
 
@@ -1072,6 +1074,17 @@ namespace jasmine {
             operand.kind = Operand::Sizeof;
             operand.type = type;
             return operand;
+        }
+
+        inline Operand stringOperand(Symbol sym) {
+            Operand operand;
+            operand.kind = Operand::String;
+            operand.sym = sym;
+            return operand;
+        }
+
+        inline Operand stringOperand(const_slice<i8> text) {
+            return stringOperand(syms()[text]);
         }
 
         inline Operand variable(const Variable& var) {
@@ -1902,7 +1915,7 @@ namespace jasmine {
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const OperandLogger& o) {
         bool isDOT = config::printJasmineDOTBeforeOpts || config::printJasmineDOTAfterOpts || config::printJasmineDOTBeforeEachPass;
-        const i8* gray = isDOT ? "" : GRAY;
+        const i8* gray = isDOT ? "" : BLUE;
         const i8* reset = isDOT ? "" : RESET;
         switch (o.operand.kind) {
             case Operand::Var: {
@@ -1967,6 +1980,8 @@ namespace jasmine {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const Node& node) {
+        if (node.opcode() == Opcode::COMMENT)
+            return format(io, GRAY, "// ", node.function->syms()[node.operand(0).sym], RESET);
         io = format(io, OPCODE_NAMES[(i32)node.header().opcode], ' ', TypeLogger(*node.function->mod, node.type()));
         bool first = true;
         for (auto operand : node.operands()) {
@@ -1987,7 +2002,7 @@ namespace jasmine {
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const Block& b) {
         io = format(io, ".bb", b.index(), ": ");
-        const i8* gray = (config::printJasmineDOTBeforeOpts || config::printJasmineDOTAfterOpts || config::printJasmineDOTBeforeEachPass) ? "" : GRAY;
+        const i8* gray = (config::printJasmineDOTBeforeOpts || config::printJasmineDOTAfterOpts || config::printJasmineDOTBeforeEachPass) ? "" : BLUE;
         const i8* reset = (config::printJasmineDOTBeforeOpts || config::printJasmineDOTAfterOpts || config::printJasmineDOTBeforeEachPass) ? "" : RESET;
         if (b.header().pred) {
             io = format(io, gray, "(");

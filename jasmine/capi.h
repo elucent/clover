@@ -257,6 +257,7 @@ JASMINE_EXPORT JasmineNode jasmine_create_convert(JasmineFunction function, Jasm
 JASMINE_EXPORT JasmineNode jasmine_create_bitcast(JasmineFunction function, JasmineType destType, JasmineOperand dest, JasmineType srcType, JasmineOperand src);
 JASMINE_EXPORT JasmineNode jasmine_create_trap(JasmineFunction function);
 JASMINE_EXPORT JasmineNode jasmine_create_alloca(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand size);
+JASMINE_EXPORT JasmineNode jasmine_create_comment(JasmineFunction function, const char* comment, size_t comment_length);
 
 /*
  * Global data
@@ -586,5 +587,6 @@ JASMINE_EXPORT void jasmine_append_convert(JasmineBuilder builder, JasmineType d
 JASMINE_EXPORT void jasmine_append_bitcast(JasmineBuilder builder, JasmineType destType, JasmineOperand dest, JasmineType srcType, JasmineOperand src);
 JASMINE_EXPORT void jasmine_append_trap(JasmineBuilder builder);
 JASMINE_EXPORT void jasmine_append_alloca(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand size);
+JASMINE_EXPORT void jasmine_append_comment(JasmineBuilder builder, const char* comment, size_t comment_length);
 
 #endif

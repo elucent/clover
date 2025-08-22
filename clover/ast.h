@@ -1783,15 +1783,22 @@ namespace clover {
     }
 
     template<typename IO, typename Format = Formatter<IO>>
-    inline IO format_tree_to(IO io, AST parent, const AST& ast, u32 indentAmount, bool allowMultiline) {
+    inline IO format_tree_to(IO io, AST parent, const AST& ast, u32 indentAmount, bool allowMultiline, i32 remainingDepth) {
         auto indent = [&](u32 amount) {
             while (amount --)
                 io = format(io, ' ');
         };
         auto typeColor = isTypeExpression(ast) ? CYAN : GREEN;
-        bool isDOT = config::printTypeConstraintsAsDOT;
+        auto typeReset = RESET;
+        bool isDOT = config::printTypeConstraintsAsDOT || config::jasmineASTComments;
         if (isDOT)
-            typeColor = "";
+            typeColor = typeReset = "";
+
+        if ((remainingDepth == 0 && !ast.isLeaf())
+            || (remainingDepth >= 0 && (ast.kind() == ASTKind::Do || ast.kind() == ASTKind::TopLevel)))
+            return format(io, '(', AST_NAMES_SYMBOLIC[(u32)ast.kind()], " ...)");
+        else if (remainingDepth > 0)
+            remainingDepth -= 1;
 
         auto kind = ast.kind();
         Module* module = ast.module;
@@ -1817,7 +1824,7 @@ namespace clover {
             case ASTKind::GenericTypename:
                 io = format(io, module->str(ast.varInfo(parent.scope()->function).name));
                 if (module->nodeTypes.size())
-                    io = format(io, typeColor, ":", module->types->get(ast.varInfo(parent.scope()->function).type), RESET);
+                    io = format(io, typeColor, ":", module->types->get(ast.varInfo(parent.scope()->function).type), typeReset);
                 return io;
             case ASTKind::Global:
             case ASTKind::GlobalConst:
@@ -1825,7 +1832,7 @@ namespace clover {
             case ASTKind::GlobalGenericTypename:
                 io = format(io, module->str(ast.varInfo().name));
                 if (ast.module->nodeTypes.size())
-                    io = format(io, typeColor, ":", module->types->get(ast.varInfo().type), RESET);
+                    io = format(io, typeColor, ":", module->types->get(ast.varInfo().type), typeReset);
                 return io;
             case ASTKind::Field:
                 return format(io, ".", ast.fieldId());
@@ -1833,7 +1840,7 @@ namespace clover {
                 io = format(io, module->str(ast.overloadDecl().child(1).varInfo(parent.scope()->function).name));
                 io = format(io, "/", ast.overloadDecl().node);
                 if (module->nodeTypes.size())
-                    io = format(io, typeColor, ":", ast.overloadDecl().type(), RESET);
+                    io = format(io, typeColor, ":", ast.overloadDecl().type(), typeReset);
                 return io;
             case ASTKind::Wildcard:
                 return format(io, "...");
@@ -1866,7 +1873,7 @@ namespace clover {
 
                 u32 newIndent = cstring(AST_NAMES_SYMBOLIC[(u32)kind]).size() + 2 + indentAmount;
                 for (u32 i : indices(ast)) {
-                    io = format_tree_to(io, ast, ast.child(i), newIndent, allowMultiline);
+                    io = format_tree_to(io, ast, ast.child(i), newIndent, allowMultiline, remainingDepth);
                     if (allowMultiline && i < ast.arity() - 1) {
                         io = format(io, '\n');
                         indent(newIndent);
@@ -1875,25 +1882,25 @@ namespace clover {
                 }
                 io = format(io, ')');
                 if (ast.module->nodeTypes.size() && ast.typeIndex() != InvalidType)
-                    io = format(io, typeColor, ":", ast.type(), RESET);
+                    io = format(io, typeColor, ":", ast.type(), typeReset);
                 return io;
             }
             default:
                 io = format(io, '(', AST_NAMES_SYMBOLIC[(u32)kind]);
                 for (AST child : ast) {
                     io = format(io, ' ');
-                    io = format_tree_to(io, ast, child, indentAmount, allowMultiline);
+                    io = format_tree_to(io, ast, child, indentAmount, allowMultiline, remainingDepth);
                 }
                 io = format(io, ')');
                 if (ast.module->nodeTypes.size() && ast.typeIndex() != InvalidType)
-                    io = format(io, typeColor, ":", ast.type(), RESET);
+                    io = format(io, typeColor, ":", ast.type(), typeReset);
                 return io;
         }
     }
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const AST& ast) {
-        return format_tree_to(io, AST(), ast, 0, false);
+        return format_tree_to(io, AST(), ast, 0, false, -1);
     }
 
     struct ASTWithParent {
@@ -1903,7 +1910,28 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const ASTWithParent& ast) {
-        return format_tree_to(io, ast.parent, ast.ast, 0, false);
+        return format_tree_to(io, ast.parent, ast.ast, 0, false, -1);
+    }
+
+    struct ASTWithDepth {
+        const AST& ast;
+        i32 maxDepth;
+    };
+
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const ASTWithDepth& ast) {
+        return format_tree_to(io, AST(), ast.ast, 0, false, ast.maxDepth);
+    }
+
+    struct ASTWithDepthAndParent {
+        const AST& parent;
+        const AST& ast;
+        i32 maxDepth;
+    };
+
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const ASTWithDepthAndParent& ast) {
+        return format_tree_to(io, ast.parent, ast.ast, 0, false, ast.maxDepth);
     }
 
     struct Multiline {
@@ -1914,7 +1942,7 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const Multiline& ast) {
-        return format_tree_to(io, AST(), ast.ast, 0, true);
+        return format_tree_to(io, AST(), ast.ast, 0, true, -1);
     }
 }
 

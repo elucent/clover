@@ -482,6 +482,22 @@ namespace clover {
             }
             return function->mangledName = module->sym(const_slice<i8>{ buffer, 1024 - target.size() });
         }
+
+        u32 expressionDepth = 0;
+    };
+
+    struct ExpressionDepthScope {
+        GenerationContext& ctx;
+        bool didActuallyRun;
+        inline ExpressionDepthScope(GenerationContext& ctx_in, bool actuallyRun): ctx(ctx_in), didActuallyRun(actuallyRun) {
+            if (actuallyRun)
+                ctx.expressionDepth ++;
+        }
+
+        inline ~ExpressionDepthScope() {
+            if (didActuallyRun)
+                ctx.expressionDepth --;
+        }
     };
 
     Type typeOf(AST ast) {
@@ -1134,6 +1150,16 @@ namespace clover {
         if (pattern.missing())
             return;
 
+        if UNLIKELY(config::jasmineASTComments) {
+            i8 buffer[256];
+            slice<i8> output = { buffer, 256 };
+            for (u32 i = 0; i < genCtx.expressionDepth; i ++)
+                output = format(output, ' ');
+            output = format(output, "(pattern ", ASTWithDepth { pattern, 2 }, ")");
+            jasmine_append_comment(builder, buffer, 256 - output.size());
+        }
+        ExpressionDepthScope expressionDepth(genCtx, config::jasmineASTComments);
+
         auto getLValue = [&](AST pattern) -> JasmineOperand {
             assert(pattern.kind() == ASTKind::VarDecl);
             auto varType = genCtx.lower(typeOf(pattern));
@@ -1711,6 +1737,19 @@ namespace clover {
 
         if (genCtx.isUnreachable)
             return JASMINE_INVALID_OPERAND;
+
+        bool printComments = false;
+        if UNLIKELY(config::jasmineASTComments && !ast.isLeaf() && ast.kind() != ASTKind::TopLevel && ast.kind() != ASTKind::Do) {
+            i8 buffer[256];
+            slice<i8> output = { buffer, 256 };
+            for (u32 i = 0; i < genCtx.expressionDepth; i ++)
+                output = format(output, ' ');
+            output = format(output, ASTWithDepth { ast, 2 });
+            jasmine_append_comment(builder, buffer, 256 - output.size());
+            printComments = true;
+        }
+        ExpressionDepthScope expressionDepth(genCtx, printComments);
+
         switch (ast.kind()) {
             case ASTKind::Bool:
                 return genCtx.imm(ast.boolConst() ? 1 : 0);

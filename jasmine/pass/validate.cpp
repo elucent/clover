@@ -123,6 +123,7 @@ namespace jasmine {
         for (Block block : fn.blocks()) {
             for (Node node : block.nodes()) switch (node.opcode()) {
                 case Opcode::NOP:
+                case Opcode::COMMENT:
                     break;
                 case Opcode::VAR:
                     assert(node.operands().size() == 1);

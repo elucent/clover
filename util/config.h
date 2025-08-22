@@ -67,6 +67,7 @@ enum class PassTimeUnit {
     macro(typecheckOnly, typecheck-only, bool, false, Clover, "Stop Clover compilation at the typechecking phase.") \
     macro(finalizeAfterTypechecking, finalize-after-typechecking, bool, true, Clover, "Finalize Clover modules after typechecking, without doing any further safety analysis.") \
     macro(compileToJasmine, compile-to-jasmine, bool, false, Clover, "Compile Clover to Jasmine IR and then stop.") \
+    macro(jasmineASTComments, jasmine-ast-comments, bool, false, Clover, "Generate Jasmine IR comments for non-leaf AST nodes when compiling.") \
     macro(printSource, print-source, bool, false, Clover, "Print Clover source after loading.") \
     macro(printTokens, print-tokens, bool, false, Clover, "Print Clover tokens after lexing.") \
     macro(printParseTree, print-parse-tree, bool, false, Clover, "Print Clover AST immediately after parsing.") \

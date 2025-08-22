@@ -149,13 +149,15 @@ struct Formatter<slice<i8>> {
     }
 
     inline static slice<i8> put(slice<i8> io, i8 c) {
-        assert(io.size());
+        if (!io.size())
+            return io;
         io[0] = c;
         return io.drop(1);
     }
 
     inline static slice<i8> put(slice<i8> io, const_slice<i8> str) {
-        assert(io.size() >= str.size());
+        if (io.size() < str.size())
+            str = str.take(io.size());
         memory::copy(io.data(), str.data(), str.size());
         return io.drop(str.size());
     }

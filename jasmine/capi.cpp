@@ -370,6 +370,10 @@ JASMINE_EXPORT JasmineNode jasmine_create_alloca(JasmineFunction function, Jasmi
     return JasmineNode { .index = (int32_t)F(function).addNode(Opcode::ALLOCA, type.index, O(dest), O(size)).index() };
 }
 
+JASMINE_EXPORT JasmineNode jasmine_create_comment(JasmineFunction function, const char* comment, size_t comment_length) {
+    return JasmineNode { .index = (int32_t)F(function).addNode(Opcode::COMMENT, VOID, F(function).stringOperand({ (const i8*)comment, (iword)comment_length })).index() };
+}
+
 /*
  * Global data
  */
@@ -811,4 +815,5 @@ JASMINE_EXPORT void jasmine_append_convert(JasmineBuilder builder, JasmineType d
 JASMINE_EXPORT void jasmine_append_bitcast(JasmineBuilder builder, JasmineType destType, JasmineOperand dest, JasmineType srcType, JasmineOperand src) { B(builder).add(jasmine_create_bitcast(B(builder).func(), destType, dest, srcType, src)); }
 JASMINE_EXPORT void jasmine_append_trap(JasmineBuilder builder) { B(builder).add(jasmine_create_trap(B(builder).func())); }
 JASMINE_EXPORT void jasmine_append_alloca(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand size) { B(builder).add(jasmine_create_alloca(B(builder).func(), type, dest, size)); }
+JASMINE_EXPORT void jasmine_append_comment(JasmineBuilder builder, const char* comment, size_t comment_length) { B(builder).add(jasmine_create_comment(B(builder).func(), comment, comment_length)); }
 
