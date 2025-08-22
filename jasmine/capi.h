@@ -195,9 +195,6 @@ JASMINE_EXPORT JasmineNode jasmine_create_var(JasmineFunction function, JasmineT
 JASMINE_EXPORT JasmineNode jasmine_create_mov(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand src);
 JASMINE_EXPORT JasmineNode jasmine_create_pack(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand* fields, size_t field_count);
 JASMINE_EXPORT JasmineNode jasmine_create_unpack(JasmineFunction function, JasmineType type, JasmineOperand* outputs, size_t output_count, JasmineOperand src);
-JASMINE_EXPORT JasmineNode jasmine_create_new(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand src);
-JASMINE_EXPORT JasmineNode jasmine_create_new_struct(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand* fields, size_t field_count);
-JASMINE_EXPORT JasmineNode jasmine_create_new_array(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand* elements, size_t element_count);
 JASMINE_EXPORT JasmineNode jasmine_create_add(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right);
 JASMINE_EXPORT JasmineNode jasmine_create_sub(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right);
 JASMINE_EXPORT JasmineNode jasmine_create_mul(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right);
@@ -527,9 +524,6 @@ JASMINE_EXPORT void jasmine_append_var(JasmineBuilder builder, JasmineType type,
 JASMINE_EXPORT void jasmine_append_mov(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src);
 JASMINE_EXPORT void jasmine_append_pack(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand* fields, size_t field_count);
 JASMINE_EXPORT void jasmine_append_unpack(JasmineBuilder builder, JasmineType type, JasmineOperand* outputs, size_t output_count, JasmineOperand src);
-JASMINE_EXPORT void jasmine_append_new(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src);
-JASMINE_EXPORT void jasmine_append_new_struct(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand* fields, size_t field_count);
-JASMINE_EXPORT void jasmine_append_new_array(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand* elements, size_t element_count);
 JASMINE_EXPORT void jasmine_append_add(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right);
 JASMINE_EXPORT void jasmine_append_sub(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right);
 JASMINE_EXPORT void jasmine_append_mul(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right);

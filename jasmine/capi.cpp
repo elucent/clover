@@ -203,18 +203,6 @@ JASMINE_EXPORT JasmineNode jasmine_create_unpack(JasmineFunction function, Jasmi
     return JasmineNode { .index = (int32_t)F(function).addNode(Opcode::UNPACK, type.index, const_slice<Operand>{ (const Operand*)outputs, (iword)output_count }, O(src)).index() };
 }
 
-JASMINE_EXPORT JasmineNode jasmine_create_new(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand src) {
-    return JasmineNode { .index = (int32_t)F(function).addNode(Opcode::NEW, type.index, O(dest), O(src)).index() };
-}
-
-JASMINE_EXPORT JasmineNode jasmine_create_new_struct(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand* fields, size_t field_count) {
-    return JasmineNode { .index = (int32_t)F(function).addNode(Opcode::NEW_STRUCT, type.index, O(dest), const_slice<Operand>{ (const Operand*)fields, (iword)field_count }).index() };
-}
-
-JASMINE_EXPORT JasmineNode jasmine_create_new_array(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand* elements, size_t element_count) {
-    return JasmineNode { .index = (int32_t)F(function).addNode(Opcode::NEW_ARRAY, type.index, O(dest), const_slice<Operand>{ (const Operand*)elements, (iword)element_count }).index() };
-}
-
 #define UNARY(opcode) { \
     return JasmineNode { .index = (int32_t)F(function).addNode(Opcode:: opcode, type.index, O(dest), O(src)).index() }; \
 }
@@ -761,9 +749,6 @@ JASMINE_EXPORT void jasmine_append_var(JasmineBuilder builder, JasmineType type,
 JASMINE_EXPORT void jasmine_append_mov(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src) { B(builder).add(jasmine_create_mov(B(builder).func(), type, dest, src)); }
 JASMINE_EXPORT void jasmine_append_pack(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand* fields, size_t field_count) { B(builder).add(jasmine_create_pack(B(builder).func(), type, dest, fields, field_count)); }
 JASMINE_EXPORT void jasmine_append_unpack(JasmineBuilder builder, JasmineType type, JasmineOperand* outputs, size_t output_count, JasmineOperand src) { B(builder).add(jasmine_create_unpack(B(builder).func(), type, outputs, output_count, src)); }
-JASMINE_EXPORT void jasmine_append_new(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src) { B(builder).add(jasmine_create_new(B(builder).func(), type, dest, src)); }
-JASMINE_EXPORT void jasmine_append_new_struct(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand* fields, size_t field_count) { B(builder).add(jasmine_create_new_struct(B(builder).func(), type, dest, fields, field_count)); }
-JASMINE_EXPORT void jasmine_append_new_array(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand* elements, size_t element_count) { B(builder).add(jasmine_create_new_array(B(builder).func(), type, dest, elements, element_count)); }
 JASMINE_EXPORT void jasmine_append_add(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) { B(builder).add(jasmine_create_add(B(builder).func(), type, dest, left, right)); }
 JASMINE_EXPORT void jasmine_append_sub(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) { B(builder).add(jasmine_create_sub(B(builder).func(), type, dest, left, right)); }
 JASMINE_EXPORT void jasmine_append_mul(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) { B(builder).add(jasmine_create_mul(B(builder).func(), type, dest, left, right)); }

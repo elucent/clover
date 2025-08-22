@@ -125,9 +125,6 @@ namespace jasmine {
                 case Opcode::NOP:
                     break;
                 case Opcode::VAR:
-                case Opcode::NEW:
-                case Opcode::NEW_STRUCT:
-                case Opcode::NEW_ARRAY:
                     assert(node.operands().size() == 1);
                     assert(node.operand(0).isReg());
                     break;
