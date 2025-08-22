@@ -41,9 +41,9 @@ namespace jasmine {
                 case Opcode::CEIL:
                 case Opcode::NEG:
                 case Opcode::NOT:
-                case Opcode::LZC:
-                case Opcode::TZC:
-                case Opcode::POPC:
+                case Opcode::LZCNT:
+                case Opcode::TZCNT:
+                case Opcode::POPCNT:
                 case Opcode::MIN:
                 case Opcode::MAX:
                 case Opcode::AND:
@@ -65,11 +65,6 @@ namespace jasmine {
                 case Opcode::BITCAST:
                 case Opcode::CONVERT:
                     unify(node.operand(0), node.type());
-                    break;
-                case Opcode::NEW:
-                case Opcode::NEW_STRUCT:
-                case Opcode::NEW_ARRAY:
-                    unify(node.operand(0), TypeKind::REF);
                     break;
                 case Opcode::IS_LT:
                 case Opcode::IS_LE:
@@ -281,11 +276,6 @@ namespace jasmine {
                         break;
                     unify(block, node, node.operand(0), node.type());
                     break;
-                case Opcode::NEW:
-                    if (!validateArityAndDest(block, node, 1))
-                        break;
-                    unify(block, node, node.operand(0), TypeKind::REF);
-                    break;
                 case Opcode::PACK:
                     if (!isStruct(fn.typeContext(), node.type()))
                         ctx.error(block, node, "Expected struct type in pack node, found ", TypeLogger { fn, node.type() }, '.');
@@ -314,34 +304,6 @@ namespace jasmine {
                         unify(block, node, node.operand(structType.fieldCount), node.type());
                     }
                     break;
-                case Opcode::NEW_STRUCT:
-                    if (!isStruct(fn.typeContext(), node.type()))
-                        ctx.error(block, node, "Expected struct type in new.struct node, found ", TypeLogger { fn, node.type() }, '.');
-                    else {
-                        auto& structType = fn.typeContext()[node.type()];
-                        if (structType.fieldCount != node.operands().size() - 1) {
-                            ctx.error(block, node, "Incorrect number of inputs in new.struct node: expected ", structType.fieldCount, ", got ", node.operands().size() - 1);
-                            break;
-                        }
-                        for (auto [t, o] : zip(structType.fields(), node.operands().drop(1)))
-                            unify(block, node, o, t);
-                        unify(block, node, node.operand(0), REF);
-                    }
-                    break;
-                case Opcode::NEW_ARRAY:
-                    if (!isArray(fn.typeContext(), node.type()))
-                        ctx.error(block, node, "Expected array type in new.array node, found ", TypeLogger { fn, node.type() }, '.');
-                    else {
-                        auto& arrayType = fn.typeContext()[node.type()];
-                        if (arrayType.length() != node.operands().size() - 1) {
-                            ctx.error(block, node, "Incorrect number of inputs in new.struct node: expected ", arrayType.length(), ", got ", node.operands().size() - 1);
-                            break;
-                        }
-                        for (auto o : node.operands().drop(1))
-                            unify(block, node, o, arrayType.elementType());
-                        unify(block, node, node.operand(0), REF);
-                    }
-                    break;
                 case Opcode::MOV:
                     if (!validateArityAndDest(block, node, 2))
                         break;
@@ -366,9 +328,9 @@ namespace jasmine {
                     unifyBinary(block, node);
                     break;
                 case Opcode::NOT:
-                case Opcode::LZC:
-                case Opcode::TZC:
-                case Opcode::POPC:
+                case Opcode::LZCNT:
+                case Opcode::TZCNT:
+                case Opcode::POPCNT:
                     if (!validateArityAndDest(block, node, 2))
                         break;
                     checkIsInt(block, node);

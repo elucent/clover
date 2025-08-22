@@ -1097,18 +1097,18 @@ inline IO format_impl(IO io, Repr repr) {
     macro(ROR16,        ror16,          0x5b,   Size::BITS16,   TERNARY_GP_IMM)             \
     macro(ROR32,        ror32,          0x5c,   Size::BITS32,   TERNARY_GP_IMM)             \
     macro(ROR64,        ror64,          0x5d,   Size::BITS64,   TERNARY_GP_IMM)             \
-    macro(POPC8,        popc8,          0x5e,   Size::BITS8,    BINARY_GP)                  \
-    macro(POPC16,       popc16,         0x5f,   Size::BITS16,   BINARY_GP)                  \
-    macro(POPC32,       popc32,         0x60,   Size::BITS32,   BINARY_GP)                  \
-    macro(POPC64,       popc64,         0x61,   Size::BITS64,   BINARY_GP)                  \
-    macro(LZC8,         lzc8,           0x62,   Size::BITS8,    BINARY_GP)                  \
-    macro(LZC16,        lzc16,          0x63,   Size::BITS16,   BINARY_GP)                  \
-    macro(LZC32,        lzc32,          0x64,   Size::BITS32,   BINARY_GP)                  \
-    macro(LZC64,        lzc64,          0x65,   Size::BITS64,   BINARY_GP)                  \
-    macro(TZC8,         tzc8,           0x66,   Size::BITS8,    BINARY_GP)                  \
-    macro(TZC16,        tzc16,          0x67,   Size::BITS16,   BINARY_GP)                  \
-    macro(TZC32,        tzc32,          0x68,   Size::BITS32,   BINARY_GP)                  \
-    macro(TZC64,        tzc64,          0x69,   Size::BITS64,   BINARY_GP)                  \
+    macro(POPCNT8,      popcnt8,        0x5e,   Size::BITS8,    BINARY_GP)                  \
+    macro(POPCNT16,     popcnt16,       0x5f,   Size::BITS16,   BINARY_GP)                  \
+    macro(POPCNT32,     popcnt32,       0x60,   Size::BITS32,   BINARY_GP)                  \
+    macro(POPCNT64,     popcnt64,       0x61,   Size::BITS64,   BINARY_GP)                  \
+    macro(LZCNT8,       lzcnt8,         0x62,   Size::BITS8,    BINARY_GP)                  \
+    macro(LZCNT16,      lzcnt16,        0x63,   Size::BITS16,   BINARY_GP)                  \
+    macro(LZCNT32,      lzcnt32,        0x64,   Size::BITS32,   BINARY_GP)                  \
+    macro(LZCNT64,      lzcnt64,        0x65,   Size::BITS64,   BINARY_GP)                  \
+    macro(TZCNT8,       tzcnt8,         0x66,   Size::BITS8,    BINARY_GP)                  \
+    macro(TZCNT16,      tzcnt16,        0x67,   Size::BITS16,   BINARY_GP)                  \
+    macro(TZCNT32,      tzcnt32,        0x68,   Size::BITS32,   BINARY_GP)                  \
+    macro(TZCNT64,      tzcnt64,        0x69,   Size::BITS64,   BINARY_GP)                  \
     \
     /* Block 4: Conditional operations on values. */                                        \
     macro(ISZ,          isz,            0x6a,   Size::OTHER,    BINARY_GP)                  \

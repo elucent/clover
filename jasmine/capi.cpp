@@ -244,9 +244,9 @@ JASMINE_EXPORT JasmineNode jasmine_create_shl(JasmineFunction function, JasmineT
 JASMINE_EXPORT JasmineNode jasmine_create_shr(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) BINARY(SHR)
 JASMINE_EXPORT JasmineNode jasmine_create_rol(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) BINARY(ROL)
 JASMINE_EXPORT JasmineNode jasmine_create_ror(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) BINARY(ROR)
-JASMINE_EXPORT JasmineNode jasmine_create_lzc(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand src) UNARY(LZC)
-JASMINE_EXPORT JasmineNode jasmine_create_tzc(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand src) UNARY(TZC)
-JASMINE_EXPORT JasmineNode jasmine_create_popc(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand src) UNARY(POPC)
+JASMINE_EXPORT JasmineNode jasmine_create_lzcnt(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand src) UNARY(LZCNT)
+JASMINE_EXPORT JasmineNode jasmine_create_tzcnt(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand src) UNARY(TZCNT)
+JASMINE_EXPORT JasmineNode jasmine_create_popcnt(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand src) UNARY(POPCNT)
 JASMINE_EXPORT JasmineNode jasmine_create_is_lt(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) BINARY(IS_LT)
 JASMINE_EXPORT JasmineNode jasmine_create_is_le(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) BINARY(IS_LE)
 JASMINE_EXPORT JasmineNode jasmine_create_is_gt(JasmineFunction function, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) BINARY(IS_GT)
@@ -785,9 +785,9 @@ JASMINE_EXPORT void jasmine_append_shl(JasmineBuilder builder, JasmineType type,
 JASMINE_EXPORT void jasmine_append_shr(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) { B(builder).add(jasmine_create_shr(B(builder).func(), type, dest, left, right)); }
 JASMINE_EXPORT void jasmine_append_rol(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) { B(builder).add(jasmine_create_rol(B(builder).func(), type, dest, left, right)); }
 JASMINE_EXPORT void jasmine_append_ror(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) { B(builder).add(jasmine_create_ror(B(builder).func(), type, dest, left, right)); }
-JASMINE_EXPORT void jasmine_append_lzc(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src) { B(builder).add(jasmine_create_lzc(B(builder).func(), type, dest, src)); }
-JASMINE_EXPORT void jasmine_append_tzc(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src) { B(builder).add(jasmine_create_tzc(B(builder).func(), type, dest, src)); }
-JASMINE_EXPORT void jasmine_append_popc(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src) { B(builder).add(jasmine_create_popc(B(builder).func(), type, dest, src)); }
+JASMINE_EXPORT void jasmine_append_lzcnt(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src) { B(builder).add(jasmine_create_lzcnt(B(builder).func(), type, dest, src)); }
+JASMINE_EXPORT void jasmine_append_tzcnt(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src) { B(builder).add(jasmine_create_tzcnt(B(builder).func(), type, dest, src)); }
+JASMINE_EXPORT void jasmine_append_popcnt(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand src) { B(builder).add(jasmine_create_popcnt(B(builder).func(), type, dest, src)); }
 JASMINE_EXPORT void jasmine_append_is_lt(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) { B(builder).add(jasmine_create_is_lt(B(builder).func(), type, dest, left, right)); }
 JASMINE_EXPORT void jasmine_append_is_le(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) { B(builder).add(jasmine_create_is_le(B(builder).func(), type, dest, left, right)); }
 JASMINE_EXPORT void jasmine_append_is_gt(JasmineBuilder builder, JasmineType type, JasmineOperand dest, JasmineOperand left, JasmineOperand right) { B(builder).add(jasmine_create_is_gt(B(builder).func(), type, dest, left, right)); }

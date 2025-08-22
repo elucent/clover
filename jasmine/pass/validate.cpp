@@ -163,9 +163,9 @@ namespace jasmine {
                     gpOrImm(node);
                     break;
                 case Opcode::NOT:
-                case Opcode::LZC:
-                case Opcode::TZC:
-                case Opcode::POPC:
+                case Opcode::LZCNT:
+                case Opcode::TZCNT:
+                case Opcode::POPCNT:
                     assert(node.operands().size() == 2);
                     gpOnly(node);
                     break;

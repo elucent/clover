@@ -19,17 +19,6 @@ namespace jasmine {
         /* Simple value operations. */ \
         macro(MOV, mov) \
         macro(VAR, var) \
-        macro(NEW, new) \
-        \
-        /* Aggregate value operations. */ \
-        macro(PACK, pack) \
-        macro(UNPACK, unpack) \
-        macro(NEW_STRUCT, new_struct) \
-        macro(NEW_ARRAY, new_array) \
-        macro(GET_FIELD, get_field) \
-        macro(GET_INDEX, get_index) \
-        macro(SET_FIELD, set_field) \
-        macro(SET_INDEX, set_index) \
         \
         /* Arithmetic. */ \
         macro(ADD, add) \
@@ -55,9 +44,9 @@ namespace jasmine {
         macro(SHR, shr) \
         macro(ROL, rol) \
         macro(ROR, ror) \
-        macro(LZC, lzc) \
-        macro(TZC, tzc) \
-        macro(POPC, popc) \
+        macro(LZCNT, lzcnt) \
+        macro(TZCNT, tzcnt) \
+        macro(POPCNT, popcnt) \
         \
         /* Comparisons. */ \
         macro(IS_LT, is_lt) \
@@ -68,22 +57,6 @@ namespace jasmine {
         macro(IS_NE, is_ne) \
         macro(IS_INB, is_inb) \
         macro(IS_OOB, is_oob) \
-        \
-        /* Memory operations. */ \
-        macro(LOAD, load) \
-        macro(LOAD_FIELD, load_field) \
-        macro(LOAD_INDEX, load_index) \
-        macro(STORE, store) \
-        macro(STORE_FIELD, store_field) \
-        macro(STORE_INDEX, store_index) \
-        macro(ADDR, addr) \
-        macro(ADDR_FIELD, addr_field) \
-        macro(ADDR_INDEX, addr_index) \
-        macro(OFFSET_FIELD, offset_field) \
-        macro(OFFSET_INDEX, offset_index) \
-        macro(PUSH, push) \
-        macro(POP, pop) \
-        macro(ALLOCA, alloca) \
         \
         /* Branches. */ \
         macro(BR, br) \
@@ -100,6 +73,30 @@ namespace jasmine {
         macro(BR_ADD_O, br_add_o) \
         macro(BR_SUB_O, br_sub_o) \
         macro(BR_MUL_O, br_mul_o) \
+        \
+        /* Aggregate value operations. */ \
+        macro(PACK, pack) \
+        macro(UNPACK, unpack) \
+        macro(GET_FIELD, get_field) \
+        macro(GET_INDEX, get_index) \
+        macro(SET_FIELD, set_field) \
+        macro(SET_INDEX, set_index) \
+        \
+        /* Memory operations. */ \
+        macro(LOAD, load) \
+        macro(LOAD_FIELD, load_field) \
+        macro(LOAD_INDEX, load_index) \
+        macro(STORE, store) \
+        macro(STORE_FIELD, store_field) \
+        macro(STORE_INDEX, store_index) \
+        macro(ADDR, addr) \
+        macro(ADDR_FIELD, addr_field) \
+        macro(ADDR_INDEX, addr_index) \
+        macro(OFFSET_FIELD, offset_field) \
+        macro(OFFSET_INDEX, offset_index) \
+        macro(PUSH, push) \
+        macro(POP, pop) \
+        macro(ALLOCA, alloca) \
         \
         /* Conversions. */ \
         macro(BITCAST, bitcast) \
@@ -256,8 +253,6 @@ namespace jasmine {
             case Opcode::CALL_VOID:
             case Opcode::PACK:
             case Opcode::UNPACK:
-            case Opcode::NEW_ARRAY:
-            case Opcode::NEW_STRUCT:
                 return true;
             default:
                 return false;
@@ -1923,9 +1918,9 @@ namespace jasmine {
             case Operand::IntConst:
                 return format(io, '#', o.function.intValueOf(o.operand));
             case Operand::F32Const:
-                return format(io, '#', o.function.f32ValueOf(o.operand));
+                return format(io, '#', o.function.f32ValueOf(o.operand), "f32");
             case Operand::F64Const:
-                return format(io, '#', o.function.f64ValueOf(o.operand));
+                return format(io, '#', o.function.f64ValueOf(o.operand), "f64");
             case Operand::Branch: {
                 io = format(io, ".bb", o.function.edge(o.operand.edge).destIndex());
                 Edge edge = o.function.edge(o.operand.edge);

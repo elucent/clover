@@ -1341,66 +1341,66 @@ struct AMD64Assembler {
             as.code.write<i8>(b.imm);
     }
 
-    static void popc8(Assembly& as, ASMVal dst, ASMVal src) {
+    static void popcnt8(Assembly& as, ASMVal dst, ASMVal src) {
         and16(as, dst, src, Imm(255));
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, WORD, Opcode::literal(0x0f, 0xb8), dst, dst);
     }
 
-    static void popc16(Assembly& as, ASMVal dst, ASMVal src) {
+    static void popcnt16(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, WORD, Opcode::literal(0x0f, 0xb8), src, dst);
     }
 
-    static void popc32(Assembly& as, ASMVal dst, ASMVal src) {
+    static void popcnt32(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, DWORD, Opcode::literal(0x0f, 0xb8), src, dst);
     }
 
-    static void popc64(Assembly& as, ASMVal dst, ASMVal src) {
+    static void popcnt64(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, QWORD, Opcode::literal(0x0f, 0xb8), src, dst);
     }
 
-    static void lzc8(Assembly& as, ASMVal dst, ASMVal src) {
+    static void lzcnt8(Assembly& as, ASMVal dst, ASMVal src) {
         shl16(as, dst, src, Imm(8));
         or16(as, dst, dst, Imm(255));
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, WORD, Opcode::literal(0x0f, 0xbd), dst, dst);
     }
 
-    static void lzc16(Assembly& as, ASMVal dst, ASMVal src) {
+    static void lzcnt16(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, WORD, Opcode::literal(0x0f, 0xbd), src, dst);
     }
 
-    static void lzc32(Assembly& as, ASMVal dst, ASMVal src) {
+    static void lzcnt32(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, DWORD, Opcode::literal(0x0f, 0xbd), src, dst);
     }
 
-    static void lzc64(Assembly& as, ASMVal dst, ASMVal src) {
+    static void lzcnt64(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, QWORD, Opcode::literal(0x0f, 0xbd), src, dst);
     }
 
-    static void tzc8(Assembly& as, ASMVal dst, ASMVal src) {
+    static void tzcnt8(Assembly& as, ASMVal dst, ASMVal src) {
         or16(as, dst, src, Imm(0xff00));
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, WORD, Opcode::literal(0x0f, 0xbc), dst, dst);
     }
 
-    static void tzc16(Assembly& as, ASMVal dst, ASMVal src) {
+    static void tzcnt16(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, WORD, Opcode::literal(0x0f, 0xbc), src, dst);
     }
 
-    static void tzc32(Assembly& as, ASMVal dst, ASMVal src) {
+    static void tzcnt32(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, DWORD, Opcode::literal(0x0f, 0xbc), src, dst);
     }
 
-    static void tzc64(Assembly& as, ASMVal dst, ASMVal src) {
+    static void tzcnt64(Assembly& as, ASMVal dst, ASMVal src) {
         as.code.write<u8>(0xf3); // Extra prefix byte before operand size override.
         binaryop(as, QWORD, Opcode::literal(0x0f, 0xbc), src, dst);
     }

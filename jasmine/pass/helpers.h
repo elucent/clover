@@ -288,9 +288,9 @@ namespace jasmine {
             case Opcode::FLOOR:
             case Opcode::CEIL:
             case Opcode::ROUND:
-            case Opcode::LZC:
-            case Opcode::TZC:
-            case Opcode::POPC:
+            case Opcode::LZCNT:
+            case Opcode::TZCNT:
+            case Opcode::POPCNT:
             case Opcode::MOV: // Unary ops.
             case Opcode::CONVERT:
             case Opcode::BITCAST:
