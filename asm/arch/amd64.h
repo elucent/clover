@@ -2231,8 +2231,7 @@ struct AMD64Assembler {
     }
 
     static inline void trap(Assembly& as) {
-        as.code.write<i8>(0x0f);
-        as.code.write<i8>(0x0b);
+        as.code.write<i8>(0xcc);
     }
 
     // Conversions
