@@ -154,6 +154,7 @@ namespace clover {
         macro(DoScoped, doScoped, do_scoped, false, -1) \
         macro(If, if, if, false, 2) \
         macro(IfElse, ifElse, if_else, false, 3) \
+        macro(Ternary, ternary, ternary, false, 3) \
         macro(While, while, while, false, 2) \
         macro(For, for, for, false, 3) \
         macro(Then, then, then, false, 2) \

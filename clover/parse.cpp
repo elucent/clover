@@ -876,7 +876,7 @@ namespace clover {
                 return module->add(ASTKind::Stars, op.pos, lhs, rhs, extraChildren);
             case KeywordIf:
                 // We should only be in this case if we had an inline else block.
-                return module->add(ASTKind::IfElse, op.pos, interior, lhs, rhs);
+                return module->add(ASTKind::Ternary, op.pos, interior, lhs, rhs);
             default:
                 unreachable("Not a binary operator");
         }

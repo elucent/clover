@@ -2124,12 +2124,13 @@ namespace clover {
                 return JASMINE_INVALID_OPERAND;
             }
 
-            case ASTKind::IfElse: {
+            case ASTKind::IfElse:
+            case ASTKind::Ternary: {
                 auto ifTrue = genCtx.addBlock(), ifFalse = genCtx.addBlock();
                 JasmineBlock continuation = JASMINE_INVALID_BLOCK;
                 JasmineOperand result;
                 Type resultType = typeOf(ast);
-                bool hasResult = resultType != ast.module->voidType();
+                bool hasResult = ast.kind() == ASTKind::Ternary;
                 if (hasResult)
                     result = genCtx.temp();
                 generateConditionalBranch(genCtx, builder, ast.child(0), ifTrue, ifFalse, false);
@@ -2355,7 +2356,7 @@ namespace clover {
                 auto base = ast.child(0).kind() == ASTKind::Global
                     ? genCtx.global(ast.child(0).variable())
                     : generate(genCtx, builder, ast.child(0), baseType);
-                return generateLength(genCtx, builder, baseType, base);
+                return generateLength(genCtx, builder, baseType, base, typeOf(ast));
             }
 
             case ASTKind::GetIndex:

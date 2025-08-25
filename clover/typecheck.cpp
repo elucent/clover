@@ -1730,6 +1730,15 @@ namespace clover {
             case ASTKind::IfElse: {
                 auto cond = inferChild(ctx, function, ast, 0);
                 unify(cond, module->boolType(), ast, ctx);
+                inferChild(ctx, function, ast, 1);
+                inferChild(ctx, function, ast, 2);
+                ast.setType(module->voidType());
+                return fromNodeType(ast);
+            }
+
+            case ASTKind::Ternary: {
+                auto cond = inferChild(ctx, function, ast, 0);
+                unify(cond, module->boolType(), ast, ctx);
                 lhs = inferChild(ctx, function, ast, 1);
                 rhs = inferChild(ctx, function, ast, 2);
 

@@ -244,7 +244,8 @@ namespace clover {
                 computeScopes(module, imports, newScope, ast.child(1));
                 break;
             }
-            case ASTKind::IfElse: {
+            case ASTKind::IfElse:
+            case ASTKind::Ternary: {
                 Scope* newScope = module->addScope(ScopeKind::Block, ast.node, currentScope);
                 Scope* ifTrueScope = module->addScope(ScopeKind::Block, ast.node, newScope);
                 Scope* ifFalseScope = module->addScope(ScopeKind::Block, ast.node, newScope);
