@@ -295,9 +295,7 @@ TEST(typecheck_if_else_expr) {
 }
 
 TEST(typecheck_if_else_stmt) {
-    ASSERT_HAS_TYPE("if true: 1\nelse: 2", u64Type());
-    ASSERT_HAS_TYPE("if true: 1.0\nelse: 2", f32Type());
-    ASSERT_HAS_TYPE("if true: 1\nelse: 2.0", f32Type());
+    ASSERT_HAS_TYPE("if true: 1\nelse: 2", voidType());
 }
 
 TEST(typecheck_while_stmt) {

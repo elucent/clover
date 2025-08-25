@@ -258,13 +258,13 @@ until foo:
 
 TEST(parse_inline_if_or_else) {
     ASSERT_SAME_PARSE("foo if bar", "(if bar foo)");
-    ASSERT_SAME_PARSE("foo if bar else baz", "(if_else bar foo baz)");
+    ASSERT_SAME_PARSE("foo if bar else baz", "(ternary bar foo baz)");
     ASSERT_SAME_PARSE("foo if bar if baz", "(if baz (if bar foo))");
 }
 
 TEST(parse_inline_if_precedence) {
     ASSERT_SAME_PARSE("x = 1 if y", "(if y (= x 1))");
-    ASSERT_SAME_PARSE("x = 1 if y else 2", "(= x (if_else y 1 2))");
+    ASSERT_SAME_PARSE("x = 1 if y else 2", "(= x (ternary y 1 2))");
 }
 
 TEST(parse_inline_unless) {
@@ -286,7 +286,7 @@ TEST(parse_inline_until) {
 }
 
 TEST(parse_inline_hailstone) {
-    ASSERT_SAME_PARSE("(x /= 2) if x % 2 == 0 else (x = 3 * x + 1) while x != 1", "(while (!= x 1) (if_else (== (% x 2) 0) (paren (/= x 2)) (paren (= x (+ (stars 3 x 1) 1)))))");
+    ASSERT_SAME_PARSE("(x /= 2) if x % 2 == 0 else (x = 3 * x + 1) while x != 1", "(while (!= x 1) (ternary (== (% x 2) 0) (paren (/= x 2)) (paren (= x (+ (stars 3 x 1) 1)))))");
 }
 
 TEST(parse_typed_vardecl) {
