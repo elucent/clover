@@ -3252,15 +3252,16 @@ namespace clover {
             const auto& num = lb.as<TypeKind::Numeric>();
             u32 numBits = lb.as<TypeKind::Numeric>().bitCount();
             u32 maxBits = 64;
-            bool isSigned = num.isSigned();
+            bool isSigned = num.bitCount() < 64 || num.isSigned();
+            if (ub.is<TypeKind::Numeric>() && !ub.as<TypeKind::Numeric>().isFloat() && !ub.as<TypeKind::Numeric>().isSigned())
+                isSigned = false;
             if (num.isFloat() && num.bitCount() <= 32)
                 maxBits = 32;
-            if (!num.isFloat() && ub.is<TypeKind::Numeric>() && !ub.as<TypeKind::Numeric>().isFloat()) {
+            if (!num.isFloat() && ub.is<TypeKind::Numeric>() && !ub.as<TypeKind::Numeric>().isFloat())
                 maxBits = ub.as<TypeKind::Numeric>().bitCount();
-                isSigned = ub.as<TypeKind::Numeric>().isSigned();
-            }
             if (!num.isFloat() && ub == Any)
                 maxBits = 64;
+
             if (numBits < 8 && maxBits >= 8)
                 numBits = 8;
             if (numBits < 16 && maxBits >= 16)

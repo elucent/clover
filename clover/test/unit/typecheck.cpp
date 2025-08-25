@@ -69,48 +69,48 @@ inline Type testableType(Module* mod, TypeIndex t) {
     }()
 
 TEST(typecheck_integer_constants) {
-    ASSERT_HAS_TYPE("0", unsignedType(64));
-    ASSERT_HAS_TYPE("1", unsignedType(64));
-    ASSERT_HAS_TYPE("127", unsignedType(64));
-    ASSERT_HAS_TYPE("128", unsignedType(64));
-    ASSERT_HAS_TYPE("255", unsignedType(64));
-    ASSERT_HAS_TYPE("256", unsignedType(64));
-    ASSERT_HAS_TYPE("32767", unsignedType(64));
-    ASSERT_HAS_TYPE("32768", unsignedType(64));
-    ASSERT_HAS_TYPE("65535", unsignedType(64));
-    ASSERT_HAS_TYPE("65536", unsignedType(64));
-    ASSERT_HAS_TYPE("2147483647", unsignedType(64));
-    ASSERT_HAS_TYPE("2147483648", unsignedType(64));
-    ASSERT_HAS_TYPE("4294967295", unsignedType(64));
-    ASSERT_HAS_TYPE("4294967296", unsignedType(64));
-    ASSERT_HAS_TYPE("9223372036854775807", unsignedType(64));
+    ASSERT_HAS_TYPE("0", signedType(64));
+    ASSERT_HAS_TYPE("1", signedType(64));
+    ASSERT_HAS_TYPE("127", signedType(64));
+    ASSERT_HAS_TYPE("128", signedType(64));
+    ASSERT_HAS_TYPE("255", signedType(64));
+    ASSERT_HAS_TYPE("256", signedType(64));
+    ASSERT_HAS_TYPE("32767", signedType(64));
+    ASSERT_HAS_TYPE("32768", signedType(64));
+    ASSERT_HAS_TYPE("65535", signedType(64));
+    ASSERT_HAS_TYPE("65536", signedType(64));
+    ASSERT_HAS_TYPE("2147483647", signedType(64));
+    ASSERT_HAS_TYPE("2147483648", signedType(64));
+    ASSERT_HAS_TYPE("4294967295", signedType(64));
+    ASSERT_HAS_TYPE("4294967296", signedType(64));
+    ASSERT_HAS_TYPE("9223372036854775807", signedType(64));
     ASSERT_HAS_TYPE("9223372036854775808", unsignedType(64));
     ASSERT_HAS_TYPE("18446744073709551615", unsignedType(64));
 }
 
 TEST(typecheck_integer_plus_minus_constants) {
-    ASSERT_HAS_TYPE("-0", unsignedType(64));
-    ASSERT_HAS_TYPE("+0", unsignedType(64));
+    ASSERT_HAS_TYPE("-0", signedType(64));
+    ASSERT_HAS_TYPE("+0", signedType(64));
     ASSERT_HAS_TYPE("-1", signedType(64));
-    ASSERT_HAS_TYPE("+1", unsignedType(64));
+    ASSERT_HAS_TYPE("+1", signedType(64));
     ASSERT_HAS_TYPE("-128", signedType(64));
-    ASSERT_HAS_TYPE("+128", unsignedType(64));
+    ASSERT_HAS_TYPE("+128", signedType(64));
     ASSERT_HAS_TYPE("-255", signedType(64));
-    ASSERT_HAS_TYPE("+255", unsignedType(64));
+    ASSERT_HAS_TYPE("+255", signedType(64));
     ASSERT_HAS_TYPE("-256", signedType(64));
-    ASSERT_HAS_TYPE("+256", unsignedType(64));
+    ASSERT_HAS_TYPE("+256", signedType(64));
     ASSERT_HAS_TYPE("-32768", signedType(64));
-    ASSERT_HAS_TYPE("+32768", unsignedType(64));
+    ASSERT_HAS_TYPE("+32768", signedType(64));
     ASSERT_HAS_TYPE("-65535", signedType(64));
-    ASSERT_HAS_TYPE("+65535", unsignedType(64));
+    ASSERT_HAS_TYPE("+65535", signedType(64));
     ASSERT_HAS_TYPE("-65536", signedType(64));
-    ASSERT_HAS_TYPE("+65536", unsignedType(64));
+    ASSERT_HAS_TYPE("+65536", signedType(64));
     ASSERT_HAS_TYPE("-2147483648", signedType(64));
-    ASSERT_HAS_TYPE("+2147483648", unsignedType(64));
+    ASSERT_HAS_TYPE("+2147483648", signedType(64));
     ASSERT_HAS_TYPE("-4294967295", signedType(64));
-    ASSERT_HAS_TYPE("+4294967295", unsignedType(64));
+    ASSERT_HAS_TYPE("+4294967295", signedType(64));
     ASSERT_HAS_TYPE("-4294967296", signedType(64));
-    ASSERT_HAS_TYPE("+4294967296", unsignedType(64));
+    ASSERT_HAS_TYPE("+4294967296", signedType(64));
     ASSERT_HAS_TYPE("-9223372036854775808", signedType(64));
     ASSERT_HAS_TYPE("+9223372036854775808", unsignedType(64));
     ASSERT_HAS_TYPE("+18446744073709551615", unsignedType(64));
@@ -120,10 +120,10 @@ TEST(typecheck_integer_plus_minus_constants) {
 }
 
 TEST(typecheck_add_constants) {
-    ASSERT_HAS_TYPE("0 + 0", unsignedType(64));
-    ASSERT_HAS_TYPE("0 + 1", unsignedType(64));
-    ASSERT_HAS_TYPE("1 + -1", unsignedType(64));
-    ASSERT_HAS_TYPE("500 + 1", unsignedType(64));
+    ASSERT_HAS_TYPE("0 + 0", signedType(64));
+    ASSERT_HAS_TYPE("0 + 1", signedType(64));
+    ASSERT_HAS_TYPE("1 + -1", signedType(64));
+    ASSERT_HAS_TYPE("500 + 1", signedType(64));
     ASSERT_HAS_TYPE("0.1 + 0.2", f32Type());
     ASSERT_HAS_TYPE("0.1 + 1", f32Type());
 }
@@ -155,8 +155,8 @@ var z: x + y
     auto topLevel = module->getTopLevel();
 
     AST x = topLevel.child(0);
-    ASSERT_TYPE_EQUAL(x.type(), module->u64Type());
-    ASSERT_TYPE_EQUAL(TYPEOF_GLOBAL(x.child(1)), module->u64Type());
+    ASSERT_TYPE_EQUAL(x.type(), module->i64Type());
+    ASSERT_TYPE_EQUAL(TYPEOF_GLOBAL(x.child(1)), module->i64Type());
 
     AST y = topLevel.child(1);
     ASSERT_TYPE_EQUAL(y.type(), module->f32Type());
@@ -236,8 +236,8 @@ a = e
 }
 
 TEST(typecheck_array_literal) {
-    ASSERT_HAS_TYPE("[1]", arrayType(module->u64Type(), u32(1)));
-    ASSERT_HAS_TYPE("[1, 2]", arrayType(module->u64Type(), u32(2)));
+    ASSERT_HAS_TYPE("[1]", arrayType(module->i64Type(), u32(1)));
+    ASSERT_HAS_TYPE("[1, 2]", arrayType(module->i64Type(), u32(2)));
     ASSERT_HAS_TYPE("[1, 2.0]", arrayType(module->f32Type(), u32(2)));
     ASSERT_HAS_TYPE("i32 x: 1\n[x, 1]", arrayType(module->i64Type(), u32(2)));
 }
@@ -261,8 +261,8 @@ x
 }
 
 TEST(typecheck_paren_simple) {
-    ASSERT_HAS_TYPE("(1)", unsignedType(64));
-    ASSERT_HAS_TYPE("(1 + 2)", unsignedType(64));
+    ASSERT_HAS_TYPE("(1)", signedType(64));
+    ASSERT_HAS_TYPE("(1 + 2)", signedType(64));
     ASSERT_HAS_TYPE("(1 + 2.0)", f32Type());
     ASSERT_HAS_TYPE("i32 x\n(x)", i32Type());
     ASSERT_HAS_TYPE("i32 x\n(((x)))", i32Type());
@@ -288,7 +288,7 @@ TEST(typecheck_range_type_in_intermediate_result) {
 }
 
 TEST(typecheck_if_else_expr) {
-    ASSERT_HAS_TYPE("1 if true else 2", u64Type());
+    ASSERT_HAS_TYPE("1 if true else 2", i64Type());
     ASSERT_HAS_TYPE("1.0 if true else 2", f32Type());
     ASSERT_HAS_TYPE("1 if true else 2.0", f32Type());
     ASSERT_HAS_TYPE("true if true == false else false", boolType());
@@ -330,7 +330,7 @@ foo
 fun foo():
     42
 foo
-)", funType(module->u64Type()));
+)", funType(module->i64Type()));
 }
 
 TEST(typecheck_implicit_return_sequence) {
@@ -654,12 +654,12 @@ var t: new i32
     auto topLevel = module->getTopLevel();
 
     auto first = topLevel.child(0);
-    ASSERT(first.type() == module->ptrType(Own, U64));
-    ASSERT(first.child(2).type() == module->ptrType(Own, U64));
+    ASSERT(first.type() == module->ptrType(Own, I64));
+    ASSERT(first.child(2).type() == module->ptrType(Own, I64));
 
     auto second = topLevel.child(1);
-    ASSERT(second.type() == module->ptrType(Own, U64));
-    ASSERT(second.child(2).type() == module->ptrType(Own, U64));
+    ASSERT(second.type() == module->ptrType(Own, I64));
+    ASSERT(second.child(2).type() == module->ptrType(Own, I64));
 
     auto third = topLevel.child(3);
     ASSERT(third.type() == module->ptrType(Own, I32));

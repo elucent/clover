@@ -946,7 +946,7 @@ namespace clover {
         jasmine_append_set_field(builder, loweredAggregate, base, id, value);
     }
 
-    JasmineOperand generateLength(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand base) {
+    JasmineOperand generateLength(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand base, Type destType) {
         bool isPointer = baseType.is<TypeKind::Pointer>();
         Type aggregateType = isPointer ? expand(baseType.as<TypeKind::Pointer>().elementType()) : baseType;
         if (aggregateType.is<TypeKind::Array>())
@@ -966,7 +966,7 @@ namespace clover {
             jasmine_append_load_field(builder, genCtx.lower(baseType), result, base, 1);
         else
             jasmine_append_get_field(builder, genCtx.lower(baseType), result, base, 1);
-        return result;
+        return coerce(genCtx, builder, destType, genCtx.module->u64Type(), result);
     }
 
     JasmineOperand generateGetIndex(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand aggregate, JasmineOperand index, Type destType) {
@@ -1341,7 +1341,7 @@ namespace clover {
                     assert(baseType.is<TypeKind::Slice>());
                     elementType = expand(baseType.as<TypeKind::Slice>().elementType());
 
-                    length = generateLength(genCtx, builder, inputType, input);
+                    length = generateLength(genCtx, builder, inputType, input, genCtx.module->u64Type());
                     if (minLength > 0 && maxLength == -1) {
                         continuation = genCtx.addBlock();
                         jasmine_append_br_lt(builder, genCtx.sizeType(), length, genCtx.imm(minLength), genCtx.addEdgeTo(fail), genCtx.addEdgeTo(continuation));
@@ -2356,7 +2356,7 @@ namespace clover {
                 auto base = ast.child(0).kind() == ASTKind::Global
                     ? genCtx.global(ast.child(0).variable())
                     : generate(genCtx, builder, ast.child(0), baseType);
-                return generateLength(genCtx, builder, baseType, base, typeOf(ast));
+                return coerce(genCtx, builder, destType, typeOf(ast), generateLength(genCtx, builder, baseType, base, typeOf(ast)));
             }
 
             case ASTKind::GetIndex:
