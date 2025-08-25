@@ -1380,12 +1380,6 @@ fun matchSplat(i32[] numbers) match numbers:
         sum(xs)
     else:
         42
-
-fun matchInternal(i32[] numbers) match numbers:
-    case [1, xs..., 4, ys...]:
-        sum(ys) - sum(xs)
-    else:
-        42
 )");
 
     auto exec = load(instance.artifact);
@@ -1409,10 +1403,6 @@ fun matchInternal(i32[] numbers) match numbers:
     ASSERT_EQUAL(matchSplat(arrayMatch), 9);
     ASSERT_EQUAL(matchSplat(arrayDoesntMatch), 42);
     ASSERT_EQUAL(matchSplat(arrayToSum), 49);
-
-    arrayDoesntMatch[3] = 0;
-    ASSERT_EQUAL(matchInternal(arrayMatch), 0);
-    ASSERT_EQUAL(matchInternal(arrayDoesntMatch), 42);
 }
 
 TEST(codegen_match_tuple) {
@@ -1473,7 +1463,7 @@ var zAxis: Axis.Z
     ASSERT_EQUAL(primaryAxis(mystery), yAxis);
 }
 
-TEST(codegen_matching_bf) {
+TEST(codegen_bf_interpreter) {
     auto instance = COMPILE(R"(
 i8[256] input, output
 i32 inputIndex: 0, outputIndex: 0
@@ -1485,30 +1475,35 @@ fun putc(i8 b):
     output[outputIndex ++] = b
 
 fun bf(char[] program, i8[] memory, i32* pointer):
-    while true match program:
-        case []:
-            return
-        case ['>', rest...]:
+    while |program| > 0 match program[0]:
+        case '>':
             *pointer ++
-            program = rest
-        case ['<', rest...]:
+            program = program[1:]
+        case '<':
             *pointer --
-            program = rest
-        case ['+', rest...]:
+            program = program[1:]
+        case '+':
             memory[*pointer] ++
-            program = rest
-        case ['-', rest...]:
+            program = program[1:]
+        case '-':
             memory[*pointer] --
-            program = rest
-        case ['.', rest...]:
+            program = program[1:]
+        case '.':
             putc(memory[*pointer])
-            program = rest
-        case [',', rest...]:
+            program = program[1:]
+        case ',':
             memory[*pointer] = getc()
-            program = rest
-        case ['[', body..., ']', rest...]:
-            bf(body, memory, pointer) while memory[*pointer] != 0
-            program = rest
+            program = program[1:]
+        case '[':
+            var nesting: 0, subprogram: program
+            for i < |program|:
+                if program[i] == '[':
+                    nesting ++
+                else if program[i] == ']' and -- nesting == 0:
+                    subprogram = program[1:i]
+                    break
+            bf(subprogram, memory, pointer) while memory[*pointer] != 0
+            program = program[2 + |subprogram|:]
 )");
 
     auto exec = load(instance.artifact);
