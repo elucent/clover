@@ -1159,12 +1159,12 @@ namespace clover {
             return;
 
         if UNLIKELY(config::jasmineASTComments) {
-            i8 buffer[256];
-            slice<i8> output = { buffer, 256 };
+            i8 buffer[1024];
+            slice<i8> output = { buffer, 1024 };
             for (u32 i = 0; i < genCtx.expressionDepth; i ++)
                 output = format(output, ' ');
             output = format(output, "(pattern ", ASTWithDepth { pattern, 2 }, ")");
-            jasmine_append_comment(builder, buffer, 256 - output.size());
+            jasmine_append_comment(builder, buffer, 1024 - output.size());
         }
         ExpressionDepthScope expressionDepth(genCtx, config::jasmineASTComments);
 
@@ -1748,12 +1748,12 @@ namespace clover {
 
         bool printComments = false;
         if UNLIKELY(config::jasmineASTComments && !ast.isLeaf() && ast.kind() != ASTKind::TopLevel && ast.kind() != ASTKind::Do) {
-            i8 buffer[256];
-            slice<i8> output = { buffer, 256 };
+            i8 buffer[1024];
+            slice<i8> output = { buffer, 1024 };
             for (u32 i = 0; i < genCtx.expressionDepth; i ++)
                 output = format(output, ' ');
             output = format(output, ASTWithDepth { ast, 2 });
-            jasmine_append_comment(builder, buffer, 256 - output.size());
+            jasmine_append_comment(builder, buffer, 1024 - output.size());
             printComments = true;
         }
         ExpressionDepthScope expressionDepth(genCtx, printComments);
