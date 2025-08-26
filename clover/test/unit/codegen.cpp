@@ -1692,8 +1692,6 @@ fun max(i32[] nums):
         m = nums[i] if nums[i] > m
     return m
 
-void debug(i64)
-
 fun histogram(i32[] nums, i32[] buckets):
     var l: min(nums), h: max(nums), interval: (h - l + 1) / |buckets|
     buckets[(nums[i] - l) / interval] ++ for i < |nums|
