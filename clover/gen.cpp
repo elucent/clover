@@ -300,7 +300,9 @@ namespace clover {
             if (locals[callStack.back().firstLocal + i].bits == JASMINE_INVALID_OPERAND.bits) {
                 #ifndef RELEASE
                     auto name = module->str(func()->locals[i].name);
-                    return locals[callStack.back().firstLocal + i] = jasmine_variable_with_name(jasmine_current_function(builder), name.data(), name.size());
+                    i8 buffer[64];
+                    auto fmt = prints({ buffer, 64 }, name, '_', i);
+                    return locals[callStack.back().firstLocal + i] = jasmine_variable_with_name(jasmine_current_function(builder), fmt.data(), fmt.size());
                 #else
                     return locals[callStack.back().firstLocal + i] = jasmine_variable(jasmine_current_function(builder));
                 #endif
