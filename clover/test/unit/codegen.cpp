@@ -1661,6 +1661,83 @@ fun indexof(i8[] haystack, i8[] needle):
     ASSERT_EQUAL(indexof(cstring(""), cstring("")), 0);
 }
 
+TEST(codegen_string_is_palindrome) {
+    auto instance = COMPILE(R"(
+fun palindrome?(i8[] str):
+    for i < |str|/2:
+        return false if str[i] != str[|str| - i - 1]
+    return true
+)");
+
+    auto exec = load(instance.artifact);
+    auto palindrome = lookup<bool(const_slice<i8>)>("palindrome?(i8[])", exec);
+
+    ASSERT(!palindrome(cstring("abcdef")));
+    ASSERT(palindrome(cstring("racecar")));
+    ASSERT(palindrome(cstring("")));
+    ASSERT(palindrome(cstring("rats live on no evil star")));
+}
+
+TEST(codegen_ball_bounce) {
+    // Adapted from `bounce` Lua benchmark, viewed here: https://github.com/softdevteam/lua_benchmarking
+
+    auto instance = COMPILE(R"(
+u32 x: 74755
+
+void debug(i64)
+
+fun rand():
+    x = (x * 1309 + 13849) & 65535
+    return x
+
+type Ball:
+    i32 x, y, vx, vy
+
+fun init(uninit Ball* ball):
+    ball.x = rand() % 500
+    ball.y = rand() % 500
+    ball.vx = rand() % 300 - 150
+    ball.vy = rand() % 300 - 150
+
+fun bounce(Ball* ball):
+    var xlim: 500, ylim: 500, bounced: false
+    ball.x += ball.vx
+    ball.y += ball.vy
+    if ball.x > xlim:
+        ball.x = xlim
+        ball.vx *= -1
+        bounced = true
+    if ball.x < 0:
+        ball.x = 0
+        ball.vx *= -1
+        bounced = true
+    if ball.y > ylim:
+        ball.y = ylim
+        ball.vy *= -1
+        bounced = true
+    if ball.y < 0:
+        ball.y = 0
+        ball.vy *= -1
+        bounced = true
+    return bounced
+
+fun benchmark(u32 ticks):
+    Ball[100] balls
+    for i < 100:
+        balls[i].init()
+    var bounces: 0
+    for i < ticks:
+        for j < 100:
+            bounces ++ if balls[i].bounce()
+    return bounces
+)");
+
+    auto exec = load(instance.artifact);
+    auto benchmark = lookup<i64(u32)>("benchmark(u32)", exec);
+
+    ASSERT_EQUAL(benchmark(100), 2659);
+}
+
 FOR_EACH_INT(DEFINE_TEST, codegen_set_slice,
     auto instance = COMPILE_SUBST(R"(
 fun getSlice($T[] a, u32 i, u32 j):
