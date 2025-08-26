@@ -2056,6 +2056,18 @@ namespace clover {
                 return result;
             }
 
+            case ASTKind::Tuple: {
+                auto baseType = typeOf(ast);
+                auto tupleType = baseType.as<TypeKind::Tuple>();
+                auto loweredTuple = genCtx.lower(tupleType);
+                auto result = genCtx.temp();
+                for (u32 i = 0; i < tupleType.count(); i ++) {
+                    auto init = generate(genCtx, builder, ast.child(i), tupleType.fieldType(i));
+                    jasmine_append_set_field(builder, loweredTuple, result, i, init);
+                }
+                return result;
+            }
+
             case ASTKind::List: {
                 u32 minLength = 0;
                 bool isDynamic = false;
