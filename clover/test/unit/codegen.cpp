@@ -1633,6 +1633,34 @@ fun reverse(i8[] xs):
     ASSERT_EQUAL(reverse(cstring("the quick brown fox")), cstring("xof nworb kciuq eht"));
 }
 
+TEST(codegen_string_indexof) {
+    auto instance = COMPILE(R"(
+fun indexof(i8[] haystack, i8[] needle):
+    return 0 if |needle| == 0
+    for i <= |haystack| - |needle|:
+        bool mismatched: false
+        for j < |needle|:
+            if haystack[i + j] != needle[j]:
+                mismatched = true
+                break
+        if not mismatched:
+            return i
+    return -1
+)");
+
+    auto exec = load(instance.artifact);
+    auto indexof = lookup<i32(const_slice<i8>, const_slice<i8>)>("indexof(i8[],i8[])", exec);
+
+    ASSERT_EQUAL(indexof(cstring("abcdef"), cstring("abc")), 0);
+    ASSERT_EQUAL(indexof(cstring("abcdef"), cstring("def")), 3);
+    ASSERT_EQUAL(indexof(cstring("the quick brown fox"), cstring("brown")), 10);
+    ASSERT_EQUAL(indexof(cstring("foo bar foo bar"), cstring("bar")), 4);
+    ASSERT_EQUAL(indexof(cstring("the quick brown fox"), cstring("lazy dog")), -1);
+    ASSERT_EQUAL(indexof(cstring(""), cstring("abc")), -1);
+    ASSERT_EQUAL(indexof(cstring("abc"), cstring("")), 0);
+    ASSERT_EQUAL(indexof(cstring(""), cstring("")), 0);
+}
+
 FOR_EACH_INT(DEFINE_TEST, codegen_set_slice,
     auto instance = COMPILE_SUBST(R"(
 fun getSlice($T[] a, u32 i, u32 j):
