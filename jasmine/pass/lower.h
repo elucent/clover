@@ -484,6 +484,50 @@ namespace jasmine {
         return fn.intConst(result);
     }
 
+    maybe<bool> foldBranch(Function& fn, Node node, Operand a) {
+        if (a.kind != Operand::IntConst)
+            return none<bool>();
+        i64 av = fn.intValueOf(a);
+        switch (node.opcode()) {
+            case Opcode::BR_IF:
+                return some<bool>(av != 0);
+            case Opcode::BR_IF_NOT:
+                return some<bool>(av == 0);
+            default:
+                return none<bool>();
+        }
+    }
+
+    maybe<bool> foldBranch(Function& fn, Node node, Operand a, Operand b) {
+        if (a.kind != Operand::IntConst || b.kind != Operand::IntConst)
+            return none<bool>();
+        i64 av = fn.intValueOf(a), bv = fn.intValueOf(b);
+        switch (node.opcode()) {
+            case Opcode::BR_EQ:
+                return some<bool>(av == bv);
+            case Opcode::BR_NE:
+                return some<bool>(av != bv);
+            case Opcode::BR_LT:
+                if (isSigned(node.type()))
+                    return some<bool>(av < bv);
+                return some<bool>(u64(av) < u64(bv));
+            case Opcode::BR_LE:
+                if (isSigned(node.type()))
+                    return some<bool>(av <= bv);
+                return some<bool>(u64(av) <= u64(bv));
+            case Opcode::BR_GT:
+                if (isSigned(node.type()))
+                    return some<bool>(av > bv);
+                return some<bool>(u64(av) > u64(bv));
+            case Opcode::BR_GE:
+                if (isSigned(node.type()))
+                    return some<bool>(av >= bv);
+                return some<bool>(u64(av) >= u64(bv));
+            default:
+                return none<bool>();
+        }
+    }
+
     template<typename Target>
     void TargetSpecificPasses<Target>::lower(PassContext& ctx, Function& fn) {
         JASMINE_PASS(LOWERING);
@@ -1119,7 +1163,10 @@ namespace jasmine {
                         Edge ifTrue = fn.edge(operands[1].edge), ifFalse = fn.edge(operands[2].edge);
                         Operand cond = materialize(b, n.type(), operands[0], allocations.scratch0(n));
                         i32 moveBlock = moveBlocks[bi];
-                        if (isTrivialEdge(ifTrue)) {
+                        if (auto tryFold = foldBranch(fn, n, operands[0])) {
+                            makeEdge(fn, b, *tryFold ? ifTrue.index() : ifFalse.index());
+                            b.addNode(Opcode::BR, VOID, *tryFold ? operands[1] : operands[2]);
+                        } else if (isTrivialEdge(ifTrue)) {
                             assert(moveBlock == -1);
                             b.addNode(Opcode::BR_IF, n.type(), cond, operands[1]);
                             makeEdge(fn, b, ifFalse.index());
@@ -1145,7 +1192,10 @@ namespace jasmine {
                         Edge ifTrue = fn.edge(operands[1].edge), ifFalse = fn.edge(operands[2].edge);
                         Operand cond = materialize(b, n.type(), operands[0], allocations.scratch0(n));
                         i32 moveBlock = moveBlocks[bi];
-                        if (isTrivialEdge(ifTrue)) {
+                        if (auto tryFold = foldBranch(fn, n, operands[0])) {
+                            makeEdge(fn, b, *tryFold ? ifTrue.index() : ifFalse.index());
+                            b.addNode(Opcode::BR, VOID, *tryFold ? operands[1] : operands[2]);
+                        } else if (isTrivialEdge(ifTrue)) {
                             assert(moveBlock == -1);
                             b.addNode(Opcode::BR_IF_NOT, n.type(), cond, operands[1]);
                             makeEdge(fn, b, ifFalse.index());
@@ -1175,7 +1225,10 @@ namespace jasmine {
                     case Opcode::BR_NE: {
                         Edge ifTrue = fn.edge(operands[2].edge), ifFalse = fn.edge(operands[3].edge);
                         i32 moveBlock = moveBlocks[bi];
-                        if (isTrivialEdge(ifTrue)) {
+                        if (auto tryFold = foldBranch(fn, n, operands[0], operands[1])) {
+                            makeEdge(fn, b, *tryFold ? ifTrue.index() : ifFalse.index());
+                            b.addNode(Opcode::BR, VOID, *tryFold ? operands[2] : operands[3]);
+                        } else if (isTrivialEdge(ifTrue)) {
                             assert(moveBlock == -1);
                             makeCompareBranch(fn, b, n, operands[0], operands[1], operands[2], n.opcode());
                             makeEdge(fn, b, ifFalse.index());
