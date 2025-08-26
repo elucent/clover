@@ -979,10 +979,10 @@ namespace jasmine {
                             b.addNode(Opcode::CONVERT, PTR, index, operands[2], index);
 
                         if (elementRepr.kind() != Size::MEMORY && elementRepr.kind() != Size::VECTOR)
-                            b.addNode(Opcode::ADDR_INDEX, elementType, allocations.scratch0(n), base, index);
+                            b.addNode(Opcode::ADDR_INDEX, elementType, output, base, index);
                         else {
                             b.addNode(Opcode::MUL, PTR, allocations.scratch0(n), index, fn.intConst(elementRepr.size()));
-                            b.addNode(Opcode::ADD, PTR, allocations.scratch0(n), base, allocations.scratch0(n));
+                            b.addNode(Opcode::ADDR_INDEX, I8, output, base, allocations.scratch0(n));
                         }
                         writeBack(b, PTR, operands[0], output);
                         break;
