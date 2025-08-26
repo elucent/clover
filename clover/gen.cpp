@@ -1948,6 +1948,40 @@ namespace clover {
             case ASTKind::PostDecr:
                 return generateIncrDecr(genCtx, builder, destType, ast);
 
+            case ASTKind::And: {
+                auto result = genCtx.temp();
+                auto lhs = generate(genCtx, builder, ast.child(0), module->boolType());
+                jasmine_append_mov(builder, JASMINE_TYPE_BOOL, result, lhs);
+
+                auto ifTrue = genCtx.addBlock(), continuation = genCtx.addBlock();
+                jasmine_append_br_if(builder, JASMINE_TYPE_BOOL, result, genCtx.addEdgeTo(ifTrue), genCtx.addEdgeTo(continuation));
+
+                jasmine_builder_set_block(builder, ifTrue);
+                auto rhs = generate(genCtx, builder, ast.child(1), module->boolType());
+                jasmine_append_mov(builder, JASMINE_TYPE_BOOL, result, rhs);
+                jasmine_append_br(builder, genCtx.addEdgeTo(continuation));
+
+                jasmine_builder_set_block(builder, continuation);
+                return result;
+            }
+
+            case ASTKind::Or: {
+                auto result = genCtx.temp();
+                auto lhs = generate(genCtx, builder, ast.child(0), module->boolType());
+                jasmine_append_mov(builder, JASMINE_TYPE_BOOL, result, lhs);
+
+                auto ifFalse = genCtx.addBlock(), continuation = genCtx.addBlock();
+                jasmine_append_br_if_not(builder, JASMINE_TYPE_BOOL, result, genCtx.addEdgeTo(ifFalse), genCtx.addEdgeTo(continuation));
+
+                jasmine_builder_set_block(builder, ifFalse);
+                auto rhs = generate(genCtx, builder, ast.child(1), module->boolType());
+                jasmine_append_mov(builder, JASMINE_TYPE_BOOL, result, rhs);
+                jasmine_append_br(builder, genCtx.addEdgeTo(continuation));
+
+                jasmine_builder_set_block(builder, continuation);
+                return result;
+            }
+
             case ASTKind::Call: {
                 JasmineOperand callee;
                 Type calleeType;
