@@ -2370,6 +2370,20 @@ namespace clover {
             return types->encode<TypeKind::Numeric>(true, false, u32(max(an.bitCount(), bn.bitCount()) + 1));
         }
 
+        if (ak == TypeKind::Tuple && bk == TypeKind::Tuple) {
+            auto atup = a.as<TypeKind::Tuple>(), btup = b.as<TypeKind::Tuple>();
+            if (atup.count() == btup.count()) {
+                TupleBuilder lcs(types);
+                for (u32 i = 0; i < atup.count(); i ++) {
+                    auto t = leastCommonSupertype(atup.fieldType(i), btup.fieldType(i), substituteFlag);
+                    if (!t)
+                        return t;
+                    lcs.add(t);
+                }
+                return types->encode<TypeKind::Tuple>(lcs);
+            }
+        }
+
         if (isCase(a) && isCase(b)) {
             if (Type result = caseLCA(a, b))
                 return result;
@@ -2687,14 +2701,13 @@ namespace clover {
     inline UnifyResult NamedType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         if (other == *this)
             return UnifySuccess;
-        if (isCase())
-            return parentType().unifyOnto(other, constraints, mode);
         if (other.is<TypeKind::Pointer>() && innerType() == Void) {
             // Since instances of atoms are indistinguishable, we can construct
             // a pointer to an atom automatically.
-            return unifyOnto(other.as<TypeKind::Pointer>().elementType(), constraints, mode)
-                & other.as<TypeKind::Pointer>().elementType().unifyOnto(*this, constraints, mode);
+            return Type::unifyOnto(other.as<TypeKind::Pointer>().elementType(), constraints, mode | MustSubstitute);
         }
+        if (isCase())
+            return parentType().unifyOnto(other, constraints, mode);
         return UnifyFailure;
     }
 
