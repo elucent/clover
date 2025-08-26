@@ -1678,6 +1678,44 @@ fun palindrome?(i8[] str):
     ASSERT(palindrome(cstring("rats live on no evil star")));
 }
 
+TEST(codegen_histogram) {
+    auto instance = COMPILE(R"(
+fun min(i32[] nums):
+    i32 m: nums[0]
+    for 1 <= i < |nums|:
+        m = nums[i] if nums[i] < m
+    return m
+
+fun max(i32[] nums):
+    i32 m: nums[0]
+    for 1 <= i < |nums|:
+        m = nums[i] if nums[i] > m
+    return m
+
+void debug(i64)
+
+fun histogram(i32[] nums, i32[] buckets):
+    var l: min(nums), h: max(nums), interval: (h - l + 1) / |buckets|
+    buckets[(nums[i] - l) / interval] ++ for i < |nums|
+)");
+
+    auto exec = load(instance.artifact);
+    auto histogram = lookup<void(const_slice<i32>, slice<i32>)>("histogram(i32[],i32[])", exec);
+
+    array<i32, 90> numbers;
+    for (i32 i = 0; i < 80; i ++)
+        numbers[i] = i;
+    for (i32 i = 0; i < 10; i ++)
+        numbers[80 + i] = i;
+
+    array<i32, 8> h;
+    histogram(numbers, h);
+
+    ASSERT_EQUAL(h[0], 20);
+    for (i32 i = 1; i < 8; i ++)
+        ASSERT_EQUAL(h[i], 10);
+}
+
 TEST(codegen_ball_bounce) {
     // Adapted from `bounce` Lua benchmark, viewed here: https://github.com/softdevteam/lua_benchmarking
 
