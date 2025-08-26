@@ -96,7 +96,7 @@ namespace clover {
 
     AST parsePrimaryNoSuffix(Module* module, TokenVisitor& visitor);
     AST parsePrimary(Module* module, TokenVisitor& visitor);
-    AST parseExpression(Module* module, TokenVisitor& visitor);
+    AST parseExpression(Module* module, TokenVisitor& visitor, u32 minPrecedence = 0);
     AST parseExpressionOrJuxtaposition(Module* module, TokenVisitor& visitor, bool allowMultiple, bool allowFunction, bool allowInitializer);
     AST parseStatementInitial(Module* module, TokenVisitor& visitor);
     AST parseInlineStatement(Module* module, TokenVisitor& visitor);
@@ -1047,10 +1047,10 @@ namespace clover {
         return module->add(ASTKind::Do, pos, items);
     }
 
-    AST parseExpression(Module* module, TokenVisitor& visitor) {
+    AST parseExpression(Module* module, TokenVisitor& visitor, u32 minPrecedence) {
         AST ast = parsePostfix(module, visitor);
         Token op = visitor.peek();
-        if (isBinaryOperator(op.token)) {
+        if (isBinaryOperator(op.token) && precedenceOf(op.token) >= minPrecedence) {
             visitor.read();
             vec<AST> extraChildren;
             if (processPossiblePointerType(module, ast, op, visitor, extraChildren))
@@ -1058,7 +1058,7 @@ namespace clover {
 
             bool didBail = false;
             u32 ifOffset = 0;
-            ast = parseBinary(module, ast, op, visitor, didBail, ifOffset, extraChildren);
+            ast = parseBinary(module, ast, op, visitor, didBail, ifOffset, extraChildren, minPrecedence);
 
             // TODO: Probably don't backtrack if we ran into a parse error exploring past the `if`.
             if UNLIKELY(didBail)
@@ -1653,7 +1653,7 @@ namespace clover {
             binding.kind = isDescending ? BindingKind::RangeDecreasing : BindingKind::RangeIncreasing;
             visitor.read();
 
-            AST middle = parsePrimary(module, visitor);
+            AST middle = parseExpression(module, visitor, precedenceOf(OperatorLess) + 1);
 
             AST rhs;
             bool secondInclusive = false;
@@ -1666,7 +1666,7 @@ namespace clover {
                 assert(isDescending == (next.token == OperatorGreater || next.token == OperatorGreaterEqual));
                 visitor.read();
 
-                rhs = parsePrimary(module, visitor);
+                rhs = parseExpression(module, visitor, precedenceOf(OperatorLess) + 1);
             } else {
                 if (isDescending) {
                     secondInclusive = true;
