@@ -670,17 +670,18 @@ namespace clover {
     JasmineOperand generateCompoundAssignment(GenerationContext& genCtx, JasmineBuilder builder, AST ast, void (*builder_func)(JasmineBuilder, JasmineType, JasmineOperand, JasmineOperand, JasmineOperand)) {
         Type pointerType = typeOf(ast, 0);
         assert(pointerType.is<TypeKind::Pointer>());
-        JasmineType resultType = genCtx.lower(pointerType.as<TypeKind::Pointer>().elementType());
+        Type elementType = expand(pointerType.as<TypeKind::Pointer>().elementType());
+        JasmineType resultType = genCtx.lower(elementType);
 
         if (ast.child(0).kind() == ASTKind::AddressOf && ast.child(0).child(0).kind() == ASTKind::Local) {
             // In this specific (but probably extremely common case) we want to
             // avoid memory operations and turn this into a single instruction.
             JasmineOperand lhs = genCtx.local(ast.child(0).child(0).variable());
-            JasmineOperand rhs = generate(genCtx, builder, ast.child(1), pointerType.as<TypeKind::Pointer>().elementType());
+            JasmineOperand rhs = generate(genCtx, builder, ast.child(1), elementType);
             builder_func(builder, resultType, lhs, lhs, rhs);
         } else {
             JasmineOperand lhs = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
-            JasmineOperand rhs = generate(genCtx, builder, ast.child(1), pointerType.as<TypeKind::Pointer>().elementType());
+            JasmineOperand rhs = generate(genCtx, builder, ast.child(1), elementType);
             JasmineOperand temp = genCtx.temp();
             jasmine_append_load(builder, resultType, temp, lhs);
             builder_func(builder, resultType, temp, temp, rhs);
@@ -711,20 +712,21 @@ namespace clover {
             }
         } else {
             Type ptrType = typeOf(ast, 0);
-            JasmineType varType = genCtx.lower(ptrType.as<TypeKind::Pointer>().elementType());
+            Type elementType = expand(ptrType.as<TypeKind::Pointer>().elementType());
+            JasmineType varType = genCtx.lower(elementType);
             JasmineOperand base = generate(genCtx, builder, ast.child(0), ptrType);
             JasmineOperand temp = genCtx.temp();
             jasmine_append_load(builder, varType, temp, base);
             if (isPre) {
                 binOp(builder, varType, temp, temp, genCtx.imm(1));
                 jasmine_append_store(builder, varType, base, temp);
-                return coerce(genCtx, builder, destType, expand(ptrType.as<TypeKind::Pointer>().elementType()), temp);
+                return coerce(genCtx, builder, destType, elementType, temp);
             } else {
                 JasmineOperand result = genCtx.temp();
                 jasmine_append_mov(builder, varType, result, temp);
                 binOp(builder, varType, temp, temp, genCtx.imm(1));
                 jasmine_append_store(builder, varType, base, temp);
-                return coerce(genCtx, builder, destType, expand(ptrType.as<TypeKind::Pointer>().elementType()), result);
+                return coerce(genCtx, builder, destType, elementType, result);
             }
         }
     }
