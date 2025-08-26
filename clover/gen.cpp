@@ -1142,7 +1142,6 @@ namespace clover {
         }
 
         auto result = genCtx.temp();
-        jasmine_append_var(builder, loweredSlice, result);
         jasmine_append_set_field(builder, loweredSlice, result, 0, addr);
         jasmine_append_set_field(builder, loweredSlice, result, 1, size);
 
@@ -1937,7 +1936,6 @@ namespace clover {
 
                 jasmine_append_mul(builder, genCtx.sizeType(), size, value, genCtx.sizeOf(elementType));
                 jasmine_append_call(builder, genCtx.getMemoryAllocType(), ptr, genCtx.funcref(cstring("memory.alloc")), &size, 1);
-                jasmine_append_var(builder, genCtx.lower(type), result);
                 jasmine_append_set_field(builder, genCtx.lower(type), result, 0, ptr);
                 jasmine_append_set_field(builder, genCtx.lower(type), result, 1, value);
                 return result;
@@ -1959,7 +1957,6 @@ namespace clover {
                     auto addr = genCtx.temp();
                     result = genCtx.temp();
                     auto loweredSlice = genCtx.lower(destType);
-                    jasmine_append_var(builder, loweredSlice, result);
                     jasmine_append_addr(builder, JASMINE_TYPE_PTR, addr, tmp);
                     jasmine_append_set_field(builder, loweredSlice, result, 0, addr);
                     jasmine_append_set_field(builder, loweredSlice, result, 1, genCtx.imm(module->str(sym).size()));
@@ -1998,7 +1995,6 @@ namespace clover {
                     auto addr = genCtx.temp();
                     result = genCtx.temp();
                     auto loweredSlice = genCtx.lower(destType);
-                    jasmine_append_var(builder, loweredSlice, result);
                     jasmine_append_addr(builder, JASMINE_TYPE_PTR, addr, tmp);
                     jasmine_append_set_field(builder, loweredSlice, result, 0, addr);
                     jasmine_append_set_field(builder, loweredSlice, result, 1, genCtx.imm(minLength));
@@ -2018,7 +2014,6 @@ namespace clover {
                     auto structType = type.as<TypeKind::Struct>();
                     auto loweredStruct = genCtx.lower(type);
                     result = genCtx.temp();
-                    jasmine_append_var(builder, loweredStruct, result);
                     if (structType.isCase())
                         jasmine_append_set_field(builder, loweredStruct, result, 0, genCtx.imm(structType.typeTag()));
                     for (u32 i = 0; i < structType.count(); i ++) {
@@ -2031,7 +2026,6 @@ namespace clover {
                     auto loweredStruct = genCtx.lower(type);
                     result = genCtx.temp();
                     JasmineOperand field = generate(genCtx, builder, ast.child(0), namedType.innerType());
-                    jasmine_append_var(builder, loweredStruct, result);
                     if (namedType.isCase())
                         jasmine_append_set_field(builder, loweredStruct, result, 0, genCtx.imm(namedType.typeTag()));
                     jasmine_append_set_field(builder, loweredStruct, result, namedType.isCase() ? 1 : 0, field);
@@ -2252,7 +2246,6 @@ namespace clover {
                 Type resultType = typeOf(ast);
                 auto loweredResult = genCtx.lower(resultType);
                 auto result = genCtx.temp();
-                jasmine_append_var(builder, loweredResult, result);
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     auto id = ast.child(i).fieldId();
                     if (ast.kind() == ASTKind::GetFields)
