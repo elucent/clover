@@ -1240,7 +1240,7 @@ namespace clover {
             case ASTKind::Construct: {
                 // We know the input matches this pattern from earlier. But
                 // how we handle it depends on exactly what the input type is.
-                auto baseType = inputType;
+                auto baseType = expand(inputType);
                 if (baseType.is<TypeKind::Pointer>())
                     baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
                 switch (baseType.kind()) {
@@ -1262,7 +1262,7 @@ namespace clover {
                             unreachable("Unions can only match against specific struct or named type members.");
 
                         JasmineOperand ptr = input;
-                        if (!inputType.is<TypeKind::Pointer>()) {
+                        if (!expand(inputType).is<TypeKind::Pointer>()) {
                             ptr = genCtx.temp();
                             jasmine_append_addr(builder, loweredPattern, ptr, input);
                         }
@@ -1292,7 +1292,7 @@ namespace clover {
                                     break;
                                 auto loweredStruct = genCtx.lower(structType);
                                 auto loweredSplat = genCtx.lower(splatType);
-                                JasmineOperand tuple = getLValue(pattern.child(0));
+                                JasmineOperand tuple = getLValue(pattern.child(i).child(0));
                                 for (u32 j = i; j < structType.count(); j ++) {
                                     auto field = generateGetField(genCtx, builder, inputType, input, j, structType.fieldType(j));
                                     jasmine_append_store_field(builder, loweredSplat, tuple, j - i, field);
@@ -1432,7 +1432,7 @@ namespace clover {
                 for (u32 i = 0; i < tupleType.count(); i ++) {
                     if (pattern.child(i).kind() == ASTKind::Splat) {
                         auto loweredTuple = genCtx.lower(tupleType);
-                        JasmineOperand tuple = getLValue(pattern.child(0));
+                        JasmineOperand tuple = getLValue(pattern.child(i).child(0));
                         for (u32 j = i; j < tupleType.count(); j ++) {
                             auto temp = genCtx.temp();
                             auto field = generateGetField(genCtx, builder, inputType, input, j, tupleType.fieldType(j));
@@ -1458,35 +1458,93 @@ namespace clover {
             case ASTKind::UninitType:
             case ASTKind::ArrayType: {
                 Type patternType = evaluateType(genCtx.module, genCtx.func(), pattern);
-                if (!isCase(patternType))
+
+                bool allCases = true;
+                if (patternType.is<TypeKind::Tuple>()) {
+                    bool allCases = true;
+                    auto tup = patternType.as<TypeKind::Tuple>();
+                    for (u32 i = 0; i < tup.count(); i ++) if (!isCase(expand(tup.fieldType(i)))) {
+                        allCases = false;
+                        break;
+                    }
+                } else if (!isCase(patternType))
+                    allCases = false;
+
+                if (!allCases)
                     return; // Simple type matching always passes, as long as typechecking didn't fail.
 
-                auto baseType = inputType;
+                auto baseType = expand(inputType);
                 if (baseType.is<TypeKind::Pointer>())
                     baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
-                if (!baseType.is<TypeKind::Union>())
+                if (baseType.is<TypeKind::Tuple>()) {
+                    bool nontrivial = false;
+                    for (u32 i = 0; i < baseType.as<TypeKind::Tuple>().count(); i ++) {
+                        Type fieldType = expand(baseType.as<TypeKind::Tuple>().fieldType(i));
+                        if (fieldType.is<TypeKind::Pointer>())
+                            fieldType = expand(fieldType.as<TypeKind::Pointer>().elementType());
+                        if (fieldType.is<TypeKind::Union>()) {
+                            nontrivial = true;
+                            break;
+                        }
+                    }
+                    if (!nontrivial)
+                        return;
+                } else if (!baseType.is<TypeKind::Union>())
                     return; // If the base isn't a union, typechecking is similarly tautological.
 
                 JasmineType loweredPattern = genCtx.lower(patternType);
 
-                u32 id;
-                if (patternType.is<TypeKind::Struct>())
-                    id = patternType.as<TypeKind::Struct>().typeTag();
-                else if (patternType.is<TypeKind::Named>())
-                    id = patternType.as<TypeKind::Named>().typeTag();
-                else
-                    unreachable("Unions can only match against specific struct or named type members.");
+                if (patternType.is<TypeKind::Tuple>()) {
+                    auto tup = patternType.as<TypeKind::Tuple>();
+                    auto inputTuple = baseType.as<TypeKind::Tuple>();
+                    for (u32 i = 0; i < tup.count(); i ++) {
+                        auto tag = genCtx.temp();
+                        auto fieldType = expand(inputTuple.fieldType(i));
 
-                JasmineOperand ptr = input;
-                if (!inputType.is<TypeKind::Pointer>()) {
-                    ptr = genCtx.temp();
-                    jasmine_append_addr(builder, loweredPattern, ptr, input);
+                        auto baseFieldType = fieldType;
+                        if (baseFieldType.is<TypeKind::Pointer>())
+                            baseFieldType = expand(baseFieldType.as<TypeKind::Pointer>().elementType());
+
+                        if (!baseFieldType.is<TypeKind::Union>())
+                            continue; // Trivial type match.
+
+                        auto field = fieldType.is<TypeKind::Pointer>()
+                            ? generateGetField(genCtx, builder, baseType, input, i, fieldType)
+                            : generateAddrField(genCtx, builder, baseType, input, i);
+                        jasmine_append_load_field(builder, genCtx.lower(tup.fieldType(i)), tag, field, 0);
+
+                        continuation = genCtx.addBlock();
+                        Type patternFieldType = expand(tup.fieldType(i));
+                        u32 id;
+                        if (patternFieldType.is<TypeKind::Struct>())
+                            id = patternFieldType.as<TypeKind::Struct>().typeTag();
+                        else if (patternFieldType.is<TypeKind::Named>())
+                            id = patternFieldType.as<TypeKind::Named>().typeTag();
+                        else
+                            unreachable("Unions can only match against specific struct or named type members.");
+                        jasmine_append_br_ne(builder, genCtx.tagType(), tag, genCtx.imm(id), genCtx.addEdgeTo(fail), genCtx.addEdgeTo(continuation));
+                        jasmine_builder_set_block(builder, continuation);
+                    }
+                } else {
+                    u32 id;
+                    if (patternType.is<TypeKind::Struct>())
+                        id = patternType.as<TypeKind::Struct>().typeTag();
+                    else if (patternType.is<TypeKind::Named>())
+                        id = patternType.as<TypeKind::Named>().typeTag();
+                    else
+                        unreachable("Unions can only match against specific struct or named type members.");
+
+                    JasmineOperand ptr = input;
+                    if (!expand(inputType).is<TypeKind::Pointer>()) {
+                        ptr = genCtx.temp();
+                        jasmine_append_addr(builder, loweredPattern, ptr, input);
+                    }
+                    auto tag = genCtx.temp();
+                    jasmine_append_load_field(builder, loweredPattern, tag, ptr, 0); // Tag is always the first field.
+                    continuation = genCtx.addBlock();
+                    jasmine_append_br_ne(builder, genCtx.tagType(), tag, genCtx.imm(id), genCtx.addEdgeTo(fail), genCtx.addEdgeTo(continuation));
+                    jasmine_builder_set_block(builder, continuation);
                 }
-                auto tag = genCtx.temp();
-                jasmine_append_load_field(builder, loweredPattern, tag, ptr, 0); // Tag is always the first field.
-                continuation = genCtx.addBlock();
-                jasmine_append_br_ne(builder, genCtx.tagType(), tag, genCtx.imm(id), genCtx.addEdgeTo(fail), genCtx.addEdgeTo(continuation));
-                jasmine_builder_set_block(builder, continuation);
                 break;
             }
 
