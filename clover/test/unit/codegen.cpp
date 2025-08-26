@@ -1617,6 +1617,22 @@ fun doStrcat():
     ASSERT_EQUAL(doStrcat(), cstring("cdefg"));
 }
 
+TEST(codegen_reverse_string) {
+    auto instance = COMPILE(R"(
+fun reverse(i8[] xs):
+    var result: new i8[|xs|]
+    result[i] = xs[|xs| - i - 1] for i < |xs|
+    return result
+)");
+
+    auto exec = load(instance.artifact);
+    auto reverse = lookup<const_slice<i8>(const_slice<i8>)>("reverse(i8[])", exec);
+
+    ASSERT_EQUAL(reverse(cstring("")), cstring(""));
+    ASSERT_EQUAL(reverse(cstring("abc")), cstring("cba"));
+    ASSERT_EQUAL(reverse(cstring("the quick brown fox")), cstring("xof nworb kciuq eht"));
+}
+
 FOR_EACH_INT(DEFINE_TEST, codegen_set_slice,
     auto instance = COMPILE_SUBST(R"(
 fun getSlice($T[] a, u32 i, u32 j):
