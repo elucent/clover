@@ -800,6 +800,11 @@ namespace clover {
                 // just want to generate a normal branch.
                 return generateConditionalBranch(genCtx, builder, cond.child(0), ifTrue, ifFalse, false);
             }
+            if (knownCondOp == ASTKind::Local || knownCondOp == ASTKind::Bool) {
+                // We can't negate a boolean by swapping the condition, so we
+                // instead need to actually just swap the target blocks.
+                swap(ifTrue, ifFalse);
+            }
         }
 
         auto currentBlock = jasmine_current_block(builder);
