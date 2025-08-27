@@ -1765,16 +1765,15 @@ namespace clover {
                 value = inferChild(ctx, function, ast, 0);
                 valueType = toType(module, value).type(module);
                 varType = module->varType(ast.node);
+                unify(value, varType, ast, ctx);
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     // We pass invalid type because we don't know, without
                     // inspecting the pattern, what the target type is. We bridge
                     // the gap between the input expression and the pattern during
                     // later refinement.
                     AST matchCase = ast.child(i);
-                    if (!matchCase.child(0).missing()) {
-                        Type t = inferCase(ctx, function, module->invalidType(), matchCase.child(0));
-                        unify(t, varType, matchCase, ctx);
-                    }
+                    if (!matchCase.child(0).missing())
+                        inferCase(ctx, function, module->invalidType(), matchCase.child(0));
                     inferChild(ctx, function, matchCase, 1);
                     matchCase.setType(module->voidType());
                 }
@@ -1902,29 +1901,37 @@ namespace clover {
     }
 
     bool refineCase(InferenceContext& ctx, Function* function, Type input, AST pattern) {
+        auto unifyOrDereference = [&](Type pattern, Type input, AST ast) {
+            // This is basically just unifyInPlace, but it'll try automatically
+            // dereferencing the input if it would otherwise fail.
+            if (canUnify(pattern, input, ast))
+                unifyInPlace(pattern, input, ast);
+            else if (expand(input).is<TypeKind::Pointer>())
+                unifyInPlace(pattern, expand(input).as<TypeKind::Pointer>().elementType(), ast);
+        };
         Module* module = pattern.module;
         switch (pattern.kind()) {
             case ASTKind::Int:
-                unifyInPlace(naturalType(module, makeSigned(module, pattern.intConst())), input, pattern);
+                unifyOrDereference(naturalType(module, makeSigned(module, pattern.intConst())), input, pattern);
                 return true;
             case ASTKind::Unsigned:
-                unifyInPlace(naturalType(module, makeUnsigned(module, pattern.uintConst())), input, pattern);
+                unifyOrDereference(naturalType(module, makeUnsigned(module, pattern.uintConst())), input, pattern);
                 return true;
             case ASTKind::Float:
-                unifyInPlace(naturalType(module, makeFloat(module, pattern.floatConst())), input, pattern);
+                unifyOrDereference(naturalType(module, makeFloat(module, pattern.floatConst())), input, pattern);
                 return true;
             case ASTKind::Bool:
-                unifyInPlace(module->boolType(), input, pattern);
+                unifyOrDereference(module->boolType(), input, pattern);
                 return true;
             case ASTKind::Char:
-                unifyInPlace(module->charType(), input, pattern);
+                unifyOrDereference(module->charType(), input, pattern);
                 return true;
             case ASTKind::String:
-                unifyInPlace(module->arrayType(module->i8Type(), (u32)module->str(pattern.stringConst()).size()), input, pattern);
+                unifyOrDereference(module->arrayType(module->i8Type(), (u32)module->str(pattern.stringConst()).size()), input, pattern);
                 return true;
 
             case ASTKind::VarDecl:
-                unifyInPlace(pattern.type(), input, pattern);
+                unifyOrDereference(pattern.type(), input, pattern);
                 return true;
 
             case ASTKind::Splat:
@@ -1935,7 +1942,7 @@ namespace clover {
                 // propagated the field types down to subpatterns during
                 // earlier inference. All we need to know at this stage is that
                 // our input actually matches the nominal type.
-                unifyInPlace(pattern.type(), input, pattern);
+                unifyOrDereference(pattern.type(), input, pattern);
                 return true;
 
             case ASTKind::Tuple: {
@@ -1973,8 +1980,14 @@ namespace clover {
             case ASTKind::SliceType:
             case ASTKind::ArrayType:
             case ASTKind::TupleType:
-            case ASTKind::FunType:
-                return canUnify(evaluateType(module, function, pattern), input, pattern);
+            case ASTKind::FunType: {
+                Type type = evaluateType(module, function, pattern);
+                if (canUnify(type, input, pattern))
+                    return true;
+                if (expand(input).is<TypeKind::Pointer>())
+                    return canUnify(type, expand(input).as<TypeKind::Pointer>().elementType(), pattern);
+                return false;
+            }
 
             default:
                 unreachable("Invalid pattern node ", pattern);

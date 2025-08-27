@@ -1004,15 +1004,12 @@ namespace clover {
                 for (u32 i = 0; i < ast.arity(); i ++) {
                     resolveChild(module, fixups, ast, i, ExpectValue);
                     if (isTypeExpression(ast.child(i))) {
-                        assert(!hasAnyNonType);
                         hasAnyType = true;
                         types.push(evaluateType(module, fixups, scope, ast.child(i)));
-                    } else {
-                        assert(!hasAnyType);
+                    } else
                         hasAnyNonType = true;
-                    }
                 }
-                if (hasAnyType) {
+                if (hasAnyType && !hasAnyNonType) {
                     ast.setKind(ASTKind::TupleType);
                     ast.setType(module->tupleType(types));
                 }

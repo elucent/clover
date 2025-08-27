@@ -788,3 +788,32 @@ foo(42)
 foo([1, 2, 3])
 )");
 }
+
+TEST(typecheck_match_doesnt_overfit) {
+    auto instance = TYPECHECK(R"(
+type Foo:
+    case A
+    case B
+    case C
+
+fun mystery(Foo a, Foo b):
+    match (a, b):
+        case (Foo.A, x): 21
+        case (Foo.B, Foo.C): 42
+        else: 63
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto FooType = topLevel.child(0).type();
+    auto AType = topLevel.child(0).child(1).type();
+
+    auto firstCase = topLevel.child(1).child(4).child(0).child(1);
+    ASSERT_EQUAL(firstCase.kind(), ASTKind::Case);
+
+    auto firstCaseType = firstCase.child(0).type();
+    ASSERT(firstCaseType.is<TypeKind::Tuple>());
+    ASSERT_TYPE_EQUAL(firstCaseType.as<TypeKind::Tuple>().fieldType(0), AType);
+    ASSERT_TYPE_EQUAL(firstCaseType.as<TypeKind::Tuple>().fieldType(1), FooType);
+}

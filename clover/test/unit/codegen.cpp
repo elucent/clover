@@ -1714,6 +1714,52 @@ fun histogram(i32[] nums, i32[] buckets):
         ASSERT_EQUAL(h[i], 10);
 }
 
+TEST(codegen_count_subtrees) {
+    // Adapted from an impromptu OCaml benchmark written by blueberrywren
+    auto instance = COMPILE(R"(
+type Tree:
+    case Leaf
+    case Branch:
+        i32 item
+        own Tree* left, right
+use Tree.*
+
+i32 x: 10
+fun rand():
+    x = (x * 27527 + 27791) % 41231
+    return x
+
+fun makeTree(i32 max, i32 depth):
+    if depth <= 1:
+        return Leaf
+    new Branch(rand() % max, makeTree(max, depth - 1), makeTree(max, depth - 1))
+
+bool isSub(Tree* t, Tree* k):
+    match (t, k):
+        case (Leaf, x): true
+        case (Branch(x, a, b), Branch(y, q, w)):
+            if x == y and isSub(a, q) and isSub(b, w):
+                return true
+            isSub(t, q) or isSub(t, w)
+        else:
+            false
+
+fun countSubtrees(Tree* a, Tree* t):
+    match a:
+        case Leaf: 1
+        case Branch(i, x, y):
+            (1 if isSub(a, t) else 0) + countSubtrees(x, t) + countSubtrees(y, t)
+
+fun benchmark(i32 x):
+    var t: makeTree(10, x), f: makeTree(9, x)
+    return countSubtrees(f, t)
+)");
+
+    auto exec = load(instance.artifact);
+    auto benchmark = lookup<i64(i32)>("benchmark(i32)", exec);
+    println(benchmark(17));
+}
+
 TEST(codegen_ball_bounce) {
     // Adapted from `bounce` Lua benchmark, viewed here: https://github.com/softdevteam/lua_benchmarking
 

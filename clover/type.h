@@ -2345,6 +2345,24 @@ namespace clover {
         assert(!a.isRange() && !b.isRange());
         if (a == b)
             return a;
+
+        TypeKind ak = a.kind(), bk = b.kind();
+        if (ak == TypeKind::Var) {
+            Type rec = leastCommonSupertype(a.asVar().lowerBound(), b, substituteFlag);
+            if (rec) {
+                a.asVar().setLowerBound(rec);
+                return a;
+            }
+            return types->invalidType();
+        }
+        if (bk == TypeKind::Var) {
+            Type rec = leastCommonSupertype(a, b.asVar().lowerBound(), substituteFlag);
+            if (rec) {
+                b.asVar().setLowerBound(rec);
+                return b;
+            }
+            return types->invalidType();
+        }
         if (a.unifyOnto(b, nullptr, Query)) {
             a.unifyOnto(b, nullptr, InPlace | substituteFlag);
             return b;
@@ -2353,7 +2371,6 @@ namespace clover {
             b.unifyOnto(a, nullptr, InPlace | substituteFlag);
             return a;
         }
-        TypeKind ak = a.kind(), bk = b.kind();
 
         if (ak == TypeKind::Numeric && bk == TypeKind::Numeric && !substituteFlag) {
             // This handles the case where we have a signed v.s. unsigned
@@ -3580,38 +3597,17 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const NamedType& type) {
-        return format(io, type.types->symbols->get(type.name().symbol), '(', type.innerType(), ')');
+        return format(io, type.types->symbols->get(type.name().symbol));
     }
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const StructType& type) {
-        io = format(io, type.types->symbols->get(type.name().symbol), '(');
-        bool first = true;
-        for (u32 i = 0; i < type.count(); i ++) {
-            if (!first)
-                io = format(io, ", ");
-            first = false;
-            auto field = type.field(i);
-            io = format(io, field.type());
-            if (field.isBitField)
-                io = format(io, '#', field.bitFieldSize);
-            if (field.hasName)
-                io = format(io, ' ', type.types->symbols->get(field.name.symbol));
-        }
-        return format(io, ')');
+        return format(io, type.types->symbols->get(type.name().symbol));
     }
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const UnionType& type) {
-        io = format(io, type.types->symbols->get(type.name().symbol), '(');
-        bool first = true;
-        for (u32 i = 0; i < type.count(); i ++) {
-            if (!first)
-                io = format(io, ", ");
-            first = false;
-            io = format(io, "case ", type.caseType(i));
-        }
-        return format(io, ')');
+        return format(io, type.types->symbols->get(type.name().symbol));
     }
 
     template<typename IO, typename Format = Formatter<IO>>
