@@ -14,6 +14,14 @@ enum class PassTimeUnit {
     macro(Clover) \
     macro(Test)
 
+#ifndef RELEASE
+#define IS_RELEASE 0
+#define IS_DEBUG 1
+#else
+#define IS_RELEASE 1
+#define IS_DEBUG 0
+#endif
+
 #define FOR_EACH_OPTION(macro) \
     /* General options. */ \
     macro(help, help, bool, false, General, "Show this help message.") \
@@ -81,7 +89,7 @@ enum class PassTimeUnit {
     macro(cloverDOTFile, clover-dot-file, const_slice<i8>, cstring(""), Clover, "Path to write Clover GraphViz output to.") \
     macro(printProducts, print-products, bool, false, Clover, "Print Clover build products at the end of compilation.") \
     macro(parseAsSexp, parse-as-sexp, bool, false, Clover, "Parse token stream as s-expressions.") \
-    macro(readableTypeVars, readable-type-vars, bool, false, Clover, "Give type variables human-readable names instead of just indices.") \
+    macro(readableTypeVars, readable-type-vars, bool, IS_DEBUG, Clover, "Give type variables human-readable names instead of just indices.") \
     macro(validateResolution, validate-resolution, bool, true, Clover, "Do extra validation after name and type resolution.") \
     macro(verboseUnify, verbose-unify, i32, 0, Clover, "Enables verbose logging for type unification during Clover type inference and checking passes.") \
     macro(reportErrorsImmediately, report-errors-immediately, bool, false, Clover, "Report the first error immediately after it happens and exit.") \
