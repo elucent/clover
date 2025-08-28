@@ -515,13 +515,13 @@ namespace jasmine {
                         if (n.operand(0).kind == Operand::IntConst && fn.intValueOf(n.operand(0)))
                             Target::br(as, LOWER(n.operand(1)));
                         else
-                            Target::brnz(as, LOWER(n.operand(1)), LOWER(n.operand(0)));
+                            Target::brcc8(as, COND_TEST_NONZERO, LOWER(n.operand(1)), LOWER(n.operand(0)), LOWER(n.operand(0)));
                         break;
                     case Opcode::BR_IF_NOT:
                         if (n.operand(0).kind == Operand::IntConst && !fn.intValueOf(n.operand(0)))
                             Target::br(as, LOWER(n.operand(1)));
                         else
-                            Target::brz(as, LOWER(n.operand(1)), LOWER(n.operand(0)));
+                            Target::brcc8(as, COND_TEST_ZERO, LOWER(n.operand(1)), LOWER(n.operand(0)), LOWER(n.operand(0)));
                         break;
                     case Opcode::BR_LT:
                         branchCompare(COND_LT, COND_BELOW, FCOND_LT, n, repr);
