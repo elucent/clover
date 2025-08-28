@@ -236,9 +236,10 @@ namespace jasmine {
                         println("Scratches needed for ", fn.node(node), " is ", (u32)scratchesPerNode[node]);
                     necessaryScratches = max(necessaryScratches, scratchesPerNode[node]);
                 }
+                priorities[i] += overlappingCalls * 10;
                 graph.push(GraphNode {
                     .assigned = false,
-                    .hint = variableHints[liveness[i].var],
+                    .hint = overlappingCalls ? mreg(-1) : variableHints[liveness[i].var],
                     .overlappingCalls = overlappingCalls,
                     .range = i,
                     .necessaryScratches = necessaryScratches,
