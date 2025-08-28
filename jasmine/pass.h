@@ -498,6 +498,11 @@ namespace jasmine {
         inline u32 count() const {
             return numPinned;
         }
+
+        void clear() {
+            numPinned = 0;
+            pins.clear();
+        }
     };
 
     template<typename T, IRTrait Trait>
@@ -626,6 +631,7 @@ namespace jasmine {
             containment.clear();
             blockFrequency.clear();
             allocations.clear();
+            pins.clear();
         }
 
         inline bool errored() const {
