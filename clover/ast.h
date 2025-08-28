@@ -1882,8 +1882,6 @@ namespace clover {
                         io = format(io, ' ');
                 }
                 io = format(io, ')');
-                if (ast.module->nodeTypes.size() && ast.typeIndex() != InvalidType)
-                    io = format(io, typeColor, ":", ast.type(), typeReset);
                 return io;
             }
             default:
