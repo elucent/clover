@@ -1766,8 +1766,6 @@ TEST(codegen_ball_bounce) {
     auto instance = COMPILE(R"(
 u32 x: 74755
 
-void debug(i64)
-
 fun rand():
     x = (x * 1309 + 13849) & 65535
     return x
@@ -1810,7 +1808,7 @@ fun benchmark(u32 ticks):
     var bounces: 0
     for i < ticks:
         for j < 100:
-            bounces ++ if balls[i].bounce()
+            bounces ++ if balls[j].bounce()
     return bounces
 )");
 
