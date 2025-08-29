@@ -1375,6 +1375,7 @@ namespace jasmine {
         }
         allocations.stack += maxStackArguments;
         allocations.stack = roundUpToNearest(allocations.stack, 16);
+
         removeOldBlocks(fn, newToFinalMapping);
     }
 }
