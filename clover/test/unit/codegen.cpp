@@ -1757,7 +1757,7 @@ fun benchmark(i32 x):
 
     auto exec = load(instance.artifact);
     auto benchmark = lookup<i64(i32)>("benchmark(i32)", exec);
-    println(benchmark(17));
+    ASSERT_EQUAL(benchmark(11), 1848);
 }
 
 TEST(codegen_ball_bounce) {
