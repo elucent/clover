@@ -200,6 +200,17 @@ namespace jasmine {
         static void sar(Assembly& as, Repr type, ASMVal dst, ASMVal a, ASMVal b) TERNARY_INT(sar)
         static void rol(Assembly& as, Repr type, ASMVal dst, ASMVal a, ASMVal b) TERNARY_INT(rol)
         static void ror(Assembly& as, Repr type, ASMVal dst, ASMVal a, ASMVal b) TERNARY_INT(ror)
+        static void tzcnt(Assembly& as, Repr type, ASMVal dst, ASMVal src) BINARY_INT(tzcnt)
+        static void lzcnt(Assembly& as, Repr type, ASMVal dst, ASMVal src) BINARY_INT(lzcnt)
+        static void popcnt(Assembly& as, Repr type, ASMVal dst, ASMVal src) BINARY_INT(popcnt)
+
+        static void abs(Assembly& as, Repr type, ASMVal dst, ASMVal src) BINARY_FLOAT(abs);
+        static void min(Assembly& as, Repr type, ASMVal dst, ASMVal a, ASMVal b) TERNARY_FLOAT(min);
+        static void max(Assembly& as, Repr type, ASMVal dst, ASMVal a, ASMVal b) TERNARY_FLOAT(max);
+        static void sqrt(Assembly& as, Repr type, ASMVal dst, ASMVal src) BINARY_FLOAT(sqrt);
+        static void round(Assembly& as, Repr type, ASMVal dst, ASMVal src) BINARY_FLOAT(round);
+        static void floor(Assembly& as, Repr type, ASMVal dst, ASMVal src) BINARY_FLOAT(floor);
+        static void ceil(Assembly& as, Repr type, ASMVal dst, ASMVal src) BINARY_FLOAT(ceil);
 
         static void cmp(Assembly& as, Repr type, Condition cond, ASMVal dst, ASMVal a, ASMVal b) TERNARY_INT_COND(cmpcc)
         static void fcmp(Assembly& as, Repr type, FloatCondition cond, ASMVal dst, ASMVal a, ASMVal b) TERNARY_FLOAT_COND(cmpcc)
@@ -463,6 +474,36 @@ namespace jasmine {
                         break;
                     case Opcode::ROR:
                         Insns::ror(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        break;
+                    case Opcode::TZCNT:
+                        Insns::tzcnt(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        break;
+                    case Opcode::LZCNT:
+                        Insns::lzcnt(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        break;
+                    case Opcode::POPCNT:
+                        Insns::popcnt(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        break;
+                    case Opcode::ABS:
+                        Insns::abs(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        break;
+                    case Opcode::MIN:
+                        Insns::min(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        break;
+                    case Opcode::MAX:
+                        Insns::max(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        break;
+                    case Opcode::SQRT:
+                        Insns::sqrt(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        break;
+                    case Opcode::ROUND:
+                        Insns::round(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        break;
+                    case Opcode::FLOOR:
+                        Insns::floor(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        break;
+                    case Opcode::CEIL:
+                        Insns::ceil(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
                         break;
                     case Opcode::IS_LT:
                         if (isSigned(n.type()))
