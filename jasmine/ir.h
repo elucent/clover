@@ -723,6 +723,7 @@ namespace jasmine {
         bool addedAnything = false;
         bool isLeaf = true;
         bool hasAlloca = false;
+        bool makesCalls = false;
         i64 nextTemp = 0;
         mutable u32 validatingCount = 0;
         vec<NodeIndex, 8> nodesToInsert;

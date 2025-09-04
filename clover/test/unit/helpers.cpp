@@ -41,8 +41,8 @@ bool sameAST(ArtifactKind kind, Function* function, AST a, AST b, ShouldCompareP
                 case ASTKind::Field:
                     result = a.fieldId() == b.fieldId() && result;
                     break;
-                case ASTKind::ResolvedOverload:
-                    result = a.overloadDecl().node == b.overloadDecl().node && result;
+                case ASTKind::ResolvedFunction:
+                    result = a.resolvedFunction() == b.resolvedFunction() && result;
                     break;
                 case ASTKind::Wildcard:
                 case ASTKind::Missing:

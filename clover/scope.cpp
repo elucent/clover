@@ -59,6 +59,39 @@ namespace clover {
         inTable.add(name.symbol);
     }
 
+    void Scope::addFunctionImport(VariableKind kind, Function* function) {
+        Symbol name = function->name;
+        if (entries.find(name) != entries.end()) {
+            auto prev = entries.find(name)->value;
+            const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
+            error(module, Pos(), "Duplicate definition of symbol '", module->str(name), "'.");
+            return;
+        }
+        u32 var;
+        if (this->function)
+            var = this->function->addLocalFunctionImport(kind, function).index;
+        else
+            var = module->addGlobalFunctionImport(kind, function).index;
+        entries.put(name, var);
+        inTable.add(name.symbol);
+    }
+
+    void Scope::addImport(VariableKind kind, TypeIndex type, Symbol name) {
+        if (entries.find(name) != entries.end()) {
+            auto prev = entries.find(name)->value;
+            const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
+            error(module, Pos(), "Duplicate definition of symbol '", module->str(name), "'.");
+            return;
+        }
+        u32 var;
+        if (function)
+            var = function->addLocalImport(kind, type, name).index;
+        else
+            var = module->addGlobalImport(kind, type, name).index;
+        entries.put(name, var);
+        inTable.add(name.symbol);
+    }
+
     void Scope::addOverloadedFunction(Overloads* overloads, Symbol name) {
         u32 var;
         if (function)
@@ -499,8 +532,41 @@ namespace clover {
                     }
                     scope->addIndirect(module, ast, defScope, entry.index, path.back());
                 }
-            } else
-                unreachable("TODO: Implement module imports.");
+            } else {
+                Path filepath(module->compilation->cwd);
+                for (u32 i = 0; i < path.size(); i ++) {
+                    if (i == path.size() - 1) {
+                        auto withext = tostring(module->str(path[i]), ".cl");
+                        filepath.append(withext);
+                        delete[] withext.data();
+                    } else
+                        filepath.append(module->str(path[i]));
+                }
+                Artifact* artifact = addSourceFile(module->compilation, filepath);
+                artifact = compileUntil(module->compilation, ArtifactKind::CheckedAST, artifact);
+                Module* otherModule = artifact->as<Module>();
+
+                Scope* topLevelScope = otherModule->getTopLevel().scope();
+                for (const auto& [k, v] : topLevelScope->entries) {
+                    VariableInfo info = otherModule->globals[v];
+                    if (info.kind == VariableKind::Function) {
+                        Function* function;
+                        if (info.isImport) {
+                            // That is to say, this function is an import in
+                            // the *other* module too.
+                            function = otherModule->functions[info.functionIndex];
+                        } else
+                            function = otherModule->node(info.decl).function();
+                        scope->addFunctionImport(info.kind, function);
+                    } else if (info.kind == VariableKind::OverloadedFunction) {
+                        scope->add(info.kind, ast, expand(module->types->get(info.type)).index, k);
+                    } else if (scope->findLocal(k)) {
+                        error(module, ast.pos(), "Duplicate symbol definition ", module->str(k), " from module ", module->str(path.back()), ".");
+                        break;
+                    } else
+                        scope->addImport(info.kind, expand(module->types->get(info.type)).index, k);
+                }
+            }
         }
     }
 

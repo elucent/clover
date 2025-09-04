@@ -85,6 +85,8 @@ NOINLINE FreeList* Block::takeList() {
 
             list = bitcast<FreeList*>(next);
             list->size = len * allocationSize;
+
+            ALLOC_LOG(3, " - Created new freelist entry of size ", list->size, ", bit word is now ", binary(bits));
         }
         wordIndex ++;
     }

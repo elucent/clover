@@ -28,6 +28,7 @@ namespace clover {
         }
         mapping.put(name, artifactList.size());
         artifactList.push(artifact);
+        compilation->filesChanged = true;
     }
 
     void Directory::addSubDirectory(Symbol name, Directory* directory) {
@@ -39,6 +40,7 @@ namespace clover {
         }
         mapping.put(name, -i32(directoryList.size() + 1));
         directoryList.push(directory);
+        compilation->filesChanged = true;
     }
 
     Artifact* Directory::artifactByName(Symbol name) {
@@ -110,11 +112,14 @@ namespace clover {
         rootModule = new Module(this, cstring(""), move(fakeOffsets));
         rootScope = nullptr;
         types = new TypeSystem(this);
+        slice<i8> buf = { new i8[256], 256 };
+        cwd = file::cwd(buf);
     }
 
     Compilation::~Compilation() {
         delete root;
         delete types;
+        delete[] cwd.data();
         if (shims) delete shims;
     }
 
@@ -216,81 +221,76 @@ namespace clover {
         process::exit(1);
     }
 
-    void compileUntil(Compilation* compilation, ArtifactKind target) {
+    Artifact* compileUntil(Compilation* compilation, ArtifactKind target, Artifact* artifact) {
+        if (artifact->kind == target)
+            return artifact;
         switch (target) {
             case ArtifactKind::Source:
-                break;
+                return artifact;
             case ArtifactKind::Tokens:
-                compilation->forEachArtifact([&](Artifact*& artifact) {
-                    artifact = lex(artifact);
-                    if (artifact->hasErrors())
-                        reportErrorsAndExit(artifact);
-                });
-                break;
+                artifact = lex(artifact);
+                if (artifact->hasErrors())
+                    reportErrorsAndExit(artifact);
+                return artifact;
             case ArtifactKind::ParsedAST:
-                compileUntil(compilation, ArtifactKind::Tokens);
-                compilation->forEachArtifact([&](Artifact*& artifact) {
-                    if UNLIKELY(config::parseAsSexp)
-                        artifact = clover::parseAsSexp(artifact);
-                    else
-                        artifact = clover::parse(artifact);
-                    if (artifact->hasErrors())
-                        reportErrorsAndExit(artifact);
-                });
-                break;
+                artifact = compileUntil(compilation, ArtifactKind::Tokens, artifact);
+                if UNLIKELY(config::parseAsSexp)
+                    artifact = clover::parseAsSexp(artifact);
+                else
+                    artifact = clover::parse(artifact);
+                if (artifact->hasErrors())
+                    reportErrorsAndExit(artifact);
+                return artifact;
             case ArtifactKind::ScopedAST:
-                compileUntil(compilation, ArtifactKind::ParsedAST);
-                compilation->forEachArtifact([&](Artifact*& artifact) {
-                    artifact = clover::computeScopes(artifact);
-                    if (artifact->hasErrors())
-                        reportErrorsAndExit(artifact);
-                });
-                break;
+                artifact = compileUntil(compilation, ArtifactKind::ParsedAST, artifact);
+                artifact = clover::computeScopes(artifact);
+                if (artifact->hasErrors())
+                    reportErrorsAndExit(artifact);
+                return artifact;
             case ArtifactKind::ResolvedAST:
-                compileUntil(compilation, ArtifactKind::ScopedAST);
-                compilation->forEachArtifact([&](Artifact*& artifact) {
-                    artifact = clover::resolveNamesAndTypes(artifact);
-                    if (artifact->hasErrors())
-                        reportErrorsAndExit(artifact);
-                });
-                break;
+                artifact = compileUntil(compilation, ArtifactKind::ScopedAST, artifact);
+                artifact = clover::resolveNamesAndTypes(artifact);
+                if (artifact->hasErrors())
+                    reportErrorsAndExit(artifact);
+                return artifact;
             case ArtifactKind::CheckedAST:
-                compileUntil(compilation, ArtifactKind::ResolvedAST);
-                compilation->forEachArtifact([&](Artifact*& artifact) {
-                    artifact = clover::inferAndCheckTypes(artifact);
-                    if (artifact->hasErrors())
-                        reportErrorsAndExit(artifact);
-                });
-                break;
+                artifact = compileUntil(compilation, ArtifactKind::ResolvedAST, artifact);
+                artifact = clover::inferAndCheckTypes(artifact);
+                if (artifact->hasErrors())
+                    reportErrorsAndExit(artifact);
+                return artifact;
             case ArtifactKind::FinalizedAST:
-                compileUntil(compilation, config::finalizeAfterTypechecking ? ArtifactKind::CheckedAST : ArtifactKind::AnalyzedAST);
-                compilation->forEachArtifact([&](Artifact*& artifact) {
-                    artifact->update(ArtifactKind::FinalizedAST, artifact->as<Module>());
-                    if (artifact->hasErrors())
-                        reportErrorsAndExit(artifact);
-                });
-                break;
+                artifact = compileUntil(compilation, config::finalizeAfterTypechecking ? ArtifactKind::CheckedAST : ArtifactKind::AnalyzedAST, artifact);
+                artifact->update(ArtifactKind::FinalizedAST, artifact->as<Module>());
+                if (artifact->hasErrors())
+                    reportErrorsAndExit(artifact);
+                return artifact;
             case ArtifactKind::JasmineIR:
-                compileUntil(compilation, ArtifactKind::FinalizedAST);
-                compilation->forEachArtifact([&](Artifact*& artifact) {
-                    artifact = generateJasmine(artifact, compilation->optimizationLevel);
-                    if (artifact->hasErrors())
-                        reportErrorsAndExit(artifact);
-                });
-                break;
+                artifact = compileUntil(compilation, ArtifactKind::FinalizedAST, artifact);
+                artifact = generateJasmine(artifact, compilation->optimizationLevel);
+                if (artifact->hasErrors())
+                    reportErrorsAndExit(artifact);
+                return artifact;
             case ArtifactKind::Assembly:
-                compileUntil(compilation, ArtifactKind::JasmineIR);
-                compilation->forEachArtifact([&](Artifact*& artifact) {
-                    if (artifact->kind == ArtifactKind::Assembly)
-                        return; // It's possible we may have already generated assembly.
-                    artifact = emitAssembly(artifact, compilation->optimizationLevel);
-                    if (artifact->hasErrors())
-                        reportErrorsAndExit(artifact);
-                });
-                break;
+                artifact = compileUntil(compilation, ArtifactKind::JasmineIR, artifact);
+                if (artifact->kind == ArtifactKind::Assembly)
+                    return artifact;
+                artifact = emitAssembly(artifact, compilation->optimizationLevel);
+                if (artifact->hasErrors())
+                    reportErrorsAndExit(artifact);
+                return artifact;
             default:
                 unreachable("Unimplemented compilation stage ", target);
         }
+    }
+
+    void compileUntil(Compilation* compilation, ArtifactKind target) {
+        do {
+            compilation->filesChanged = false;
+            compilation->forEachArtifact([&](Artifact*& artifact) {
+                artifact = compileUntil(compilation, target, artifact);
+            });
+        } while (compilation->filesChanged);
     }
 
     void compile(Compilation* compilation) {

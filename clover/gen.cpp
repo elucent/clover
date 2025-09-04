@@ -467,14 +467,13 @@ namespace clover {
             if (function->mangledName != InvalidSymbol)
                 return function->mangledName;
 
-            AST decl = module->node(function->decl);
-            auto name = decl.module->str(decl.child(1).varInfo(function).name);
+            auto name = module->str(function->name);
             i8 buffer[1024];
             slice<i8> target = { buffer, 1024 };
             target = format(target, name);
             if (!module->noMangling) {
                 target = format(target, "(");
-                Type type = expand(decl.type());
+                Type type = function->type();
                 assert(type.is<TypeKind::Function>());
                 for (u32 i = 0; i < type.as<TypeKind::Function>().parameterCount(); i ++) {
                     if (i > 0) target = format(target, ",");
@@ -1985,9 +1984,9 @@ namespace clover {
             case ASTKind::Call: {
                 JasmineOperand callee;
                 Type calleeType;
-                if (ast.child(0).kind() == ASTKind::ResolvedOverload) {
-                    auto name = module->str(genCtx.mangledName(module, ast.child(0).overloadDecl().function()));
-                    calleeType = typeOf(ast.child(0).overloadDecl());
+                if (ast.child(0).kind() == ASTKind::ResolvedFunction) {
+                    auto name = module->str(genCtx.mangledName(module, ast.child(0).resolvedFunction()));
+                    calleeType = ast.child(0).resolvedFunction()->type();
                     callee = genCtx.funcref(name);
                 } else {
                     calleeType = typeOf(ast, 0);
@@ -2585,7 +2584,13 @@ namespace clover {
         Module* module = artifact->as<Module>();
         auto artifactName = module->str(artifact->name);
         JasmineModule output = jasmine_create_module(artifactName.data(), artifactName.size());
-        JasmineFunction topLevel = jasmine_create_function(output, "<toplevel>", 10, JASMINE_TYPE_VOID);
+
+        auto& toplevels = module->compilation->toplevels;
+        i8 buffer[64];
+        slice<i8> name = prints({ buffer, 64 }, "<toplevel", toplevels.size(), ">");
+        toplevels.push(module->sym(name));
+
+        JasmineFunction topLevel = jasmine_create_function(output, name.data(), name.size(), JASMINE_TYPE_VOID);
         JasmineBlock topLevelEntrypoint = jasmine_add_block(topLevel);
         jasmine_set_entrypoint(topLevel, topLevelEntrypoint);
 
@@ -2650,7 +2655,8 @@ namespace clover {
                 ASM::pop64(*as, GP(ASM::RSI));
                 ASM::pop64(*as, GP(ASM::RDX));
                 ASM::add64(*as, GP(ASM::RSP), GP(ASM::RSP), Imm(8));
-                ASM::call(*as, Func(as->symtab["<toplevel>"]));
+                for (Symbol sym : compilation->toplevels)
+                    ASM::call(*as, Func(as->symtab[compilation->str(sym)]));
                 ASM::call(*as, Func(as->symtab[".clrt.deinit"]));
             #endif
         #else

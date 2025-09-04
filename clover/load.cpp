@@ -37,7 +37,12 @@ namespace clover {
     }
 
     Artifact* addSourceFile(Compilation* compilation, const_slice<i8> file) {
-        Path path(file);
+        Path path(compilation->cwd);
+        path.append(file);
+        return clover::addSourceFile(compilation, path);
+    }
+
+    Artifact* addSourceFile(Compilation* compilation, const Path& path) {
         Path parent = path.parent();
         auto* directory = compilation->root;
         for (auto s : parent.segments) {
@@ -47,7 +52,8 @@ namespace clover {
         }
 
         Symbol artifactName = compilation->sym(basename(path.segments.back()));
-        assert(directory->artifactByName(artifactName) == nullptr);
+        if (auto artifact = directory->artifactByName(artifactName))
+            return artifact;
 
         const_slice<i8> os_path = path.to_bytes();
         auto info = file::info(os_path);
@@ -63,7 +69,6 @@ namespace clover {
         Source* source = new Source(text);
         Artifact* newArtifact = new Artifact(directory, artifactName);
         newArtifact->filename = path.segments.back();
-        path.segments.pop();
         newArtifact->update(source);
         directory->addArtifact(artifactName, newArtifact);
         delete[] os_path.data();

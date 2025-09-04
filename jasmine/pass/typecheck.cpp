@@ -114,12 +114,15 @@ namespace jasmine {
                     unify(node.operand(0), node.type());
                     break;
                 }
-                case Opcode::CALL_VOID:
                 case Opcode::TRAP:
+                    break;
+                case Opcode::CALL_VOID:
+                    fn.makesCalls = true;
                     break;
                 case Opcode::CALL: {
                     auto& type = fn.typeContext()[node.type()];
                     unify(node.operand(0), type.returnType());
+                    fn.makesCalls = true;
                     break;
                 }
                 case Opcode::ALLOCA:
@@ -651,6 +654,7 @@ namespace jasmine {
                                 unify(block, node, o, t);
                         }
                     }
+                    fn.makesCalls = true;
                     break;
                 case Opcode::CALL_VOID:
                     if (!isFunction(fn.typeContext(), node.type()))
@@ -667,6 +671,7 @@ namespace jasmine {
                                 unify(block, node, o, t);
                         }
                     }
+                    fn.makesCalls = true;
                     break;
                 case Opcode::BITCAST:
                 case Opcode::CONVERT:

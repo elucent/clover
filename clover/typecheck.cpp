@@ -848,6 +848,14 @@ namespace clover {
                 return toType(module, infer(ctx, function, ast)).type(module);
             case ASTKind::String:
                 return module->arrayType(module->i8Type(), (u32)module->str(ast.stringConst()).size());
+
+            case ASTKind::ResolvedFunction: {
+                Function* function = ast.resolvedFunction();
+                if (function->module == module)
+                    return module->node(function->decl).type();
+                return function->type();
+            }
+
             default:
                 assert(!ast.isLeaf());
                 return ast.type();
@@ -1083,6 +1091,13 @@ namespace clover {
                 return makeBool(module, ast.boolConst());
             case ASTKind::Char:
                 return makeChar(module, ast.charConst());
+
+            case ASTKind::ResolvedFunction: {
+                Function* function = ast.resolvedFunction();
+                if (function->module == module)
+                    return fromType(module->node(function->decl).type());
+                return fromType(function->type());
+            }
 
             case ASTKind::Typename:
             case ASTKind::GlobalTypename:
@@ -1697,6 +1712,7 @@ namespace clover {
                 //     printTypeConstraints(module->types, &constraints);
 
                 // refineGraph(module, funcCtx);
+                ctx.checkLater(ast);
                 return fromType(module->voidType());
             }
 
@@ -2001,6 +2017,7 @@ namespace clover {
         vec<pair<Function*, TypeIndex>> possibleFunctions;
         Module* module = ast.module;
         overloads->forEachFunction([&](Function* overload) {
+            Module* module = overload->module;
             auto type = expand(module->node(overload->decl).type());
             type_assert(type.is<TypeKind::Function>());
             auto funcType = type.as<TypeKind::Function>();
@@ -2017,7 +2034,7 @@ namespace clover {
 
         type_assert(possibleFunctions.size() <= 1);
         if (possibleFunctions.size() == 1) {
-            ast.setChild(0, module->add(ASTKind::ResolvedOverload, OverloadDecl(possibleFunctions[0].first)));
+            ast.setChild(0, module->add(ASTKind::ResolvedFunction, possibleFunctions[0].first));
             return some<TypeIndex>(possibleFunctions[0].second);
         }
         return none<TypeIndex>();
@@ -2797,6 +2814,11 @@ namespace clover {
 
             case ASTKind::TopLevel:
                 concretifyNode(ast);
+                break;
+
+            case ASTKind::FunDecl:
+                assert(ast.function()->typeIndex == InvalidType);
+                ast.function()->typeIndex = concreteType(module, ast.type()).index;
                 break;
 
             default:

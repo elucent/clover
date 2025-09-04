@@ -186,8 +186,11 @@ namespace clover {
         Module* rootModule;
         Scope* rootScope;
         JITRuntimeShims* shims = nullptr;
+        const_slice<i8> cwd;
         bool compilationErrored = false;
+        bool filesChanged = false;
         u32 optimizationLevel = 0;
+        vec<Symbol> toplevels;
 
         Compilation();
         ~Compilation();
@@ -404,6 +407,7 @@ namespace clover {
     static_assert(LastOperator + 1 == FirstKeyword);
     static_assert(LastKeyword + 1 == NumReservedSymbols);
 
+    Artifact* compileUntil(Compilation* compilation, ArtifactKind target, Artifact* artifact);
     void compileUntil(Compilation* compilation, ArtifactKind target);
     void compile(Compilation* compilation);
 

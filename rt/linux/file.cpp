@@ -12,16 +12,18 @@ namespace file {
         Open = 2,
         Close = 3,
         Stat = 4,
+        GetCwd = 79,
         Rename = 82,
         MkDir = 83,
         RmDir = 84,
         Unlink = 87,
-        GetDents = 217
+        GetDents = 217,
+        ReadlinkAt = 267
     };
 
-    iword stdin ASMLABEL("file.stdin") = 0;
-    iword stdout ASMLABEL("file.stdout") = 1;
-    iword stderr ASMLABEL("file.stderr") = 2;
+    fd stdin ASMLABEL("file.stdin") = 0;
+    fd stdout ASMLABEL("file.stdout") = 1;
+    fd stderr ASMLABEL("file.stderr") = 2;
 
     static i8 buf64k[65536]; // Multi-purpose buffer.
 
@@ -87,7 +89,7 @@ namespace file {
     FileInfo info(const_slice<i8> path) ASMLABEL("file.info");
     FileInfo info(const_slice<i8> path) {
         FileInfo info = {
-            Kind::NONE, 0
+            0, Kind::NONE
         };
         if (path.size() >= 65535)
             return info;
@@ -103,10 +105,20 @@ namespace file {
             info.kind = Kind::FILE;
             info.size = os_stat.st_size;
         } else if ((os_stat.st_mode & S_IFMT) == S_IFDIR) {
-            info.kind = Kind::DIR; 
+            info.kind = Kind::DIR;
         }
 
         return info;
+    }
+
+    slice<i8> cwd(slice<i8> out) ASMLABEL("file.cwd");
+    slice<i8> cwd(slice<i8> out) {
+        os_syscall(GetCwd, (iword)buf64k, 65536);
+        u64 strlen = findc(buf64k, 0);
+        if (out.size() < strlen)
+            strlen = out.size();
+        memory::copy(out.data(), buf64k, strlen);
+        return out.take(strlen);
     }
 }
 
@@ -156,7 +168,7 @@ namespace dir {
                     kind = file::NONE;
                     break;
             }
-            buf[i] = dir::entry{ dirents[i].d_name, kind, findc(dirents[i].d_name, '\0') };
+            buf[i] = dir::entry{ dirents[i].d_name, (i32)findc(dirents[i].d_name, '\0'), kind };
         }
         return read;
     }

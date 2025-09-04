@@ -19,6 +19,7 @@ namespace clover {
 
     void findSources(Compilation* compilation, const_slice<i8> root);
     Artifact* addSourceFile(Compilation* compilation, const_slice<i8> file);
+    Artifact* addSourceFile(Compilation* compilation, const Path& path);
     Artifact* addSourceString(Compilation* compilation, const_slice<i8> virtualPath, const_slice<i8> contents);
 }
 

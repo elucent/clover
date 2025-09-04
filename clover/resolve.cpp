@@ -694,14 +694,13 @@ namespace clover {
                 }
                 switch (entry.kind()) {
                     case VariableKind::Type:
-                        if (entry.hasDecl())
+                        if (entry.type() == InvalidType && entry.hasDecl())
                             entry.setType(resolveTypeForDecl(module, fixups, entry.decl()));
                         if (entry.isGlobal())
                             return module->add(ASTKind::GlobalTypename, Global(entry.index()));
                         else
                             return module->add(ASTKind::Typename, Local(entry.index()));
                     case VariableKind::Variable:
-                    case VariableKind::Function:
                     case VariableKind::OverloadedFunction:
                     case VariableKind::Member:
                         if (entry.isGlobal())
@@ -714,6 +713,19 @@ namespace clover {
                             return module->add(ASTKind::GlobalConst, Global(entry.index()));
                         else
                             return module->add(ASTKind::Const, Local(entry.index()));
+
+                    case VariableKind::Function: {
+                        const VariableInfo& info = entry.isGlobal()
+                            ? module->globals[entry.index()]
+                            : scope->function->locals[entry.index()];
+                        Function* function;
+                        if (info.isImport)
+                            function = module->functions[info.functionIndex];
+                        else
+                            function = module->node(info.decl).function();
+                        return module->add(ASTKind::ResolvedFunction, function);
+                    }
+
                     default:
                         return ast;
                 }

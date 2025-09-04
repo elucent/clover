@@ -81,7 +81,7 @@ namespace file {
     /*
      * Abstract representation of a native file handle.
      */
-    typedef iptr fd;
+    typedef i32 fd;
 
     enum Permission {
         READ = 1,       // Specifies that the file should be readable.
@@ -96,7 +96,7 @@ namespace file {
     struct FileMeta {
         Kind kind;
         i8 mutex;
-        iptr sysfd;
+        i32 sysfd;
         union {
             struct { i32 start, end; };
             struct { net::addr addr; net::port port; i8 socket_flags; };
@@ -157,8 +157,8 @@ namespace file {
     extern void close(fd file) ASMLABEL("file.close");
 
     struct FileInfo {
-        Kind kind : 8;
         u32 size;
+        Kind kind : 8;
     };
 
     /*
@@ -174,6 +174,15 @@ namespace file {
      * Returns the type of file represented by the given file descriptor.
      */
     extern Kind kind(fd file) ASMLABEL("file.kind");
+
+    /*
+     * file.cwd()
+     *
+     * Writes the working directory path of the current program into the output
+     * buffer provided. Returns the subslice of the output buffer that was
+     * written.
+     */
+    extern slice<i8> cwd(slice<i8> output) ASMLABEL("file.cwd");
 }
 
 namespace dir {
@@ -202,8 +211,8 @@ namespace dir {
 
     struct entry {
         i8* path;
-        Kind kind : 8;
-        iword pathlen : 56;
+        i32 pathlen;
+        Kind kind;
     };
 
     /*

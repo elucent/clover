@@ -82,7 +82,8 @@ namespace clover {
         Scope scope : 3;
         Kind kind : 5;
         union {
-            struct { NodeIndex decl; Symbol name; };
+            struct { u32 isImport : 1; NodeIndex decl : 31; Symbol name; };
+            struct { u32 : 1; u32 functionIndex : 31; u32 : 32; };
             struct { u32 overloads; u32 : 32; };
             struct { ScopeIndex defScope; u32 index; };
         };
@@ -136,6 +137,8 @@ namespace clover {
         void addToRoot(VariableKind kind, TypeIndex type, Symbol name);
         void add(VariableKind kind, const AST& decl, Symbol name);
         void add(VariableKind kind, const AST& decl, TypeIndex type, Symbol name);
+        void addImport(VariableKind kind, TypeIndex type, Symbol name);
+        void addFunctionImport(VariableKind kind, Function* function);
         void addOverloadedFunction(Overloads* overloads, Symbol name);
         void addIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
 

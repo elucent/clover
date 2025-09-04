@@ -8,7 +8,7 @@
 #if defined(RT_WINDOWS)
 constexpr rune OSPathSeparators[2] = { '\\', '/' };
 #else
-constexpr rune OSPathSeparators[1] = { '/' }; 
+constexpr rune OSPathSeparators[1] = { '/' };
 #endif
 
 constexpr bool isOSPathSeparator(rune r) {
@@ -18,24 +18,21 @@ constexpr bool isOSPathSeparator(rune r) {
     return false;
 }
 
+constexpr bool isValidPathSegment(const_slice<i8> segment) {
+    if (segment.size() > 0 && segment[0] == '.') {
+        if (segment.size() == 1)
+            return false;
+        if (segment.size() == 2 && segment[1] == '.')
+            return false;
+    }
+    return true;
+}
+
 struct Path {
     vec<const_slice<i8>, 4> segments;
 
     inline Path(const_slice<i8> base) {
-        const i8* data = base.data();
-        const i8* prev = data;
-        const i8* iter = data;
-        rune current;
-        while (iter != base.end()) {
-            iter = utf8_decode_forward(iter, &current);
-            if (isOSPathSeparator(current)) {
-                const i8* end = iter - current.bytes();
-                segments.push(const_slice<i8>(prev, end - prev).dup());
-                prev = iter;
-            }
-        }
-        if (iter != prev)
-            segments.push(const_slice<i8>(prev, iter - prev).dup());
+        append(base);
     }
 
     inline ~Path() {
@@ -46,6 +43,24 @@ struct Path {
     inline Path(const Path& other) {
         for (auto s : other.segments)
             segments.push(s.dup());
+    }
+
+    inline void append(const_slice<i8> path) {
+        const i8* data = path.data();
+        const i8* prev = data;
+        const i8* iter = data;
+        rune current;
+        while (iter != path.end()) {
+            iter = utf8_decode_forward(iter, &current);
+            if (isOSPathSeparator(current)) {
+                const i8* end = iter - current.bytes();
+                if (end != prev)
+                    segments.push(const_slice<i8>(prev, end - prev).dup());
+                prev = iter;
+            }
+        }
+        if (iter != prev)
+            segments.push(const_slice<i8>(prev, iter - prev).dup());
     }
 
     inline Path& operator=(const Path& other) {
@@ -62,10 +77,11 @@ struct Path {
     inline slice<i8> to_bytes() const {
         static_assert(sizeof(OSPathSeparators));
         rune separator = OSPathSeparators[0];
-        u32 computedLength = (segments.size() - 1) * separator.bytes();
+        u32 computedLength = 1 + (segments.size() - 1) * separator.bytes();
         for (auto s : segments) computedLength += s.size();
         slice<i8> result = { new i8[computedLength], computedLength };
-        i8* writer = result.data();
+        result[0] = '/';
+        i8* writer = result.data() + 1;
         for (u32 i = 0; i < segments.size(); i ++) {
             if (i)
                 writer += utf8_encode(&separator, 1, writer, separator.bytes());
@@ -90,6 +106,16 @@ struct Path {
         Path result = *this;
         delete[] result.segments.pop().data();
         return result;
+    }
+
+    inline bool exists() const {
+        auto bytes = to_bytes();
+        auto fd = file::open(bytes, file::READ);
+        delete[] bytes.data();
+        if (fd == -1)
+            return false;
+        file::close(fd);
+        return true;
     }
 };
 

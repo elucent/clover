@@ -53,3 +53,173 @@ extern const_slice<i8> process_arg(u64) ASMLABEL("process.argv");
 extern const_slice<i8> process_arg(u64 i) {
     return cstring(clrt_argv[i]);
 }
+
+// System definitions.
+
+// alias CLRTMemoryFlags: u32
+u32 CLRT_MAP_READ = 1, CLRT_MAP_WRITE = 2, CLRT_MAP_EXEC = 4;
+
+// i8[] CLRTMemoryMap(u64 bytes)
+slice<i8> CLRTMemoryMap(u64) ASMLABEL("CLRTMemoryMap(u64)");
+slice<i8> CLRTMemoryMap(u64 bytes) {
+    auto pages = memory::map(bytes);
+    return { (i8*)pages.data(), (iword)pages.size() };
+}
+
+// void CLRTMemoryUnmap(i8[] pages)
+void CLRTMemoryUnmap(slice<i8>) ASMLABEL("CLRTMemoryUnmap(i8[])");
+void CLRTMemoryUnmap(slice<i8> pages) {
+    memory::unmap(pages.as_slice<memory::page>());
+}
+
+// void CLRTMemoryTag(i8[] pages, CLRTMemoryFlags)
+void CLRTMemoryTag(slice<i8>, i32) ASMLABEL("CLRTMemoryTag(i8[],u32)");
+void CLRTMemoryTag(slice<i8> pages, i32 flags) {
+    memory::tag(pages.as_slice<memory::page>(), flags);
+}
+
+// void CLRTMemoryDecommit(i8[] pages)
+void CLRTMemoryDecommit(slice<i8>) ASMLABEL("CLRTMemoryDecommit(i8[])");
+void CLRTMemoryDecommit(slice<i8> pages) {
+    memory::decommit(pages.as_slice<memory::page>());
+}
+
+// i8* CLRTMemorySp()
+void* CLRTMemorySp() ASMLABEL("CLRTMemorySp()");
+void* CLRTMemorySp() {
+    return (void*)memory::sp();
+}
+
+// alias CLRTFileFlags: u32
+u32 CLRT_FP_READ = 1, CLRT_FP_WRITE = 2, CLRT_FP_APPEND = 4;
+
+// alias CLRTFileKind: i8
+u8 CLRT_FK_NONE = 0, CLRT_FK_FILE = 1, CLRT_FK_DIR = 2, CLRT_FK_SOCKET = 3;
+
+// CLRTFd CLRTFileOpen(i8[] path, CLRTFileFlags)
+u32 CLRTFileOpen(const_slice<i8>, u32) ASMLABEL("CLRTFileOpen(i8[],u32)");
+u32 CLRTFileOpen(const_slice<i8> path, u32 flags) {
+    return file::open(path, flags);
+}
+
+// u32 CLRTFileRead(CLRTFd, i8[] output)
+u32 CLRTFileRead(u32, slice<i8>) ASMLABEL("CLRTFileRead(CLRTFd,i8[])");
+u32 CLRTFileRead(u32 fd, slice<i8> output) {
+    return file::read(fd, output);
+}
+
+// u32 CLRTFileWrite(CLRTFd, i8[] message)
+u32 CLRTFileWrite(u32, const_slice<i8>) ASMLABEL("CLRTFileWrite(CLRTFd,i8[])");
+u32 CLRTFileWrite(u32 fd, const_slice<i8> message) {
+    return file::write(fd, message);
+}
+
+// void CLRTFileClose(CLRTFd)
+void CLRTFileClose(u32) ASMLABEL("CLRTFileClose(CLRTFd)");
+void CLRTFileClose(u32 fd) {
+    return file::close(fd);
+}
+
+// CLRTFileData CLRTFileInfo(i8[] path)
+file::FileInfo CLRTFileInfo(const_slice<i8>) ASMLABEL("CLRTFileInfo(i8[])");
+file::FileInfo CLRTFileInfo(const_slice<i8> path) {
+    return file::info(path);
+}
+
+// void CLRTFileRemove(i8[] path)
+void CLRTFileRemove(const_slice<i8>) ASMLABEL("CLRTFileRemove(i8[])");
+void CLRTFileRemove(const_slice<i8> path) {
+    file::remove(path);
+}
+
+// i8[] CLRTFileCwd(i8[] output)
+slice<i8> CLRTFileCwd(slice<i8>) ASMLABEL("CLRTFileCwd(i8[])");
+slice<i8> CLRTFileCwd(slice<i8> output) {
+    return file::cwd(output);
+}
+
+// CLRTFd CLRTDirOpen(i8[] path, CLRTFileFlags)
+u32 CLRTDirOpen(const_slice<i8>, u32) ASMLABEL("CLRTDirOpen(i8[],u32)");
+u32 CLRTDirOpen(const_slice<i8> path, u32 flags) {
+    return dir::open(path, flags);
+}
+
+// void CLRTDirClose(CLRTFd)
+void CLRTDirClose(u32) ASMLABEL("CLRTDirClose(CLRTFd)");
+void CLRTDirClose(u32 fd) {
+    dir::close(fd);
+}
+
+// void CLRTDirRemove(i8[] path)
+void CLRTDirRemove(const_slice<i8>) ASMLABEL("CLRTDirRemove(i8[])");
+void CLRTDirRemove(const_slice<i8> path) {
+    dir::remove(path);
+}
+
+// u32 CLRTDirRead(CLRTFd, CLRTDirEntry[] output)
+u32 CLRTDirRead(u32, slice<dir::entry>) ASMLABEL("CLRTDirRead(CLRTFd,CLRTDirEntry[])");
+u32 CLRTDirRead(u32 fd, slice<dir::entry> entries) {
+    return dir::read(fd, entries);
+}
+
+// void CLRTProcessExit(i32 exitCode)
+void CLRTProcessExit(i32) ASMLABEL("CLRTProcessExit(i32)");
+void CLRTProcessExit(i32 exitCode) {
+    process::exit(exitCode);
+}
+
+// i32 CLRTProcessExec(i8[] path, i8[][] argv)
+i32 CLRTProcessExec(const_slice<i8>,const_slice<const_slice<i8>>) ASMLABEL("CLRTProcessExec(i8[],i8[][])");
+i32 CLRTProcessExec(const_slice<i8> path, const_slice<const_slice<i8>> argv) {
+    return process::exec(path, argv);
+}
+
+// i64 CLRTTimeSeconds()
+i64 CLRTTimeSeconds() ASMLABEL("CLRTTimeSeconds()");
+i64 CLRTTimeSeconds() {
+    return time::seconds();
+}
+
+// i64 CLRTTimeMillis()
+i64 CLRTTimeMillis() ASMLABEL("CLRTTimeMillis()");
+i64 CLRTTimeMillis() {
+    return time::millis();
+}
+
+// i64 CLRTTimeNanos()
+i64 CLRTTimeNanos() ASMLABEL("CLRTTimeNanos()");
+i64 CLRTTimeNanos() {
+    return time::nanos();
+}
+
+// i64 CLRTTimeTicks()
+i64 CLRTTimeTicks() ASMLABEL("CLRTTimeTicks()");
+i64 CLRTTimeTicks() {
+    return time::ticks();
+}
+
+// void CLRTAtomicSetBit(u64* word, u64 bit)
+void CLRTAtomicSetBit(u64*, u64) ASMLABEL("CLRTAtomicSetBit(u64*,u64)");
+void CLRTAtomicSetBit(u64* word, u64 bit) {
+    atomics::set_bit(word, bit);
+}
+
+// void CLRTAtomicClearBit(u64* word, u64 bit)
+void CLRTAtomicClearBit(u64*, u64) ASMLABEL("CLRTAtomicClearBit(u64*,u64)");
+void CLRTAtomicClearBit(u64* word, u64 bit) {
+    atomics::clear_bit(word, bit);
+}
+
+// void CLRTAtomicTestSetBit(u64* word, u64 bit)
+void CLRTAtomicTestSetBit(u64*, u64) ASMLABEL("CLRTAtomicTestSetBit(u64*,u64)");
+void CLRTAtomicTestSetBit(u64* word, u64 bit) {
+    atomics::test_set_bit(word, bit);
+}
+
+// void CLRTAtomicTestClearBit(u64* word, u64 bit)
+void CLRTAtomicTestClearBit(u64*, u64) ASMLABEL("CLRTAtomicTestClearBit(u64*,u64)");
+void CLRTAtomicTestClearBit(u64* word, u64 bit) {
+    atomics::test_clear_bit(word, bit);
+}
+
+

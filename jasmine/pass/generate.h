@@ -293,7 +293,7 @@ namespace jasmine {
 
         Target::global(as, as.symtab[fn.name()]);
 
-        if (totalStackWithCalleeSaves % 16 == 0) {
+        if (totalStackWithCalleeSaves % 16 == 0 && fn.makesCalls) {
             // We need to make sure our callees have 16-byte aligned stack. So
             // if our stack before we call something is 16-byte aligned, then
             // we need an extra 8 bytes of padding.
@@ -599,7 +599,7 @@ namespace jasmine {
                         break;
                     }
                     case Opcode::RET: {
-                        if (totalStackWithCalleeSaves % 16 == 0 && !allocations.stack)
+                        if (totalStackWithCalleeSaves % 16 == 0 && !allocations.stack && fn.makesCalls)
                             Target::unstack(as, Imm(8));
                         if (allocations.stack || fn.hasAlloca)
                             Target::leave(as);

@@ -34,7 +34,7 @@ namespace clover {
         macro(Char, char, _, true, 0) \
         macro(AnyType, anyType, any, true, 0) \
         macro(Wildcard, wildcard, wildcard, true, 0) /* Used in paths to indicate a glob. */ \
-        macro(ResolvedOverload, resolvedOverload, resolved_overload, true, 0) /* Encodes function index in symbol. */ \
+        macro(ResolvedFunction, resolvedFunction, resolved_function, true, 0) /* Encodes function index in symbol. */ \
         macro(Missing, missing, missing, true, 0) /* Used to mark missing expressions in nodes where some children are optional. */ \
         \
         /* Expressions */ \
@@ -278,6 +278,7 @@ namespace clover {
     extern const i8* AST_NAMES_SYMBOLIC[ASTKind::NumKinds];
 
     struct VariableInfo;
+    struct Function;
 
     struct AST {
         static constexpr u32 HeaderSlots = 1;
@@ -310,7 +311,7 @@ namespace clover {
         inline i64 intConst() const;
         inline u64 uintConst() const;
         inline u32 fieldId() const;
-        inline AST overloadDecl() const;
+        inline Function* resolvedFunction() const;
         inline f64 floatConst() const;
         inline Symbol stringConst() const;
         inline bool boolConst() const;
@@ -320,7 +321,7 @@ namespace clover {
         inline void setIntConst(i64 i);
         inline void setUintConst(u64 i);
         inline void setFieldId(u32 i);
-        inline void setOverloadDecl(Function* function);
+        inline void setResolvedFunction(Function* function);
         inline void setFloatConst(f64 f);
         inline void setStringConst(Symbol s);
         inline void setBoolConst(bool b);
@@ -456,12 +457,13 @@ namespace clover {
         Module* module;
         Function* parent;
         NodeIndex decl;
-        Symbol mangledName = InvalidSymbol;
+        u32 index;
+        TypeIndex typeIndex = InvalidType;
+        Symbol name, mangledName = InvalidSymbol;
         vec<VariableInfo, 8> locals;
         u32 numTemps = 0;
 
-        inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in):
-            module(module_in), parent(parent_in), decl(decl_in) {}
+        inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in);
 
         inline Local addLocalOverload(u32 overloads, Symbol name) {
             VariableInfo info;
@@ -489,6 +491,22 @@ namespace clover {
             return Local(locals.size() - 1);
         }
 
+        inline Local addLocalFunctionImport(VariableKind kind, Function* function);
+
+        inline Local addLocalImport(VariableKind kind, TypeIndex type, Symbol name) {
+            assert(kind != VariableKind::Function);
+
+            VariableInfo info;
+            info.kind = kind;
+            info.scope = VariableInfo::Local;
+            info.isImport = true;
+            info.functionIndex = InvalidNode;
+            info.type = type;
+            info.name = name;
+            locals.push(info);
+            return Local(locals.size() - 1);
+        }
+
         inline Local addLocalIndirect(ScopeIndex scope, u32 index) {
             VariableInfo info;
             info.type = InvalidType;
@@ -506,6 +524,8 @@ namespace clover {
         inline Local addTemp() {
             return addTemp(InvalidType);
         }
+
+        inline Type type() const;
     };
 
     struct Overloads {
@@ -583,12 +603,6 @@ namespace clover {
         inline Symbol name() const;
         inline bool hasDecl() const;
         inline AST decl() const;
-    };
-
-    struct OverloadDecl {
-        u32 id;
-
-        inline OverloadDecl(Function* function): id(function->decl) {}
     };
 
     struct FieldId {
@@ -682,6 +696,10 @@ namespace clover {
         i32 payload : ASTWord::ConstantBits;
     };
 
+    inline u64 hash(Function* function) {
+        return ::hash(u64(function));
+    }
+
     struct Module : public ArtifactData {
         vec<ASTWord, 24> astWords;
         vec<u32, 8> ast;
@@ -695,12 +713,14 @@ namespace clover {
         vec<Scope*> scopes;
         vec<VariableInfo, 8> globals;
         vec<Function*, 8> functions;
+        map<Function*, u32> importedFunctions;
         vec<Overloads*, 4> overloads;
         const_slice<i8> source;
         vec<u32> lineOffsets;
         NodeIndex topLevel;
         u32 numTemps = 0;
         bool noMangling = false;
+        bool isMain = true;
 
         inline Module(Compilation* compilation_in, const_slice<i8> source, vec<u32>&& lineOffsets);
         ~Module() override;
@@ -872,13 +892,13 @@ namespace clover {
             return AST(this, ast);
         }
 
-        inline AST addLeaf(ASTKind kind, const OverloadDecl& overload) {
-            assert(kind == ASTKind::ResolvedOverload);
+        inline AST addLeaf(ASTKind kind, Function* const& function) {
+            assert(kind == ASTKind::ResolvedFunction);
             assert(nodeScopes.size() != 0); // Should only be producing these after scope resolution.
             assert(nodeTypes.size() != 0); // Should only be producing these after scope resolution.
             ASTWord ast;
             ast.kind = kind;
-            auto internResult = tryIntern(Constant::UnsignedConst(overload.id));
+            auto internResult = tryIntern(Constant::UnsignedConst(functionIndex(function)));
             ast.isInline = internResult.canIntern;
             ast.constantIndex = internResult.payload;
             return AST(this, ast);
@@ -911,7 +931,7 @@ namespace clover {
         template<typename... Args>
         inline u32 computeArity(const FieldId&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
-        inline u32 computeArity(const OverloadDecl&, const Args&... args) { return 1 + computeArity(args...); }
+        inline u32 computeArity(Function* const&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
         inline u32 computeArity(const AST&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename T, u32 N, typename... Args>
@@ -938,8 +958,8 @@ namespace clover {
             astWords.push(addLeaf(ASTKind::Field, field).firstWord());
         }
 
-        inline void addChild(const OverloadDecl& overload) {
-            astWords.push(addLeaf(ASTKind::ResolvedOverload, overload).firstWord());
+        inline void addChild(Function* const& function) {
+            astWords.push(addLeaf(ASTKind::ResolvedFunction, function).firstWord());
         }
 
         inline void addChild(const Constant& constant) {
@@ -1239,7 +1259,49 @@ namespace clover {
             VariableInfo info;
             info.kind = kind;
             info.scope = VariableInfo::Global;
+            info.isImport = false;
             info.decl = decl;
+            info.type = type;
+            info.name = name;
+            globals.push(info);
+            return Global(globals.size() - 1);
+        }
+
+        inline u32 functionIndex(Function* function) {
+            if (function->module == this)
+                return function->index;
+            auto it = importedFunctions.find(function);
+            if (it == importedFunctions.end()) {
+                importedFunctions.put(function, functions.size());
+                functions.push(function);
+                return functions.size() - 1;
+            }
+            return it->value;
+        }
+
+        inline Global addGlobalFunctionImport(VariableKind kind, Function* function) {
+            assert(kind == VariableKind::Function);
+            assert(function->typeIndex != InvalidType);
+
+            VariableInfo info;
+            info.kind = kind;
+            info.scope = VariableInfo::Global;
+            info.isImport = true;
+            info.functionIndex = functionIndex(function);
+            info.type = function->typeIndex;
+            info.name = function->name;
+            globals.push(info);
+            return Global(globals.size() - 1);
+        }
+
+        inline Global addGlobalImport(VariableKind kind, TypeIndex type, Symbol name) {
+            assert(kind != VariableKind::Function);
+
+            VariableInfo info;
+            info.kind = kind;
+            info.scope = VariableInfo::Global;
+            info.isImport = true;
+            info.functionIndex = InvalidNode;
             info.type = type;
             info.name = name;
             globals.push(info);
@@ -1309,6 +1371,7 @@ namespace clover {
 
         inline Function* addFunction(AST owner, Function* parent) {
             functions.push(new Function(this, parent, owner.node));
+            functions.back()->index = functions.size() - 1;
             return functions.back();
         }
 
@@ -1371,6 +1434,31 @@ namespace clover {
         info.kind = VariableInfo::Temp;
         info.decl = InvalidNode;
         info.name = name;
+        locals.push(info);
+        return Local(locals.size() - 1);
+    }
+
+    inline Type Function::type() const {
+        assert(typeIndex != InvalidType);
+        return module->types->get(typeIndex);
+    }
+
+    inline Function::Function(Module* module_in, Function* parent_in, NodeIndex decl_in):
+        module(module_in), parent(parent_in), decl(decl_in) {
+        name = module->node(decl).child(1).symbol();
+    }
+
+    inline Local Function::addLocalFunctionImport(VariableKind kind, Function* function) {
+        assert(kind == VariableKind::Function);
+        assert(function->typeIndex != InvalidType);
+
+        VariableInfo info;
+        info.kind = kind;
+        info.scope = VariableInfo::Local;
+        info.isImport = true;
+        info.functionIndex = module->functionIndex(function);
+        info.type = function->typeIndex;
+        info.name = function->name;
         locals.push(info);
         return Local(locals.size() - 1);
     }
@@ -1470,12 +1558,12 @@ namespace clover {
             return module->constantList[firstWord().constantIndex].uintConst;
     }
 
-    inline AST AST::overloadDecl() const {
-        assert(kind() == ASTKind::ResolvedOverload);
+    inline Function* AST::resolvedFunction() const {
+        assert(kind() == ASTKind::ResolvedFunction);
         if (firstWord().isInline)
-            return module->node(firstWord().inlineUnsigned);
+            return module->functions[firstWord().inlineUnsigned];
         else
-            return module->node(module->constantList[firstWord().constantIndex].uintConst);
+            return module->functions[module->constantList[firstWord().constantIndex].uintConst];
     }
 
     inline f64 AST::floatConst() const {
@@ -1522,8 +1610,8 @@ namespace clover {
             firstWord().isInline = false, firstWord().constantIndex = intern.payload;
     }
 
-    inline void AST::setOverloadDecl(Function* function) {
-        auto intern = module->tryIntern(Constant::UnsignedConst(function->decl));
+    inline void AST::setResolvedFunction(Function* function) {
+        auto intern = module->tryIntern(Constant::UnsignedConst(module->functionIndex(function)));
         if (intern.canIntern)
             firstWord().isInline = true, firstWord().inlineSigned = intern.payload;
         else
@@ -1769,7 +1857,8 @@ namespace clover {
     }
 
     inline bool VariableHandle::hasDecl() const {
-        return (isGlobal() ? module->globals[i] : function->locals[i]).decl != InvalidNode;
+        const auto& info = isGlobal() ? module->globals[i] : function->locals[i];
+        return !info.isImport && info.decl != InvalidNode;
     }
 
     inline AST VariableHandle::decl() const {
@@ -1837,11 +1926,9 @@ namespace clover {
                 return io;
             case ASTKind::Field:
                 return format(io, ".", ast.fieldId());
-            case ASTKind::ResolvedOverload:
-                io = format(io, module->str(ast.overloadDecl().child(1).varInfo(parent.scope()->function).name));
-                io = format(io, "/", ast.overloadDecl().node);
-                if (module->nodeTypes.size())
-                    io = format(io, typeColor, ":", ast.overloadDecl().type(), typeReset);
+            case ASTKind::ResolvedFunction:
+                io = format(io, module->str(ast.resolvedFunction()->name));
+                io = format(io, "/", ast.module->functionIndex(ast.resolvedFunction()));
                 return io;
             case ASTKind::Wildcard:
                 return format(io, "...");

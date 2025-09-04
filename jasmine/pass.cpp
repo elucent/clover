@@ -229,7 +229,7 @@ namespace jasmine {
             if (optLevel > 1) {
                 findDominators(ctx, fn);
                 findNaturalLoops(ctx, fn);
-                computePins(ctx, fn);
+                // computePins(ctx, fn);
                 // scalarReplacement(ctx, fn);
                 enforceSSA(ctx, fn);
                 // computeEffects(ctx, fn);
