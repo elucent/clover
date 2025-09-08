@@ -2770,17 +2770,11 @@ namespace clover {
             case TypeKind::Pointer: {
                 Type operandType = inferredType(ctx, function, ast.child(0));
                 type_assert(operandType.is<TypeKind::Pointer>());
-                auto ctorPtr = type.as<TypeKind::Pointer>();
-                auto operandPtr = operandType.as<TypeKind::Pointer>();
                 break;
             }
             case TypeKind::Slice: {
                 Type operandType = inferredType(ctx, function, ast.child(0));
                 type_assert(operandType.is<TypeKind::Slice>());
-                auto ctorPtr = type.as<TypeKind::Slice>();
-                auto operandPtr = operandType.as<TypeKind::Slice>();
-                type_assert(expand(ctorPtr.elementType()) == expand(operandPtr.elementType()));
-                type_assert(ctorPtr.isOwn() || !operandPtr.isOwn());
                 break;
             }
             default:
