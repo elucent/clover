@@ -553,6 +553,8 @@ namespace clover {
                 return (Overloads*)(p & ~1ull);
             }
         };
+
+        Module* module;
         u32 index;
         vec<Member, 8> functions;
 
@@ -703,6 +705,10 @@ namespace clover {
         return ::hash(u64(function));
     }
 
+    inline u64 hash(Overloads* overloads) {
+        return ::hash(u64(overloads));
+    }
+
     struct Module : public ArtifactData {
         vec<ASTWord, 24> astWords;
         vec<u32, 8> ast;
@@ -718,6 +724,7 @@ namespace clover {
         vec<Function*, 8> functions;
         map<Function*, u32> importedFunctions;
         vec<Overloads*, 4> overloads;
+        map<Overloads*, u32> importedOverloads;
         const_slice<i8> source;
         vec<u32> lineOffsets;
         NodeIndex topLevel;
@@ -1282,6 +1289,18 @@ namespace clover {
             return it->value;
         }
 
+        inline u32 overloadIndex(Overloads* overload) {
+            if (overload->module == this)
+                return overload->index;
+            auto it = importedOverloads.find(overload);
+            if (it == importedOverloads.end()) {
+                importedOverloads.put(overload, overloads.size());
+                overloads.push(overload);
+                return overloads.size() - 1;
+            }
+            return it->value;
+        }
+
         inline Global addGlobalFunctionImport(VariableKind kind, Function* function) {
             assert(kind == VariableKind::Function);
             assert(function->typeIndex != InvalidType);
@@ -1380,6 +1399,7 @@ namespace clover {
 
         inline Overloads* addOverloads(Function* function) {
             overloads.push(new Overloads());
+            overloads.back()->module = this;
             overloads.back()->index = overloads.size() - 1;
             overloads.back()->add(function);
             return overloads.back();
@@ -1387,6 +1407,7 @@ namespace clover {
 
         inline Overloads* addOverloads(Overloads* existing) {
             overloads.push(new Overloads());
+            overloads.back()->module = this;
             overloads.back()->index = overloads.size() - 1;
             overloads.back()->add(existing);
             return overloads.back();

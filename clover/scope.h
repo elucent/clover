@@ -74,8 +74,12 @@ namespace clover {
             Variable, Constant, ConstFunction, Function, OverloadedFunction, Type, Member, GenericFunction, GenericType, Temp, Forward, NumKinds
         };
 
-        static constexpr const i8* KindNames[NumKinds] = {
+        static constexpr const i8* KindNamesUpper[NumKinds] = {
             "Variable", "Constant", "Const Function", "Function", "Overloaded Function", "Type", "Member", "Generic Function", "Generic Type"
+        };
+
+        static constexpr const i8* KindNamesLower[NumKinds] = {
+            "variable", "constant", "const function", "function", "overloaded function", "type", "member", "generic function", "generic type"
         };
 
         TypeIndex type : Limits::TypesPerCompilationBits;

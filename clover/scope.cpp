@@ -95,9 +95,9 @@ namespace clover {
     void Scope::addOverloadedFunction(Overloads* overloads, Symbol name) {
         u32 var;
         if (function)
-            var = function->addLocalOverload(overloads->index, name).index;
+            var = function->addLocalOverload(module->overloadIndex(overloads), name).index;
         else
-            var = module->addGlobalOverload(overloads->index, name).index;
+            var = module->addGlobalOverload(module->overloadIndex(overloads), name).index;
         entries.put(name, var);
         inTable.add(name.symbol);
     }
@@ -127,6 +127,65 @@ namespace clover {
             uses.push({ use.node, use.scope()->index });
         }
     };
+
+    void defineFunctionOrOverloads(Scope* scope, Symbol name, Pos pos, void* ptr, bool isOverloads) {
+        auto existing = scope->find(name);
+        auto module = scope->module;
+        if (existing) {
+            VariableInfo* info;
+            if (existing.isGlobal())
+                info = &existing.scope->module->globals[existing.global().index];
+            else
+                info = &existing.scope->function->locals[existing.local().index];
+            Overloads* overloads = nullptr;
+            if (info->kind == VariableKind::Function) {
+                if (existing.scope == scope) {
+                    info->kind = VariableKind::OverloadedFunction;
+                    Overloads* inPlaceOverloads = module->addOverloads(module->node(info->decl).function());
+                    if (isOverloads)
+                        inPlaceOverloads->add((Overloads*)ptr);
+                    else
+                        inPlaceOverloads->add((Function*)ptr);
+                    info->overloads = inPlaceOverloads->index;
+                } else
+                    overloads = module->addOverloads(module->node(info->decl).function());
+            } else if (info->kind == VariableKind::OverloadedFunction) {
+                if (existing.scope == scope) {
+                    if (isOverloads)
+                        module->overloads[info->overloads]->add((Overloads*)ptr);
+                    else
+                        module->overloads[info->overloads]->add((Function*)ptr);
+                } else
+                    overloads = module->addOverloads(module->overloads[info->overloads]);
+            } else
+                error(scope->module, pos, "Tried to define function '", module->str(name), "' but it was already declared as a ", VariableInfo::KindNamesLower[info->kind], ".");
+            if (overloads) {
+                if (isOverloads)
+                    overloads->add((Overloads*)ptr);
+                else
+                    overloads->add((Function*)ptr);
+                scope->addOverloadedFunction(overloads, name);
+            }
+        } else {
+            if (isOverloads)
+                scope->addOverloadedFunction((Overloads*)ptr, name);
+            else {
+                Function* function = (Function*)ptr;
+                if (function->module == module)
+                    scope->add(VariableKind::Function, module->node(((Function*)ptr)->decl), name);
+                else
+                    scope->addFunctionImport(VariableKind::Function, function);
+            }
+        }
+    }
+
+    void defineFunction(Scope* scope, Symbol name, Pos pos, Function* function) {
+        defineFunctionOrOverloads(scope, name, pos, function, false);
+    }
+
+    void defineOverloads(Scope* scope, Symbol name, Pos pos, Overloads* overloads) {
+        defineFunctionOrOverloads(scope, name, pos, overloads, true);
+    }
 
     void computeScopes(Module* module, Imports& imports, Scope* currentScope, AST ast) {
         switch (ast.kind()) {
@@ -355,34 +414,7 @@ namespace clover {
                 Function* function = module->addFunction(ast, currentScope->function);
                 Scope* newScope = module->addScope(ScopeKind::Function, ast.node, currentScope, function);
 
-                auto existing = currentScope->find(name.symbol());
-                if (existing) {
-                    VariableInfo* info;
-                    if (existing.isGlobal())
-                        info = &module->globals[existing.global().index];
-                    else
-                        info = &existing.scope->function->locals[existing.local().index];
-                    Overloads* overloads = nullptr;
-                    if (info->kind == VariableKind::Function) {
-                        if (existing.scope == currentScope) {
-                            info->kind = VariableKind::OverloadedFunction;
-                            Overloads* inPlaceOverloads = module->addOverloads(module->node(info->decl).function());
-                            inPlaceOverloads->add(function);
-                            info->overloads = inPlaceOverloads->index;
-                        } else
-                            overloads = module->addOverloads(module->node(info->decl).function());
-                    } else if (info->kind == VariableKind::OverloadedFunction) {
-                        if (existing.scope == currentScope)
-                            module->overloads[info->overloads]->add(function);
-                        else
-                            overloads = module->addOverloads(module->overloads[info->overloads]);
-                    }
-                    if (overloads) {
-                        overloads->add(function);
-                        currentScope->addOverloadedFunction(overloads, name.symbol());
-                    }
-                } else
-                    currentScope->add(ast.kind() == ASTKind::FunDecl ? VariableKind::Function : VariableKind::ConstFunction, ast, name.symbol());
+                defineFunction(currentScope, name.symbol(), ast.pos(), function);
 
                 ast.setScope(newScope);
                 computeScopes(module, imports, newScope, ast.child(0)); // Return type
@@ -551,15 +583,11 @@ namespace clover {
                     VariableInfo info = otherModule->globals[v];
                     if (info.kind == VariableKind::Function) {
                         Function* function;
-                        if (info.isImport) {
-                            // That is to say, this function is an import in
-                            // the *other* module too.
-                            function = otherModule->functions[info.functionIndex];
-                        } else
-                            function = otherModule->node(info.decl).function();
-                        scope->addFunctionImport(info.kind, function);
+                        function = otherModule->functions[info.functionIndex];
+                        defineFunction(scope, k, ast.pos(), function);
                     } else if (info.kind == VariableKind::OverloadedFunction) {
-                        scope->add(info.kind, ast, expand(module->types->get(info.type)).index, k);
+                        Overloads* overloads = otherModule->overloads[info.overloads];
+                        defineOverloads(scope, k, ast.pos(), overloads);
                     } else if (scope->findLocal(k)) {
                         error(module, ast.pos(), "Duplicate symbol definition ", module->str(k), " from module ", module->str(path.back()), ".");
                         break;

@@ -63,7 +63,7 @@ namespace clover {
             switch (info.kind) {
                 case VariableKind::Type:
                 case VariableKind::GenericType:
-                    ::print(VariableInfo::KindNames[(u32)info.kind], " ", compilation->str(info.name));
+                    ::print(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
                     if (info.type != InvalidType)
                         ::print(" = ", compilation->types->get(info.type));
                     println();
@@ -72,19 +72,19 @@ namespace clover {
                 case VariableKind::Function:
                 case VariableKind::ConstFunction:
                 case VariableKind::GenericFunction:
-                    ::print(VariableInfo::KindNames[(u32)info.kind], " ", compilation->str(info.name));
+                    ::print(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
                     if (info.type != InvalidType)
                         ::print(" : ", compilation->types->get(info.type));
                     println();
                     break;
                 case VariableKind::Constant:
-                    ::print(VariableInfo::KindNames[(u32)info.kind], " ", compilation->str(info.name));
+                    ::print(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
                     if (info.type != InvalidType)
                         ::print(" : ", compilation->types->get(info.type));
                     println();
                     break;
                 case VariableKind::OverloadedFunction:
-                    ::println(VariableInfo::KindNames[(u32)info.kind], " ", compilation->str(info.name));
+                    ::println(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
                     break;
                 default:
                     break;

@@ -379,11 +379,13 @@ namespace clover {
         }
 
         Symbol defineAtom(Type atom) {
-            ensureTypeTag(atom);
+            bool hasTag = isCase(atom);
+            if (hasTag)
+                ensureTypeTag(atom);
 
             i8 buffer[64];
             auto name = prints({ buffer, 64 }, ".atom.", module->str(atom.as<TypeKind::Named>().name()));
-            jasmine_define_static(output, tagType(), name.data(), name.size(), jasmine_integer_value(output, tagType(), atom.as<TypeKind::Named>().typeTag()));
+            jasmine_define_static(output, tagType(), name.data(), name.size(), jasmine_integer_value(output, tagType(), hasTag ? atom.as<TypeKind::Named>().typeTag() : 0));
             auto sym = module->sym(name);
             atoms.put(atom.index, sym);
             return sym;
@@ -2197,12 +2199,18 @@ namespace clover {
                     auto funType = typeOf(ast).as<TypeKind::Function>();
                     JasmineFunction func = jasmine_create_function(genCtx.output, name.data(), name.size(), genCtx.lower(funType.returnType()));
                     genCtx.enter(ast.function(), func);
-                    for (AST param : ast.child(2)) {
+                    for (auto [i, param] : enumerate(ast.child(2))) {
                         assert(param.kind() == ASTKind::VarDecl);
                         auto paramType = typeOf(ast.function(), param);
-                        auto paramName = ast.module->str(param.child(1).varInfo(ast.function()).name);
+                        const_slice<i8> paramName;
+                        array<i8, 64> buffer;
+                        if (!param.child(1).missing())
+                            paramName = ast.module->str(param.child(1).varInfo(ast.function()).name);
+                        else
+                            paramName = prints(buffer, i);
                         auto paramOperand = jasmine_add_parameter(func, genCtx.lower(paramType), paramName.data(), paramName.size());
-                        genCtx.setLocal(param.child(1).variable(), paramOperand);
+                        if (!param.child(1).missing())
+                            genCtx.setLocal(param.child(1).variable(), paramOperand);
                     }
                     auto entrypoint = jasmine_add_block(func);
                     jasmine_set_entrypoint(func, entrypoint);
