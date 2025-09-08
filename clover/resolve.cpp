@@ -63,10 +63,16 @@ namespace clover {
 
     Type evaluateType(Module* module, Fixups& fixups, Scope* scope, AST ast) {
         switch (ast.kind()) {
-            case ASTKind::Typename:
-                return module->types->get(ast.varInfo(scope->function).type);
-            case ASTKind::GlobalTypename:
-                return module->types->get(ast.varInfo().type);
+            case ASTKind::Typename: {
+                Type type = expand(module->types->get(ast.varInfo(scope->function).type));
+                ast.varInfo().type = type.index;
+                return type;
+            }
+            case ASTKind::GlobalTypename: {
+                Type type = expand(module->types->get(ast.varInfo().type));
+                ast.varInfo().type = type.index;
+                return type;
+            }
             case ASTKind::AliasDecl:
             case ASTKind::NamedDecl:
             case ASTKind::NamedCaseDecl:
@@ -917,17 +923,53 @@ namespace clover {
             }
             case ASTKind::ConstFunDecl:
             case ASTKind::FunDecl: {
-                Type returnType;
-                if (ast.child(0).missing())
-                    returnType = module->varType();
-                else {
-                    AST ret = resolveChild(module, fixups, ast, 0, ExpectType);
-                    assert(isTypeExpression(ret));
-                    returnType = evaluateType(module, fixups, scope, ret);
-                }
                 vec<Type> argumentTypes;
+                Function* function = ast.function();
+
+                // First we have to see if the function is generic.
                 for (auto [i, a] : enumerate(ast.child(2))) switch (a.kind()) {
                     case ASTKind::AliasDecl:
+                        function->isGeneric = true;
+                        function->typeParameters.push(a.node);
+                        break;
+                    case ASTKind::VarDecl:
+                        if (a.child(0).missing() && a.child(2).missing()) {
+                            AST arg = a;
+                            AST resolvedName = resolve(module, fixups, ast.scope(), some<AST>(arg), arg.child(1), ExpectValue);
+                            if (isTypeExpression(resolvedName)) {
+                                arg.setChild(0, resolvedName);
+                                arg.setChild(1, module->add(ASTKind::Missing));
+                                break;
+                            }
+                            arg.replace(ASTKind::AliasDecl, arg.child(1), module->add(ASTKind::Missing));
+                            function->isGeneric = true;
+                            function->typeParameters.push(arg.node);
+                        }
+                        break;
+                    default:
+                        break;
+                }
+
+                if (function->isGeneric) {
+                    ast.setKind(ASTKind::GenericFunDecl);
+
+                    // Since the name is now saved in the Function struct, we
+                    // reuse this field of the FunDecl to store a linked list
+                    // of all instantiations of this function. This roots them
+                    // to the tree instead of needing to be stored separately.
+                    ast.setChild(1, module->add(ASTKind::Missing));
+
+                    // We add placeholder variables for every type parameter,
+                    // and continue on to normal function name resolution, with
+                    // the understanding that these variables will appear in
+                    // the resulting type.
+                    for (NodeIndex node : function->typeParameters)
+                        module->node(node).setType(module->varType());
+                }
+
+                for (auto [i, a] : enumerate(ast.child(2))) switch (a.kind()) {
+                    case ASTKind::AliasDecl:
+                        break;
                     case ASTKind::ConstVarDecl:
                         unreachable("TODO: Implement constant, type, and generic parameters.");
                     default: {
@@ -950,10 +992,10 @@ namespace clover {
                                 arg.setChild(0, resolvedName);
                                 arg.setChild(1, module->add(ASTKind::Missing));
                             } else
-                                computeScopes(module, ast.scope(), arg);
+                                unreachable("Parameter is generic, so we should have taken the generic path earlier.");
                         }
                         AST resolvedArg = alreadyResolved ? arg : resolve(module, fixups, ast.scope(), some<AST>(ast.child(2)), arg, ExpectValue);
-                        assert(resolvedArg.type().kind() != TypeKind::Var); // Should remove this when generics are added.
+                        assert(expand(resolvedArg.type()).isntVar()); // Should remove this when generics are added.
                         ast.child(2).setChild(i, resolvedArg);
                         if (resolvedArg.child(1).kind() != ASTKind::Missing) {
                             auto& entry = resolvedArg.child(1).varInfo(ast.function());
@@ -963,13 +1005,27 @@ namespace clover {
                         break;
                     }
                 }
+
+                Type returnType;
+                if (ast.child(0).missing())
+                    returnType = module->varType();
+                else {
+                    AST ret = resolveChild(module, fixups, ast, 0, ExpectType);
+                    assert(isTypeExpression(ret));
+                    returnType = evaluateType(module, fixups, scope, ret);
+                }
+
                 auto entry = module->lookup(scope, ast.child(1).symbol());
                 assert(entry);
                 entry.setType(module->funType(returnType, argumentTypes));
                 ast.setType(module->types->get(entry.type()));
                 resolveChild(module, fixups, ast, 1, ExpectValue);
-                resolveChild(module, fixups, ast, 3, ExpectValue);
-                resolveChild(module, fixups, ast, 4, ExpectValue);
+
+                if (!function->isGeneric) {
+                    resolveChild(module, fixups, ast, 3, ExpectValue);
+                    resolveChild(module, fixups, ast, 4, ExpectValue);
+                }
+
                 return ast;
             }
             case ASTKind::AddressOf: {

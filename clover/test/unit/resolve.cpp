@@ -763,3 +763,10 @@ Bar bar: Bar(42)
 Baz baz: Baz()
 )");
 }
+
+TEST(resolve_out_of_order_pointer_function) {
+    auto artifact = RESOLVE(R"(
+var x: foo(&42)
+i32* foo(i32* p): p
+)");
+}

@@ -532,6 +532,10 @@ TEST(parse_export) {
     ASSERT_SAME_PARSE("export i32 f(i32)", "(export (fun i32 f (tuple (var missing i32 missing)) missing missing))");
 }
 
+TEST(parse_generic_function) {
+    ASSERT_SAME_PARSE("fun id(type T, T x): x", "(fun missing id (tuple (alias T missing) (var T x missing)) missing x)");
+}
+
 TEST(parse_bad_escape_sequence) {
     EXPECT_ERRORS;
 

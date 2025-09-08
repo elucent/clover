@@ -133,6 +133,7 @@ namespace clover {
         /* Declarations */ \
         macro(VarDecl, varDecl, var, false, 3) /* Type? Name Init? */ \
         macro(FunDecl, funDecl, fun, false, 5) /* Type? Name ArgsTuple Raises? Body */ \
+        macro(GenericFunDecl, genericFunDecl, generic_fun, false, 5) /* Type? Link? ArgsTuple Raises? Body */ \
         macro(ConstVarDecl, constVarDecl, const_var, false, 3) \
         macro(ConstFunDecl, constFunDecl, const_fun, false, 5) \
         macro(AliasDecl, aliasDecl, alias, false, 2) \
@@ -462,6 +463,8 @@ namespace clover {
         Symbol name, mangledName = InvalidSymbol;
         vec<VariableInfo, 8> locals;
         u32 numTemps = 0;
+        bool isGeneric = false;
+        vec<TypeIndex, 4> typeParameters;
 
         inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in);
 

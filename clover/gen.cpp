@@ -1854,6 +1854,12 @@ namespace clover {
                 return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.local(ast.variable()));
             }
 
+            case ASTKind::ResolvedFunction: {
+                Function* function = ast.resolvedFunction();
+                auto name = genCtx.module->str(genCtx.mangledName(module, function));
+                return coerce(genCtx, builder, destType, function->type(), genCtx.funcref(name));
+            }
+
             case ASTKind::Global: {
                 const auto& varInfo = ast.varInfo(genCtx.func());
                 auto name = genCtx.module->str(varInfo.name);
