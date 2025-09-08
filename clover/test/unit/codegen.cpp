@@ -1921,19 +1921,19 @@ type Baz:
 i8[64] array
 
 i32* getA():
-    Foo* foo: (&array[0]).Foo*()
+    var foo: &array[0] as Foo*
     return &foo.a
 
 i32* getB():
-    Foo* foo: (&array[0]).Foo*()
+    var foo: &array[0] as Foo*
     return &foo.b
 
 i32* getC():
-    Bar* bar: (&array[|Foo|]).Bar*()
+    var bar: &array[|Foo|] as Bar*
     return &bar.c
 
 i32* getD():
-    Baz* baz: (&array[|Foo| + |Bar|]).Baz*()
+    var baz: &array[|Foo| + |Bar|] as Baz*
     return &baz.d
 )");
 

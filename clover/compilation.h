@@ -334,6 +334,9 @@ namespace clover {
         macro(KeywordNot, "not") \
         macro(KeywordAnd, "and") \
         macro(KeywordOr, "or") \
+        macro(KeywordAs, "as") \
+        macro(KeywordIs, "is") \
+        macro(KeywordIn, "in") \
         macro(KeywordDo, "do") \
         macro(KeywordThen, "then") \
         macro(KeywordIf, "if") \
@@ -345,8 +348,6 @@ namespace clover {
         macro(KeywordBreak, "break") \
         macro(KeywordContinue, "continue") \
         macro(KeywordReturn, "return") \
-        macro(KeywordIs, "is") \
-        macro(KeywordIn, "in") \
         macro(KeywordFun, "fun") \
         macro(KeywordVar, "var") \
         macro(KeywordAlias, "alias") \
@@ -358,7 +359,6 @@ namespace clover {
         macro(KeywordOn, "on") \
         macro(KeywordDefault, "default") \
         macro(KeywordUse, "use") \
-        macro(KeywordAs, "as") \
         macro(KeywordExport, "export") \
         macro(KeywordRaise, "raise") \
         macro(KeywordRaises, "raises") \

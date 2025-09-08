@@ -776,6 +776,7 @@ namespace clover {
             | 1ull << (OperatorEqual - FirstOperator)
             | 1ull << (OperatorNotEqual - FirstOperator)
             | 1ull << (OperatorRange - FirstOperator)
+            | 1ull << (KeywordAs - FirstOperator)
             | 1ull << (KeywordIs - FirstOperator)
             | 1ull << (KeywordIn - FirstOperator)
             | 1ull << (KeywordAnd - FirstOperator)
@@ -865,6 +866,9 @@ namespace clover {
             case OperatorEqual: kind = ASTKind::Equal; break;
             case OperatorNotEqual: kind = ASTKind::NotEqual; break;
             case OperatorRange: kind = ASTKind::Range; break;
+            case KeywordAs:
+                return module->add(ASTKind::Construct, op.pos, rhs, lhs);
+                break;
             case KeywordIs: kind = ASTKind::Is; break;
             case KeywordIn: kind = ASTKind::In; break;
             case KeywordAnd: kind = ASTKind::And; break;
@@ -2116,6 +2120,7 @@ namespace clover {
             precedences[OperatorDiv - FirstOperator] = 130;
             precedences[OperatorRem - FirstOperator] = 130;
             precedences[OperatorExp - FirstOperator] = 140;
+            precedences[KeywordAs - FirstOperator] = 150;
         }
 
         Module* module = new Module(artifact->parent->compilation, artifact->as<Tokens>()->takeSource(), move(artifact->as<Tokens>()->lineOffsets));

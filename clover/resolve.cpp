@@ -1072,6 +1072,27 @@ namespace clover {
                     ast.setKind(ASTKind::SizeOf);
                 return ast;
             }
+            case ASTKind::Construct: {
+                // Most instances of Construct arise from constructor calls
+                // resolved during this pass; those shouldn't flow to here, but
+                // if they do, they will already have their type set - and we
+                // shouldn't re-resolve them.
+                if (ast.type() != InvalidType)
+                    return ast;
+
+                // The remaining case we have a Construct node that flows into
+                // type resolution already formed is through the `as` operator,
+                // and that's basically what the following impl is meant to
+                // apply to.
+                resolveChild(module, fixups, ast, 0, ExpectType);
+                type_assert(isTypeExpression(ast.child(0)));
+
+                ast.setType(evaluateType(module, fixups, scope, ast.child(0)));
+                for (u32 i = 0; i < ast.arity() - 1; i ++)
+                    ast.setChild(i, resolve(module, fixups, scope, some<AST>(ast), ast.child(i + 1), ExpectValue));
+                ast.setArity(ast.arity() - 1);
+                return ast;
+            }
             case ASTKind::Tuple: {
                 bool hasAnyType = false, hasAnyNonType = false;
                 vec<Type> types;

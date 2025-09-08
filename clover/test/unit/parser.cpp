@@ -536,6 +536,10 @@ TEST(parse_generic_function) {
     ASSERT_SAME_PARSE("fun id(type T, T x): x", "(fun missing id (tuple (alias T missing) (var T x missing)) missing x)");
 }
 
+TEST(parse_binary_as) {
+    ASSERT_SAME_PARSE("1 + 2 as i32", "(+ 1 (construct i32 2))");
+}
+
 TEST(parse_bad_escape_sequence) {
     EXPECT_ERRORS;
 

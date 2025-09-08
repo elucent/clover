@@ -304,7 +304,8 @@ namespace clover {
                     computeScopes(module, imports, currentScope, child);
                 break;
             case ASTKind::Call:
-            case ASTKind::CallMethod: {
+            case ASTKind::CallMethod:
+            case ASTKind::Construct: {
                 ast.setScope(currentScope);
                 for (AST child : ast)
                     computeScopes(module, imports, currentScope, child);
