@@ -87,6 +87,7 @@ namespace clover {
         macro(PostDecr, postDecr, post_decr, false, 1) \
         macro(Range, range, .., false, 2) \
         macro(Length, length, length, false, 1) \
+        macro(SizeOf, sizeOf, size_of, false, 1) \
         macro(Is, is, is, false, 2) \
         macro(In, in, in, false, 2) \
         macro(FormatString, formatString, format_string, false, -1) \

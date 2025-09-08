@@ -1479,7 +1479,12 @@ namespace clover {
 
             case ASTKind::Length: {
                 value = inferChild(ctx, function, ast, 0);
-                valueType = toType(module, value).type(module);
+                ast.setType(module->varType(module->bottomNumberType(), module->topIntegerType()));
+                ctx.ensureResolved(ast.type());
+                return fromNodeType(ast);
+            }
+
+            case ASTKind::SizeOf: {
                 ast.setType(module->varType(module->bottomNumberType(), module->topIntegerType()));
                 ctx.ensureResolved(ast.type());
                 return fromNodeType(ast);
@@ -1587,6 +1592,7 @@ namespace clover {
                     // We check later here because we can't unify against
                     // Char | Number.
                     type_assert(ast.arity() == 1);
+                    inferChild(ctx, function, ast, 0);
                     ctx.checkLater(ast);
                     return fromNodeType(ast);
                 }
@@ -1596,6 +1602,7 @@ namespace clover {
                     // input into any one particular kind of pointer or
                     // slice type too early.
                     type_assert(ast.arity() == 1);
+                    inferChild(ctx, function, ast, 0);
                     ctx.checkLater(ast);
                     return fromNodeType(ast);
                 }
@@ -2765,8 +2772,6 @@ namespace clover {
                 type_assert(operandType.is<TypeKind::Pointer>());
                 auto ctorPtr = type.as<TypeKind::Pointer>();
                 auto operandPtr = operandType.as<TypeKind::Pointer>();
-                type_assert(expand(ctorPtr.elementType()) == expand(operandPtr.elementType()));
-                type_assert(ctorPtr.isOwn() || !operandPtr.isOwn());
                 break;
             }
             case TypeKind::Slice: {

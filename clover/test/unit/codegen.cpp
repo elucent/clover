@@ -1907,3 +1907,46 @@ fun mul($T x, $T y): x * y
     ASSERT_EQUAL(foldAppendLocal(ab, cd, add, 0), 10);
     ASSERT_EQUAL(foldAppendLocal(ab, cd, mul, 1), 24);
 )
+
+TEST(codegen_sizeof) {
+    auto instance = COMPILE(R"(
+type Foo:
+    i32 a, b
+type Bar:
+    i32 c
+type Baz:
+    f64 f
+    i32 d
+
+i8[64] array
+
+i32* getA():
+    Foo* foo: (&array[0]).Foo*()
+    return &foo.a
+
+i32* getB():
+    Foo* foo: (&array[0]).Foo*()
+    return &foo.b
+
+i32* getC():
+    Bar* bar: (&array[|Foo|]).Bar*()
+    return &bar.c
+
+i32* getD():
+    Baz* baz: (&array[|Foo| + |Bar|]).Baz*()
+    return &baz.d
+)");
+
+    auto exec = load(instance.artifact);
+    auto getA = lookup<i32*()>("getA()", exec);
+    auto getB = lookup<i32*()>("getB()", exec);
+    auto getC = lookup<i32*()>("getC()", exec);
+    auto getD = lookup<i32*()>("getD()", exec);
+
+    *getA() = 1;
+    *getB() = 2;
+    *getC() = 3;
+    *getD() = 4;
+
+    ASSERT_EQUAL(*getA() + *getB() + *getC() + *getD(), 10);
+}

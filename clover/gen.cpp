@@ -2478,6 +2478,11 @@ namespace clover {
                 return coerce(genCtx, builder, destType, typeOf(ast), generateLength(genCtx, builder, baseType, base, typeOf(ast)));
             }
 
+            case ASTKind::SizeOf: {
+                Type type = evaluateType(module, ast.function(), ast.child(0));
+                return coerce(genCtx, builder, destType, typeOf(ast), jasmine_sizeof(genCtx.callStack.back().output, genCtx.lower(type)));
+            }
+
             case ASTKind::GetIndex:
             case ASTKind::SetIndex:
             case ASTKind::AddrIndex: {

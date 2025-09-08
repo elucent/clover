@@ -1066,6 +1066,12 @@ namespace clover {
                 }
                 return ast;
             }
+            case ASTKind::Length: {
+                resolveChild(module, fixups, ast, 0, ExpectValue);
+                if (isTypeExpression(ast.child(0)))
+                    ast.setKind(ASTKind::SizeOf);
+                return ast;
+            }
             case ASTKind::Tuple: {
                 bool hasAnyType = false, hasAnyNonType = false;
                 vec<Type> types;
