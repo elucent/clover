@@ -263,14 +263,6 @@ namespace clover {
             word.makeRef(node);
             return word;
         }
-
-        inline constexpr static bool hasEnv(Kind kind) {
-            return u8(kind) >= u8(FirstScoped);
-        }
-
-        inline bool hasEnv() const {
-            return hasEnv(kind);
-        }
     };
 
     using ASTKind = ASTWord::Kind;
