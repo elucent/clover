@@ -540,6 +540,13 @@ TEST(parse_binary_as) {
     ASSERT_SAME_PARSE("1 + 2 as i32", "(+ 1 (construct i32 2))");
 }
 
+TEST(parse_is_expression) {
+    ASSERT_SAME_PARSE("print(x) if a is 1", "(if (is a 1) (call print x))");
+    ASSERT_SAME_PARSE("if a is 1: print(x)", "(if (is a 1) (call print x))");
+    ASSERT_SAME_PARSE("print(x) if a is 1 and b is Foo(c)", "(if (and (is a 1) (is b (call Foo c))) (call print x))");
+    ASSERT_SAME_PARSE("if a is 1 and b is Foo(c): print(x)", "(if (and (is a 1) (is b (call Foo c))) (call print x))");
+}
+
 TEST(parse_bad_escape_sequence) {
     EXPECT_ERRORS;
 

@@ -759,6 +759,8 @@ namespace clover {
         }
     }
 
+    void generatePattern(GenerationContext& genCtx, JasmineBuilder builder, AST pattern, Type inputType, JasmineOperand input, JasmineBlock fail);
+
     void generateConditionalBranch(GenerationContext& genCtx, JasmineBuilder builder, AST cond, JasmineBlock ifTrue, JasmineBlock ifFalse, bool negate) {
         JasmineOperand lhs, rhs;
         Type type;
@@ -786,6 +788,10 @@ namespace clover {
                 type = cond.module->boolType();
                 break;
             case ASTKind::Bool:
+                knownCondOp = cond.kind();
+                type = cond.module->boolType();
+                break;
+            case ASTKind::Is:
                 knownCondOp = cond.kind();
                 type = cond.module->boolType();
                 break;
@@ -849,6 +855,13 @@ namespace clover {
                 generateConditionalBranch(genCtx, builder, cond.child(0), ifTrue, continuation, negate);
                 jasmine_builder_set_block(builder, continuation);
                 generateConditionalBranch(genCtx, builder, cond.child(1), ifTrue, ifFalse, negate);
+                break;
+            }
+            case ASTKind::Is: {
+                Type inputType = typeOf(cond, 0);
+                auto input = generate(genCtx, builder, cond.child(0), inputType);
+                generatePattern(genCtx, builder, cond.child(1), inputType, input, ifFalse);
+                jasmine_append_br(builder, genCtx.addEdgeTo(ifTrue));
                 break;
             }
             default:
@@ -2542,6 +2555,24 @@ namespace clover {
             case ASTKind::Match:
                 generateMatch(genCtx, builder, ast);
                 return JASMINE_INVALID_OPERAND;
+
+            case ASTKind::Is: {
+                Type inputType = typeOf(ast, 0);
+                auto input = generate(genCtx, builder, ast.child(0), inputType);
+                auto result = genCtx.temp();
+
+                auto ifFalse = genCtx.addBlock(), continuation = genCtx.addBlock();
+                generatePattern(genCtx, builder, ast.child(1), inputType, input, ifFalse);
+                jasmine_append_mov(builder, JASMINE_TYPE_BOOL, result, genCtx.imm(1));
+                jasmine_append_br(builder, genCtx.addEdgeTo(continuation));
+
+                jasmine_builder_set_block(builder, ifFalse);
+                jasmine_append_mov(builder, JASMINE_TYPE_BOOL, result, genCtx.imm(0));
+                jasmine_append_br(builder, genCtx.addEdgeTo(continuation));
+
+                jasmine_builder_set_block(builder, continuation);
+                return coerce(genCtx, builder, destType, module->boolType(), result);
+            }
 
             case ASTKind::TypeField:
             case ASTKind::Typename:

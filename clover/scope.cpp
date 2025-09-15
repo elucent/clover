@@ -281,7 +281,6 @@ namespace clover {
             case ASTKind::And:
             case ASTKind::Or:
             case ASTKind::In:
-            case ASTKind::Is:
             case ASTKind::GetField:
             case ASTKind::GetIndex:
             case ASTKind::NamedParameter:
@@ -388,6 +387,12 @@ namespace clover {
                 ast.setScope(newScope);
                 computeScopes(module, imports, newScope, ast.child(0));
                 computeScopes(module, imports, newScope, ast.child(1));
+                break;
+            }
+            case ASTKind::Is: {
+                ast.setScope(currentScope);
+                computeScopes(module, imports, currentScope, ast.child(0));
+                computeScopes(module, imports, currentScope, ast.child(1));
                 break;
             }
             case ASTKind::VarDecl:

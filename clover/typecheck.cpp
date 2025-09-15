@@ -909,7 +909,7 @@ namespace clover {
         return ast.type();
     }
 
-    Type inferCase(InferenceContext& ctx, Function* function, Type parentType, AST pattern) {
+    Type inferPattern(InferenceContext& ctx, Function* function, Type parentType, AST pattern) {
         // At the inference stage, all we really want to do for cases is
         // propagate the type info we know from the pattern (since this should
         // usually be statically known after resolution) into any pattern
@@ -957,7 +957,7 @@ namespace clover {
                 // only child.
                 type_assert(pattern.arity() == 1);
                 type_assert(pattern.child(0).kind() == ASTKind::VarDecl);
-                inferCase(ctx, function, parentType, pattern.child(0));
+                inferPattern(ctx, function, parentType, pattern.child(0));
                 return module->bottomType(); // Anything is acceptable.
 
             case ASTKind::VarDecl:
@@ -984,10 +984,10 @@ namespace clover {
                             overallTypes.push(childType.index);
                         } else
                             overallTypes.push(module->varType().index);
-                        inferCase(ctx, function, childType, pattern.child(i));
+                        inferPattern(ctx, function, childType, pattern.child(i));
                         break;
                     }
-                    overallTypes.push(inferCase(ctx, function, parentType ? parentType.as<TypeKind::Tuple>().fieldType(i) : module->invalidType(), pattern.child(i)).index);
+                    overallTypes.push(inferPattern(ctx, function, parentType ? parentType.as<TypeKind::Tuple>().fieldType(i) : module->invalidType(), pattern.child(i)).index);
                 }
                 pattern.setType(module->tupleType(overallTypes));
                 return pattern.type();
@@ -1000,9 +1000,9 @@ namespace clover {
                     if (pattern.child(i).kind() == ASTKind::Splat) {
                         type_assert(i == pattern.arity() - 1
                             || (i < pattern.arity() - 1 && pattern.child(i + 1).kind() != ASTKind::Splat));
-                        inferCase(ctx, function, pattern.type(), pattern.child(i));
+                        inferPattern(ctx, function, pattern.type(), pattern.child(i));
                     } else
-                        inferCase(ctx, function, pattern.type().as<TypeKind::Slice>().elementType(), pattern.child(i));
+                        inferPattern(ctx, function, pattern.type().as<TypeKind::Slice>().elementType(), pattern.child(i));
                 }
                 return pattern.type();
 
@@ -1013,7 +1013,7 @@ namespace clover {
                             type_assert(pattern.type().as<TypeKind::Named>().innerType() == Void);
                         else {
                             type_assert(pattern.arity() == 1);
-                            inferCase(ctx, function, pattern.type().as<TypeKind::Named>().innerType(), pattern.child(0));
+                            inferPattern(ctx, function, pattern.type().as<TypeKind::Named>().innerType(), pattern.child(0));
                         }
                         return pattern.type();
                     case TypeKind::Struct: {
@@ -1024,11 +1024,11 @@ namespace clover {
                                 vec<TypeIndex> remainingTypes;
                                 for (u32 j = i; j < structType.count(); j ++)
                                     remainingTypes.push(structType.fieldTypeIndex(j));
-                                inferCase(ctx, function, module->tupleType(remainingTypes), pattern.child(i));
+                                inferPattern(ctx, function, module->tupleType(remainingTypes), pattern.child(i));
                                 break;
                             }
 
-                            inferCase(ctx, function, structType.fieldType(i), pattern.child(i));
+                            inferPattern(ctx, function, structType.fieldType(i), pattern.child(i));
                         }
                         return pattern.type();
                     }
@@ -1796,7 +1796,7 @@ namespace clover {
                     // later refinement.
                     AST matchCase = ast.child(i);
                     if (!matchCase.child(0).missing())
-                        inferCase(ctx, function, module->invalidType(), matchCase.child(0));
+                        inferPattern(ctx, function, module->invalidType(), matchCase.child(0));
                     inferChild(ctx, function, matchCase, 1);
                     matchCase.setType(module->voidType());
                 }
@@ -1807,6 +1807,17 @@ namespace clover {
 
             case ASTKind::Case:
                 unreachable("Should have been inferred by match.");
+
+            case ASTKind::Is:
+                value = inferChild(ctx, function, ast, 0);
+                valueType = toType(module, value).type(module);
+                varType = module->varType(ast.node);
+                unify(value, varType, ast, ctx);
+                inferPattern(ctx, function, module->invalidType(), ast.child(1));
+                ctx.constraints->constrainOrder(valueType, varType);
+                ctx.ensureResolved(varType);
+                ast.setType(module->boolType());
+                return fromNodeType(ast);
 
             case ASTKind::Do:
             case ASTKind::TopLevel: {
@@ -1923,7 +1934,7 @@ namespace clover {
         return false;
     }
 
-    bool refineCase(InferenceContext& ctx, Function* function, Type input, AST pattern) {
+    bool refinePattern(InferenceContext& ctx, Function* function, Type input, AST pattern) {
         auto unifyOrDereference = [&](Type pattern, Type input, AST ast) {
             // This is basically just unifyInPlace, but it'll try automatically
             // dereferencing the input if it would otherwise fail.
@@ -1958,7 +1969,7 @@ namespace clover {
                 return true;
 
             case ASTKind::Splat:
-                return refineCase(ctx, function, input, pattern.child(0));
+                return refinePattern(ctx, function, input, pattern.child(0));
 
             case ASTKind::Construct:
                 // We know the type of the aggregate statically, so we already
@@ -1978,10 +1989,10 @@ namespace clover {
                         vec<TypeIndex> subTuple;
                         for (u32 j = i; j < pattern.arity(); j ++)
                             subTuple.push(tupleType.fieldTypeIndex(j));
-                        refineCase(ctx, function, module->tupleType(subTuple), pattern.child(i));
+                        refinePattern(ctx, function, module->tupleType(subTuple), pattern.child(i));
                         return true;
                     }
-                    refineCase(ctx, function, tupleType.fieldType(i), pattern.child(i));
+                    refinePattern(ctx, function, tupleType.fieldType(i), pattern.child(i));
                 }
                 return true;
             }
@@ -2286,10 +2297,22 @@ namespace clover {
                 for (AST matchCase : ast.children(1)) {
                     AST check = matchCase.child(0);
                     AST body = matchCase.child(1);
-                    if (!check.missing() && !refineCase(ctx, function, baseType, check))
+                    if (!check.missing() && !refinePattern(ctx, function, baseType, check))
                         result = false;
                 }
                 return result;
+            }
+
+            case ASTKind::Is: {
+                bool result = true;
+                Type baseType = expand(refinedType);
+                if (baseType.isVar() && baseType.asVar().lowerBound().is<TypeKind::Pointer>()) {
+                    baseType.asVar().makeEqual(baseType.asVar().lowerBound());
+                    baseType = expand(baseType);
+                }
+                if (baseType.is<TypeKind::Pointer>())
+                    baseType = baseType.as<TypeKind::Pointer>().elementType();
+                return refinePattern(ctx, function, baseType, ast.child(1));
             }
 
             default:

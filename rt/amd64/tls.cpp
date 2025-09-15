@@ -3,7 +3,7 @@
 namespace process {
     // Even though this function is totally implemented in assembly, we put it
     // in a C++ source to allow it to be inlined during LTO.
-    
+
     #ifdef RT_LIBC_COMPATIBLE
         thread_local i8 rt_tls[65536];
     #endif

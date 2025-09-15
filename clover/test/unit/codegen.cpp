@@ -1950,3 +1950,40 @@ i32* getD():
 
     ASSERT_EQUAL(*getA() + *getB() + *getC() + *getD(), 10);
 }
+
+TEST(codegen_is_simple) {
+    auto instance = COMPILE(R"(
+type Cases:
+    case A
+    case B
+    case C: i32
+use Cases.*
+
+fun mystery(Cases* obj):
+    if obj is A:
+        1
+    else if obj is B:
+        2
+    else if obj is C(x):
+        x + 21
+    else: 42
+
+own Cases* makeA(): A
+own Cases* makeB(): B
+own Cases* makeC(i32 x): new C(x)
+)");
+
+    auto exec = load(instance.artifact);
+    auto mystery = lookup<i32(void*)>("mystery(Cases*)", exec);
+    auto makeA = lookup<void*()>("makeA()", exec);
+    auto makeB = lookup<void*()>("makeB()", exec);
+    auto makeC = lookup<void*(i32)>("makeC(i32)", exec);
+
+    auto a = makeA();
+    auto b = makeB();
+    auto c = makeC(21);
+
+    ASSERT_EQUAL(mystery(a), 1);
+    ASSERT_EQUAL(mystery(b), 2);
+    ASSERT_EQUAL(mystery(c), 42);
+}

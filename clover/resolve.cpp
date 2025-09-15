@@ -677,6 +677,23 @@ namespace clover {
         return ast;
     }
 
+    bool validateCondition(AST ast, bool allowIs) {
+        switch (ast.kind()) {
+            case ASTKind::Is:
+                return allowIs;
+            case ASTKind::Paren:
+                return validateCondition(ast.child(0), allowIs);
+            case ASTKind::And:
+                return validateCondition(ast.child(0), allowIs) && validateCondition(ast.child(1), allowIs);
+            default:
+                for (AST child : ast) {
+                    if (!validateCondition(child, false))
+                        return false;
+                }
+                return true;
+        }
+    }
+
     AST resolve(Module* module, Fixups& fixups, Scope* scope, maybe<AST> parent, AST ast, Expectation expectation) {
         switch (ast.kind()) {
             case ASTKind::Local:
@@ -889,6 +906,13 @@ namespace clover {
 
                 // Our scope should be fully populated now. So we can resolve the body.
                 resolveChild(module, fixups, ast, 1, ExpectValue);
+                return ast;
+            }
+            case ASTKind::Is: {
+                resolveChild(module, fixups, ast, 0, ExpectValue);
+                AST pattern = resolveChild(module, fixups, ast, 1, ExpectValue);
+                if (!pattern.missing())
+                    ast.setChild(1, resolvePattern(module, fixups, ast.scope(), pattern, false));
                 return ast;
             }
             case ASTKind::AliasDecl:
@@ -1114,6 +1138,16 @@ namespace clover {
                 return resolveCall(module, fixups, scope, ast, ExpectValue);
             case ASTKind::Call:
                 return resolveCall(module, fixups, scope, ast, ExpectValue);
+            case ASTKind::If:
+            case ASTKind::While: {
+                // We do some validation to make sure if these constructs
+                // contain `is` expressions, that they only appear in
+                // conjunctions.
+                type_assert(validateCondition(ast.child(0), true));
+                for (u32 i : indices(ast))
+                    resolveChild(module, fixups, ast, i, ExpectValue);
+                return ast;
+            }
             case ASTKind::Break:
             case ASTKind::Continue:
                 while (scope) {
