@@ -432,7 +432,10 @@ namespace clover {
                     computeScopes(module, imports, newScope, arg);
                 }
                 ast.child(2).setScope(newScope);
-                computeScopes(module, imports, newScope, ast.child(4));
+
+                // We *don't* compute scopes for the body here - this is
+                // deferred to either name resolution (when we know the
+                // function isn't generic) or generic instantiation time.
                 break;
             }
             case ASTKind::AliasDecl: {
@@ -504,17 +507,6 @@ namespace clover {
         root->addToRoot(VariableKind::Type, module->sliceType(I8).index, BuiltinString);
         module->compilation->rootScope = root;
         return root;
-    }
-
-    Imports dummyImports;
-
-    void computeScopes(Module* module, Scope* currentScope, AST ast) {
-        // DO NOT CALL unless you are a later pass. We want to handle imports
-        // anywhere we can, so we only use this variant in the case we're
-        // calling back into scope resolution from the name resolution pass
-        // and know we're not going to find a valid import anyway.
-
-        computeScopes(module, dummyImports, currentScope, ast);
     }
 
     void processImports(Module* module, const Imports& imports) {
@@ -602,6 +594,14 @@ namespace clover {
                 }
             }
         }
+    }
+
+    void computeScopes(Module* module, Scope* currentScope, AST ast) {
+        Imports imports;
+        computeScopes(module, imports, currentScope, ast);
+        processImports(module, imports);
+        if UNLIKELY(config::printScopeTree)
+            module->printScopes(module->compilation);
     }
 
     NOINLINE Artifact* computeScopes(Artifact* artifact) {

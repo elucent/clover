@@ -457,7 +457,17 @@ namespace clover {
         vec<VariableInfo, 8> locals;
         u32 numTemps = 0;
         bool isGeneric = false;
-        vec<TypeIndex, 4> typeParameters;
+
+        // The generic type is used a little strangely. We keep this as the
+        // authoritative "base copy" of the type, basically whatever we know
+        // about the generic function's type before instantiation. We never use
+        // this type directly for unification or typechecking - before that, we
+        // cloneGenericType() it to get a fresh copy but with renamed
+        // variables. That way, each instantiation gets its own set of
+        // variables, but we don't need to instantiate just to check whether a
+        // given set of parameters can unify against the overall signature (and
+        // are a reasonable candidate for instantiation).
+        TypeIndex genericType = InvalidType;
 
         inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in);
 
@@ -520,6 +530,8 @@ namespace clover {
         inline Local addTemp() {
             return addTemp(InvalidType);
         }
+
+        Type cloneGenericType();
 
         inline Type type() const;
     };
@@ -1161,6 +1173,16 @@ namespace clover {
                 return node(word.child);
             else
                 return AST(this, word);
+        }
+
+        inline AST clone(AST ast) {
+            if (ast.isLeaf())
+                return ast;
+            assert(ast.module == this);
+            vec<AST, 16> nodes;
+            for (AST child : ast)
+                nodes.push(clone(child));
+            return add(ast.kind(), ast.pos(), InvalidScope, ast.typeIndex(), nodes);
         }
 
         template<typename... Args>

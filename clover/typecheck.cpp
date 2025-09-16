@@ -1,5 +1,6 @@
 #include "clover/typecheck.h"
 #include "clover/ast.h"
+#include "clover/resolve.h"
 #include "util/config.h"
 
 namespace clover {
@@ -669,6 +670,7 @@ namespace clover {
     struct InferenceContext {
         vec<NodeIndex, 16>* lateChecks;
         vec<TypeIndex, 16>* lateResolves;
+        vec<NodeIndex, 16>* discoveredFunctions;
         Constraints* constraints;
 
         inline void checkLater(AST ast) {
@@ -850,10 +852,7 @@ namespace clover {
                 return module->arrayType(module->i8Type(), (u32)module->str(ast.stringConst()).size());
 
             case ASTKind::ResolvedFunction: {
-                Function* function = ast.resolvedFunction();
-                if (function->module == module)
-                    return module->node(function->decl).type();
-                return function->type();
+                return ast.resolvedFunction()->type();
             }
 
             default:
@@ -1092,12 +1091,8 @@ namespace clover {
             case ASTKind::Char:
                 return makeChar(module, ast.charConst());
 
-            case ASTKind::ResolvedFunction: {
-                Function* function = ast.resolvedFunction();
-                if (function->module == module)
-                    return fromType(module->node(function->decl).type());
-                return fromType(function->type());
-            }
+            case ASTKind::ResolvedFunction:
+                return fromType(ast.resolvedFunction()->type());
 
             case ASTKind::Typename:
             case ASTKind::GlobalTypename:
@@ -1685,17 +1680,18 @@ namespace clover {
             case ASTKind::StructDecl:
             case ASTKind::StructCaseDecl:
             case ASTKind::UnionDecl:
-            case ASTKind::UnionCaseDecl: {
+            case ASTKind::UnionCaseDecl:
+            case ASTKind::GenericFunDecl: {
                 // Shouldn't have anything to do.
                 return fromType(module->voidType());
             }
 
             case ASTKind::FunDecl: {
-                // Constraints constraints(module, module->types, ctx.constraints->depth + 1);
-                // funcCtx.constraints = &constraints;
-                // funcCtx.lateChecks = ctx.lateChecks;
-                // funcCtx.lateResolves = ctx.lateResolves;
-                InferenceContext& funcCtx = ctx;
+                Constraints constraints(module, module->types, ctx.constraints->depth + 1);
+                InferenceContext funcCtx;
+                funcCtx.constraints = &constraints;
+                funcCtx.lateChecks = ctx.lateChecks;
+                funcCtx.lateResolves = ctx.lateResolves;
 
                 auto name = ast.child(1).variable();
                 for (AST param : ast.child(2)) {
@@ -1715,10 +1711,15 @@ namespace clover {
                     inferChild(funcCtx, ast.function(), ast, 4);
                     addImplicitReturns(funcCtx, returnType, ast, ast.child(4), { ast, 4 });
                 }
-                // if UNLIKELY(config::printTypeConstraints)
-                //     printTypeConstraints(module->types, &constraints);
+                if UNLIKELY(config::printTypeConstraints)
+                    printTypeConstraints(module->types, &constraints);
 
-                // refineGraph(module, funcCtx);
+                refineGraph(module, funcCtx);
+                for (NodeIndex node : *funcCtx.lateChecks) {
+                    AST ast = module->node(node);
+                    assert(!ast.isLeaf());
+                    check(funcCtx, ast.function(), ast);
+                }
                 ctx.checkLater(ast);
                 return fromType(module->voidType());
             }
@@ -1727,7 +1728,7 @@ namespace clover {
 
             case ASTKind::Return: {
                 ast.setType(module->bottomType());
-                Type funType = module->node(function->decl).type();
+                Type funType = function->type();
                 assert(funType.is<TypeKind::Function>());
                 valueType = ast.child(0).missing() ? module->voidType() : toType(module, inferChild(ctx, function, ast, 0)).type(module);
                 unify(valueType, funType.as<TypeKind::Function>().returnType(), ast, ctx);
@@ -2028,6 +2029,46 @@ namespace clover {
         }
     }
 
+    Function* instantiate(InferenceContext& ctx, Function* generic, AST call) {
+        Module* module = generic->module;
+        auto type = generic->type();
+        type_assert(type.is<TypeKind::Function>());
+        auto funcType = type.as<TypeKind::Function>();
+
+        for (u32 i = 1; i < call.arity(); i ++) {
+            auto arg = inferredType(ctx, generic, call.child(i));
+            auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
+            unifyInPlace(arg, parameterType, call);
+        }
+
+        AST oldDecl = module->node(generic->decl);
+        AST newDecl = module->clone(module->node(generic->decl));
+        Function* newFunction = module->addFunction(newDecl, generic->parent);
+        Scope* oldScope = oldDecl.scope();
+        Scope* newScope = module->addScope(ScopeKind::Function, newDecl.node, oldDecl.scope()->parent, newFunction);
+        for (auto e : oldScope->entries) {
+            newScope->entries.put(e.key, e.value);
+            newScope->inTable.add(e.key.symbol);
+            newFunction->locals.push(generic->locals[e.value]);
+        }
+
+        newDecl.setScope(newScope);
+        newFunction->typeIndex = generic->cloneGenericType().index;
+        newDecl.setType(newFunction->type());
+
+        computeScopes(module, newScope, newDecl.child(4));
+        newDecl.setChild(4, resolveNode(newDecl.scope(), newDecl, newDecl.child(4)));
+
+        infer(ctx, newFunction, newDecl.child(4));
+
+        if (oldDecl.child(1).missing())
+            oldDecl.setChild(1, newDecl);
+        else
+            oldDecl.setChild(1, module->add(ASTKind::Then, oldDecl.child(1), newDecl));
+
+        return newFunction;
+    }
+
     maybe<TypeIndex> refineOverloadedCall(InferenceContext& ctx, Function* function, AST ast) {
         assert(isOverloadedFunction(function, ast.child(0)));
         Overloads* overloads = ast.module->overloads[ast.child(0).varInfo(function).overloads];
@@ -2036,7 +2077,7 @@ namespace clover {
         Module* module = ast.module;
         overloads->forEachFunction([&](Function* overload) {
             Module* module = overload->module;
-            auto type = expand(module->node(overload->decl).type());
+            auto type = expand(overload->type());
             type_assert(type.is<TypeKind::Function>());
             auto funcType = type.as<TypeKind::Function>();
             if (ast.arity() - 1 != funcType.as<TypeKind::Function>().parameterCount())
@@ -2052,7 +2093,10 @@ namespace clover {
 
         type_assert(possibleFunctions.size() <= 1);
         if (possibleFunctions.size() == 1) {
-            ast.setChild(0, module->add(ASTKind::ResolvedFunction, possibleFunctions[0].first));
+            Function* candidate = possibleFunctions[0].first;
+            if (candidate->isGeneric)
+                candidate = instantiate(ctx, candidate, ast);
+            ast.setChild(0, module->add(ASTKind::ResolvedFunction, candidate));
             return some<TypeIndex>(possibleFunctions[0].second);
         }
         return none<TypeIndex>();
@@ -2069,6 +2113,14 @@ namespace clover {
             auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
             if (!canUnify(arg, parameterType, ast))
                 return none<TypeIndex>();
+        }
+
+        if (ast.child(0).kind() == ASTKind::ResolvedFunction) {
+            Function* callee = ast.child(0).resolvedFunction();
+            if (callee->isGeneric) {
+                callee = instantiate(ctx, callee, ast);
+                ast.setChild(0, ast.module->add(ASTKind::ResolvedFunction, callee));
+            }
         }
 
         return some<TypeIndex>(funcType.index);
@@ -2839,8 +2891,7 @@ namespace clover {
                 break;
 
             case ASTKind::FunDecl:
-                assert(ast.function()->typeIndex == InvalidType);
-                ast.function()->typeIndex = concreteType(module, ast.type()).index;
+                ast.function()->typeIndex = concreteType(module, ast.function()->type()).index;
                 break;
 
             default:

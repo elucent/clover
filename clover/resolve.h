@@ -8,6 +8,7 @@ namespace clover {
     bool isTypeExpression(AST ast);
     bool isTypeDecl(AST ast);
 
+    AST resolveNode(Scope* scope, AST parent, AST ast);
     NOINLINE Artifact* resolveNamesAndTypes(Artifact* artifact);
 }
 

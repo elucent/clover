@@ -2168,7 +2168,7 @@ namespace clover {
                     jasmine_append_ret_void(builder);
                     return JASMINE_INVALID_OPERAND;
                 }
-                Type returnType = expand(typeOf(ast.module->node(ast.function()->decl)).as<TypeKind::Function>().returnType());
+                Type returnType = expand(ast.function()->type().as<TypeKind::Function>().returnType());
                 value = generate(genCtx, builder, ast.child(0), returnType);
                 genCtx.isUnreachable = true;
                 if (returnType == ast.module->voidType())

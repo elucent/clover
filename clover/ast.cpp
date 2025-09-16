@@ -21,6 +21,29 @@ namespace clover {
     };
     #undef DEFINE_NAME
 
+    Type Function::cloneGenericType() {
+        assert(isGeneric);
+        assert(genericType != InvalidType);
+        Type type = module->types->get(genericType);
+
+        type.forEachVar([&](Type varType) {
+            if (!varType.asVar().isEqual())
+                varType.asVar().makeEqual(module->varType());
+        });
+
+        Type clone = type.cloneExpand();
+
+        type.forEachVar([&](Type varType) {
+            if (varType.asVar().isEqual()) {
+                varType.asVar().setNotEqual();
+                varType.asVar().setLowerBound(Bottom);
+                varType.asVar().setUpperBound(Any);
+            }
+        });
+
+        return clone;
+    }
+
     Module::~Module() {
         if (source.data())
             delete[] source.data();

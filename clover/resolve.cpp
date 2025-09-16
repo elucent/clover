@@ -952,22 +952,27 @@ namespace clover {
 
                 // First we have to see if the function is generic.
                 for (auto [i, a] : enumerate(ast.child(2))) switch (a.kind()) {
-                    case ASTKind::AliasDecl:
+                    case ASTKind::AliasDecl: {
+                        AST arg = a;
                         function->isGeneric = true;
-                        function->typeParameters.push(a.node);
+                        arg.setType(module->varType());
                         break;
+                    }
                     case ASTKind::VarDecl:
                         if (a.child(0).missing() && a.child(2).missing()) {
                             AST arg = a;
+                            auto entry = module->naturalize(module->lookup(ast.scope(), arg.child(1).symbol()));
+                            if (!entry) {
+                                // Must be a generic parameter declaration.
+                                function->isGeneric = true;
+                                computeScopes(module, ast.scope(), arg);
+                            }
                             AST resolvedName = resolve(module, fixups, ast.scope(), some<AST>(arg), arg.child(1), ExpectValue);
                             if (isTypeExpression(resolvedName)) {
                                 arg.setChild(0, resolvedName);
                                 arg.setChild(1, module->add(ASTKind::Missing));
                                 break;
                             }
-                            arg.replace(ASTKind::AliasDecl, arg.child(1), module->add(ASTKind::Missing));
-                            function->isGeneric = true;
-                            function->typeParameters.push(arg.node);
                         }
                         break;
                     default:
@@ -982,13 +987,6 @@ namespace clover {
                     // of all instantiations of this function. This roots them
                     // to the tree instead of needing to be stored separately.
                     ast.setChild(1, module->add(ASTKind::Missing));
-
-                    // We add placeholder variables for every type parameter,
-                    // and continue on to normal function name resolution, with
-                    // the understanding that these variables will appear in
-                    // the resulting type.
-                    for (NodeIndex node : function->typeParameters)
-                        module->node(node).setType(module->varType());
                 }
 
                 for (auto [i, a] : enumerate(ast.child(2))) switch (a.kind()) {
@@ -1006,20 +1004,8 @@ namespace clover {
                                 arg = resolvedArg, alreadyResolved = true;
                             else
                                 arg = module->add(ASTKind::VarDecl, resolvedArg.pos(), resolvedArg.scope(), InvalidType, resolvedArg, module->add(ASTKind::Missing), module->add(ASTKind::Missing));
-                        } else if (arg.child(0).missing() && arg.child(2).missing()) {
-                            // We have a parameter that's just a bare name,
-                            // i.e. fun f(x). This means it's either generic,
-                            // or it could be an anonymous typed parameter,
-                            // i.e. fun f(i32).
-                            AST resolvedName = resolve(module, fixups, ast.scope(), some<AST>(arg), arg.child(1), ExpectValue);
-                            if (isTypeExpression(resolvedName)) {
-                                arg.setChild(0, resolvedName);
-                                arg.setChild(1, module->add(ASTKind::Missing));
-                            } else
-                                unreachable("Parameter is generic, so we should have taken the generic path earlier.");
                         }
                         AST resolvedArg = alreadyResolved ? arg : resolve(module, fixups, ast.scope(), some<AST>(ast.child(2)), arg, ExpectValue);
-                        assert(expand(resolvedArg.type()).isntVar()); // Should remove this when generics are added.
                         ast.child(2).setChild(i, resolvedArg);
                         if (resolvedArg.child(1).kind() != ASTKind::Missing) {
                             auto& entry = resolvedArg.child(1).varInfo(ast.function());
@@ -1039,14 +1025,24 @@ namespace clover {
                     returnType = evaluateType(module, fixups, scope, ret);
                 }
 
-                auto entry = module->lookup(scope, ast.child(1).symbol());
+                auto entry = module->lookup(scope, function->name);
                 assert(entry);
-                entry.setType(module->funType(returnType, argumentTypes));
-                ast.setType(module->types->get(entry.type()));
+                Type funcType = module->funType(returnType, argumentTypes);
+                if (function->isGeneric) {
+                    function->genericType = funcType.index;
+                    funcType = function->cloneGenericType();
+                }
+                entry.setType(funcType);
+                ast.setType(funcType);
+                function->typeIndex = funcType.index;
                 resolveChild(module, fixups, ast, 1, ExpectValue);
 
                 if (!function->isGeneric) {
                     resolveChild(module, fixups, ast, 3, ExpectValue);
+
+                    // We intentionally skipped resolving scopes earlier, since
+                    // we didn't know if the function was generic or not.
+                    computeScopes(module, ast.scope(), ast.child(4));
                     resolveChild(module, fixups, ast, 4, ExpectValue);
                 }
 
@@ -1359,6 +1355,10 @@ namespace clover {
                     assert(ast.child(i).kind() == ASTKind::Ident);
                 validateResolution(module, fn, some<AST>(ast), ast.child(ast.arity() - 1));
                 return;
+            case ASTKind::GenericFunDecl:
+                for (u32 i = 0; i < 4; i ++)
+                    validateResolution(module, fn, some<AST>(ast), ast.child(i));
+                return;
             default:
                 break;
         }
@@ -1370,6 +1370,17 @@ namespace clover {
         assert(artifact->kind == ArtifactKind::ResolvedAST);
         Module* module = artifact->as<Module>();
         validateResolution(module, nullptr, none<AST>(), module->getTopLevel());
+    }
+
+    AST resolveNode(Scope* scope, AST parent, AST ast) {
+        Module* module = ast.module;
+        Fixups fixups;
+        AST resolvedNode = resolve(module, fixups, scope, some<AST>(parent), ast, ExpectValue);
+        resolveLateUses(module, fixups);
+        resolveAccessChains(module, module->getTopLevel());
+        resolveAssignments(module, fixups);
+        resolveAddressOfs(module, fixups);
+        return resolvedNode;
     }
 
     NOINLINE Artifact* resolveNamesAndTypes(Artifact* artifact) {

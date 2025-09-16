@@ -211,6 +211,10 @@ namespace clover {
         inline bool isRange() const;
         inline bool isntRange() const;
 
+        // Reconstructs this type, returning a clone of it with all variables
+        // fully expanded.
+        inline Type cloneExpand() const;
+
         inline explicit operator bool() const {
             return index != InvalidType;
         }
@@ -376,6 +380,7 @@ namespace clover {
         inline u64 hash() const;
         inline void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline Type cloneExpand();
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
@@ -408,6 +413,7 @@ namespace clover {
         inline u64 hash() const;
         inline void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline Type cloneExpand();
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
@@ -429,6 +435,7 @@ namespace clover {
         inline u64 hash() const;
         inline void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline Type cloneExpand();
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
@@ -448,6 +455,7 @@ namespace clover {
         inline u64 hash() const;
         inline void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline Type cloneExpand();
 
         // These are used when a NamedType is a member of a UnionType.
         inline bool isCase() const;
@@ -484,6 +492,7 @@ namespace clover {
         inline u64 hash() const;
         inline void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline Type cloneExpand();
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
@@ -551,6 +560,7 @@ namespace clover {
         inline u64 hash() const;
         inline void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline Type cloneExpand();
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
@@ -927,6 +937,11 @@ namespace clover {
         inline UnifyResult setLowerBound(TypeIndex type);
         inline UnifyResult setUpperBound(TypeIndex type);
 
+        // Kind of a hack, you probably shouldn't call this directly. Used to
+        // force a type variable back into its non-equal state, so we can set
+        // its lower and upper bounds independently again.
+        inline void setNotEqual();
+
         inline UnifyResult setLowerBound(Type type) {
             return setLowerBound(type.index);
         }
@@ -978,6 +993,7 @@ namespace clover {
         inline u64 hash() const;
         inline void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline Type cloneExpand();
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
@@ -2236,6 +2252,43 @@ namespace clover {
         }
     }
 
+    inline Type Type::cloneExpand() const {
+        if (isConcrete())
+            return *this;
+
+        if (isVar())
+            return expand(*this);
+
+        switch (kind()) {
+            case TypeKind::Bottom:
+            case TypeKind::Any:
+            case TypeKind::Void:
+            case TypeKind::Bool:
+            case TypeKind::Char:
+            case TypeKind::Numeric:
+            case TypeKind::Named:
+            case TypeKind::Struct:
+            case TypeKind::Union:
+                return *this; // None of these can ever be non-concrete.
+
+            case TypeKind::Pointer:
+                return as<TypeKind::Pointer>().cloneExpand();
+            case TypeKind::Slice:
+                return as<TypeKind::Slice>().cloneExpand();
+            case TypeKind::Array:
+                return as<TypeKind::Array>().cloneExpand();
+            case TypeKind::Tuple:
+                return as<TypeKind::Tuple>().cloneExpand();
+            case TypeKind::Function:
+                return as<TypeKind::Function>().cloneExpand();
+            case TypeKind::Range:
+                return as<TypeKind::Range>().cloneExpand();
+
+            case TypeKind::Var:
+                unreachable("Should have been handled earlier.");
+        }
+    }
+
     inline bool Type::hasConstraintNode() const {
         return constraintNode() != InvalidConstraint;
     }
@@ -2565,6 +2618,13 @@ namespace clover {
         return UnifyFailure;
     }
 
+    inline Type ArrayType::cloneExpand() {
+        Type element = elementType().cloneExpand();
+        if (element.index == elementTypeIndex())
+            return *this;
+        return types->encode<TypeKind::Array>(element, length());
+    }
+
     // ArrayBuilder
 
     inline Type ArrayBuilder::build(TypeSystem* types) {
@@ -2622,6 +2682,13 @@ namespace clover {
                 & otherElement.unifyOnto(elementType(), constraints, mode);
         }
         return UnifyFailure;
+    }
+
+    inline Type SliceType::cloneExpand() {
+        Type element = elementType().cloneExpand();
+        if (element.index == elementTypeIndex())
+            return *this;
+        return types->encode<TypeKind::Slice>(traits(), element);
     }
 
     // PointerType
@@ -2685,6 +2752,13 @@ namespace clover {
                 & otherElement.unifyOnto(element, constraints, mode);
         }
         return UnifyFailure;
+    }
+
+    inline Type PointerType::cloneExpand() {
+        Type element = elementType().cloneExpand();
+        if (element.index == elementTypeIndex())
+            return *this;
+        return types->encode<TypeKind::Pointer>(traits(), element);
     }
 
     // NamedType
@@ -2855,6 +2929,21 @@ namespace clover {
         return UnifyFailure;
     }
 
+    inline Type TupleType::cloneExpand() {
+        TupleBuilder builder(types);
+        bool nonTrivial = false;
+        for (u32 i = 0; i < count(); i ++) {
+            Type field = fieldType(i).cloneExpand();
+            if (field.index != fieldTypeIndex(i))
+                nonTrivial = true;
+            assert(!fieldHasName(i)); // TODO: Handle this gracefully.
+            builder.add(Field(types, field));
+        }
+        if (nonTrivial)
+            return builder.build(types);
+        return *this;
+    }
+
     // TupleBuilder
 
     inline Type TupleBuilder::build(TypeSystem* types) {
@@ -2968,6 +3057,22 @@ namespace clover {
             return result;
         }
         return UnifyFailure;
+    }
+
+    inline Type FunctionType::cloneExpand() {
+        Type ret = returnType().cloneExpand();
+        FunctionBuilder builder(types, ret);
+        bool nonTrivial = ret.index != returnTypeIndex();
+        for (u32 i = 0; i < parameterCount(); i ++) {
+            Type param = parameterType(i).cloneExpand();
+            if (param.index != parameterTypeIndex(i))
+                nonTrivial = true;
+            assert(!parameterHasName(i)); // TODO: Handle this gracefully.
+            builder.addParameter(Field(types, param));
+        }
+        if (nonTrivial)
+            return builder.build(types);
+        return *this;
     }
 
     // FunctionBuilder
@@ -3219,6 +3324,10 @@ namespace clover {
         return UnifySuccess;
     }
 
+    inline void VarType::setNotEqual() {
+        nthWord(1).markedEqual = 0;
+    }
+
     inline bool VarType::isEqual() const {
         return nthWord(1).markedEqual;
     }
@@ -3408,6 +3517,13 @@ namespace clover {
 
     inline UnifyResult RangeType::unifyOnto(Type other, Constraints*, UnifyMode) {
         unreachable("Should not be reached directly.");
+    }
+
+    inline Type RangeType::cloneExpand() {
+        Type low = lowerBound().cloneExpand(), high = upperBound().cloneExpand();
+        if (low.index != lowerBoundIndex() || high.index != upperBoundIndex())
+            return types->encode<TypeKind::Range>(low, high);
+        return *this;
     }
 
     // Unions
