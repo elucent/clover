@@ -1,11 +1,11 @@
 #include "clover/interp.h"
 
 namespace clover {
-    // Value interpret(Module* module, Function* function, AST ast, State& state) {
+    Value eval(Value env, AST expr) {
+        unreachable("TODO: Implement evaluation.");
+    }
 
-    // }
-
-    // Value interpret(Module* module, Function* function, AST ast) {
-
-    // }
+    Value call(AST func, slice<Value> values) {
+        unreachable("TODO: Implement evaluation.");
+    }
 }

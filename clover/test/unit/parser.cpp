@@ -553,6 +553,17 @@ TEST(parse_uninit_var) {
     ASSERT_SAME_PARSE("i32 x: uninit i32(x)", "(var i32 x (uninit_type (call i32 x)))");
 }
 
+TEST(parse_const_var) {
+    ASSERT_SAME_PARSE("const x: 1", "(const_var missing x 1)");
+    ASSERT_SAME_PARSE("const x: 1, y: 2", "(do (const_var missing x 1) (const_var missing y 2))");
+}
+
+TEST(parse_const_fun) {
+    ASSERT_SAME_PARSE("const f(x): x + 1", "(const_fun f (tuple (const_var missing x missing)) (+ x 1))");
+    ASSERT_SAME_PARSE("const f(): 42", "(const_fun f (tuple) 42)");
+    ASSERT_SAME_PARSE("const f(x, y): x + y", "(const_fun f (tuple (const_var missing x missing) (const_var missing y missing)) (+ x y))");
+}
+
 TEST(parse_bad_escape_sequence) {
     EXPECT_ERRORS;
 

@@ -1580,7 +1580,50 @@ namespace clover {
                 ASTKind kind = token.token == KeywordVar ? ASTKind::VarDecl : ASTKind::ConstVarDecl;
                 AST type = module->add(ASTKind::Missing);
                 Pos namePos = visitor.peek().pos;
-                AST pattern = parsePattern(module, visitor);
+
+                // Since we only reserve one `const` keyword for variables and
+                // functions, we can't disambiguate at parse time whether i.e.
+                //
+                //   const a(b): c
+                //
+                // is a destructuring assignment or a function definition. We
+                // choose to always make it a function definition and preclude
+                // destructuring assignment for constant declarations.
+                AST pattern = kind == ASTKind::ConstVarDecl ? parseIdentifier(module, visitor) : parsePattern(module, visitor);
+
+                if (kind == ASTKind::ConstVarDecl && visitor.peek().token == PunctuatorLeftParen) {
+                    // Constant function.
+                    kind = ASTKind::ConstFunDecl;
+                    auto parenPos = visitor.read().pos;
+                    visitor.increaseDepth(parenPos);
+
+                    if (pattern.kind() != ASTKind::Ident)
+                        error(module, namePos, "Expected identifier in const function definition.");
+
+                    vec<AST> params;
+                    while (!visitor.done() && visitor.peek().token != PunctuatorRightParen) {
+                        AST id = parseIdentifier(module, visitor);
+                        params.push(module->add(ASTKind::ConstVarDecl, module->add(ASTKind::Missing), id, module->add(ASTKind::Missing)));
+                        if (visitor.peek().token == PunctuatorComma)
+                            visitor.read();
+                    }
+
+                    visitor.decreaseDepth();
+                    if UNLIKELY(visitor.done())
+                        error(module, visitor.last(), "Unexpected end of file parsing parameter list.");
+                    else if UNLIKELY(visitor.peek().token != PunctuatorRightParen) {
+                        error(module, visitor.peek(), "Expected comma or closing parenthese ')' in parameter list, found '", TokenFormat(module, visitor.peek()), "'.");
+                        visitor.readUpToAndIncluding(PunctuatorRightParen);
+                    } else
+                        visitor.read();
+
+                    if (visitor.peek().token != PunctuatorColon)
+                        error(module, visitor.peek(), "Expected colon ':' in const function definition, found '", TokenFormat(module, visitor.peek()), "'.");
+                    else
+                        return module->add(kind, namePos, pattern, module->add(ASTKind::Tuple, parenPos, params), parseBlockOrChain(module, visitor, "const function", false));
+                    return module->add(ASTKind::Missing);
+                }
+
                 vec<AST> decls;
                 AST init;
                 if (visitor.peek().token == PunctuatorColon) {

@@ -137,7 +137,7 @@ namespace clover {
         macro(FunDecl, funDecl, fun, false, 5) /* Type? Name ArgsTuple Raises? Body */ \
         macro(GenericFunDecl, genericFunDecl, generic_fun, false, 5) /* Type? Link? ArgsTuple Raises? Body */ \
         macro(ConstVarDecl, constVarDecl, const_var, false, 3) \
-        macro(ConstFunDecl, constFunDecl, const_fun, false, 5) \
+        macro(ConstFunDecl, constFunDecl, const_fun, false, 3) \
         macro(AliasDecl, aliasDecl, alias, false, 2) \
         macro(NamedDecl, namedDecl, named, false, 2) /* Name Type? */ \
         macro(StructDecl, structDecl, struct, false, -1) /* Name Fields? */ \

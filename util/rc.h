@@ -29,22 +29,31 @@ struct rc {
 
     pointee* ptr;
 
-    rc(): ptr(nullptr) {}
+    inline void ref() {
+        if (ptr) ptr->words[-1] ++;
+    }
 
-    ~rc() {
+    inline void deref() {
         if (ptr && !--ptr->words[-1]) {
-            operator->()->~T(); 
+            operator->()->~T();
             delete (ptr->words - 1);
+            ptr = nullptr;
         }
     }
 
+    rc(): ptr(nullptr) {}
+
+    ~rc() {
+        deref();
+    }
+
     rc(const rc& other): ptr(other.ptr) {
-        if (ptr) ptr->words[-1] ++;
+        ref();
     }
 
     template<typename U>
     rc(const rc<U>& other): ptr((pointee*)other.ptr) {
-        if (ptr) ptr->words[-1] ++;
+        ref();
     }
 
     template<typename... Args>
@@ -55,12 +64,9 @@ struct rc {
 
     rc& operator=(const rc& other) {
         if (this != &other) {
-            if (!--ptr->words[-1]) {
-                operator->()->~T(); 
-                delete (ptr->words - 1);
-            }
+            deref();
             ptr = other.ptr;
-            if (ptr) ptr->words[-1] ++;
+            ref();
         }
     }
 
@@ -70,10 +76,7 @@ struct rc {
 
     rc& operator=(rc&& other) {
         if (this != &other) {
-            if (!--ptr->words[-1]) {
-                operator->()->~T(); 
-                delete (ptr->words - 1);
-            }
+            deref();
             ptr = other.ptr;
             other.ptr = nullptr;
         }
@@ -108,5 +111,17 @@ struct rc {
         return newref;
     }
 };
+
+template<typename T>
+rc<T> asref(void* ptr) {
+    rc<T> ref;
+    ref.ptr = (typename rc<T>::pointee*)ptr;
+    return ref;
+}
+
+template<typename T>
+void* asptr(rc<T> ref) {
+    return ref.ptr;
+}
 
 #endif
