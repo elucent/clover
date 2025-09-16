@@ -2103,9 +2103,9 @@ namespace clover {
                 auto baseType = typeOf(ast);
                 Type elementType;
                 if (baseType.is<TypeKind::Array>())
-                    elementType = baseType.as<TypeKind::Array>().elementType();
+                    elementType = expand(baseType.as<TypeKind::Array>().elementType());
                 else
-                    elementType = baseType.as<TypeKind::Slice>().elementType();
+                    elementType = expand(baseType.as<TypeKind::Slice>().elementType());
                 auto loweredElement = genCtx.lower(elementType);
 
                 jasmine_append_var(builder, jasmine_make_array_type(genCtx.output, loweredElement, minLength), result);
@@ -2190,8 +2190,7 @@ namespace clover {
                 } else if (ast.child(1).missing()) {
                     // This is a stub variable, almost certainly a parameter.
                     // We don't need to generate anything.
-                } else {
-                    assert(ast.child(1).kind() == ASTKind::Global);
+                } else if (ast.child(1).kind() == ASTKind::Global) {
                     auto varInfo = ast.child(1).varInfo();
                     auto name = ast.module->str(varInfo.name);
                     if (!ast.child(2).missing() && canInitializeStatically(ast.child(2), typeOf(ast)))
@@ -2203,6 +2202,16 @@ namespace clover {
                             jasmine_append_store(builder, genCtx.lower(typeOf(ast)), genCtx.global(ast.child(1).variable()), value);
                         }
                     }
+                } else {
+                    // Must be some kind of pattern!
+                    value = generate(genCtx, builder, ast.child(2), typeOf(ast));
+                    auto fail = genCtx.addBlock();
+                    generatePattern(genCtx, builder, ast.child(1), typeOf(ast), value, fail);
+
+                    auto current = jasmine_current_block(builder);
+                    jasmine_builder_set_block(builder, fail);
+                    jasmine_append_trap(builder);
+                    jasmine_builder_set_block(builder, current);
                 }
                 return JASMINE_INVALID_OPERAND;
 

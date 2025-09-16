@@ -2048,7 +2048,7 @@ namespace clover {
 
     inline UnifyResult Type::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         if (config::verboseUnify >= 2)
-            println("[TYPE]\tUnifying ", *this, " onto ", other);
+            println("[TYPE]\tUnifying ", *this, " onto ", other, (mode == InPlace ? " in place" : (mode == Query ? " querying" : " constraining")));
 
         other = expand(other);
         if (index == other.index)
@@ -2332,10 +2332,14 @@ namespace clover {
         assert(!a.isRange() && !b.isRange());
         if (a == b)
             return a;
-        if (a.unifyOnto(b, nullptr, Query | substituteFlag))
+        if (a.unifyOnto(b, nullptr, Query | substituteFlag)) {
+            a.unifyOnto(b, nullptr, InPlace | substituteFlag);
             return a;
-        if (b.unifyOnto(a, nullptr, Query | substituteFlag))
+        }
+        if (b.unifyOnto(a, nullptr, Query | substituteFlag)) {
+            b.unifyOnto(a, nullptr, InPlace | substituteFlag);
             return b;
+        }
         TypeKind ak = a.kind(), bk = b.kind();
 
         if (ak == TypeKind::Numeric && bk == TypeKind::Numeric && !substituteFlag) {
@@ -3448,6 +3452,8 @@ namespace clover {
 
         if (!lb.unifyOnto(ub, nullptr, Query))
             unreachable("Failed to concretify variable ", *this, ": canonicalized lower bound ", lb, " is no longer a subtype of concrete upper bound ", ub);
+        else
+            lb.unifyOnto(ub, nullptr, InPlace); // We need to observe this choice.
         makeEqual(lb);
     }
 

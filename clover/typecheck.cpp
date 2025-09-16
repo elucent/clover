@@ -1669,8 +1669,20 @@ namespace clover {
 
             case ASTKind::VarDecl: {
                 ctx.ensureResolved(ast.type()); // Type variable from resolution pass.
+
                 if (ast.child(2).kind() != ASTKind::Missing)
-                    unify(inferChild(ctx, function, ast, 2), ast, ctx);
+                    unify(value = inferChild(ctx, function, ast, 2), ast, ctx);
+
+                // Resolve the pattern if there is a nontrivial one.
+                if (ast.child(1).kind() != ASTKind::Missing
+                    && ast.child(1).kind() != ASTKind::Local
+                    && ast.child(1).kind() != ASTKind::Global) {
+                    assert(!ast.child(2).missing());
+                    varType = module->varType(ast.node);
+                    unify(value, varType, ast, ctx);
+                    inferPattern(ctx, function, module->invalidType(), ast.child(1));
+                    ctx.constraints->constrainOrder(ast.type(), varType);
+                }
                 return fromType(module->voidType());
             }
 
@@ -2356,8 +2368,8 @@ namespace clover {
                 return result;
             }
 
-            case ASTKind::Is: {
-                bool result = true;
+            case ASTKind::Is:
+            case ASTKind::VarDecl: {
                 Type baseType = expand(refinedType);
                 if (baseType.isVar() && baseType.asVar().lowerBound().is<TypeKind::Pointer>()) {
                     baseType.asVar().makeEqual(baseType.asVar().lowerBound());
@@ -2365,7 +2377,9 @@ namespace clover {
                 }
                 if (baseType.is<TypeKind::Pointer>())
                     baseType = baseType.as<TypeKind::Pointer>().elementType();
-                return refinePattern(ctx, function, baseType, ast.child(1));
+
+                AST pattern = ast.child(1);
+                return refinePattern(ctx, function, baseType, pattern);
             }
 
             default:

@@ -405,8 +405,10 @@ namespace clover {
                         currentScope->add(VariableKind::Member, ast, pattern.symbol());
                     else
                         currentScope->add(ast.kind() == ASTKind::VarDecl ? VariableKind::Variable : VariableKind::Constant, ast, pattern.symbol());
-                } else
-                    unreachable("TODO: Implement more complex patterns in variable definitions.");
+                } else {
+                    // This must be some kind of pattern...
+                    computeScopes(module, imports, currentScope, ast.child(1));
+                }
                 computeScopes(module, imports, currentScope, ast.child(0));
                 computeScopes(module, imports, currentScope, ast.child(2));
                 break;

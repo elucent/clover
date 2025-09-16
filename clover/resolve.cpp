@@ -936,12 +936,17 @@ namespace clover {
                     assert(isTypeExpression(ast.child(0)));
                     ast.setType(evaluateType(module, fixups, scope, ast.child(0)));
                 }
-                if (!ast.child(1).missing()) {
+                if (ast.child(1).kind() == ASTKind::Ident) {
                     auto entry = module->lookup(scope, ast.child(1).symbol());
                     assert(entry);
                     entry.setType(ast.type());
+                    resolveChild(module, fixups, ast, 1, ExpectValue);
+                } else if (!ast.child(1).missing() && ast.child(1).kind() != ASTKind::Local && ast.child(1).kind() != ASTKind::Global) {
+                    // Must be some kind of pattern.
+                    assert(!ast.child(2).missing());
+                    AST pattern = resolveChild(module, fixups, ast, 1, ExpectValue);
+                    resolvePattern(module, fixups, scope, pattern, false);
                 }
-                resolveChild(module, fixups, ast, 1, ExpectValue);
                 resolveChild(module, fixups, ast, 2, ExpectValue);
                 return ast;
             }

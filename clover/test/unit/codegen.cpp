@@ -1987,3 +1987,23 @@ own Cases* makeC(i32 x): new C(x)
     ASSERT_EQUAL(mystery(b), 2);
     ASSERT_EQUAL(mystery(c), 42);
 }
+
+TEST(codegen_var_destructuring) {
+    auto instance = COMPILE(R"(
+type Named: i32
+type Pair: i32 x, y
+
+fun mystery():
+    var a: Named(7)
+    var b: Pair(7, 7)
+    var c: [7, 7, 7]
+    var Named(x): a
+    var Pair(y, z): b
+    var [w, etc...]: c
+    return x + y + z + w + etc[0] + etc[1]
+)");
+
+    auto exec = load(instance.artifact);
+    auto mystery = lookup<i64()>("mystery()", exec);
+    ASSERT_EQUAL(mystery(), 42);
+}

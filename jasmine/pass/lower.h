@@ -922,6 +922,10 @@ namespace jasmine {
                             if (fitsSigned<20>(offsetStart) && fitsSigned<20>(offsetEnd - 1)) { // It's okay to not be inclusive on the end.
                                 makeMove<Target>(this, fn, b, elementType, operands[0], fn.memory(base.base, offsetStart), allocations.scratch0(n));
                                 break;
+                            } else {
+                                b.addNode(Opcode::MOV, PTR, allocations.scratch0(n), fn.intConst(offsetStart - base.offset));
+                                makeMoveSrcIndex<Target>(this, fn, b, elementType, operands[0], base, allocations.scratch0(n), allocations.scratch0(n), allocations.scratch1(n));
+                                break;
                             }
                         }
                         // Either the index is not a constant, or it would've resulted in too big of a memory offset.
@@ -949,6 +953,10 @@ namespace jasmine {
                             if (fitsSigned<20>(offsetStart) && fitsSigned<20>(offsetEnd - 1)) { // It's okay to not be inclusive on the end.
                                 makeMove<Target>(this, fn, b, elementType, fn.memory(base.base, offsetStart), operands[3], allocations.scratch0(n));
                                 break;
+                            } else {
+                                b.addNode(Opcode::MOV, PTR, allocations.scratch0(n), fn.intConst(offsetStart - base.offset));
+                                makeMoveDestIndex<Target>(this, fn, b, elementType, base, allocations.scratch0(n), operands[3], allocations.scratch0(n), allocations.scratch1(n));
+                                break;
                             }
                         }
                         // Either the index is not a constant, or it would've resulted in too big of a memory offset.
@@ -970,19 +978,23 @@ namespace jasmine {
                             i64 offsetStart = base.offset + elementRepr.size() * fn.intValueOf(index);
                             if (fitsSigned<20>(offsetStart)) { // It's okay to not be inclusive on the end.
                                 b.addNode(Opcode::ADDR, PTR, output, fn.memory(base.base, offsetStart));
+                            } else {
+                                b.addNode(Opcode::MOV, PTR, allocations.scratch1(n), fn.intConst(offsetStart - base.offset));
+                                b.addNode(Opcode::ADDR_INDEX, I8, output, base, allocations.scratch1(n));
                             }
-                        }
-                        // Either the index is not a constant, or it would've resulted in too big of a memory offset.
-                        index = materialize(b, operands[2].type, index, allocations.scratch0(n));
-                        auto indexRepr = repr(operands[2].type);
-                        if (indexRepr.size() < pointerRepr.size())
-                            b.addNode(Opcode::CONVERT, PTR, index, operands[2], index);
+                        } else {
+                            // Either the index is not a constant, or it would've resulted in too big of a memory offset.
+                            index = materialize(b, operands[2].type, index, allocations.scratch0(n));
+                            auto indexRepr = repr(operands[2].type);
+                            if (indexRepr.size() < pointerRepr.size())
+                                b.addNode(Opcode::CONVERT, PTR, index, operands[2], index);
 
-                        if (elementRepr.kind() != Size::MEMORY && elementRepr.kind() != Size::VECTOR)
-                            b.addNode(Opcode::ADDR_INDEX, elementType, output, base, index);
-                        else {
-                            b.addNode(Opcode::MUL, PTR, allocations.scratch0(n), index, fn.intConst(elementRepr.size()));
-                            b.addNode(Opcode::ADDR_INDEX, I8, output, base, allocations.scratch0(n));
+                            if (elementRepr.kind() != Size::MEMORY && elementRepr.kind() != Size::VECTOR)
+                                b.addNode(Opcode::ADDR_INDEX, elementType, output, base, index);
+                            else {
+                                b.addNode(Opcode::MUL, PTR, allocations.scratch0(n), index, fn.intConst(elementRepr.size()));
+                                b.addNode(Opcode::ADDR_INDEX, I8, output, base, allocations.scratch0(n));
+                            }
                         }
                         writeBack(b, PTR, operands[0], output);
                         break;
