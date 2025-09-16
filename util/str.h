@@ -8,9 +8,11 @@
 u64 touint(const_slice<i8> str);
 u64 hextouint(const_slice<i8> str);
 u64 binarytouint(const_slice<i8> str);
+u64 octaltouint(const_slice<i8> str);
 i64 toint(const_slice<i8> str);
 i64 hextoint(const_slice<i8> str);
 i64 binarytoint(const_slice<i8> str);
+i64 octaltoint(const_slice<i8> str);
 
 double tofloat(const_slice<i8> str);
 

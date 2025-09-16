@@ -31,12 +31,31 @@ u64 hextouint(const_slice<i8> str) {
             i += new_ptr - (str.data() + i) - 1;
             acc += utf8_digit_value(r);
         }
-        else if (i >= '0' && i <= '9')
-            acc += i - '0';
-        else if (i >= 'a' && i <= 'f')
-            acc += i - 'a';
-        else if (i >= 'A' && i <= 'F')
-            acc += i - 'A';
+        else if (b >= '0' && b <= '9')
+            acc += b - '0';
+        else if (b >= 'a' && b <= 'f')
+            acc += b - 'a' + 10;
+        else if (b >= 'A' && b <= 'F')
+            acc += b - 'A' + 10;
+    }
+    return acc;
+}
+
+u64 octaltouint(const_slice<i8> str) {
+    u64 acc = 0;
+    u64 i = 0;
+
+    for (; i < str.size(); i ++) {
+        acc <<= 3;
+        i8 b = str[i];
+        if (b < 0) { // UTF-8
+            rune r;
+            const i8* new_ptr = utf8_decode_forward(str.data(), &r);
+            i += new_ptr - (str.data() + i) - 1;
+            acc += utf8_digit_value(r);
+        }
+        else if (b >= '0' && b <= '7')
+            acc += b - '0';
     }
     return acc;
 }
@@ -82,12 +101,31 @@ i64 hextoint(const_slice<i8> str) {
             i += new_ptr - (str.data() + i) - 1;
             acc += utf8_digit_value(r);
         }
-        else if (i >= '0' && i <= '9')
-            acc += i - '0';
-        else if (i >= 'a' && i <= 'f')
-            acc += i - 'a';
-        else if (i >= 'A' && i <= 'F')
-            acc += i - 'A';
+        else if (b >= '0' && b <= '9')
+            acc += b - '0';
+        else if (b >= 'a' && b <= 'f')
+            acc += b - 'a' + 10;
+        else if (b >= 'A' && b <= 'F')
+            acc += b - 'A' + 10;
+    }
+    return acc;
+}
+
+i64 octaltoint(const_slice<i8> str) {
+    i64 acc = 0;
+    u64 i = 0;
+
+    for (; i < str.size(); i ++) {
+        acc <<= 3;
+        i8 b = str[i];
+        if (b < 0) { // UTF-8
+            rune r;
+            const i8* new_ptr = utf8_decode_forward(str.data(), &r);
+            i += new_ptr - (str.data() + i) - 1;
+            acc += utf8_digit_value(r);
+        }
+        else if (b >= '0' && b <= '7')
+            acc += b - '0';
     }
     return acc;
 }

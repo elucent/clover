@@ -519,6 +519,12 @@ namespace clover {
 
     AST parsePrimarySuffix(Module* module, TokenVisitor& visitor, AST ast) {
         while (!visitor.done()) {
+            // Tracks whether we've already seen a non-decimal constant. We
+            // detect these here as a special case of integer coefficients,
+            // i.e. 0x1234 would otherwise be parsed as 0 * x1234. We don't
+            // want to allow this multiple times as in 0x1234x5678 though.
+
+            bool allowNonDecimalConstant = true;
             Token token = visitor.peek();
             switch (token.token.symbol) {
                 case PunctuatorLeftParen: { // Call
@@ -703,7 +709,29 @@ namespace clover {
                 }
                 default:
                     if ((ast.kind() == ASTKind::Unsigned || ast.kind() == ASTKind::Float) && isIdentifier(module, token)) {
-                        ast = module->add(ASTKind::Mul, token.pos, ast, parseIdentifier(module, visitor));
+                        if (ast.kind() == ASTKind::Unsigned && ast.uintConst() == 0 && allowNonDecimalConstant) {
+                            // Special weird case! A coefficient of integer
+                            // zero is forbidden (it would be redundant anyway)
+                            // and instead indicates a non-decimal integer
+                            // constant like 0xdeadbeef.
+                            visitor.read();
+                            allowNonDecimalConstant = false;
+                            const_slice<i8> multiplicand = module->str(token.token);
+                            switch (multiplicand[0]) {
+                                case 'x': // Hexadecimal literal.
+                                    ast = module->add(ASTKind::Unsigned, Constant::UnsignedConst(hextouint(multiplicand.drop(1))));
+                                    break;
+                                case 'b': // Binary literal.
+                                    ast = module->add(ASTKind::Unsigned, Constant::UnsignedConst(binarytouint(multiplicand.drop(1))));
+                                    break;
+                                case 'o': // Octal literal.
+                                    ast = module->add(ASTKind::Unsigned, Constant::UnsignedConst(octaltouint(multiplicand.drop(1))));
+                                    break;
+                                default:
+                                    error(module, token.pos, "Invalid base for non-decimal integer constant '", multiplicand[0], "'.");
+                            }
+                        } else
+                            ast = module->add(ASTKind::Mul, token.pos, ast, parseIdentifier(module, visitor));
                         break;
                     }
                     // Not a suffix, break the loop and return.

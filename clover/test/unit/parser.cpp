@@ -73,6 +73,12 @@ TEST(parse_integer_constants) {
     ASSERT_SAME_PARSE("+18446744073709551615", "(plus 18446744073709551615)");
 }
 
+TEST(parse_non_decimal_constants) {
+    ASSERT_SAME_PARSE("0x2f", "47");
+    ASSERT_SAME_PARSE("0o777", "511");
+    ASSERT_SAME_PARSE("0b11001100", "204");
+}
+
 TEST(parse_binary_arithmetic) {
     // Associativity
     ASSERT_SAME_PARSE("1 + 2 + 3", "(+ (+ 1 2) 3)");
