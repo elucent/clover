@@ -1465,7 +1465,7 @@ var zAxis: Axis.Z
 
 TEST(codegen_bf_interpreter) {
     auto instance = COMPILE(R"(
-i8[256] input, output
+i8[256] input: uninit, output: uninit
 i32 inputIndex: 0, outputIndex: 0
 
 fun getc():
@@ -1918,7 +1918,7 @@ type Baz:
     f64 f
     i32 d
 
-i8[64] array
+i8[64] array: uninit
 
 i32* getA():
     var foo: &array[0] as Foo*

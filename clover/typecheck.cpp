@@ -1670,13 +1670,14 @@ namespace clover {
             case ASTKind::VarDecl: {
                 ctx.ensureResolved(ast.type()); // Type variable from resolution pass.
 
-                if (ast.child(2).kind() != ASTKind::Missing)
+                if (ast.child(2).kind() != ASTKind::Missing && ast.child(2).kind() != ASTKind::Uninit)
                     unify(value = inferChild(ctx, function, ast, 2), ast, ctx);
 
                 // Resolve the pattern if there is a nontrivial one.
                 if (ast.child(1).kind() != ASTKind::Missing
                     && ast.child(1).kind() != ASTKind::Local
-                    && ast.child(1).kind() != ASTKind::Global) {
+                    && ast.child(1).kind() != ASTKind::Global
+                    && ast.child(1).kind() != ASTKind::Uninit) {
                     assert(!ast.child(2).missing());
                     varType = module->varType(ast.node);
                     unify(value, varType, ast, ctx);

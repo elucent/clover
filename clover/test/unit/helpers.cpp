@@ -46,6 +46,7 @@ bool sameAST(ArtifactKind kind, Function* function, AST a, AST b, ShouldCompareP
                     break;
                 case ASTKind::Wildcard:
                 case ASTKind::Missing:
+                case ASTKind::Uninit:
                     break;
                 default:
                     unreachable("Unexpected leaf kind.");

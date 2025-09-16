@@ -2195,9 +2195,9 @@ namespace clover {
                     auto name = ast.module->str(varInfo.name);
                     if (!ast.child(2).missing() && canInitializeStatically(ast.child(2), typeOf(ast)))
                         jasmine_define_static(genCtx.output, genCtx.lower(typeOf(ast)), name.data(), name.size(), createStaticInitializer(genCtx, ast.child(2), typeOf(ast)));
-                    else {
+                    else if (!ast.child(2).missing()) {
                         jasmine_define_static_uninit(genCtx.output, genCtx.lower(typeOf(ast)), name.data(), name.size());
-                        if (!ast.child(2).missing()) {
+                        if (ast.child(2).kind() != ASTKind::Uninit) {
                             value = generate(genCtx, builder, ast.child(2), typeOf(ast));
                             jasmine_append_store(builder, genCtx.lower(typeOf(ast)), genCtx.global(ast.child(1).variable()), value);
                         }

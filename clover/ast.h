@@ -26,6 +26,7 @@ namespace clover {
         macro(GlobalGenericTypename, globalGenericTypename, _, true, 0) \
         macro(Ident, ident, _, true, 0) \
         macro(Field, field, _, true, 0) \
+        macro(Uninit, uninit, _, true, 0) \
         macro(Int, int, _, true, 0) \
         macro(Unsigned, unsigned, _, true, 0) \
         macro(Float, float, _, true, 0) \
@@ -124,8 +125,8 @@ namespace clover {
         macro(ArrayType, arrayType, array_type, false, 2) \
         macro(SliceType, sliceType, slice_type, false, 1) \
         macro(PtrType, ptrType, ptr_type, false, 1) \
-        macro(OwnType, ownType, own, false, 1) \
-        macro(UninitType, uninitType, uninit, false, 1) \
+        macro(OwnType, ownType, own_type, false, 1) \
+        macro(UninitType, uninitType, uninit_type, false, 1) \
         macro(GenericInst, genericInst, inst, false, -1) \
         macro(TupleType, tupleType, tuple_type, false, -1) \
         macro(FunType, funType, fun_type, false, -1) \
@@ -1944,6 +1945,8 @@ namespace clover {
                 return format(io, ast.boolConst() ? "true" : "false");
             case ASTKind::Char:
                 return format(io, rune(ast.charConst()));
+            case ASTKind::Uninit:
+                return format(io, "uninit");
             case ASTKind::Ident:
                 return format(io, module->str(ast.symbol()));
             case ASTKind::Local:

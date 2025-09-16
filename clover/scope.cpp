@@ -410,7 +410,8 @@ namespace clover {
                     computeScopes(module, imports, currentScope, ast.child(1));
                 }
                 computeScopes(module, imports, currentScope, ast.child(0));
-                computeScopes(module, imports, currentScope, ast.child(2));
+                if (ast.child(2).kind() != ASTKind::Uninit)
+                    computeScopes(module, imports, currentScope, ast.child(2));
                 break;
             }
             case ASTKind::ConstFunDecl:

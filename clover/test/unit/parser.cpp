@@ -457,16 +457,16 @@ TEST(parse_incr_decr_precedence) {
 }
 
 TEST(parse_own_uninit_types) {
-    ASSERT_SAME_PARSE("own i32*", "(own (ptr_type i32))");
-    ASSERT_SAME_PARSE("own i32[]", "(own (slice_type i32))");
-    ASSERT_SAME_PARSE("own (i32, i32)[4]*", "(own (ptr_type (get_index (tuple i32 i32) 4)))");
-    ASSERT_SAME_PARSE("own i32*(i32)", "(own (stars i32 (paren i32) 1))");
-    ASSERT_SAME_PARSE("uninit i32*", "(uninit (ptr_type i32))");
-    ASSERT_SAME_PARSE("uninit i32[]", "(uninit (slice_type i32))");
-    ASSERT_SAME_PARSE("uninit (i32, i32)[4]*", "(uninit (ptr_type (get_index (tuple i32 i32) 4)))");
-    ASSERT_SAME_PARSE("uninit i32*(i32)", "(uninit (stars i32 (paren i32) 1))");
-    ASSERT_SAME_PARSE("own uninit i32*", "(own (uninit (ptr_type i32)))");
-    ASSERT_SAME_PARSE("uninit own i32*", "(uninit (own (ptr_type i32)))");
+    ASSERT_SAME_PARSE("own i32*", "(own_type (ptr_type i32))");
+    ASSERT_SAME_PARSE("own i32[]", "(own_type (slice_type i32))");
+    ASSERT_SAME_PARSE("own (i32, i32)[4]*", "(own_type (ptr_type (get_index (tuple i32 i32) 4)))");
+    ASSERT_SAME_PARSE("own i32*(i32)", "(own_type (stars i32 (paren i32) 1))");
+    ASSERT_SAME_PARSE("uninit i32*", "(uninit_type (ptr_type i32))");
+    ASSERT_SAME_PARSE("uninit i32[]", "(uninit_type (slice_type i32))");
+    ASSERT_SAME_PARSE("uninit (i32, i32)[4]*", "(uninit_type (ptr_type (get_index (tuple i32 i32) 4)))");
+    ASSERT_SAME_PARSE("uninit i32*(i32)", "(uninit_type (stars i32 (paren i32) 1))");
+    ASSERT_SAME_PARSE("own uninit i32*", "(own_type (uninit_type (ptr_type i32)))");
+    ASSERT_SAME_PARSE("uninit own i32*", "(uninit_type (own_type (ptr_type i32)))");
 }
 
 TEST(parse_new_expr) {
@@ -545,6 +545,12 @@ TEST(parse_is_expression) {
     ASSERT_SAME_PARSE("if a is 1: print(x)", "(if (is a 1) (call print x))");
     ASSERT_SAME_PARSE("print(x) if a is 1 and b is Foo(c)", "(if (and (is a 1) (is b (call Foo c))) (call print x))");
     ASSERT_SAME_PARSE("if a is 1 and b is Foo(c): print(x)", "(if (and (is a 1) (is b (call Foo c))) (call print x))");
+}
+
+TEST(parse_uninit_var) {
+    ASSERT_SAME_PARSE("i32 x: uninit", "(var i32 x uninit)");
+    ASSERT_SAME_PARSE("i32 * x: uninit", "(var (ptr_type i32) x uninit)");
+    ASSERT_SAME_PARSE("i32 x: uninit i32(x)", "(var i32 x (uninit_type (call i32 x)))");
 }
 
 TEST(parse_bad_escape_sequence) {

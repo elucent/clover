@@ -37,6 +37,12 @@ namespace clover {
             return tokens[offset];
         }
 
+        Token peek2() const {
+            if UNLIKELY(offset + 1 >= tokens.size())
+                return Token(MetaNone, Pos(0, 0));
+            return tokens[offset + 1];
+        }
+
         Token last() const {
             return tokens[tokens.size() - 1];
         }
@@ -1289,7 +1295,12 @@ namespace clover {
                     AST init;
                     if (token.token == PunctuatorColon) {
                         visitor.read();
-                        init = parseExpression(module, visitor);
+                        if (visitor.peek().token == KeywordUninit
+                            && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline)) {
+                            visitor.read();
+                            init = module->add(ASTKind::Uninit);
+                        } else
+                            init = parseExpression(module, visitor);
                     } else
                         init = module->add(ASTKind::Missing);
                     if (visitor.peek().token != PunctuatorComma || !allowMultiple)
@@ -1302,7 +1313,12 @@ namespace clover {
                         name = parseIdentifier(module, visitor);
                         if (visitor.peek().token == PunctuatorColon) {
                             visitor.read();
-                            init = parseExpression(module, visitor);
+                            if (visitor.peek().token == KeywordUninit
+                                && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline)) {
+                                visitor.read();
+                                init = module->add(ASTKind::Uninit);
+                            } else
+                                init = parseExpression(module, visitor);
                         } else
                             init = module->add(ASTKind::Missing);
                         decls.push(module->add(ASTKind::VarDecl, pos, lhs, name, init));
@@ -1356,7 +1372,12 @@ namespace clover {
         AST init;
         if (visitor.peek().token == PunctuatorColon && allowInitializer) {
             visitor.read();
-            init = parseExpression(module, visitor);
+            if (visitor.peek().token == KeywordUninit
+                && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline)) {
+                visitor.read();
+                init = module->add(ASTKind::Uninit);
+            } else
+                init = parseExpression(module, visitor);
         } else
             init = module->add(ASTKind::Missing);
         decls.push(module->add(ASTKind::VarDecl, namePos, ast, name, init));
@@ -1365,7 +1386,12 @@ namespace clover {
             name = parseIdentifier(module, visitor);
             if (visitor.peek().token == PunctuatorColon && allowInitializer) {
                 visitor.read();
-                init = parseExpression(module, visitor);
+                if (visitor.peek().token == KeywordUninit
+                    && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline)) {
+                    visitor.read();
+                    init = module->add(ASTKind::Uninit);
+                } else
+                    init = parseExpression(module, visitor);
             } else
                 init = module->add(ASTKind::Missing);
             decls.push(module->add(ASTKind::VarDecl, namePos, ast, name, init));
@@ -2168,6 +2194,8 @@ namespace clover {
                     return module->add(ASTKind::Bool, Constant::BoolConst(false));
                 if UNLIKELY(module->str(symbol) == cstring("missing"))
                     return module->add(ASTKind::Missing);
+                if UNLIKELY(module->str(symbol) == cstring("uninit"))
+                    return module->add(ASTKind::Uninit);
                 if UNLIKELY(module->str(symbol) == cstring("wildcard"))
                     return module->add(ASTKind::Wildcard);
                 return module->add(ASTKind::Ident, Identifier(symbol));

@@ -943,11 +943,12 @@ namespace clover {
                     resolveChild(module, fixups, ast, 1, ExpectValue);
                 } else if (!ast.child(1).missing() && ast.child(1).kind() != ASTKind::Local && ast.child(1).kind() != ASTKind::Global) {
                     // Must be some kind of pattern.
-                    assert(!ast.child(2).missing());
+                    assert(!ast.child(2).missing() && ast.child(2).kind() != ASTKind::Uninit);
                     AST pattern = resolveChild(module, fixups, ast, 1, ExpectValue);
                     resolvePattern(module, fixups, scope, pattern, false);
                 }
-                resolveChild(module, fixups, ast, 2, ExpectValue);
+                if (ast.child(2).kind() != ASTKind::Uninit)
+                    resolveChild(module, fixups, ast, 2, ExpectValue);
                 return ast;
             }
             case ASTKind::ConstFunDecl:
