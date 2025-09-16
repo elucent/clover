@@ -1687,11 +1687,12 @@ namespace clover {
             }
 
             case ASTKind::FunDecl: {
-                Constraints constraints(module, module->types, ctx.constraints->depth + 1);
-                InferenceContext funcCtx;
-                funcCtx.constraints = &constraints;
-                funcCtx.lateChecks = ctx.lateChecks;
-                funcCtx.lateResolves = ctx.lateResolves;
+                // Constraints constraints(module, module->types, ctx.constraints->depth + 1);
+                // InferenceContext funcCtx;
+                // funcCtx.constraints = &constraints;
+                // funcCtx.lateChecks = ctx.lateChecks;
+                // funcCtx.lateResolves = ctx.lateResolves;
+                InferenceContext& funcCtx = ctx;
 
                 auto name = ast.child(1).variable();
                 for (AST param : ast.child(2)) {
@@ -1711,15 +1712,15 @@ namespace clover {
                     inferChild(funcCtx, ast.function(), ast, 4);
                     addImplicitReturns(funcCtx, returnType, ast, ast.child(4), { ast, 4 });
                 }
-                if UNLIKELY(config::printTypeConstraints)
-                    printTypeConstraints(module->types, &constraints);
+                // if UNLIKELY(config::printTypeConstraints)
+                //     printTypeConstraints(module->types, &constraints);
 
-                refineGraph(module, funcCtx);
-                for (NodeIndex node : *funcCtx.lateChecks) {
-                    AST ast = module->node(node);
-                    assert(!ast.isLeaf());
-                    check(funcCtx, ast.function(), ast);
-                }
+                // refineGraph(module, funcCtx);
+                // for (NodeIndex node : *funcCtx.lateChecks) {
+                //     AST ast = module->node(node);
+                //     assert(!ast.isLeaf());
+                //     check(funcCtx, ast.function(), ast);
+                // }
                 ctx.checkLater(ast);
                 return fromType(module->voidType());
             }
