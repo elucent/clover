@@ -570,6 +570,32 @@ TEST(parse_const_fun) {
     ASSERT_SAME_PARSE("const f(x, y): x + y", "(const_fun f (tuple (const_var missing x missing) (const_var missing y missing)) (+ x y))");
 }
 
+TEST(parse_multiline_expression) {
+    ASSERT_SAME_PARSE(R"(
+var x: (
+    42
+)
+)", "(var missing x (paren 42))");
+
+    ASSERT_SAME_PARSE(R"(
+(1 +
+    2
+  + 3)
+)", "(paren (+ (+ 1 2) 3))");
+}
+
+TEST(parse_multiline_vardecl) {
+    ASSERT_SAME_PARSE(R"(
+var x: 1,
+    y: 2,
+        z: 3,
+    w: (4 + 5
+        + 6
+        )
+var a: 42
+)", "(do (var missing x 1) (var missing y 2) (var missing z 3) (var missing w (paren (+ (+ 4 5) 6)))) (var missing a 42)");
+}
+
 TEST(parse_bad_escape_sequence) {
     EXPECT_ERRORS;
 

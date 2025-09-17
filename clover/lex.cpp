@@ -245,13 +245,13 @@ namespace clover {
             tokens.push({ WhitespaceIndent, visitor.pos() });
             indents.push(visitor.column);
         } else if (visitor.column < indents.back()) {
-            assert(indents.size() >= 2);
-            assert(visitor.column <= indents[indents.size() - 2]);
-            tokens.push({ WhitespaceDedent, visitor.pos() });
-            indents.pop();
-            while (visitor.column < indents.back()) {
+            if (visitor.column <= indents[indents.size() - 2]) {
                 tokens.push({ WhitespaceDedent, visitor.pos() });
                 indents.pop();
+                while (visitor.column < indents.back()) {
+                    tokens.push({ WhitespaceDedent, visitor.pos() });
+                    indents.pop();
+                }
             }
         }
     }

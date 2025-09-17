@@ -19,17 +19,34 @@ namespace clover {
     }
 
     struct TokenVisitor {
+        Module* module;
         const vec<Token, 32>& tokens;
-        vec<Pos, 8> enclosedStack;
+        vec<Pos, 8> whitespaceStack;
         u32 offset;
+
+        // Used to ignore dedents that originated from indents in enclosed
+        // expressions. Consider:
+        //
+        // (1 + 2 +
+        //    3 + 4)
+        //
+        // We want this to act like one expression, but the lexer identifies
+        // an indent before the 3. The line after the closing paren should be
+        // dedented, but that dedent token will be after both the closing paren
+        // and the newline. We want to skip exactly the number of escaping
+        // dedents that originated in the enclosed expression - if we don't
+        // skip enough, we'll see spurious dedents floating around and get
+        // parse errors. If we don't have enough dedents after, that means the
+        // line after the parenthetical is spuriously indented.
+        u32 dedentsToIgnore;
 
         constexpr static u64 SkipIfEnclosedMask
             = 1ull << WhitespaceIndent
             | 1ull << WhitespaceDedent
             | 1ull << WhitespaceNewline;
 
-        inline TokenVisitor(const vec<Token, 32>& tokens_in):
-            tokens(tokens_in), offset(0) {}
+        inline TokenVisitor(Module* module_in, const vec<Token, 32>& tokens_in):
+            module(module_in), tokens(tokens_in), offset(0), dedentsToIgnore(0) {}
 
         Token peek() const {
             if UNLIKELY(offset >= tokens.size())
@@ -47,13 +64,32 @@ namespace clover {
             return tokens[tokens.size() - 1];
         }
 
+        Token readIgnoringWhitespace() {
+            ignoreWhitespace(tokens[offset].pos);
+            Token result = read();
+            stopIgnoringWhitespace();
+            return result;
+        }
+
         Token read() {
             if UNLIKELY(offset >= tokens.size())
                 return Token(MetaNone, Pos(0, 0));
             Token next = tokens[offset ++];
-            if (isEnclosed()) {
-                while (offset < tokens.size() && tokens[offset].token.symbol < 64ull && (1ull << tokens[offset].token.symbol & SkipIfEnclosedMask) && offset < tokens.size())
+            if (isIgnoringWhitespace()) {
+                while (offset < tokens.size() && tokens[offset].token.symbol < 64ull && (1ull << tokens[offset].token.symbol & SkipIfEnclosedMask)) {
+                    if (tokens[offset].token == WhitespaceIndent)
+                        dedentsToIgnore ++;
+                    else if (tokens[offset].token == WhitespaceDedent)
+                        dedentsToIgnore --;
                     offset ++;
+                }
+            } else if (dedentsToIgnore && next.token == WhitespaceNewline) {
+                while (dedentsToIgnore && offset < tokens.size() && tokens[offset].token == WhitespaceDedent)
+                    offset ++, dedentsToIgnore --;
+                if (dedentsToIgnore && offset < tokens.size()) {
+                    error(module, tokens[offset].pos, "Unexpected indentation.");
+                    dedentsToIgnore = 0;
+                }
             }
             return next;
         }
@@ -72,16 +108,16 @@ namespace clover {
             return offset >= tokens.size();
         }
 
-        bool isEnclosed() const {
-            return enclosedStack.size();
+        bool isIgnoringWhitespace() const {
+            return whitespaceStack.size();
         }
 
-        void increaseDepth(Pos pos) {
-            enclosedStack.push(pos);
+        void ignoreWhitespace(Pos pos) {
+            whitespaceStack.push(pos);
         }
 
-        void decreaseDepth() {
-            enclosedStack.pop();
+        void stopIgnoringWhitespace() {
+            whitespaceStack.pop();
         }
     };
 
@@ -262,10 +298,10 @@ namespace clover {
         Token token = visitor.peek();
         if (token.token.symbol < NumReservedSymbols) switch (token.token.symbol) {
             case PunctuatorLeftParen: {
-                visitor.increaseDepth(token.pos);
+                visitor.ignoreWhitespace(token.pos);
                 visitor.read();
                 if (visitor.peek().token == PunctuatorRightParen) {
-                    visitor.decreaseDepth();
+                    visitor.stopIgnoringWhitespace();
                     visitor.read();
                     return module->add(ASTKind::Tuple, token.pos); // Empty tuple expression.
                 }
@@ -276,7 +312,7 @@ namespace clover {
                     while (!visitor.done() && visitor.peek().token != PunctuatorRightParen) {
                         if UNLIKELY(visitor.peek().token != PunctuatorComma) {
                             error(module, visitor.peek(), "Expected comma in tuple expression, found '", TokenFormat(module, visitor.peek()), "'.");
-                            visitor.decreaseDepth();
+                            visitor.stopIgnoringWhitespace();
                             visitor.readUpToAndIncluding(PunctuatorRightParen);
                             return module->add(ASTKind::Tuple, token.pos, tup);
                         }
@@ -290,7 +326,7 @@ namespace clover {
                             tup.back() = module->add(ASTKind::NamedParameter, token.pos, tup.back(), parseExpression(module, visitor));
                         }
                     }
-                    visitor.decreaseDepth();
+                    visitor.stopIgnoringWhitespace();
                     if (visitor.done())
                         error(module, visitor.last(), "Unexpected end of file in tuple expression.");
                     else if (visitor.peek().token != PunctuatorRightParen) {
@@ -300,7 +336,7 @@ namespace clover {
                         visitor.read();
                     return module->add(ASTKind::Tuple, token.pos, tup);
                 }
-                visitor.decreaseDepth();
+                visitor.stopIgnoringWhitespace();
                 if (visitor.done())
                     error(module, visitor.last().pos, "Unexpected end of file in parenthetical expression.");
                 else if (visitor.peek().token != PunctuatorRightParen) {
@@ -312,10 +348,10 @@ namespace clover {
                 return module->add(ASTKind::Paren, token.pos, nextExpr);
             }
             case PunctuatorLeftBracket: {
-                visitor.increaseDepth(token.pos);
+                visitor.ignoreWhitespace(token.pos);
                 visitor.read();
                 if (visitor.peek().token == PunctuatorRightBracket) { // Empty list.
-                    visitor.decreaseDepth();
+                    visitor.stopIgnoringWhitespace();
                     visitor.read();
                     return module->add(ASTKind::List, token.pos);
                 }
@@ -325,7 +361,7 @@ namespace clover {
                     while (!visitor.done() && visitor.peek().token != PunctuatorRightBracket) {
                         if UNLIKELY(visitor.peek().token != PunctuatorComma) {
                             error(module, visitor.peek(), "Expected comma in list expression, found '", TokenFormat(module, visitor.peek()), "'.");
-                            visitor.decreaseDepth();
+                            visitor.stopIgnoringWhitespace();
                             visitor.readUpToAndIncluding(PunctuatorRightBracket);
                             return module->add(ASTKind::List, token.pos, items);
                         }
@@ -333,7 +369,7 @@ namespace clover {
                         items.push(parseExpression(module, visitor));
                     }
                 }
-                visitor.decreaseDepth();
+                visitor.stopIgnoringWhitespace();
                 if (visitor.done())
                     error(module, visitor.last().pos, "Unexpected end of file in list expression.");
                 else if (visitor.peek().token != PunctuatorRightBracket) {
@@ -554,7 +590,7 @@ namespace clover {
                         // it in advance.
                         return ast;
                     }
-                    visitor.increaseDepth(token.pos);
+                    visitor.ignoreWhitespace(token.pos);
                     visitor.read();
                     ASTKind callKind = ast.kind() == ASTKind::GetField ? ASTKind::CallMethod : ASTKind::Call;
                     vec<AST> arguments;
@@ -564,7 +600,7 @@ namespace clover {
                         function = ast.child(1);
                     }
                     if (visitor.peek().token == PunctuatorRightParen) {
-                        visitor.decreaseDepth();
+                        visitor.stopIgnoringWhitespace();
                         visitor.read();
                         ast = module->add(callKind, token.pos, function, arguments);
                         break;
@@ -619,7 +655,7 @@ namespace clover {
                         if (visitor.peek().token == PunctuatorComma)
                             visitor.read();
                     }
-                    visitor.decreaseDepth();
+                    visitor.stopIgnoringWhitespace();
                     if (visitor.done())
                         error(module, visitor.last(), "Unexpected end of file in call expression.");
                     else if (visitor.peek().token != PunctuatorRightParen) {
@@ -631,18 +667,18 @@ namespace clover {
                     break;
                 }
                 case PunctuatorLeftBracket: { // Indexing
-                    visitor.increaseDepth(token.pos);
+                    visitor.ignoreWhitespace(token.pos);
                     visitor.read();
                     if (visitor.peek().token == PunctuatorColon) { // Slice access with no start
                         visitor.read();
                         if (visitor.peek().token == PunctuatorRightBracket) {
-                            visitor.decreaseDepth();
+                            visitor.stopIgnoringWhitespace();
                             visitor.read();
                             ast = module->add(ASTKind::GetSlice, ast, module->add(ASTKind::Missing), module->add(ASTKind::Missing));
                             break;
                         }
                         AST end = parseExpression(module, visitor);
-                        visitor.decreaseDepth();
+                        visitor.stopIgnoringWhitespace();
                         if (visitor.peek().token != PunctuatorRightBracket) {
                             error(module, visitor.peek(), "Expected closing bracket ']', found '", TokenFormat(module, visitor.peek()), "'.");
                             visitor.readUpToAndIncluding(PunctuatorRightBracket);
@@ -652,7 +688,7 @@ namespace clover {
                         break;
                     }
                     if (visitor.peek().token == PunctuatorRightBracket) {
-                        visitor.decreaseDepth();
+                        visitor.stopIgnoringWhitespace();
                         visitor.read();
                         ast = module->add(ASTKind::SliceType, token.pos, ast);
                         break;
@@ -690,7 +726,7 @@ namespace clover {
                             visitor.read();
                             break;
                     }
-                    visitor.decreaseDepth();
+                    visitor.stopIgnoringWhitespace();
                     if (visitor.done())
                         error(module, visitor.last(), "Unexpected end of file in indexing expression.");
                     else if (visitor.peek().token != PunctuatorRightBracket) {
@@ -704,7 +740,7 @@ namespace clover {
                     visitor.read();
                     if UNLIKELY(visitor.peek().token == PunctuatorLeftParen) { // Multi-field access
                         vec<AST> fields;
-                        visitor.increaseDepth(visitor.peek().pos);
+                        visitor.ignoreWhitespace(visitor.peek().pos);
                         visitor.read();
                         while (!visitor.done() && visitor.peek().token != PunctuatorRightParen) {
                             Pos fieldPos = visitor.peek().pos;
@@ -715,7 +751,7 @@ namespace clover {
                             if (visitor.peek().token == PunctuatorComma)
                                 visitor.read();
                         }
-                        visitor.decreaseDepth();
+                        visitor.stopIgnoringWhitespace();
                         if (visitor.done())
                             error(module, visitor.last(), "Unexpected end of file in multi-field access.");
                         else if (visitor.peek().token != PunctuatorRightParen) {
@@ -1115,9 +1151,9 @@ namespace clover {
             error(module, pos, "Expected indented block.");
             return module->add(ASTKind::Do, pos, items);
         }
-        if (visitor.isEnclosed()) {
+        if (visitor.isIgnoringWhitespace()) {
             error(module, pos, "Indented block not permitted within enclosed expression.")
-                .note(visitor.enclosedStack.back(), "Enclosed expression started here.");
+                .note(visitor.whitespaceStack.back(), "Enclosed expression started here.");
         }
         visitor.read();
         while (!visitor.done() && visitor.peek().token != WhitespaceDedent) {
@@ -1150,7 +1186,7 @@ namespace clover {
 
     AST parseParameterTuple(Module* module, TokenVisitor& visitor, bool typeLevel) {
         assert(visitor.peek().token == PunctuatorLeftParen);
-        visitor.increaseDepth(visitor.peek().pos);
+        visitor.ignoreWhitespace(visitor.peek().pos);
         Token paren = visitor.read();
 
         vec<AST> parameters;
@@ -1233,7 +1269,7 @@ namespace clover {
             if (visitor.peek().token == PunctuatorComma)
                 visitor.read();
         }
-        visitor.decreaseDepth();
+        visitor.stopIgnoringWhitespace();
         if UNLIKELY(visitor.done())
             error(module, visitor.last(), "Unexpected end of file parsing parameter list.");
         else if UNLIKELY(visitor.peek().token != PunctuatorRightParen) {
@@ -1379,7 +1415,7 @@ namespace clover {
                     vec<AST> decls;
                     decls.push(module->add(ASTKind::VarDecl, possibleDecl.pos(), lhs, name, init));
                     while (visitor.peek().token == PunctuatorComma) {
-                        visitor.read();
+                        visitor.readIgnoringWhitespace();
                         Pos pos = visitor.peek().pos;
                         name = parseIdentifier(module, visitor);
                         if (visitor.peek().token == PunctuatorColon) {
@@ -1453,7 +1489,7 @@ namespace clover {
             init = module->add(ASTKind::Missing);
         decls.push(module->add(ASTKind::VarDecl, namePos, ast, name, init));
         if (allowMultiple) while (visitor.peek().token == PunctuatorComma) {
-            visitor.read();
+            visitor.readIgnoringWhitespace();
             name = parseIdentifier(module, visitor);
             if (visitor.peek().token == PunctuatorColon && allowInitializer) {
                 visitor.read();
@@ -1582,7 +1618,7 @@ namespace clover {
         vec<AST> groups;
         groups.push(parseImportGroup(module, visitor, use.pos));
         while (visitor.peek().token == PunctuatorComma) {
-            visitor.read();
+            visitor.readIgnoringWhitespace();
             groups.push(parseImportGroup(module, visitor, use.pos));
         }
         return groups.size() == 1 ? groups[0] : module->add(ASTKind::Do, use.pos, groups);
@@ -1632,7 +1668,7 @@ namespace clover {
                 AST init = parseExpression(module, visitor);
                 decls.push(module->add(ASTKind::AliasDecl, token.pos, name, init));
                 while (visitor.peek().token == PunctuatorComma) {
-                    visitor.read();
+                    visitor.readIgnoringWhitespace();
                     name = parseIdentifier(module, visitor);
                     if (visitor.peek().token != PunctuatorColon) {
                         error(module, visitor.peek(), "Expected colon ':' in alias declaration, found '", TokenFormat(module, visitor.peek()));
@@ -1666,7 +1702,7 @@ namespace clover {
                     // Constant function.
                     kind = ASTKind::ConstFunDecl;
                     auto parenPos = visitor.read().pos;
-                    visitor.increaseDepth(parenPos);
+                    visitor.ignoreWhitespace(parenPos);
 
                     if (pattern.kind() != ASTKind::Ident)
                         error(module, namePos, "Expected identifier in const function definition.");
@@ -1679,7 +1715,7 @@ namespace clover {
                             visitor.read();
                     }
 
-                    visitor.decreaseDepth();
+                    visitor.stopIgnoringWhitespace();
                     if UNLIKELY(visitor.done())
                         error(module, visitor.last(), "Unexpected end of file parsing parameter list.");
                     else if UNLIKELY(visitor.peek().token != PunctuatorRightParen) {
@@ -1704,7 +1740,7 @@ namespace clover {
                     init = module->add(ASTKind::Missing);
                 decls.push(module->add(kind, namePos, type, pattern, init));
                 while (visitor.peek().token == PunctuatorComma) {
-                    visitor.read();
+                    visitor.readIgnoringWhitespace();
                     namePos = visitor.peek().pos;
                     pattern = parsePattern(module, visitor);
                     if (visitor.peek().token == PunctuatorColon) {
@@ -1864,7 +1900,7 @@ namespace clover {
         vec<BindingGroup> bindings;
         bindings.push(parseBindingGroup(module, visitor));
         while (visitor.peek().token == PunctuatorComma) {
-            visitor.read();
+            visitor.readIgnoringWhitespace();
             bindings.push(parseBindingGroup(module, visitor));
         }
 
@@ -2155,9 +2191,9 @@ namespace clover {
                     error(module, visitor.peek().pos, "Expected indented block.");
                     return module->add(ASTKind::Match, pos, cond, cases);
                 }
-                if (visitor.isEnclosed()) {
+                if (visitor.isIgnoringWhitespace()) {
                     error(module, pos, "Indented block not permitted within enclosed expression.")
-                        .note(visitor.enclosedStack.back(), "Enclosed expression started here.");
+                        .note(visitor.whitespaceStack.back(), "Enclosed expression started here.");
                 }
                 visitor.read();
                 while (!visitor.done() && visitor.peek().token != WhitespaceDedent) {
@@ -2264,7 +2300,7 @@ namespace clover {
         }
 
         Module* module = new Module(artifact->parent->compilation, artifact->as<Tokens>()->takeSource(), move(artifact->as<Tokens>()->lineOffsets));
-        TokenVisitor visitor(artifact->as<Tokens>()->tokens);
+        TokenVisitor visitor(module, artifact->as<Tokens>()->tokens);
         module->setTopLevel(parseTopLevel(module, visitor));
 
         artifact->update(ArtifactKind::ParsedAST, module);
@@ -2365,8 +2401,8 @@ namespace clover {
         assert(artifact->kind == ArtifactKind::Tokens);
 
         Module* module = new Module(artifact->parent->compilation, artifact->as<Tokens>()->takeSource(), move(artifact->as<Tokens>()->lineOffsets));
-        TokenVisitor visitor(artifact->as<Tokens>()->tokens);
-        visitor.increaseDepth(visitor.peek().pos); // Ignore whitespace in s-exp mode.
+        TokenVisitor visitor(module, artifact->as<Tokens>()->tokens);
+        visitor.ignoreWhitespace(visitor.peek().pos); // Ignore whitespace in s-exp mode.
 
         vec<AST> topLevel;
         while (!visitor.done())
