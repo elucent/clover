@@ -482,7 +482,7 @@ TEST(parse_new_expr) {
     ASSERT_SAME_PARSE("new i32*(42)", "(new (stars i32 (paren 42) 1))");
     ASSERT_SAME_PARSE("new i32[42]", "(new (get_index i32 42))");
     ASSERT_SAME_PARSE("new i32[42](1, 2, 3)", "(new (call (get_index i32 42) 1 2 3))");
-    ASSERT_SAME_PARSE("new i32*[42](&x, &y, &z)", "(new (stars i32 (call (list 42) (address_of x) (address_of y) (address_of z)) 1))");
+    ASSERT_SAME_PARSE("new i32*[42](&x, &y, &z)", "(new (call (stars i32 (list 42) 1) (address_of x) (address_of y) (address_of z)))");
 }
 
 TEST(parse_case_decl) {

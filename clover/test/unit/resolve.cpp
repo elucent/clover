@@ -770,3 +770,37 @@ var x: foo(&42)
 i32* foo(i32* p): p
 )");
 }
+
+TEST(resolve_method_style_own_uninit_cast) {
+    auto artifact = RESOLVE(R"(
+var x: 42
+
+var a: x.own i32*()
+var b: x.own uninit i32*()
+var c: x.own i32[]()
+var d: x.uninit own i32[]()
+var e: x.own uninit i32*[](i32)[]()
+var f: x.own uninit i32*(uninit own i32*)(own i32[])*()
+)");
+
+    auto module = artifact.as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto a = topLevel.child(1).child(2);
+    ASSERT_EQUAL(a.type(), module->ptrType(Own, I32));
+
+    auto b = topLevel.child(2).child(2);
+    ASSERT_EQUAL(b.type(), module->ptrType(Own | Uninit, I32));
+
+    auto c = topLevel.child(3).child(2);
+    ASSERT_EQUAL(c.type(), module->sliceType(Own, I32));
+
+    auto d = topLevel.child(4).child(2);
+    ASSERT_EQUAL(d.type(), module->sliceType(Own | Uninit, I32));
+
+    auto e = topLevel.child(5).child(2);
+    ASSERT_EQUAL(e.type(), module->sliceType(Own | Uninit, module->funType(module->sliceType(module->ptrType(I32)), I32)));
+
+    auto f = topLevel.child(6).child(2);
+    ASSERT_EQUAL(f.type(), module->ptrType(Own | Uninit, module->funType(module->funType(module->ptrType(I32), module->ptrType(Own | Uninit, I32)), module->sliceType(Own, I32))));
+}

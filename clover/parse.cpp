@@ -402,11 +402,21 @@ namespace clover {
             }
             case KeywordOwn: {
                 visitor.read();
-                return module->add(ASTKind::OwnType, token.pos, parseExpression(module, visitor));
+                AST child;
+                if (visitor.peek().token == KeywordUninit || visitor.peek().token == KeywordOwn)
+                    child = parsePrimaryNoSuffix(module, visitor); // Group modifiers together.
+                else
+                    child = parseExpression(module, visitor);
+                return module->add(ASTKind::OwnType, token.pos, child);
             }
             case KeywordUninit: {
                 visitor.read();
-                return module->add(ASTKind::UninitType, token.pos, parseExpression(module, visitor));
+                AST child;
+                if (visitor.peek().token == KeywordUninit || visitor.peek().token == KeywordOwn)
+                    child = parsePrimaryNoSuffix(module, visitor); // Group modifiers together.
+                else
+                    child = parseExpression(module, visitor);
+                return module->add(ASTKind::UninitType, token.pos, child);
             }
             case OperatorEllipsis: {
                 visitor.read();
@@ -528,6 +538,22 @@ namespace clover {
             Token token = visitor.peek();
             switch (token.token.symbol) {
                 case PunctuatorLeftParen: { // Call
+                    if (ast.kind() == ASTKind::List) {
+                        // This is a hack that takes care of a very specific
+                        // and obviously invalid situation. Consider the case
+                        // we have a type like:
+                        //
+                        //  i32*[](i32)
+                        //
+                        // Parsing this normally, we'd expect `*` to bind less
+                        // tightly than the call. But this means we need to dig
+                        // deeply into the call to drag the [] back up once we
+                        // know it's really meant to be a slice type. This is a
+                        // big chore, and there is no situation in which you
+                        // can apply a list literal anyway, so we just reject
+                        // it in advance.
+                        return ast;
+                    }
                     visitor.increaseDepth(token.pos);
                     visitor.read();
                     ASTKind callKind = ast.kind() == ASTKind::GetField ? ASTKind::CallMethod : ASTKind::Call;
@@ -702,7 +728,8 @@ namespace clover {
                     }
                     Pos fieldPos = visitor.peek().pos;
                     AST v = parsePrimaryNoSuffix(module, visitor);
-                    if (v.kind() != ASTKind::Ident && v.kind() != ASTKind::Missing)
+                    if (v.kind() != ASTKind::Ident && v.kind() != ASTKind::Missing
+                        && v.kind() != ASTKind::OwnType && v.kind() != ASTKind::UninitType)
                         error(module, fieldPos, "Expected identifier in field access, found '", v, "'.");
                     ast = module->add(ASTKind::GetField, token.pos, ast, v);
                     break;
@@ -985,6 +1012,22 @@ namespace clover {
     AST parseBinary(Module* module, AST lhs, Token op, TokenVisitor& visitor, bool& didBail, u32& ifOffset, const vec<AST>& extraChildren, u32 minPrecedence = 0) {
         u32 operatorOffset = visitor.offset - 1;
         AST rhs = parsePostfix(module, visitor);
+
+        if (rhs.kind() == ASTKind::List && (op.token == OperatorMul || op.token == OperatorExp)) {
+            // It's invalid to actually multiply a list with anything, so this
+            // must be a pointer type of some kind. Treat these as a cohesive
+            // group as if constructed using an array-type or slice-type
+            // construction.
+            lhs = makeBinary(module, lhs, op, rhs, AST(), extraChildren);
+            lhs = parsePrimarySuffix(module, visitor, lhs);
+            op = visitor.peek();
+            if (isBinaryOperator(op.token)) {
+                visitor.read();
+                return parseBinary(module, lhs, op, visitor, didBail, ifOffset, extraChildren);
+            } else
+                return lhs;
+        }
+
         Token nextOp = visitor.peek();
         AST interior;
         vec<AST> nextExtraChildren;

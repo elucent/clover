@@ -864,11 +864,22 @@ namespace clover {
                 return resolveNew(module, fixups, ast);
             case ASTKind::GetField: {
                 resolveChild(module, fixups, ast, 0, ExpectValue);
-                if (isTypeExpression(ast.child(0))) if (Type resolved = resolveNestedType(module, fixups, scope, ast.child(0), ast.child(1))) {
-                    ast.setKind(ASTKind::TypeField);
-                    ast.setChild(1, module->add(ASTKind::Field, FieldId(0)));
-                    ast.setType(resolved);
-                    return ast;
+                if (ast.child(1).kind() == ASTKind::OwnType || ast.child(1).kind() == ASTKind::UninitType) {
+                    AST resolvedField = resolveChild(module, fixups, ast, 1, ExpectType);
+                    assert(resolvedField.kind() == ASTKind::Construct); // Must be the case, for this to be valid.
+                    vec<AST> nestedChildren;
+                    for (AST child : resolvedField)
+                        nestedChildren.push(child);
+                    return module->add(ASTKind::Construct, resolvedField.pos(), resolvedField.scope(), resolvedField.type(), ast.child(0), nestedChildren);
+                }
+
+                if (isTypeExpression(ast.child(0))) {
+                    if (Type resolved = resolveNestedType(module, fixups, scope, ast.child(0), ast.child(1))) {
+                        ast.setKind(ASTKind::TypeField);
+                        ast.setChild(1, module->add(ASTKind::Field, FieldId(0)));
+                        ast.setType(resolved);
+                        return ast;
+                    }
                 }
                 resolveFieldnameChild(module, fixups, ast, 1, ExpectValue);
                 return ast;
