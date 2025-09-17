@@ -40,17 +40,25 @@ namespace clover {
         // line after the parenthetical is spuriously indented.
         u32 dedentsToIgnore;
 
+        // If we finish parsing some enclosed sequence, and have ignorable
+        // dedents left over, that implies that we actually have an indent - we
+        // didn't return to the previous column. Until we work through these,
+        // we return fake new indent tokens.
+        u32 impliedIndents;
+
         constexpr static u64 SkipIfEnclosedMask
             = 1ull << WhitespaceIndent
             | 1ull << WhitespaceDedent
             | 1ull << WhitespaceNewline;
 
         inline TokenVisitor(Module* module_in, const vec<Token, 32>& tokens_in):
-            module(module_in), tokens(tokens_in), offset(0), dedentsToIgnore(0) {}
+            module(module_in), tokens(tokens_in), offset(0), dedentsToIgnore(0), impliedIndents(0) {}
 
         Token peek() const {
             if UNLIKELY(offset >= tokens.size())
                 return Token(MetaNone, Pos(0, 0));
+            if UNLIKELY(impliedIndents)
+                return Token(WhitespaceIndent, tokens[offset + 1].pos);
             return tokens[offset];
         }
 
@@ -74,6 +82,10 @@ namespace clover {
         Token read() {
             if UNLIKELY(offset >= tokens.size())
                 return Token(MetaNone, Pos(0, 0));
+            if UNLIKELY(impliedIndents) {
+                impliedIndents --;
+                return Token { WhitespaceIndent, tokens[offset].pos };
+            }
             Token next = tokens[offset ++];
             if (isIgnoringWhitespace()) {
                 while (offset < tokens.size() && tokens[offset].token.symbol < 64ull && (1ull << tokens[offset].token.symbol & SkipIfEnclosedMask)) {
@@ -86,10 +98,7 @@ namespace clover {
             } else if (dedentsToIgnore && next.token == WhitespaceNewline) {
                 while (dedentsToIgnore && offset < tokens.size() && tokens[offset].token == WhitespaceDedent)
                     offset ++, dedentsToIgnore --;
-                if (dedentsToIgnore && offset < tokens.size()) {
-                    error(module, tokens[offset].pos, "Unexpected indentation.");
-                    dedentsToIgnore = 0;
-                }
+                impliedIndents = dedentsToIgnore;
             }
             return next;
         }

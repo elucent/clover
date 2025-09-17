@@ -596,6 +596,17 @@ var a: 42
 )", "(do (var missing x 1) (var missing y 2) (var missing z 3) (var missing w (paren (+ (+ 4 5) 6)))) (var missing a 42)");
 }
 
+TEST(parse_multiline_fundecl) {
+    ASSERT_SAME_PARSE(R"(
+i32 foo(i32 x,
+    i32 y,
+    i32 z: (
+        1 +
+    2)):
+    x + y + z
+)", "(fun i32 foo (tuple (var i32 x missing) (var i32 y missing) (var i32 z (paren (+ 1 2)))) missing (do (+ (+ x y) z)))");
+}
+
 TEST(parse_bad_escape_sequence) {
     EXPECT_ERRORS;
 
