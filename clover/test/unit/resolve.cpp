@@ -661,9 +661,9 @@ var arr: [[1, 2], [3, 4]]
 
 TEST(resolve_bare_typename_parameter) {
     auto artifact = RESOLVE(R"(
-fun foo(i32)
-fun bar(i64): 42
-fun baz(x)
+i32 foo(i32)
+i64 bar(i64): 42
+x baz(x)
 
 alias x: i32
 )");

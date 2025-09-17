@@ -511,16 +511,16 @@ FOR_EACH_INT(DEFINE_TEST, codegen_global_scalar,
     auto instance = COMPILE_SUBST(R"(
 $T global: 42
 
-fun get_global():
+$T get_global():
     return global
 
-fun set_global($T val):
+void set_global($T val):
     global = val
 
-fun inc_global():
+void inc_global():
     global = global + 1
 
-fun addr_global():
+$T* addr_global():
     return &global
 )");
     auto exec = load(instance.artifact);
@@ -544,11 +544,11 @@ FOR_EACH_INT(DEFINE_TEST, codegen_global_array,
     auto instance = COMPILE_SUBST(R"(
 $T[7] numbers: [1, 2, 3, 4, 5, 6, 7]
 
-fun get_number(i32 i):
+$T get_number(i32 i):
     return numbers[i]
-fun set_number(i32 i, $T n):
+void set_number(i32 i, $T n):
     numbers[i] = n
-fun addr_number(i32 i):
+$T* addr_number(i32 i):
     return &numbers[i]
 )");
 
@@ -571,11 +571,11 @@ FOR_EACH_INT(DEFINE_TEST, codegen_global_slice,
     auto instance = COMPILE_SUBST(R"(
 $T[] numbers: [1, 2, 3, 4, 5, 6, 7]
 
-fun get_number(i32 i):
+$T get_number(i32 i):
     return numbers[i]
-fun set_number(i32 i, $T n):
+void set_number(i32 i, $T n):
     numbers[i] = n
-fun sub_slice(i32 i, i32 j):
+$T[] sub_slice(i32 i, i32 j):
     return numbers[i:j]
 )");
 
@@ -608,29 +608,29 @@ fun sub_slice(i32 i, i32 j):
 
 FOR_EACH_INT(DEFINE_TEST, codegen_apply_func_to_array,
     auto instance = COMPILE_SUBST(R"(
-fun map($T($T) f, $T[] input, $T[] out):
+void map($T($T) f, $T[] input, $T[] out):
     var i: 0
     while i < |input| and i < |out|:
         out[i] = f(input[i])
         i = i + 1
 
-fun map_in_place($T($T) f, $T[] inout):
+void map_in_place($T($T) f, $T[] inout):
     var i: 0
     while i < |inout|:
         inout[i] = f(inout[i])
         i = i + 1
 
-fun fold($T($T, $T) f, $T[] input, $T x):
+$T fold($T($T, $T) f, $T[] input, $T x):
     var i: 0
     while i < |input|:
         x = f(x, input[i])
         i = i + 1
     return x
 
-fun add($T x, $T y):
+$T add($T x, $T y):
     x + y
 
-fun sum($T[] input):
+$T sum($T[] input):
     return fold(add, input, 0)
 )");
 
@@ -667,15 +667,15 @@ fun sum($T[] input):
 
 FOR_EACH_INT(DEFINE_TEST, codegen_arith_assignment,
     auto instance = COMPILE_SUBST(R"(
-fun add_eq($T* x, $T y):
+void add_eq($T* x, $T y):
     *x += y
-fun sub_eq($T* x, $T y):
+void sub_eq($T* x, $T y):
     *x -= y
-fun mul_eq($T* x, $T y):
+void mul_eq($T* x, $T y):
     *x *= y
-fun div_eq($T* x, $T y):
+void div_eq($T* x, $T y):
     *x /= y
-fun rem_eq($T* x, $T y):
+void rem_eq($T* x, $T y):
     *x %= y
 )");
     auto exec = load(instance.artifact);
@@ -704,19 +704,19 @@ fun rem_eq($T* x, $T y):
 
 FOR_EACH_INT(DEFINE_TEST, codegen_compound_assignment_local,
     auto instance = COMPILE_SUBST(R"(
-fun add_eq($T x, $T y):
+$T add_eq($T x, $T y):
     x += y
     return x
-fun sub_eq($T x, $T y):
+$T sub_eq($T x, $T y):
     x -= y
     return x
-fun mul_eq($T x, $T y):
+$T mul_eq($T x, $T y):
     x *= y
     return x
-fun div_eq($T x, $T y):
+$T div_eq($T x, $T y):
     x /= y
     return x
-fun rem_eq($T x, $T y):
+$T rem_eq($T x, $T y):
     x %= y
     return x
 )");
@@ -736,19 +736,19 @@ fun rem_eq($T x, $T y):
 
 FOR_EACH_INT(DEFINE_TEST, codegen_bitwise_assignment,
     auto instance = COMPILE_SUBST(R"(
-fun bitand_eq($T* x, $T y):
+void bitand_eq($T* x, $T y):
     *x &= y
-fun bitor_eq($T* x, $T y):
+void bitor_eq($T* x, $T y):
     *x |= y
-fun bitxor_eq($T* x, $T y):
+void bitxor_eq($T* x, $T y):
     *x ^= y
-fun bitshl_eq($T* x, $T y):
+void bitshl_eq($T* x, $T y):
     *x <<= y
-fun bitshr_eq($T* x, $T y):
+void bitshr_eq($T* x, $T y):
     *x >>= y
-fun bitrol_eq($T* x, $T y):
+void bitrol_eq($T* x, $T y):
     *x /<= y
-fun bitror_eq($T* x, $T y):
+void bitror_eq($T* x, $T y):
     *x />= y
 )");
     auto exec = load(instance.artifact);
@@ -783,13 +783,13 @@ fun bitror_eq($T* x, $T y):
 
 FOR_EACH_INT(DEFINE_TEST, codegen_incr_decr,
     auto instance = COMPILE_SUBST(R"(
-fun pre_incr($T* x):
+$T pre_incr($T* x):
     return ++ *x
-fun post_incr($T* x):
+$T post_incr($T* x):
     return *x ++
-fun pre_decr($T* x):
+$T pre_decr($T* x):
     return -- *x
-fun post_decr($T* x):
+$T post_decr($T* x):
     return *x --
 )");
     auto exec = load(instance.artifact);
@@ -814,13 +814,13 @@ fun post_decr($T* x):
 
 FOR_EACH_INT(DEFINE_TEST, codegen_incr_decr_local,
     auto instance = COMPILE_SUBST(R"(
-fun pre_incr($T x):
+$T pre_incr($T x):
     return ++ x
-fun post_incr($T x):
+$T post_incr($T x):
     return x ++
-fun pre_decr($T x):
+$T pre_decr($T x):
     return -- x
-fun post_decr($T x):
+$T post_decr($T x):
     return x --
 )");
     auto exec = load(instance.artifact);
@@ -837,7 +837,7 @@ fun post_decr($T x):
 
 FOR_EACH_INT(DEFINE_TEST, codegen_hailstone_two_ways,
     auto instance = COMPILE_SUBST(R"(
-fun hail_iter($T x):
+$T hail_iter($T x):
     while x != 1:
         if x % 2 == 0:
             x /= 2
@@ -845,7 +845,7 @@ fun hail_iter($T x):
             x = 3x + 1
     return x
 
-fun hail_rec($T x):
+$T hail_rec($T x):
     return x if x == 1
     return hail_rec(x / 2) if x % 2 == 0
     return hail_rec(3x + 1)
@@ -864,10 +864,10 @@ fun hail_rec($T x):
 
 FOR_EACH_INT(DEFINE_TEST, codegen_if_else_with_result,
     auto instance = COMPILE_SUBST(R"(
-fun pick($T x, $T y, bool b):
+$T pick($T x, $T y, bool b):
     return x if b else y
 
-fun pick4($T a, $T b, $T c, $T d, bool cond1, bool cond2):
+$T pick4($T a, $T b, $T c, $T d, bool cond1, bool cond2):
     return (a if cond2 else b) if cond1 else (c if cond2 else d)
 )");
 
@@ -892,14 +892,14 @@ type Bar:
     $T a, b
     Foo foo
 
-fun get_field(i32 i):
+$T get_field(i32 i):
     var foo: Foo(1, 2, 3)
     return foo.x if i == 0
     return foo.y if i == 1
     return foo.z if i == 2
     return -1
 
-fun get_nested_field(i32 i):
+$T get_nested_field(i32 i):
     var bar: Bar(1, 2, Foo(3, 4, 5))
     return bar.a if i == 0
     return bar.b if i == 1
@@ -936,14 +936,14 @@ var last: List(3, &last)
 var middle: List(2, &last)
 var first: List(1, &middle)
 
-fun get_list(): &first
+List* get_list(): &first
 
-fun sum_list(List* list):
+$T sum_list(List* list):
     if list.next == list:
         return list.item
     return list.item + sum_list(list.next)
 
-fun get_sum():
+$T get_sum():
     return first.sum_list()
 )");
 
@@ -960,21 +960,21 @@ fun get_sum():
 
 FOR_EACH_INT(DEFINE_TEST, codegen_quick_sort,
     auto instance = COMPILE_SUBST(R"(
-fun swap($T* a, $T* b):
+void swap($T* a, $T* b):
   $T t: *a
   *a = *b
   *b = t
 
-fun cmpswap($T* a, $T* b):
+void cmpswap($T* a, $T* b):
     swap(a, b) if *b < *a
 
-fun insort($T[] xs):
+void insort($T[] xs):
     var i: 1
     while i < |xs|:
         var j: i ++
         swap(&xs[j - 1], &xs[j --]) until j == 0 or xs[j - 1] < xs[j]
 
-fun qsort($T[] xs):
+void qsort($T[] xs):
     var n: |xs|
     return if n <= 1
     if n <= 2:
@@ -1264,7 +1264,7 @@ for i < |nums|, |nums| > j until j <= i:
 
 TEST(codegen_match_int) {
     auto instance = COMPILE(R"(
-fun fibonacci(i32 n):
+i32 fibonacci(i32 n):
     match n:
         case 0:
             0
@@ -1293,7 +1293,7 @@ var three: List.Cons(3, &nil)
 var two: List.Cons(2, &three)
 var one: List.Cons(1, &two)
 
-fun sum(List list):
+i32 sum(List list):
     match list:
         case List.Cons(x, xs):
             x + sum(*xs)
@@ -1318,22 +1318,25 @@ type List:
 
 use List.*
 
-fun append(List* a, own List* b) match a:
-    case Cons(x, xs):
-        new Cons(x, append(xs, b))
-    case Nil:
-        b
+own List* append(List* a, own List* b):
+    match a:
+        case Cons(x, xs):
+            new Cons(x, xs.append(b))
+        case Nil:
+            b
 
-fun cons(i32 x, List* xs):
+own List* cons(i32 x, List* xs):
     new Cons(x, xs)
 
-fun car(List* l) match l:
-    case Cons(x, xs): x
-    case Nil: 0
+i32 car(List* l):
+    match l:
+        case Cons(x, xs): x
+        case Nil: 0
 
-fun cdr(List* l) match l:
-    case Cons(x, xs): xs
-    case Nil: Nil
+List* cdr(List* l):
+    match l:
+        case Cons(x, xs): xs
+        case Nil: Nil
 
 var nil: Nil
 )");
@@ -1364,18 +1367,18 @@ var nil: Nil
 
 TEST(codegen_match_slice) {
     auto instance = COMPILE(R"(
-fun matchPrefix(i32[] numbers) match numbers:
+i32 matchPrefix(i32[] numbers) match numbers:
     case [1, 2, 3, x, y]:
         x + y
     else:
         42
 
-fun sum(i32[] numbers):
+i32 sum(i32[] numbers):
     var result: 0
     result += numbers[i] for i < |numbers|
     return result
 
-fun matchSplat(i32[] numbers) match numbers:
+i32 matchSplat(i32[] numbers) match numbers:
     case [1, 2, 3, xs...]:
         sum(xs)
     else:
@@ -1415,7 +1418,7 @@ type Axis:
     case Y
     case Z
 
-fun abs(i32 x):
+i32 abs(i32 x):
     x if x >= 0 else -x
 
 Axis primaryAxis(Vec3 v) match v.xyz:
@@ -1468,13 +1471,13 @@ TEST(codegen_bf_interpreter) {
 i8[256] input: uninit, output: uninit
 i32 inputIndex: 0, outputIndex: 0
 
-fun getc():
+i8 getc():
     input[inputIndex ++]
 
-fun putc(i8 b):
+void putc(i8 b):
     output[outputIndex ++] = b
 
-fun bf(char[] program, i8[] memory, i32* pointer):
+void bf(char[] program, i8[] memory, i32* pointer):
     while |program| > 0 match program[0]:
         case '>':
             *pointer ++
@@ -1527,13 +1530,13 @@ fun bf(char[] program, i8[] memory, i32* pointer):
 
 TEST(codegen_call_overload) {
     auto instance = COMPILE(R"(
-fun foo(i32 x):
+i32 foo(i32 x):
     x * 2
-fun foo(i32[] x):
+i32 foo(i32[] x):
     x[1]
 
 var arr: [1, 2, 3]
-fun bar():
+i32 bar():
     arr.foo().foo()
 )");
 
@@ -1544,12 +1547,12 @@ fun bar():
 
 FOR_EACH_INT(DEFINE_TEST, codegen_local_array,
     auto instance = COMPILE_SUBST(R"(
-fun makeArray($T v):
+$T[8] makeArray($T v):
     $T[8] arr
     arr[i] = v for i < 8
     return arr
 
-fun accessArray($T v):
+$T accessArray($T v):
     var arr: makeArray(v)
     return arr[0] + arr[7]
 )");
@@ -1562,19 +1565,19 @@ fun accessArray($T v):
 TEST(codegen_string_literal) {
     auto instance = COMPILE(R"(
 string global: "foo"
-fun local():
+i8[3] local():
     "bar"
 
-fun strlen(string s):
+i32 strlen(string s):
     |s|
 
-fun maxbyte(string s):
+i8 maxbyte(string s):
     var max: 0
     for i < |s|:
         max = s[i] if s[i] > max
     return max
 
-fun test():
+i32 test():
     strlen(local()) + strlen(global)
 )");
 
@@ -1582,7 +1585,7 @@ fun test():
     auto global = lookup<const_slice<i8>>("global", exec);
     auto local = lookup<array<i8, 3>()>("local()", exec);
     auto maxbyte = lookup<i8(const_slice<i8>)>("maxbyte(i8[])", exec);
-    auto test = lookup<i64()>("test()", exec);
+    auto test = lookup<i32()>("test()", exec);
 
     ASSERT_EQUAL(maxbyte(*global), 'o');
     ASSERT_EQUAL(maxbyte(local()), 'r');
@@ -1591,19 +1594,19 @@ fun test():
 
 TEST(codegen_strcat_arrays) {
     auto instance = COMPILE(R"(
-fun strcat(i8[] a, i8[] b):
+own i8[] strcat(i8[] a, i8[] b):
     var result: new i8[|a| + |b|]
     result[i] = a[i] for i < |a|
     result[|a| + i] = b[i] for i < |b|
-    return result
+    return own i8[](result)
 
-fun strcatSetSlice(i8[] a, i8[] b):
+own i8[] strcatSetSlice(i8[] a, i8[] b):
     var result: new i8[|a| + |b|]
     result[:|a|] = a
     result[|a|:] = b
-    return result
+    return own i8[](result)
 
-fun doStrcat():
+own i8[] doStrcat():
     return strcat("cd", "efg")
 )");
 
@@ -1619,10 +1622,10 @@ fun doStrcat():
 
 TEST(codegen_reverse_string) {
     auto instance = COMPILE(R"(
-fun reverse(i8[] xs):
+own i8[] reverse(i8[] xs):
     var result: new i8[|xs|]
     result[i] = xs[|xs| - i - 1] for i < |xs|
-    return result
+    return own i8[](result)
 )");
 
     auto exec = load(instance.artifact);
@@ -1635,7 +1638,7 @@ fun reverse(i8[] xs):
 
 TEST(codegen_string_indexof) {
     auto instance = COMPILE(R"(
-fun indexof(i8[] haystack, i8[] needle):
+i32 indexof(i8[] haystack, i8[] needle):
     return 0 if |needle| == 0
     for i <= |haystack| - |needle|:
         bool mismatched: false
@@ -1663,7 +1666,7 @@ fun indexof(i8[] haystack, i8[] needle):
 
 TEST(codegen_string_is_palindrome) {
     auto instance = COMPILE(R"(
-fun palindrome?(i8[] str):
+bool palindrome?(i8[] str):
     for i < |str|/2:
         return false if str[i] != str[|str| - i - 1]
     return true
@@ -1680,19 +1683,19 @@ fun palindrome?(i8[] str):
 
 TEST(codegen_histogram) {
     auto instance = COMPILE(R"(
-fun min(i32[] nums):
+i32 min(i32[] nums):
     i32 m: nums[0]
     for 1 <= i < |nums|:
         m = nums[i] if nums[i] < m
     return m
 
-fun max(i32[] nums):
+i32 max(i32[] nums):
     i32 m: nums[0]
     for 1 <= i < |nums|:
         m = nums[i] if nums[i] > m
     return m
 
-fun histogram(i32[] nums, i32[] buckets):
+void histogram(i32[] nums, i32[] buckets):
     var l: min(nums), h: max(nums), interval: (h - l + 1) / |buckets|
     buckets[(nums[i] - l) / interval] ++ for i < |nums|
 )");
@@ -1725,11 +1728,11 @@ type Tree:
 use Tree.*
 
 i32 x: 10
-fun rand():
+i32 rand():
     x = (x * 27527 + 27791) % 41231
     return x
 
-fun makeTree(i32 max, i32 depth):
+own Tree* makeTree(i32 max, i32 depth):
     if depth <= 1:
         return Leaf
     new Branch(rand() % max, makeTree(max, depth - 1), makeTree(max, depth - 1))
@@ -1744,19 +1747,19 @@ bool isSub(Tree* t, Tree* k):
         else:
             false
 
-fun countSubtrees(Tree* a, Tree* t):
+i32 countSubtrees(Tree* a, Tree* t):
     match a:
         case Leaf: 1
         case Branch(i, x, y):
             (1 if isSub(a, t) else 0) + countSubtrees(x, t) + countSubtrees(y, t)
 
-fun benchmark(i32 x):
+i32 benchmark(i32 x):
     var t: makeTree(10, x), f: makeTree(9, x)
     return countSubtrees(f, t)
 )");
 
     auto exec = load(instance.artifact);
-    auto benchmark = lookup<i64(i32)>("benchmark(i32)", exec);
+    auto benchmark = lookup<i32(i32)>("benchmark(i32)", exec);
     ASSERT_EQUAL(benchmark(11), 1848);
 }
 
@@ -1766,20 +1769,20 @@ TEST(codegen_ball_bounce) {
     auto instance = COMPILE(R"(
 u32 x: 74755
 
-fun rand():
+u32 rand():
     x = (x * 1309 + 13849) & 65535
     return x
 
 type Ball:
     i32 x, y, vx, vy
 
-fun init(uninit Ball* ball):
+void init(uninit Ball* ball):
     ball.x = rand() % 500
     ball.y = rand() % 500
     ball.vx = rand() % 300 - 150
     ball.vy = rand() % 300 - 150
 
-fun bounce(Ball* ball):
+bool bounce(Ball* ball):
     var xlim: 500, ylim: 500, bounced: false
     ball.x += ball.vx
     ball.y += ball.vy
@@ -1801,7 +1804,7 @@ fun bounce(Ball* ball):
         bounced = true
     return bounced
 
-fun benchmark(u32 ticks):
+u32 benchmark(u32 ticks):
     Ball[100] balls
     for i < 100:
         balls[i].init()
@@ -1820,9 +1823,9 @@ fun benchmark(u32 ticks):
 
 FOR_EACH_INT(DEFINE_TEST, codegen_set_slice,
     auto instance = COMPILE_SUBST(R"(
-fun getSlice($T[] a, u32 i, u32 j):
+$T[] getSlice($T[] a, u32 i, u32 j):
     a[i:j]
-fun setSlice($T[] a, u32 i, u32 j, $T[] b):
+void setSlice($T[] a, u32 i, u32 j, $T[] b):
     a[i:j] = b
 )");
 
@@ -1870,16 +1873,16 @@ fun setSlice($T[] a, u32 i, u32 j, $T[] b):
 FOR_EACH_INT(DEFINE_TEST, codegen_splat_list,
     return;
     auto instance = COMPILE(R"(
-fun append($T[] a, $T[] b):
+own $T[] append($T[] a, $T[] b):
     return new [a..., b...]
 
-fun foldAppendLocal($T[] a, $T[] b, $T($T, $T) f, $T x):
+$T foldAppendLocal($T[] a, $T[] b, $T($T, $T) f, $T x):
     var arr: [a..., b...], acc: x
     acc = f(acc, arr[i]) for i < |arr|
     return acc
 
-fun add($T x, $T y): x + y
-fun mul($T x, $T y): x * y
+$T add($T x, $T y): x + y
+$T mul($T x, $T y): x * y
 )");
 
     auto exec = load(instance.artifact);
@@ -1959,7 +1962,7 @@ type Cases:
     case C: i32
 use Cases.*
 
-fun mystery(Cases* obj):
+i32 mystery(Cases* obj):
     if obj is A:
         1
     else if obj is B:
@@ -1993,7 +1996,7 @@ TEST(codegen_var_destructuring) {
 type Named: i32
 type Pair: i32 x, y
 
-fun mystery():
+i32 mystery():
     var a: Named(7)
     var b: Pair(7, 7)
     var c: [7, 7, 7]
@@ -2004,6 +2007,6 @@ fun mystery():
 )");
 
     auto exec = load(instance.artifact);
-    auto mystery = lookup<i64()>("mystery()", exec);
+    auto mystery = lookup<i32()>("mystery()", exec);
     ASSERT_EQUAL(mystery(), 42);
 }

@@ -304,13 +304,6 @@ TEST(typecheck_while_stmt) {
     ASSERT_HAS_TYPE("var x: 1 then var y: 2 then y while x != y", voidType());
 }
 
-TEST(typecheck_infer_void_return_type) {
-    ASSERT_HAS_TYPE(R"(
-fun foo():
-    var x: 1
-)", voidType());
-}
-
 TEST(typecheck_explicit_void_return_type) {
     ASSERT_HAS_TYPE(R"(
 void foo():
@@ -322,12 +315,12 @@ foo
 
 TEST(typecheck_implicit_return) {
     ASSERT_HAS_TYPE(R"(
-fun foo(i32 x):
+i32 foo(i32 x):
     x + 1
 foo
-)", funType(module->i64Type(), module->i32Type()));
+)", funType(module->i32Type(), module->i32Type()));
     ASSERT_HAS_TYPE(R"(
-fun foo():
+i64 foo():
     42
 foo
 )", funType(module->i64Type()));
@@ -335,7 +328,7 @@ foo
 
 TEST(typecheck_implicit_return_sequence) {
     ASSERT_HAS_TYPE(R"(
-fun foo(i32 x):
+i32 foo(i32 x):
     var y: x
     var z: y
     var w: z * y * x
@@ -343,12 +336,12 @@ fun foo(i32 x):
         y = y + 1
     y + z + w
 foo
-)", funType(module->i64Type(), module->i32Type()));
+)", funType(module->i32Type(), module->i32Type()));
 }
 
 TEST(typecheck_implicit_return_if_else) {
     ASSERT_HAS_TYPE(R"(
-fun foo(i32 x):
+f32 foo(i32 x):
     if x < 10:
         x + 1
     else:
@@ -356,7 +349,7 @@ fun foo(i32 x):
 foo
 )", funType(module->f32Type(), module->i32Type()));
     ASSERT_HAS_TYPE(R"(
-fun foo(i32 x):
+f32 foo(i32 x):
     x + 1 if x < 10 else x * 0.5
 foo
 )", funType(module->f32Type(), module->i32Type()));
@@ -428,7 +421,7 @@ v3.xxyyzz
 
 TEST(typecheck_call_unary) {
     auto instance = TYPECHECK(R"(
-fun id(i32 x): x
+i32 id(i32 x): x
 
 id(1)
 var x: 2
@@ -438,7 +431,7 @@ id(y)
     auto module = instance.artifact->as<Module>();
     auto topLevel = module->getTopLevel();
 
-    ASSERT_TYPE_EQUAL(topLevel.child(0).type(), module->funType(I64, I32));
+    ASSERT_TYPE_EQUAL(topLevel.child(0).type(), module->funType(I32, I32));
     ASSERT_TYPE_EQUAL(topLevel.child(1).type(), I64);
     ASSERT_TYPE_EQUAL(topLevel.child(2).type(), I32);
     ASSERT_TYPE_EQUAL(topLevel.child(3).type(), I32);
@@ -447,7 +440,7 @@ id(y)
 
 TEST(typecheck_call_binary) {
     auto instance = TYPECHECK(R"(
-fun add(i32 x, i32 y):
+i32 add(i32 x, i32 y):
     x + y
 add(1, 2)
 i8 a: 42
@@ -459,7 +452,7 @@ add(add(a, 2), b)
 
 TEST(typecheck_call_with_array) {
     auto instance = TYPECHECK(R"(
-fun intsum(i32[] xs):
+i32 intsum(i32[] xs):
     var i: 0, sum: 0
     while i < |xs|:
         sum = sum + xs[i]
@@ -515,7 +508,7 @@ TEST(typecheck_dot_product) {
     auto instance = TYPECHECK(R"(
 type Vec3:
     f32 x, y, z
-fun dot(Vec3 a, Vec3 b):
+f32 dot(Vec3 a, Vec3 b):
     a.x * b.x + a.y * b.y + a.z * b.z
 Vec3(1, 0, 0).dot(Vec3(0, 1, 0))
 )");
@@ -523,14 +516,14 @@ Vec3(1, 0, 0).dot(Vec3(0, 1, 0))
 
 TEST(typecheck_call_hailstone) {
     auto instance = TYPECHECK(R"(
-fun hailRec(i32 x):
+i32 hailRec(i32 x):
     if x == 1:
         x
     else if x % 2 == 0:
         hailRec(x / 2)
     else:
         hailRec(3x + 1)
-fun hailIter(i32 x):
+i32 hailIter(i32 x):
     while x != 1:
         if x % 2 == 0:
             x = x / 2
@@ -544,12 +537,12 @@ hailIter(42)
 
 TEST(typecheck_bubble_sort_int) {
     auto instance = TYPECHECK(R"(
-fun swap(i32* a, i32* b):
+void swap(i32* a, i32* b):
     i32 t: *a
     *a = *b
     *b = t
 
-fun bsort(i32[] xs):
+void bsort(i32[] xs):
     var n: |xs|
     var i: 0
     while i < n - 1:
@@ -779,9 +772,9 @@ match arr:
 
 TEST(typecheck_overloaded_call) {
     auto instance = TYPECHECK(R"(
-fun foo(i32 x):
+i32 foo(i32 x):
     x + 1
-fun foo(i32[] xs):
+i32[] foo(i32[] xs):
     xs[0:1]
 
 foo(42)
@@ -796,7 +789,7 @@ type Foo:
     case B
     case C
 
-fun mystery(Foo a, Foo b):
+i32 mystery(Foo a, Foo b):
     match (a, b):
         case (Foo.A, x): 21
         case (Foo.B, Foo.C): 42
