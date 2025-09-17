@@ -292,7 +292,7 @@ TEST(parse_inline_until) {
 }
 
 TEST(parse_inline_hailstone) {
-    ASSERT_SAME_PARSE("(x /= 2) if x % 2 == 0 else (x = 3 * x + 1) while x != 1", "(while (!= x 1) (ternary (== (% x 2) 0) (paren (/= x 2)) (paren (= x (+ (stars 3 x 1) 1)))))");
+    ASSERT_SAME_PARSE("(x /= 2) if x % 2 == 0 else (x = 3x + 1) while x != 1", "(while (!= x 1) (ternary (== (% x 2) 0) (paren (/= x 2)) (paren (= x (+ (* 3 x) 1)))))");
 }
 
 TEST(parse_typed_vardecl) {
@@ -570,7 +570,7 @@ TEST(parse_const_fun) {
     ASSERT_SAME_PARSE("const f(x, y): x + y", "(const_fun f (tuple (const_var missing x missing) (const_var missing y missing)) (+ x y))");
 }
 
-TEST(parse_multiline_expression) {
+TEST(parse_multiline_parenthetical) {
     ASSERT_SAME_PARSE(R"(
 var x: (
     42
@@ -605,6 +605,25 @@ i32 foo(i32 x,
     2)):
     x + y + z
 )", "(fun i32 foo (tuple (var i32 x missing) (var i32 y missing) (var i32 z (paren (+ 1 2)))) missing (do (+ (+ x y) z)))");
+}
+
+TEST(parse_multiline_binary_operators) {
+    ASSERT_SAME_PARSE(R"(
+i32 x: 1
+    + 2
+    * 3
+)", "(var i32 x (+ 1 (stars 2 3 1)))");
+}
+
+TEST(parse_multiline_ternary_expression) {
+    ASSERT_SAME_PARSE(R"(
+1
+    if foo
+    else 2
+
+1 if foo
+    else 2
+)", "(ternary foo 1 2) (ternary foo 1 2)");
 }
 
 TEST(parse_bad_escape_sequence) {

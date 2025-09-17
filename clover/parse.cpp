@@ -46,26 +46,40 @@ namespace clover {
         // we return fake new indent tokens.
         u32 impliedIndents;
 
+        bool justParsedLine;
+
         constexpr static u64 SkipIfEnclosedMask
             = 1ull << WhitespaceIndent
             | 1ull << WhitespaceDedent
             | 1ull << WhitespaceNewline;
 
         inline TokenVisitor(Module* module_in, const vec<Token, 32>& tokens_in):
-            module(module_in), tokens(tokens_in), offset(0), dedentsToIgnore(0), impliedIndents(0) {}
+            module(module_in), tokens(tokens_in), offset(0), dedentsToIgnore(0), impliedIndents(0), justParsedLine(false) {}
 
         Token peek() const {
             if UNLIKELY(offset >= tokens.size())
                 return Token(MetaNone, Pos(0, 0));
-            if UNLIKELY(impliedIndents)
-                return Token(WhitespaceIndent, tokens[offset + 1].pos);
+            if UNLIKELY(impliedIndents && justParsedLine)
+                return Token(WhitespaceIndent, tokens[offset].pos);
             return tokens[offset];
         }
 
         Token peek2() const {
             if UNLIKELY(offset + 1 >= tokens.size())
                 return Token(MetaNone, Pos(0, 0));
+            if UNLIKELY((impliedIndents && tokens[offset].token == WhitespaceNewline)
+                || (impliedIndents > 1 && justParsedLine))
+                return Token(WhitespaceIndent, tokens[offset + 1].pos);
             return tokens[offset + 1];
+        }
+
+        Token peekIgnoringWhitespace() const {
+            u32 i = offset;
+            while (i < tokens.size() && tokens[i].token.symbol < 64ull && (1 << tokens[i].token.symbol & SkipIfEnclosedMask))
+                i ++;
+            if (i >= tokens.size())
+                return Token(MetaNone, Pos(0, 0));
+            return tokens[i];
         }
 
         Token last() const {
@@ -82,10 +96,11 @@ namespace clover {
         Token read() {
             if UNLIKELY(offset >= tokens.size())
                 return Token(MetaNone, Pos(0, 0));
-            if UNLIKELY(impliedIndents) {
+            if UNLIKELY(impliedIndents && justParsedLine && !isIgnoringWhitespace()) {
                 impliedIndents --;
                 return Token { WhitespaceIndent, tokens[offset].pos };
             }
+            justParsedLine = false;
             Token next = tokens[offset ++];
             if (isIgnoringWhitespace()) {
                 while (offset < tokens.size() && tokens[offset].token.symbol < 64ull && (1ull << tokens[offset].token.symbol & SkipIfEnclosedMask)) {
@@ -99,6 +114,7 @@ namespace clover {
                 while (dedentsToIgnore && offset < tokens.size() && tokens[offset].token == WhitespaceDedent)
                     offset ++, dedentsToIgnore --;
                 impliedIndents = dedentsToIgnore;
+                justParsedLine = true;
             }
             return next;
         }
@@ -1054,7 +1070,20 @@ namespace clover {
         return false;
     }
 
-    AST parseBinary(Module* module, AST lhs, Token op, TokenVisitor& visitor, bool& didBail, u32& ifOffset, const vec<AST>& extraChildren, u32 minPrecedence = 0) {
+    pair<Token, bool> getBinaryOperator(Module* module, TokenVisitor& visitor, bool alreadyMultiline) {
+        if (visitor.peek().token == WhitespaceNewline) {
+            if (alreadyMultiline || visitor.peek2().token == WhitespaceIndent) {
+                Token possibleOp = visitor.peekIgnoringWhitespace();
+                if (isBinaryOperator(possibleOp.token) || possibleOp.token == KeywordElse) {
+                    visitor.readIgnoringWhitespace(); // Consume newline and any interstitial indentation.
+                    return { possibleOp, true };
+                }
+            }
+        }
+        return { visitor.peek(), false };
+    }
+
+    AST parseBinary(Module* module, AST lhs, Token op, TokenVisitor& visitor, bool& didBail, u32& ifOffset, const vec<AST>& extraChildren, bool isMultiline, u32 minPrecedence = 0) {
         u32 operatorOffset = visitor.offset - 1;
         AST rhs = parsePostfix(module, visitor);
 
@@ -1065,15 +1094,18 @@ namespace clover {
             // construction.
             lhs = makeBinary(module, lhs, op, rhs, AST(), extraChildren);
             lhs = parsePrimarySuffix(module, visitor, lhs);
-            op = visitor.peek();
+            auto possibleOp = getBinaryOperator(module, visitor, isMultiline);
+            Token op = possibleOp.first;
             if (isBinaryOperator(op.token)) {
                 visitor.read();
-                return parseBinary(module, lhs, op, visitor, didBail, ifOffset, extraChildren);
+                return parseBinary(module, lhs, op, visitor, didBail, ifOffset, extraChildren, isMultiline || possibleOp.second);
             } else
                 return lhs;
         }
 
-        Token nextOp = visitor.peek();
+        auto possibleNextOp = getBinaryOperator(module, visitor, isMultiline);
+        Token nextOp = possibleNextOp.first;
+        isMultiline = possibleNextOp.second || isMultiline;
         AST interior;
         vec<AST> nextExtraChildren;
 
@@ -1086,7 +1118,9 @@ namespace clover {
                     rhs = parseBinary(module, rhs, nextOp, visitor, didBail, ifOffset, nextExtraChildren, precedenceOf(KeywordIf));
                     if (visitor.done())
                         goto parseBinary_ifBail;
-                    nextOp = visitor.peek();
+                    possibleNextOp = getBinaryOperator(module, visitor, isMultiline);
+                    nextOp = possibleNextOp.first;
+                    isMultiline = possibleNextOp.second || isMultiline;
                 } else
                     goto parseBinary_ifBail; // If we see a lower-precedence operator than if, we should have already seen an else.
             }
@@ -1139,9 +1173,9 @@ namespace clover {
         u32 opPrecedence = precedenceOf(op.token), nextPrecedence = precedenceOf(nextOp.token);
         Associativity assoc = associativityOf(op.token);
         if (opPrecedence > nextPrecedence || (opPrecedence == nextPrecedence && assoc == LeftAssociative))
-            return parseBinary(module, makeBinary(module, lhs, op, rhs, interior, extraChildren), nextOp, visitor, didBail, ifOffset, nextExtraChildren);
+            return parseBinary(module, makeBinary(module, lhs, op, rhs, interior, extraChildren), nextOp, visitor, didBail, ifOffset, nextExtraChildren, isMultiline);
         else
-            return makeBinary(module, lhs, op, parseBinary(module, rhs, nextOp, visitor, didBail, ifOffset, nextExtraChildren), interior, extraChildren);
+            return makeBinary(module, lhs, op, parseBinary(module, rhs, nextOp, visitor, didBail, ifOffset, nextExtraChildren, isMultiline), interior, extraChildren);
     }
 
     void consumeNewlines(TokenVisitor& visitor) {
@@ -1175,7 +1209,8 @@ namespace clover {
 
     AST parseExpression(Module* module, TokenVisitor& visitor, u32 minPrecedence) {
         AST ast = parsePostfix(module, visitor);
-        Token op = visitor.peek();
+        auto possibleOp = getBinaryOperator(module, visitor, false);
+        Token op = possibleOp.first;
         if (isBinaryOperator(op.token) && precedenceOf(op.token) >= minPrecedence) {
             visitor.read();
             vec<AST> extraChildren;
@@ -1184,11 +1219,15 @@ namespace clover {
 
             bool didBail = false;
             u32 ifOffset = 0;
-            ast = parseBinary(module, ast, op, visitor, didBail, ifOffset, extraChildren, minPrecedence);
+            u32 savedDedents = visitor.dedentsToIgnore, savedIndents = visitor.impliedIndents;
+            ast = parseBinary(module, ast, op, visitor, didBail, ifOffset, extraChildren, possibleOp.second, minPrecedence);
 
             // TODO: Probably don't backtrack if we ran into a parse error exploring past the `if`.
-            if UNLIKELY(didBail)
+            if UNLIKELY(didBail) {
                 visitor.offset = ifOffset;
+                visitor.dedentsToIgnore = savedDedents;
+                visitor.impliedIndents = savedIndents;
+            }
         }
         return ast;
     }
