@@ -1700,41 +1700,7 @@ namespace clover {
             }
 
             case ASTKind::FunDecl: {
-                // Constraints constraints(module, module->types, ctx.constraints->depth + 1);
-                // InferenceContext funcCtx;
-                // funcCtx.constraints = &constraints;
-                // funcCtx.lateChecks = ctx.lateChecks;
-                // funcCtx.lateResolves = ctx.lateResolves;
-                InferenceContext& funcCtx = ctx;
-
-                auto name = ast.child(1).variable();
-                for (AST param : ast.child(2)) {
-                    if (param.kind() != ASTKind::VarDecl)
-                        continue;
-                    if (!param.child(2).missing()) {
-                        auto paramValue = inferChild(funcCtx, ast.function(), param, 2);
-                        unify(paramValue, param.type(), ast, ctx);
-                    }
-                }
-                Type funType = ast.type();
-                if (!funType.isConcrete())
-                    funcCtx.ensureResolved(ast.type());
-                assert(funType.is<TypeKind::Function>());
-                Type returnType = funType.as<TypeKind::Function>().returnType();
-                if (!ast.child(4).missing()) { // If we're a stub function, we don't need to do anything.
-                    inferChild(funcCtx, ast.function(), ast, 4);
-                    addImplicitReturns(funcCtx, returnType, ast, ast.child(4), { ast, 4 });
-                }
-                // if UNLIKELY(config::printTypeConstraints)
-                //     printTypeConstraints(module->types, &constraints);
-
-                // refineGraph(module, funcCtx);
-                // for (NodeIndex node : *funcCtx.lateChecks) {
-                //     AST ast = module->node(node);
-                //     assert(!ast.isLeaf());
-                //     check(funcCtx, ast.function(), ast);
-                // }
-                ctx.checkLater(ast);
+                ctx.discoveredFunctions->push(ast.node);
                 return fromType(module->voidType());
             }
 
@@ -2906,12 +2872,75 @@ namespace clover {
                 concretifyNode(ast);
                 break;
 
-            case ASTKind::FunDecl:
-                ast.function()->typeIndex = concreteType(module, ast.function()->type()).index;
-                break;
-
             default:
                 break;
+        }
+    }
+
+    void drainFunctions(InferenceContext& ctx, const_slice<NodeIndex> functions, Module* module) {
+        for (u32 i = 0; i < functions.size(); i ++) {
+            assert(ctx.lateChecks->size() == 0);
+            assert(ctx.lateResolves->size() == 0);
+            ctx.constraints->clear();
+
+            u32 previouslyDiscoveredFunctions = ctx.discoveredFunctions->size();
+
+            AST ast = module->node(functions[i]);
+
+            auto name = ast.child(1).variable();
+            for (AST param : ast.child(2)) {
+                if (param.kind() != ASTKind::VarDecl)
+                    continue;
+                if (!param.child(2).missing()) {
+                    auto paramValue = inferChild(ctx, ast.function(), param, 2);
+                    unify(paramValue, param.type(), ast, ctx);
+                }
+            }
+            Type funType = ast.type();
+            if (!funType.isConcrete())
+                ctx.ensureResolved(ast.type());
+            assert(funType.is<TypeKind::Function>());
+            Type returnType = funType.as<TypeKind::Function>().returnType();
+            if (!ast.child(4).missing()) { // If we're a stub function, we don't need to do anything.
+                inferChild(ctx, ast.function(), ast, 4);
+                addImplicitReturns(ctx, returnType, ast, ast.child(4), { ast, 4 });
+            }
+
+            if UNLIKELY(config::printTypeConstraints)
+                printTypeConstraints(module->types, ctx.constraints);
+            if UNLIKELY(config::printInferredTreeAfterEachPass) {
+                println("| Function ", ASTWithParent(ast, ast.child(1)), " after type discovery pass: ");
+                println("*-----------------------------------");
+                println(ast); println();
+            }
+
+            refineGraph(module, ctx);
+            if UNLIKELY(config::printInferredTreeAfterEachPass) {
+                println("| Function ", ASTWithParent(ast, ast.child(1)), " after type refinement pass: ");
+                println("*------------------------------------");
+                println(ast); println();
+            }
+
+            for (NodeIndex node : *ctx.lateChecks) {
+                AST ast = module->node(node);
+                assert(!ast.isLeaf());
+                check(ctx, ast.function(), ast);
+            }
+            for (TypeIndex v : *ctx.lateResolves)
+                expand(module->types->get(v)).concretify();
+            ctx.lateChecks->clear();
+            ctx.lateResolves->clear();
+
+            if UNLIKELY(config::printInferredTreeAfterEachPass) {
+                println("| Function ", ASTWithParent(ast, ast.child(1)), " after type checking pass: ");
+                println("*----------------------------------");
+                println(ast); println();
+            }
+
+            if (ctx.discoveredFunctions->size() != previouslyDiscoveredFunctions) {
+                // DFS traversal of nested functions.
+                drainFunctions(ctx, (*ctx.discoveredFunctions)[{previouslyDiscoveredFunctions, ctx.discoveredFunctions->size()}], module);
+            }
         }
     }
 
@@ -2926,11 +2955,13 @@ namespace clover {
         Constraints constraints(module, module->types, 0);
         vec<NodeIndex, 16> lateChecks;
         vec<TypeIndex, 16> lateResolves;
+        vec<NodeIndex, 16> discoveredFunctions;
 
         InferenceContext globalCtx;
         globalCtx.constraints = &constraints;
         globalCtx.lateChecks = &lateChecks;
         globalCtx.lateResolves = &lateResolves;
+        globalCtx.discoveredFunctions = &discoveredFunctions;
 
         Evaluation inference = infer(globalCtx, nullptr, module->getTopLevel());
         if UNLIKELY(config::printTypeConstraintsAsDOT) {
@@ -2963,13 +2994,22 @@ namespace clover {
         }
         for (TypeIndex v : *globalCtx.lateResolves)
             expand(module->types->get(v)).concretify();
+        globalCtx.lateChecks->clear();
+        globalCtx.lateResolves->clear();
 
         if UNLIKELY(config::printInferredTreeAfterEachPass) {
             println("| Module after type checking pass: ");
             println("*----------------------------------");
             module->print(module->compilation), println();
-        } else if UNLIKELY(config::printInferredTree)
+        }
+
+        // We just finished checking the top-level. Now we traverse all the
+        // functions within the module.
+        drainFunctions(globalCtx, *globalCtx.discoveredFunctions, module);
+
+        if UNLIKELY(config::printInferredTree)
             module->print(module->compilation), println();
+
         artifact->update(ArtifactKind::CheckedAST, module);
         return artifact;
     }

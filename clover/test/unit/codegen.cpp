@@ -1535,7 +1535,7 @@ i32 foo(i32 x):
 i32 foo(i32[] x):
     x[1]
 
-var arr: [1, 2, 3]
+i32[3] arr: [1, 2, 3]
 i32 bar():
     arr.foo().foo()
 )");
