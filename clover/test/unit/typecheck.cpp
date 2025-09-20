@@ -838,3 +838,30 @@ var x: Foo.x + Foo.y
     ASSERT_EQUAL(x.child(2).kind(), ASTKind::Unsigned);
     ASSERT_EQUAL(x.child(2).uintConst(), 42);
 }
+
+TEST(typecheck_use_associated_const) {
+    auto instance = TYPECHECK(R"(
+type Foo:
+    const x: 21
+use Foo.x
+var y: x + x
+
+type Bar:
+    const y: x
+
+i32 baz():
+    use Bar.*
+    var z: x + y
+    z
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+    auto y = topLevel.child(2);
+    ASSERT_EQUAL(y.child(2).kind(), ASTKind::Unsigned);
+    ASSERT_EQUAL(y.child(2).uintConst(), 42);
+
+    auto z = topLevel.child(4).child(4).child(1);
+    ASSERT_EQUAL(z.child(2).kind(), ASTKind::Unsigned);
+    ASSERT_EQUAL(z.child(2).uintConst(), 42);
+}

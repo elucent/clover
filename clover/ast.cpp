@@ -101,7 +101,7 @@ namespace clover {
                     println();
                     break;
                 case VariableKind::Constant:
-                    ::print(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
+                    ::print(VariableInfo::KindNamesUpper[(u32)info.kind], " #", info.constantIndex);
                     if (info.type != InvalidType)
                         ::print(" : ", compilation->types->get(info.type));
                     println();

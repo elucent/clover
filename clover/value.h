@@ -222,14 +222,14 @@ namespace clover {
     inline Value makeArray(const_slice<Value> values) {
         IndexedProps* indices = makeIndices(values.size());
         for (u32 i = 0; i < values.size(); i ++)
-            indices->values[i] = values[i];
+            new (indices->values + i) Value(values[i]);
         return Value(Object { indices, nullptr });
     }
 
     inline Value makeArrayWithLength(u32 length) {
         IndexedProps* indices = makeIndices(length);
         for (u32 i = 0; i < length; i ++)
-            indices->values[i] = Value();
+            new (indices->values + i) Value();
         return Value(Object { indices, nullptr });
     }
 

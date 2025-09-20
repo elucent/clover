@@ -148,6 +148,7 @@ namespace clover {
         void addFunctionImport(VariableKind kind, Function* function);
         void addOverloadedFunction(Overloads* overloads, Symbol name);
         void addIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
+        void addConstantIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
 
         struct FindResult {
             Scope* scope;

@@ -120,6 +120,24 @@ namespace clover {
         inTable.add(name.symbol);
     }
 
+    void Scope::addConstantIndirect(Module* module, const AST& ast, Scope* defScope, u32 constantIndex, Symbol name) {
+        if (entries.find(name) != entries.end()) {
+            auto prev = entries.find(name)->value;
+            const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
+            error(module, ast.pos(), "Duplicate definition of symbol '", module->str(name), "'.")
+                .note(module->node(varInfo.decl).pos(), "Previous definition was here.");
+            return;
+        }
+
+        u32 var;
+        if (function)
+            var = function->addConstantIndirect(defScope->index, constantIndex).index;
+        else
+            var = module->addConstantIndirect(defScope->index, constantIndex).index;
+        entries.put(name, var);
+        inTable.add(name.symbol);
+    }
+
     void Scope::addIndirect(Module* module, const AST& ast, Scope* defScope, u32 index, Symbol name) {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
@@ -583,7 +601,7 @@ namespace clover {
             if (ast.kind() == ASTKind::UseType) {
                 Scope* defScope = scope;
                 for (u32 i = 0; i < path.size() - 1; i ++) {
-                    auto entry = defScope->findLocal(path[i]);
+                    auto entry = defScope->find(path[i]);
                     if (!entry) {
                         error(module, ast.pos(), "Couldn't find symbol ", module->str(path[i]), " within type ", module->str(path[i]), ".");
                         return;
@@ -597,15 +615,24 @@ namespace clover {
                     }
                 }
                 if (path.back() == InvalidSymbol) {
-                    for (const auto [k, v] : defScope->entries)
-                        scope->addIndirect(module, ast, defScope, v, k);
+                    for (const auto [k, v] : defScope->entries) {
+                        VariableInfo info = defScope->function ? defScope->function->locals[v] : module->globals[v];
+                        if (info.kind == VariableKind::Constant)
+                            scope->addConstantIndirect(module, ast, defScope, info.constantIndex, k);
+                        else
+                            scope->addIndirect(module, ast, defScope, v, k);
+                    }
                 } else {
                     auto entry = defScope->findLocal(path.back());
                     if (!entry) {
                         error(module, ast.pos(), "Couldn't find symbol ", module->str(path.back()), " within type ", module->str(path[path.size() - 2]), ".");
                         return;
                     }
-                    scope->addIndirect(module, ast, defScope, entry.index, path.back());
+                    VariableInfo info = defScope->function ? defScope->function->locals[entry.index] : module->globals[entry.index];
+                    if (info.kind == VariableKind::Constant)
+                        scope->addConstantIndirect(module, ast, defScope, info.constantIndex, path.back());
+                    else
+                        scope->addIndirect(module, ast, defScope, entry.index, path.back());
                 }
             } else {
                 Path filepath(module->compilation->cwd);

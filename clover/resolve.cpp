@@ -743,19 +743,18 @@ namespace clover {
                         else
                             return module->add(ASTKind::Local, Local(entry.index()));
                     case VariableKind::Constant: {
-                        if (entry.isGlobal())
+                        if (entry.isGlobal() && !scope->function)
                             return module->add(ASTKind::GlobalConst, ConstId(module->globals[entry.index()].constantIndex));
                         if (entry.function == scope->function)
                             return module->add(ASTKind::Const, ConstId(scope->function->locals[entry.index()].constantIndex));
 
-                        // It must be from an enclosing function, so we
-                        // need to wire it through into the local constant
-                        // list.
-                        ConstInfo info;
-                        info.origin = entry.function;
-                        info.value = boxUnsigned(entry.function->locals[entry.index()].constantIndex);
-                        scope->function->constants.push(info);
-                        return module->add(ASTKind::Const, ConstId(scope->function->constants.size() - 1));
+                        // It's an external constant, so we need to close over
+                        // it.
+                        VariableInfo info = entry.isGlobal() ? module->globals[entry.index()] : entry.function->locals[entry.index()];
+                        scope->addConstantIndirect(module, *parent, entry.decl().scope(), info.constantIndex, ast.symbol());
+                        auto reentry = scope->findLocal(ast.symbol());
+                        assert(reentry);
+                        return module->add(ASTKind::Const, ConstId(scope->function->locals[reentry.index].constantIndex));
                     }
                     case VariableKind::ConstFunction: {
                         const VariableInfo& info = entry.isGlobal()

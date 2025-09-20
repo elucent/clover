@@ -525,6 +525,8 @@ namespace clover {
             return Local(locals.size() - 1);
         }
 
+        inline Local addConstantIndirect(ScopeIndex scope, u32 constantIndex);
+
         inline Local addLocalFunctionImport(VariableKind kind, Function* function);
 
         inline Local addLocalImport(VariableKind kind, TypeIndex type, Symbol name) {
@@ -1333,6 +1335,21 @@ namespace clover {
             return Global(globals.size() - 1);
         }
 
+        inline Global addConstantIndirect(ScopeIndex scope, u32 constantIndex) {
+            VariableInfo info;
+            info.type = InvalidType;
+            info.scope = VariableInfo::Local;
+            info.kind = VariableKind::Constant;
+            info.constantIndex = constants.size();
+            globals.push(info);
+
+            ConstInfo constInfo;
+            constInfo.origin = scopes[scope]->function;
+            constInfo.value = boxUnsigned(constantIndex);
+            globalConstants.push(constInfo);
+            return Global(globals.size() - 1);
+        }
+
         inline Global addGlobal(VariableKind kind, Symbol name) {
             return addGlobal(kind, InvalidNode, InvalidType, name);
         }
@@ -1543,6 +1560,21 @@ namespace clover {
         info.decl = InvalidNode;
         info.name = name;
         locals.push(info);
+        return Local(locals.size() - 1);
+    }
+
+    inline Local Function::addConstantIndirect(ScopeIndex scope, u32 constantIndex) {
+        VariableInfo info;
+        info.type = InvalidType;
+        info.scope = VariableInfo::Local;
+        info.kind = VariableKind::Constant;
+        info.constantIndex = constants.size();
+        locals.push(info);
+
+        ConstInfo constInfo;
+        constInfo.origin = module->scopes[scope]->function;
+        constInfo.value = boxUnsigned(constantIndex);
+        constants.push(constInfo);
         return Local(locals.size() - 1);
     }
 
