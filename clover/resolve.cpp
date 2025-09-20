@@ -278,11 +278,25 @@ namespace clover {
         switch (info.kind) {
             case VariableKind::Type:
                 return module->add(ASTKind::TypeField, pos, scope, info.type, base, module->add(ASTKind::Field, FieldId(0)));
-            case VariableKind::Constant:
-                if (result.isGlobal())
+            case VariableKind::Constant: {
+                if (result.isGlobal() && !scope->function)
                     return module->add(ASTKind::GlobalConst, ConstId(info.constantIndex));
-                else
+                else if (scope->function == typeScope->function)
                     return module->add(ASTKind::Const, ConstId(info.constantIndex));
+                else {
+                    auto it = scope->function->importedConstants.find({ typeScope->function, info.constantIndex });
+                    if (it != scope->function->importedConstants.end())
+                        return module->add(ASTKind::Const, ConstId(it->value));
+
+                    ConstInfo constInfo;
+                    constInfo.origin = typeScope->function;
+                    constInfo.value = boxUnsigned(info.constantIndex);
+                    auto id = scope->function->constants.size();
+                    scope->function->constants.push(constInfo);
+                    scope->function->importedConstants.put({ typeScope->function, info.constantIndex }, id);
+                    return module->add(ASTKind::Const, ConstId(id));
+                }
+            }
             default:
                 unreachable("Can't access non-constant, non-type field ", module->str(child.symbol()), " from type ", baseType);
         }

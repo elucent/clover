@@ -115,6 +115,29 @@ namespace clover {
             }
         }
 
+        inline bool isEmptyType(Type type) {
+            type = expand(type);
+            switch (type.kind()) {
+                case TypeKind::Void:
+                    return true;
+                case TypeKind::Named:
+                    return isEmptyType(type.as<TypeKind::Named>().innerType());
+                case TypeKind::Struct:
+                    return type.as<TypeKind::Struct>().count() == 0;
+                case TypeKind::Tuple:
+                    return type.as<TypeKind::Tuple>().count() == 0;
+                case TypeKind::Array:
+                    return type.as<TypeKind::Array>().length() == 0;
+                default:
+                    return false;
+            }
+        }
+
+        inline bool isSizeZeroType(Type type) {
+            type = expand(type);
+            return isEmptyType(type) && !isCase(type);
+        }
+
         JasmineType lowerType(Type type) {
             if (type.index < ReservedTypes::NumReservedTypes) switch (u8(type.index)) {
                 case U8: return JASMINE_TYPE_U8;
@@ -150,8 +173,11 @@ namespace clover {
                 }
                 case TypeKind::Tuple: {
                     vec<JasmineType> elements;
-                    for (u32 i = 0; i < type.as<TypeKind::Tuple>().count(); i ++)
-                        elements.push(lower(type.as<TypeKind::Tuple>().fieldType(i)));
+                    for (u32 i = 0; i < type.as<TypeKind::Tuple>().count(); i ++) {
+                        Type field = type.as<TypeKind::Tuple>().fieldType(i);
+                        if (!isEmptyType(field))
+                            elements.push(lower(field));
+                    }
                     return jasmine_make_struct_type(output, elements.data(), elements.size());
                 }
                 case TypeKind::Struct: {
@@ -161,8 +187,11 @@ namespace clover {
                         ensureTypeTag(type);
                         elements.push(tagType());
                     }
-                    for (u32 i = 0; i < structType.count(); i ++)
-                        elements.push(lower(structType.fieldType(i)));
+                    for (u32 i = 0; i < structType.count(); i ++) {
+                        Type field = structType.fieldType(i);
+                        if (!isEmptyType(field))
+                            elements.push(lower(field));
+                    }
                     return jasmine_make_struct_type(output, elements.data(), elements.size());
                 }
                 case TypeKind::Named: {
@@ -182,14 +211,20 @@ namespace clover {
                 case TypeKind::Union: {
                     auto unionType = type.as<TypeKind::Union>();
                     vec<JasmineType> elements;
-                    for (u32 i = 0; i < unionType.count(); i ++)
-                        elements.push(lower(unionType.caseType(i)));
+                    for (u32 i = 0; i < unionType.count(); i ++) {
+                        Type element = unionType.caseType(i);
+                        if (!isSizeZeroType(element))
+                            elements.push(lower(element));
+                    }
                     return jasmine_make_union_type(output, elements.data(), elements.size());
                 }
                 case TypeKind::Function: {
                     vec<JasmineType> elements;
-                    for (u32 i = 0; i < type.as<TypeKind::Function>().parameterCount(); i ++)
-                        elements.push(lower(type.as<TypeKind::Function>().parameterType(i)));
+                    for (u32 i = 0; i < type.as<TypeKind::Function>().parameterCount(); i ++) {
+                        Type parameter = type.as<TypeKind::Function>().parameterType(i);
+                        if (!isEmptyType(parameter))
+                            elements.push(lower(parameter));
+                    }
                     return jasmine_make_function_type(output, elements.data(), elements.size(), lower(type.as<TypeKind::Function>().returnType()));
                 }
                 default:
@@ -2015,8 +2050,11 @@ namespace clover {
                 }
                 const auto& funType = calleeType.as<TypeKind::Function>();
                 vec<JasmineOperand> args;
-                for (auto [i, arg] : enumerate(ast.children(1)))
-                    args.push(generate(genCtx, builder, arg, expand(funType.parameterType(i))));
+                for (auto [i, arg] : enumerate(ast.children(1))) {
+                    Type param = expand(funType.parameterType(i));
+                    if (!genCtx.isEmptyType(param))
+                        args.push(generate(genCtx, builder, arg, param));
+                }
                 if (expand(funType.returnType()) == Void) {
                     jasmine_append_call_void(builder, genCtx.lower(calleeType), callee, args.data(), args.size());
                     return JASMINE_INVALID_OPERAND;
@@ -2129,7 +2167,7 @@ namespace clover {
 
             case ASTKind::Construct: {
                 auto type = typeOf(ast);
-                if (type.is<TypeKind::Numeric>()) {
+                if (type.is<TypeKind::Numeric>() || type.is<TypeKind::Char>()) {
                     JasmineOperand result = genCtx.temp();
                     value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
                     jasmine_append_convert(builder, genCtx.lower(type), result, genCtx.lower(typeOf(ast, 0)), value);
@@ -2224,6 +2262,8 @@ namespace clover {
                     for (auto [i, param] : enumerate(ast.child(2))) {
                         assert(param.kind() == ASTKind::VarDecl);
                         auto paramType = typeOf(ast.function(), param);
+                        if (genCtx.isEmptyType(paramType))
+                            continue;
                         const_slice<i8> paramName;
                         array<i8, 64> buffer;
                         if (!param.child(1).missing())

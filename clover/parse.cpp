@@ -1201,6 +1201,8 @@ namespace clover {
         visitor.read();
         while (!visitor.done() && visitor.peek().token != WhitespaceDedent) {
             consumeNewlines(visitor);
+            if (visitor.done() || visitor.peek().token == WhitespaceDedent)
+                break;
             items.push(parseStatement(module, visitor));
         }
         visitor.read();

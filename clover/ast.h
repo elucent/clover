@@ -456,6 +456,23 @@ namespace clover {
         Value value;
     };
 
+    struct ConstOriginKey {
+        Function* function;
+        u32 index;
+
+        inline bool operator==(const ConstOriginKey& other) const {
+            return function == other.function && index == other.index;
+        }
+
+        inline bool operator!=(const ConstOriginKey& other) const {
+            return !(operator==(other));
+        }
+    };
+
+    inline u64 hash(const ConstOriginKey& key) {
+        return mixHash(::hash(u64(key.function)), ::hash(key.index));
+    }
+
     struct Function {
         Module* module;
         Function* parent;
@@ -465,6 +482,7 @@ namespace clover {
         Symbol name, mangledName = InvalidSymbol;
         vec<VariableInfo, 8> locals;
         vec<ConstInfo, 8> constants;
+        map<ConstOriginKey, u32> importedConstants;
         u32 numTemps = 0;
         bool isConst;
         bool isGeneric = false;
