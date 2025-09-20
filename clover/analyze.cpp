@@ -204,7 +204,7 @@ namespace clover {
     }
 
     // Place
-    
+
     PlaceWord Place::nthWord(u32 i) const {
         return places->words[i];
     }
@@ -220,18 +220,18 @@ namespace clover {
     Ref Place::asRef() const {
         return Ref { places, index, word };
     }
-    
+
     OwnRef Place::asOwn() const {
         return OwnRef { places, index, word };
     }
 
     struct State;
 
-    struct Value {
-        // A Value is either a place, or a special form of place that isn't yet
-        // bound to a named location in the current state. Values are the
-        // output of our abstract interpretation, and specifically we use them
-        // over places to represent transient values that may come up when
+    struct TransientPlace {
+        // A TransientPlace is either a place, or a special form of place that
+        // isn't yet bound to a named location in the current state. These are
+        // the output of our abstract interpretation, and specifically we use
+        // them over places to represent transient values that may come up when
         // evaluating expression trees. Since values in expression trees are
         // known to be used only once statically, we don't waste memory storing
         // them in the current state. They are also implicitly under the
@@ -255,36 +255,36 @@ namespace clover {
         PlaceIndex scope, external;
         vec<PlaceIndex> variables;
 
-        Place persist(Value value) {
+        Place persist(TransientPlace value) {
             switch (value.kind) {
-                case Value::Place:
+                case TransientPlace::Place:
                     return Place { places, value.place, value.word };
-                case Value::Data:
+                case TransientPlace::Data:
                     return places->makeData(scope);
-                case Value::Ref:
+                case TransientPlace::Ref:
                     return places->makeRef(scope, value.target);
-                case Value::Own:
+                case TransientPlace::Own:
                     return places->makeOwn(scope, value.target);
             }
         }
 
         template<typename PlaceLike>
-        Value valueFrom(PlaceLike p) {
-            return Value { .state = this, .kind = Value::Place, .place = placeIndexOf(p), .word = places->places[placeIndexOf(p)] };
+        TransientPlace valueFrom(PlaceLike p) {
+            return TransientPlace { .state = this, .kind = TransientPlace::Place, .place = placeIndexOf(p), .word = places->places[placeIndexOf(p)] };
         }
 
-        Value makeData() {
-            return Value { .state = this, .kind = Value::Data, .place = InvalidPlace, .word = 0 };
-        }
-
-        template<typename PlaceLike>
-        Value makeRef(PlaceLike p) {
-            return Value { .state = this, .kind = Value::Ref, .target = placeIndexOf(p), .word = 0 };
+        TransientPlace makeData() {
+            return TransientPlace { .state = this, .kind = TransientPlace::Data, .place = InvalidPlace, .word = 0 };
         }
 
         template<typename PlaceLike>
-        Value makeOwn(PlaceLike p) {
-            return Value { .state = this, .kind = Value::Own, .target = placeIndexOf(p), .word = 0 };
+        TransientPlace makeRef(PlaceLike p) {
+            return TransientPlace { .state = this, .kind = TransientPlace::Ref, .target = placeIndexOf(p), .word = 0 };
+        }
+
+        template<typename PlaceLike>
+        TransientPlace makeOwn(PlaceLike p) {
+            return TransientPlace { .state = this, .kind = TransientPlace::Own, .target = placeIndexOf(p), .word = 0 };
         }
 
         void init(Places* places_in, u32 count) {
@@ -300,16 +300,16 @@ namespace clover {
         void set(u32 var, Place place) {
             variables[var] = place.index;
         }
-        
-        void set(u32 var, Value value) {
+
+        void set(u32 var, TransientPlace value) {
             variables[var] = persist(value).index;
         }
     };
 
-    void consume(Module* module, AST ast, Value value) {
+    void consume(Module* module, AST ast, TransientPlace value) {
     }
 
-    Value interpret(Module* module, Places* places, State* state, AST ast) {
+    TransientPlace interpret(Module* module, Places* places, State* state, AST ast) {
         switch (ast.kind()) {
             case ASTKind::Int:
             case ASTKind::Unsigned:
@@ -318,7 +318,7 @@ namespace clover {
             case ASTKind::Char:
             case ASTKind::String:
                 return state->makeData();
-            
+
             case ASTKind::Minus:
             case ASTKind::Plus:
             case ASTKind::Paren:

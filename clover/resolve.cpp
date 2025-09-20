@@ -730,12 +730,32 @@ namespace clover {
                             return module->add(ASTKind::Global, Global(entry.index()));
                         else
                             return module->add(ASTKind::Local, Local(entry.index()));
-                    case VariableKind::Constant:
-                    case VariableKind::ConstFunction:
+                    case VariableKind::Constant: {
                         if (entry.isGlobal())
-                            return module->add(ASTKind::GlobalConst, Global(entry.index()));
+                            return module->add(ASTKind::GlobalConst, Global(module->globals[entry.index()].constantIndex));
+                        if (entry.function == scope->function)
+                            return module->add(ASTKind::Const, Local(scope->function->locals[entry.index()].constantIndex));
+
+                        // It must be from an enclosing function, so we
+                        // need to wire it through into the local constant
+                        // list.
+                        ConstInfo info;
+                        info.origin = entry.function;
+                        info.value = boxUnsigned(entry.function->locals[entry.index()].constantIndex);
+                        scope->function->constants.push(info);
+                        return module->add(ASTKind::Const, Local(scope->function->constants.size() - 1));
+                    }
+                    case VariableKind::ConstFunction: {
+                        const VariableInfo& info = entry.isGlobal()
+                            ? module->globals[entry.index()]
+                            : scope->function->locals[entry.index()];
+                        Function* function;
+                        if (info.isImport)
+                            function = module->functions[info.functionIndex];
                         else
-                            return module->add(ASTKind::Const, Local(entry.index()));
+                            function = module->node(info.decl).function();
+                        return module->add(ASTKind::ResolvedFunction, function);
+                    }
 
                     case VariableKind::Function: {
                         const VariableInfo& info = entry.isGlobal()
@@ -938,7 +958,6 @@ namespace clover {
             case ASTKind::UseModule:
             case ASTKind::UseType:
                 return module->add(ASTKind::Do, ast.pos(), ast.scope(), InvalidType);
-            case ASTKind::ConstVarDecl:
             case ASTKind::VarDecl: {
                 if (ast.child(0).missing())
                     ast.setType(module->varType());
@@ -962,7 +981,6 @@ namespace clover {
                     resolveChild(module, fixups, ast, 2, ExpectValue);
                 return ast;
             }
-            case ASTKind::ConstFunDecl:
             case ASTKind::FunDecl: {
                 vec<Type> argumentTypes;
                 Function* function = ast.function();
@@ -1317,11 +1335,9 @@ namespace clover {
                 assert(ast.typeIndex(fn) != InvalidType);
                 break;
             case ASTKind::VarDecl:
-            case ASTKind::ConstVarDecl:
                 assert(ast.typeIndex() != InvalidType);
                 break;
             case ASTKind::FunDecl:
-            case ASTKind::ConstFunDecl:
                 assert(ast.typeIndex() != InvalidType);
                 assert(ast.type().is<TypeKind::Function>());
                 fn = ast.scope()->function;

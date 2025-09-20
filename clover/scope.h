@@ -3,6 +3,7 @@
 
 #include "clover/limits.h"
 #include "clover/type.h"
+#include "clover/value.h"
 #include "util/bloom.h"
 #include "util/maybe.h"
 
@@ -88,6 +89,7 @@ namespace clover {
         union {
             struct { u32 isImport : 1; NodeIndex decl : 31; Symbol name; };
             struct { u32 : 1; u32 functionIndex : 31; u32 : 32; };
+            struct { u32 : 1; u32 constantIndex : 31; u32 : 32; };
             struct { u32 overloads; u32 : 32; };
             struct { ScopeIndex defScope; u32 index; };
         };
@@ -141,6 +143,7 @@ namespace clover {
         void addToRoot(VariableKind kind, TypeIndex type, Symbol name);
         void add(VariableKind kind, const AST& decl, Symbol name);
         void add(VariableKind kind, const AST& decl, TypeIndex type, Symbol name);
+        void addConstant(VariableKind kind, const AST& decl, Symbol name, Value value);
         void addImport(VariableKind kind, TypeIndex type, Symbol name);
         void addFunctionImport(VariableKind kind, Function* function);
         void addOverloadedFunction(Overloads* overloads, Symbol name);

@@ -1,6 +1,7 @@
 #include "clover/typecheck.h"
 #include "clover/ast.h"
 #include "clover/resolve.h"
+#include "clover/interp.h"
 #include "util/config.h"
 
 namespace clover {
@@ -202,6 +203,23 @@ namespace clover {
     inline Evaluation makeChar(Module* module, u32 c) {
         AST ast = module->add(ASTKind::Char, Constant::CharConst(c));
         return Evaluation { .t = Char, .kind = Evaluation::CharConst, .ast = ast.firstWord() };
+    }
+
+    inline Evaluation fromValue(Module* module, Value value) {
+        switch (value.kind()) {
+            case Value::Int:
+                return makeSigned(module, value.i);
+            case Value::Unsigned:
+                return makeUnsigned(module, value.u);
+            case Value::Char:
+                return makeChar(module, value.ch);
+            case Value::Bool:
+                return makeBool(module, value.b);
+            case Value::Float:
+                return makeFloat(module, value.f);
+            default:
+                unreachable("Can't turn value ", value, " into a constant.");
+        }
     }
 
     inline Type naturalType(Module* module, Evaluation evaluation) {
@@ -671,6 +689,7 @@ namespace clover {
         vec<NodeIndex, 16>* lateChecks;
         vec<TypeIndex, 16>* lateResolves;
         vec<NodeIndex, 16>* discoveredFunctions;
+        Value env;
         Constraints* constraints;
 
         inline void checkLater(AST ast) {
@@ -684,6 +703,37 @@ namespace clover {
             lateResolves->push(type.index);
         }
     };
+
+    Value createEnv(Module* module, Function* function) {
+        Value value;
+        if (function) {
+            if (!function->constants.size())
+                return Value();
+            value = makeArrayWithLength(function->constants.size());
+            for (const auto& [i, info] : enumerate(function->constants)) {
+                if (info.origin == function)
+                    set(value, boxUnsigned(i), info.value);
+                else if (!info.origin)
+                    set(value, boxUnsigned(i), module->globalConstants[info.value.u].value);
+                else
+                    set(value, boxUnsigned(i), info.origin->constants[info.value.u].value);
+            }
+        } else {
+            if (!module->globalConstants.size())
+                return Value();
+            value = makeArrayWithLength(module->globalConstants.size());
+            for (const auto& [i, info] : enumerate(module->globalConstants))
+                set(value, boxUnsigned(i), info.value);
+        }
+        return value;
+    }
+
+    void finalizeConstants(Module* module, Function* function, Value env) {
+        if (env.kind() == Value::Undefined)
+            return;
+        for (u32 i = 0; i < env.getObj().indices->length; i ++)
+            (function ? function->constants[i] : module->globalConstants[i]).value = get(env, boxUnsigned(i));
+    }
 
     Evaluation infer(InferenceContext& ctx, Function* function, AST ast);
     void refineGraph(Module* module, InferenceContext& ctx);
@@ -854,6 +904,9 @@ namespace clover {
             case ASTKind::ResolvedFunction: {
                 return ast.resolvedFunction()->type();
             }
+
+            case ASTKind::Const:
+                unreachable("Should have already eliminated constants and replaced them with their evaluations.");
 
             default:
                 assert(!ast.isLeaf());
@@ -1090,6 +1143,10 @@ namespace clover {
                 return makeBool(module, ast.boolConst());
             case ASTKind::Char:
                 return makeChar(module, ast.charConst());
+
+            case ASTKind::Const:
+            case ASTKind::GlobalConst:
+                return fromValue(module, get(ctx.env, boxUnsigned(ast.variable())));
 
             case ASTKind::ResolvedFunction:
                 return fromType(ast.resolvedFunction()->type());
@@ -1667,6 +1724,15 @@ namespace clover {
 
             // Declarations
 
+            case ASTKind::ConstVarDecl: {
+                Value value = eval(ctx.env, ast.child(1));
+                assert(ast.child(0).kind() == ASTKind::Const || ast.child(0).kind() == ASTKind::GlobalConst);
+                set(ctx.env, boxUnsigned(ast.child(0).variable()), value);
+
+                ast.setType(module->voidType());
+                return fromType(module->voidType());
+            }
+
             case ASTKind::VarDecl: {
                 ctx.ensureResolved(ast.type()); // Type variable from resolution pass.
 
@@ -2056,6 +2122,19 @@ namespace clover {
         vec<pair<Function*, TypeIndex>> possibleFunctions;
         Module* module = ast.module;
         overloads->forEachFunction([&](Function* overload) {
+            if (overload->isConst) {
+                // TODO: Possibly re-evaluate this. It kind of sucks that
+                // const functions can't be reused on runtime values, since
+                // probably a lot of them will encode fairly simple
+                // computational tasks. On the other hand, drawing a line
+                // between compile-time and runtime semantics is I think a
+                // value-add overall. Maybe at some point in the future though,
+                // we can do something like monomorphizing const functions onto
+                // runtime values as if they were declared generic from the
+                // start.
+                return;
+            }
+
             Module* module = overload->module;
             auto type = expand(overload->type());
             type_assert(type.is<TypeKind::Function>());
@@ -2097,6 +2176,7 @@ namespace clover {
 
         if (ast.child(0).kind() == ASTKind::ResolvedFunction) {
             Function* callee = ast.child(0).resolvedFunction();
+            type_assert(!callee->isConst); // Should have already dealt with such calls.
             if (callee->isGeneric) {
                 callee = instantiate(ctx, callee, ast);
                 ast.setChild(0, ast.module->add(ASTKind::ResolvedFunction, callee));
@@ -2886,6 +2966,7 @@ namespace clover {
             u32 previouslyDiscoveredFunctions = ctx.discoveredFunctions->size();
 
             AST ast = module->node(functions[i]);
+            ctx.env = createEnv(module, ast.function());
 
             auto name = ast.child(1).variable();
             for (AST param : ast.child(2)) {
@@ -2913,6 +2994,8 @@ namespace clover {
                 println("*-----------------------------------");
                 println(ast); println();
             }
+
+            finalizeConstants(module, ast.function(), ctx.env);
 
             refineGraph(module, ctx);
             if UNLIKELY(config::printInferredTreeAfterEachPass) {
@@ -2962,6 +3045,7 @@ namespace clover {
         globalCtx.lateChecks = &lateChecks;
         globalCtx.lateResolves = &lateResolves;
         globalCtx.discoveredFunctions = &discoveredFunctions;
+        globalCtx.env = createEnv(module, nullptr);
 
         Evaluation inference = infer(globalCtx, nullptr, module->getTopLevel());
         if UNLIKELY(config::printTypeConstraintsAsDOT) {
@@ -2979,6 +3063,8 @@ namespace clover {
             println("*-----------------------------------");
             module->print(module->compilation), println();
         }
+
+        finalizeConstants(module, nullptr, globalCtx.env);
 
         refineGraph(module, globalCtx);
         if UNLIKELY(config::printInferredTreeAfterEachPass) {

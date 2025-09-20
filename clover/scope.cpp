@@ -2,6 +2,7 @@
 #include "clover/ast.h"
 #include "clover/compilation.h"
 #include "clover/error.h"
+#include "clover/value.h"
 #include "util/config.h"
 
 namespace clover {
@@ -24,6 +25,23 @@ namespace clover {
         inTable.add(name.symbol);
     }
 
+    void Scope::add(VariableKind kind, const AST& decl, Symbol name) {
+        if (entries.find(name) != entries.end()) {
+            auto prev = entries.find(name)->value;
+            const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
+            error(decl.module, decl.pos(), "Duplicate definition of symbol '", decl.module->str(name), "'.")
+                .note(module->node(varInfo.decl).pos(), "Previous definition was here.");
+            return;
+        }
+        u32 var;
+        if (function)
+            var = function->addLocal(kind, decl, name).index;
+        else
+            var = module->addGlobal(kind, decl, name).index;
+        entries.put(name, var);
+        inTable.add(name.symbol);
+    }
+
     void Scope::add(VariableKind kind, const AST& decl, TypeIndex type, Symbol name) {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
@@ -41,7 +59,7 @@ namespace clover {
         inTable.add(name.symbol);
     }
 
-    void Scope::add(VariableKind kind, const AST& decl, Symbol name) {
+    void Scope::addConstant(VariableKind kind, const AST& decl, Symbol name, Value value) {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
@@ -52,9 +70,9 @@ namespace clover {
 
         u32 var;
         if (function)
-            var = function->addLocal(kind, decl, name).index;
+            var = function->addLocalConstant(kind, decl, name, value).index;
         else
-            var = module->addGlobal(kind, decl, name).index;
+            var = module->addGlobalConstant(kind, decl, name, value).index;
         entries.put(name, var);
         inTable.add(name.symbol);
     }
@@ -395,8 +413,34 @@ namespace clover {
                 computeScopes(module, imports, currentScope, ast.child(1));
                 break;
             }
-            case ASTKind::VarDecl:
             case ASTKind::ConstVarDecl: {
+                ast.setScope(currentScope);
+                AST name = ast.child(0);
+                assert(name.kind() == ASTKind::Ident);
+                currentScope->addConstant(VariableKind::Constant, ast, name.symbol(), Value());
+                computeScopes(module, imports, currentScope, ast.child(1));
+                break;
+            }
+            case ASTKind::ConstFunDecl: {
+                AST name = ast.child(0);
+                assert(name.kind() == ASTKind::Ident);
+                Function* function = module->addFunction(ast, currentScope->function);
+                Scope* newScope = module->addScope(ScopeKind::Function, ast.node, currentScope, function);
+                ast.setScope(newScope);
+
+                defineFunction(currentScope, name.symbol(), ast.pos(), function);
+
+                // No need to skip the parameters like for a normal function -
+                // const function parameters are syntactically required to be
+                // simpler.
+                computeScopes(module, imports, newScope, ast.child(1));
+
+                // Likewise, we can go ahead and compute scopes for the body
+                // here too.
+                computeScopes(module, imports, newScope, ast.child(2));
+                break;
+            }
+            case ASTKind::VarDecl: {
                 ast.setScope(currentScope);
                 AST pattern = ast.child(1);
                 if (pattern.kind() == ASTKind::Ident) {
@@ -414,12 +458,10 @@ namespace clover {
                     computeScopes(module, imports, currentScope, ast.child(2));
                 break;
             }
-            case ASTKind::ConstFunDecl:
             case ASTKind::FunDecl: {
                 AST name = ast.child(1);
                 assert(name.kind() == ASTKind::Ident);
                 computeScopes(module, imports, currentScope, ast.child(3)); // Raises decl (should be independent of function, and can't reference it)
-                VariableKind kind;
                 Function* function = module->addFunction(ast, currentScope->function);
                 Scope* newScope = module->addScope(ScopeKind::Function, ast.node, currentScope, function);
 

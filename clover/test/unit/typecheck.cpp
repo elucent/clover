@@ -810,3 +810,16 @@ i32 mystery(Foo a, Foo b):
     ASSERT_TYPE_EQUAL(firstCaseType.as<TypeKind::Tuple>().fieldType(0), AType);
     ASSERT_TYPE_EQUAL(firstCaseType.as<TypeKind::Tuple>().fieldType(1), FooType);
 }
+
+TEST(typecheck_const_integer) {
+    auto instance = TYPECHECK(R"(
+const Foo: 41
+var x: Foo + 1
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+    auto x = topLevel.child(1);
+    ASSERT_EQUAL(x.child(2).kind(), ASTKind::Unsigned);
+    ASSERT_EQUAL(x.child(2).uintConst(), 42);
+}

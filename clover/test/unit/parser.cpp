@@ -560,14 +560,14 @@ TEST(parse_uninit_var) {
 }
 
 TEST(parse_const_var) {
-    ASSERT_SAME_PARSE("const x: 1", "(const_var missing x 1)");
-    ASSERT_SAME_PARSE("const x: 1, y: 2", "(do (const_var missing x 1) (const_var missing y 2))");
+    ASSERT_SAME_PARSE("const x: 1", "(const_var x 1)");
+    ASSERT_SAME_PARSE("const x: 1, y: 2", "(do (const_var x 1) (const_var y 2))");
 }
 
 TEST(parse_const_fun) {
-    ASSERT_SAME_PARSE("const f(x): x + 1", "(const_fun f (tuple (const_var missing x missing)) (+ x 1))");
+    ASSERT_SAME_PARSE("const f(x): x + 1", "(const_fun f (tuple (const_var x missing)) (+ x 1))");
     ASSERT_SAME_PARSE("const f(): 42", "(const_fun f (tuple) 42)");
-    ASSERT_SAME_PARSE("const f(x, y): x + y", "(const_fun f (tuple (const_var missing x missing) (const_var missing y missing)) (+ x y))");
+    ASSERT_SAME_PARSE("const f(x, y): x + y", "(const_fun f (tuple (const_var x missing) (const_var y missing)) (+ x y))");
 }
 
 TEST(parse_multiline_parenthetical) {

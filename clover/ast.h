@@ -9,6 +9,7 @@
 #include "clover/type.h"
 #include "clover/lex.h"
 #include "clover/scope.h"
+#include "clover/value.h"
 
 namespace clover {
     #define FOR_EACH_AST_KIND(macro) \
@@ -136,7 +137,7 @@ namespace clover {
         macro(VarDecl, varDecl, var, false, 3) /* Type? Name Init? */ \
         macro(FunDecl, funDecl, fun, false, 5) /* Type? Name ArgsTuple Raises? Body */ \
         macro(GenericFunDecl, genericFunDecl, generic_fun, false, 5) /* Type? Link? ArgsTuple Raises? Body */ \
-        macro(ConstVarDecl, constVarDecl, const_var, false, 3) \
+        macro(ConstVarDecl, constVarDecl, const_var, false, 2) \
         macro(ConstFunDecl, constFunDecl, const_fun, false, 3) \
         macro(AliasDecl, aliasDecl, alias, false, 2) \
         macro(NamedDecl, namedDecl, named, false, 2) /* Name Type? */ \
@@ -448,6 +449,11 @@ namespace clover {
             name(symbol) {}
     };
 
+    struct ConstInfo {
+        Function* origin;
+        Value value;
+    };
+
     struct Function {
         Module* module;
         Function* parent;
@@ -456,7 +462,9 @@ namespace clover {
         TypeIndex typeIndex = InvalidType;
         Symbol name, mangledName = InvalidSymbol;
         vec<VariableInfo, 8> locals;
+        vec<ConstInfo, 8> constants;
         u32 numTemps = 0;
+        bool isConst;
         bool isGeneric = false;
 
         // The generic type is used a little strangely. We keep this as the
@@ -495,6 +503,23 @@ namespace clover {
             info.decl = decl.node;
             info.name = name;
             locals.push(info);
+            return Local(locals.size() - 1);
+        }
+
+        inline Local addLocalConstant(VariableKind kind, AST decl, Symbol name, Value value) {
+            VariableInfo info;
+            info.type = InvalidType;
+            info.scope = VariableInfo::Local;
+            info.kind = kind;
+            info.constantIndex = constants.size();
+            info.name = name;
+            locals.push(info);
+
+            ConstInfo constInfo;
+            constInfo.origin = this;
+            constInfo.value = value;
+            constants.push(constInfo);
+
             return Local(locals.size() - 1);
         }
 
@@ -727,6 +752,7 @@ namespace clover {
         TypeSystem* types;
         vec<Scope*> scopes;
         vec<VariableInfo, 8> globals;
+        vec<ConstInfo, 8> globalConstants;
         vec<Function*, 8> functions;
         map<Function*, u32> importedFunctions;
         vec<Overloads*, 4> overloads;
@@ -1265,6 +1291,23 @@ namespace clover {
             return Global(globals.size() - 1);
         }
 
+        inline Global addGlobalConstant(VariableKind kind, AST decl, Symbol name, Value value) {
+            VariableInfo info;
+            info.type = InvalidType;
+            info.scope = VariableInfo::Global;
+            info.kind = kind;
+            info.constantIndex = globalConstants.size();
+            info.name = name;
+            globals.push(info);
+
+            ConstInfo constInfo;
+            constInfo.origin = nullptr;
+            constInfo.value = value;
+            globalConstants.push(constInfo);
+
+            return Global(globals.size() - 1);
+        }
+
         inline Global addGlobal(VariableKind kind, Symbol name) {
             return addGlobal(kind, InvalidNode, InvalidType, name);
         }
@@ -1486,6 +1529,7 @@ namespace clover {
     inline Function::Function(Module* module_in, Function* parent_in, NodeIndex decl_in):
         module(module_in), parent(parent_in), decl(decl_in) {
         name = module->node(decl).child(1).symbol();
+        isConst = module->node(decl).kind() == ASTKind::ConstFunDecl;
     }
 
     inline Local Function::addLocalFunctionImport(VariableKind kind, Function* function) {

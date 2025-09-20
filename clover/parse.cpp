@@ -1242,18 +1242,13 @@ namespace clover {
             if (visitor.peek().token == KeywordConst) {
                 Token token = visitor.read();
                 Pos namePos = visitor.peek().pos;
-                AST name = parseExpression(module, visitor);
-                AST type = module->add(ASTKind::Missing);
-                if (visitor.peek().token != PunctuatorRightParen && visitor.peek().token != PunctuatorComma)
-                    type = name, name = parseIdentifier(module, visitor);
-                if UNLIKELY(name.kind() != ASTKind::Ident && name.kind() != ASTKind::Missing)
-                    error(module, namePos, "Expected identifier in const parameter declaration, found '", name, "'.");
+                AST name = parseIdentifier(module, visitor);
                 AST value = module->add(ASTKind::Missing);
                 if (visitor.peek().token == PunctuatorColon) {
                     visitor.read();
                     value = parseExpression(module, visitor);
                 }
-                parameters.push(module->add(ASTKind::ConstVarDecl, namePos, type, name, value));
+                parameters.push(module->add(ASTKind::ConstVarDecl, namePos, name, value));
             } else if (visitor.peek().token == KeywordType) {
                 Token token = visitor.read();
                 Pos namePos = visitor.peek().pos;
@@ -1758,7 +1753,12 @@ namespace clover {
                     vec<AST> params;
                     while (!visitor.done() && visitor.peek().token != PunctuatorRightParen) {
                         AST id = parseIdentifier(module, visitor);
-                        params.push(module->add(ASTKind::ConstVarDecl, module->add(ASTKind::Missing), id, module->add(ASTKind::Missing)));
+                        AST value = module->add(ASTKind::Missing);
+                        if (visitor.peek().token == PunctuatorColon) {
+                            visitor.read();
+                            value = parseExpression(module, visitor);
+                        }
+                        params.push(module->add(ASTKind::ConstVarDecl, id, value));
                         if (visitor.peek().token == PunctuatorComma)
                             visitor.read();
                     }
@@ -1786,7 +1786,10 @@ namespace clover {
                     init = parseExpression(module, visitor);
                 } else
                     init = module->add(ASTKind::Missing);
-                decls.push(module->add(kind, namePos, type, pattern, init));
+                if (kind == ASTKind::ConstVarDecl)
+                    decls.push(module->add(kind, namePos, pattern, init));
+                else
+                    decls.push(module->add(kind, namePos, type, pattern, init));
                 while (visitor.peek().token == PunctuatorComma) {
                     visitor.readIgnoringWhitespace();
                     namePos = visitor.peek().pos;
@@ -1796,7 +1799,10 @@ namespace clover {
                         init = parseExpression(module, visitor);
                     } else
                         init = module->add(ASTKind::Missing);
-                    decls.push(module->add(kind, namePos, type, pattern, init));
+                    if (kind == ASTKind::ConstVarDecl)
+                        decls.push(module->add(kind, namePos, pattern, init));
+                    else
+                        decls.push(module->add(kind, namePos, type, pattern, init));
                 }
                 return decls.size() == 1 ? decls[0] : module->add(ASTKind::Do, token.pos, decls);
             }
