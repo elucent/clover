@@ -1146,7 +1146,7 @@ namespace clover {
 
             case ASTKind::Const:
             case ASTKind::GlobalConst:
-                return fromValue(module, get(ctx.env, boxUnsigned(ast.variable())));
+                return fromValue(module, get(ctx.env, boxUnsigned(ast.constId())));
 
             case ASTKind::ResolvedFunction:
                 return fromType(ast.resolvedFunction()->type());
@@ -1727,7 +1727,7 @@ namespace clover {
             case ASTKind::ConstVarDecl: {
                 Value value = eval(ctx.env, ast.child(1));
                 assert(ast.child(0).kind() == ASTKind::Const || ast.child(0).kind() == ASTKind::GlobalConst);
-                set(ctx.env, boxUnsigned(ast.child(0).variable()), value);
+                set(ctx.env, boxUnsigned(ast.child(0).constId()), value);
 
                 ast.setType(module->voidType());
                 return fromType(module->voidType());
@@ -1753,13 +1753,21 @@ namespace clover {
                 return fromType(module->voidType());
             }
 
-            case ASTKind::AliasDecl:
-            case ASTKind::NamedDecl:
-            case ASTKind::NamedCaseDecl:
             case ASTKind::StructDecl:
             case ASTKind::StructCaseDecl:
             case ASTKind::UnionDecl:
-            case ASTKind::UnionCaseDecl:
+            case ASTKind::UnionCaseDecl: {
+                // We skip the first child since it's just the name. Really,
+                // the only reason we are typechecking these constructs is to
+                // process any associated constant declarations they contain.
+                for (u32 i = 1; i < ast.arity(); i ++) if (ast.child(i).kind() != ASTKind::VarDecl)
+                    inferChild(ctx, function, ast, i);
+                return fromType(module->voidType());
+            }
+
+            case ASTKind::AliasDecl:
+            case ASTKind::NamedDecl:
+            case ASTKind::NamedCaseDecl:
             case ASTKind::GenericFunDecl: {
                 // Shouldn't have anything to do.
                 return fromType(module->voidType());

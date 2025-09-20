@@ -248,7 +248,7 @@ namespace clover {
         }
     }
 
-    Type resolveNestedType(Module* module, Fixups& fixups, Scope* scope, AST base, AST child) {
+    AST resolveTypeField(Module* module, Fixups& fixups, Scope* scope, AST base, AST child, Pos pos) {
         Type baseType = evaluateType(module, fixups, scope, base);
         Scope* typeScope;
         switch (baseType.kind()) {
@@ -262,16 +262,30 @@ namespace clover {
                 typeScope = module->scopes[baseType.as<TypeKind::Union>().scope()];
                 break;
             default:
-                return module->invalidType();
+                unreachable("Tried to access field ", module->str(child.symbol()), " of non-named type ", baseType);
         }
         assert(child.kind() == ASTKind::Ident);
         auto result = typeScope->findLocal(child.symbol());
         if (!result)
-            return module->invalidType();
-        else if (result.isGlobal())
-            return module->types->get(module->globals[result.index].type);
+            unreachable("Unknown field ", module->str(child.symbol()), " within type ", baseType);
+
+        VariableInfo info;
+        if (result.isGlobal())
+            info = module->globals[result.index];
         else
-            return module->types->get(typeScope->function->locals[result.index].type);
+            info = typeScope->function->locals[result.index];
+
+        switch (info.kind) {
+            case VariableKind::Type:
+                return module->add(ASTKind::TypeField, pos, scope, info.type, base, module->add(ASTKind::Field, FieldId(0)));
+            case VariableKind::Constant:
+                if (result.isGlobal())
+                    return module->add(ASTKind::GlobalConst, ConstId(info.constantIndex));
+                else
+                    return module->add(ASTKind::Const, ConstId(info.constantIndex));
+            default:
+                unreachable("Can't access non-constant, non-type field ", module->str(child.symbol()), " from type ", baseType);
+        }
     }
 
     AST resolveCall(Module* module, Fixups& fixups, Scope* scope, AST call, Expectation expectation) {
@@ -284,14 +298,12 @@ namespace clover {
                 // expression for a method call, i.e. Foo.Bar(x). In this
                 // scenario, we turn the method name and base into a type, turn
                 // the call into a normal call, then proceed.
-                if (Type resolved = resolveNestedType(module, fixups, scope, base, call.child(0))) {
-                    call.setChild(1, module->add(ASTKind::TypeField, call.pos(), call.scope(), resolved, base, FieldId(0)));
-                    for (u32 i = 0; i < call.arity() - 1; i ++)
-                        call.setChild(i, call.child(i + 1));
-                    call.setArity(call.arity() - 1);
-                    call.setKind(ASTKind::Call);
-                    func = call.child(0);
-                }
+                call.setChild(1, resolveTypeField(module, fixups, scope, base, call.child(0), call.pos()));
+                for (u32 i = 0; i < call.arity() - 1; i ++)
+                    call.setChild(i, call.child(i + 1));
+                call.setArity(call.arity() - 1);
+                call.setKind(ASTKind::Call);
+                func = call.child(0);
             }
         }
         if (!func)
@@ -732,9 +744,9 @@ namespace clover {
                             return module->add(ASTKind::Local, Local(entry.index()));
                     case VariableKind::Constant: {
                         if (entry.isGlobal())
-                            return module->add(ASTKind::GlobalConst, Global(module->globals[entry.index()].constantIndex));
+                            return module->add(ASTKind::GlobalConst, ConstId(module->globals[entry.index()].constantIndex));
                         if (entry.function == scope->function)
-                            return module->add(ASTKind::Const, Local(scope->function->locals[entry.index()].constantIndex));
+                            return module->add(ASTKind::Const, ConstId(scope->function->locals[entry.index()].constantIndex));
 
                         // It must be from an enclosing function, so we
                         // need to wire it through into the local constant
@@ -743,7 +755,7 @@ namespace clover {
                         info.origin = entry.function;
                         info.value = boxUnsigned(entry.function->locals[entry.index()].constantIndex);
                         scope->function->constants.push(info);
-                        return module->add(ASTKind::Const, Local(scope->function->constants.size() - 1));
+                        return module->add(ASTKind::Const, ConstId(scope->function->constants.size() - 1));
                     }
                     case VariableKind::ConstFunction: {
                         const VariableInfo& info = entry.isGlobal()
@@ -893,14 +905,8 @@ namespace clover {
                     return module->add(ASTKind::Construct, resolvedField.pos(), resolvedField.scope(), resolvedField.type(), ast.child(0), nestedChildren);
                 }
 
-                if (isTypeExpression(ast.child(0))) {
-                    if (Type resolved = resolveNestedType(module, fixups, scope, ast.child(0), ast.child(1))) {
-                        ast.setKind(ASTKind::TypeField);
-                        ast.setChild(1, module->add(ASTKind::Field, FieldId(0)));
-                        ast.setType(resolved);
-                        return ast;
-                    }
-                }
+                if (isTypeExpression(ast.child(0)))
+                    return resolveTypeField(module, fixups, scope, ast.child(0), ast.child(1), ast.pos());
                 resolveFieldnameChild(module, fixups, ast, 1, ExpectValue);
                 return ast;
             }

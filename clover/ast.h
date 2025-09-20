@@ -307,6 +307,7 @@ namespace clover {
         inline i64 intConst() const;
         inline u64 uintConst() const;
         inline u32 fieldId() const;
+        inline u32 constId() const;
         inline Function* resolvedFunction() const;
         inline f64 floatConst() const;
         inline Symbol stringConst() const;
@@ -317,6 +318,7 @@ namespace clover {
         inline void setIntConst(i64 i);
         inline void setUintConst(u64 i);
         inline void setFieldId(u32 i);
+        inline void setConstId(u32 i);
         inline void setResolvedFunction(Function* function);
         inline void setFloatConst(f64 f);
         inline void setStringConst(Symbol s);
@@ -647,6 +649,12 @@ namespace clover {
         inline FieldId(u32 id_in): id(id_in) {}
     };
 
+    struct ConstId {
+        u32 id;
+
+        inline ConstId(u32 id_in): id(id_in) {}
+    };
+
     struct Constant {
         union {
             i64 intConst;
@@ -923,6 +931,17 @@ namespace clover {
             return AST(this, ast);
         }
 
+        inline AST addLeaf(ASTKind kind, const ConstId& field) {
+            assert(kind == ASTKind::Const || kind == ASTKind::GlobalConst);
+            assert(nodeScopes.size() != 0); // Should only be producing these after scope resolution.
+            ASTWord ast;
+            ast.kind = kind;
+            auto internResult = tryIntern(Constant::UnsignedConst(field.id));
+            ast.isInline = internResult.canIntern;
+            ast.constantIndex = internResult.payload;
+            return AST(this, ast);
+        }
+
         inline AST addLeaf(ASTKind kind, const FieldId& field) {
             assert(kind == ASTKind::Field);
             assert(nodeScopes.size() != 0); // Should only be producing these after scope resolution.
@@ -973,6 +992,8 @@ namespace clover {
         template<typename... Args>
         inline u32 computeArity(const FieldId&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
+        inline u32 computeArity(const ConstId&, const Args&... args) { return 1 + computeArity(args...); }
+        template<typename... Args>
         inline u32 computeArity(Function* const&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
         inline u32 computeArity(const AST&, const Args&... args) { return 1 + computeArity(args...); }
@@ -998,6 +1019,10 @@ namespace clover {
 
         inline void addChild(const FieldId& field) {
             astWords.push(addLeaf(ASTKind::Field, field).firstWord());
+        }
+
+        inline void addChild(const ConstId& constant) {
+            unreachable("Constant ids should not be included directly in AST constructors.");
         }
 
         inline void addChild(Function* const& function) {
@@ -1642,6 +1667,14 @@ namespace clover {
             return module->constantList[firstWord().constantIndex].uintConst;
     }
 
+    inline u32 AST::constId() const {
+        assert(kind() == ASTKind::Const || kind() == ASTKind::GlobalConst);
+        if (firstWord().isInline)
+            return firstWord().inlineUnsigned;
+        else
+            return module->constantList[firstWord().constantIndex].uintConst;
+    }
+
     inline Function* AST::resolvedFunction() const {
         assert(kind() == ASTKind::ResolvedFunction);
         if (firstWord().isInline)
@@ -1679,6 +1712,14 @@ namespace clover {
     }
 
     inline void AST::setUintConst(u64 i) {
+        auto intern = module->tryIntern(Constant::UnsignedConst(i));
+        if (intern.canIntern)
+            firstWord().isInline = true, firstWord().inlineSigned = intern.payload;
+        else
+            firstWord().isInline = false, firstWord().constantIndex = intern.payload;
+    }
+
+    inline void AST::setConstId(u32 i) {
         auto intern = module->tryIntern(Constant::UnsignedConst(i));
         if (intern.canIntern)
             firstWord().isInline = true, firstWord().inlineSigned = intern.payload;
@@ -1995,7 +2036,6 @@ namespace clover {
                 return format(io, module->str(ast.symbol()));
             case ASTKind::Local:
             case ASTKind::Capture:
-            case ASTKind::Const:
             case ASTKind::Typename:
             case ASTKind::GenericTypename:
                 io = format(io, module->str(ast.varInfo(parent.scope()->function).name));
@@ -2003,7 +2043,6 @@ namespace clover {
                     io = format(io, typeColor, ":", module->types->get(ast.varInfo(parent.scope()->function).type), typeReset);
                 return io;
             case ASTKind::Global:
-            case ASTKind::GlobalConst:
             case ASTKind::GlobalTypename:
             case ASTKind::GlobalGenericTypename:
                 io = format(io, module->str(ast.varInfo().name));
@@ -2012,6 +2051,9 @@ namespace clover {
                 return io;
             case ASTKind::Field:
                 return format(io, ".", ast.fieldId());
+            case ASTKind::Const:
+            case ASTKind::GlobalConst:
+                return format(io, "const#", ast.constId());
             case ASTKind::ResolvedFunction:
                 io = format(io, module->str(ast.resolvedFunction()->name));
                 io = format(io, "/", ast.module->functionIndex(ast.resolvedFunction()));
