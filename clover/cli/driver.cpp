@@ -91,10 +91,13 @@ extern "C" i32 main(i32 argc, i8** argv) {
             newPath.push('o');
             outputFile = newPath.take_slice();
         }
+        vec<JasmineAssembly> assemblies;
         compilation.forEachArtifact([&](Artifact* artifact) {
             assert(artifact->kind == ArtifactKind::Assembly);
-            writeELF(artifact, outputFile);
+            assemblies.push(getAssembly(artifact));
         });
+        JasmineAssembly combined = jasmine_join_assemblies_in_place(assemblies.data(), assemblies.size());
+        jasmine_write_relocatable_elf_object(combined, outputFile.data(), outputFile.size());
     } else {
         if (outputFile.size() == 0) { // Implicitly use modified name of first source as object.
             i32 lastDot = -1;
