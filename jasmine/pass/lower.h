@@ -1322,7 +1322,7 @@ namespace jasmine {
                             callee = materialize(b, PTR, callee, moveScratch);
                         b.addNode(Opcode::CALL, n.type(), callee);
 
-                        if (n.opcode() == Opcode::CALL && isCompound(compound.returnType()) && !isFunction(fn, compound.returnType())
+                        if (n.opcode() == Opcode::CALL && operands[0].kind != Operand::Var && isCompound(compound.returnType()) && !isFunction(fn, compound.returnType())
                             && (callSite.returnValue.kind == Operand::RegPair || callSite.returnValue.isReg())) {
                             auto rv = callSite.returnValue;
                             Operand paramFirst, paramSecond;
@@ -1333,7 +1333,7 @@ namespace jasmine {
                                 paramSecond = Target::is_gp(rv.rb) ? fn.gp(rv.rb) : fn.fp(rv.rb);
                             }
                             storeAggregateFromRegisters(fn, b, this->repr(compound.returnType()), operands[0], paramFirst, paramSecond, moveScratch);
-                        } else if (compound.returnType() != VOID) {
+                        } else if (compound.returnType() != VOID && operands[0].kind != Operand::Var) {
                             auto rv = callSite.returnValue;
                             assert(rv.kind != Operand::RegPair);
                             if (rv.kind == Operand::Memory) {
