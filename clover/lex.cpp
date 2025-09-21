@@ -428,9 +428,9 @@ namespace clover {
                     u8 next = visitor.peek();
                     if (next == '\\') {
                         visitor.read();
-                        visitor.read();
+                        visitor.readPossiblyUTF8();
                     } else
-                        visitor.read();
+                        visitor.readPossiblyUTF8();
 
                     assert(visitor.peek() == '\'');
                     visitor.read();
@@ -443,7 +443,7 @@ namespace clover {
                         u8 next = visitor.peek();
                         if (next == '\\') {
                             visitor.read();
-                            visitor.read();
+                            visitor.readPossiblyUTF8();
                         }
                         if (next == '"')
                             break;
