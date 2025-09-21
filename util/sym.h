@@ -83,8 +83,10 @@ struct SymbolTable {
     }
 
     inline Symbol anon() {
+        static u32 nextAnonSym = 0;
+
         slice<i8> buf = { new i8[32], 32 };
-        prints(buf, ".L", strings.size());
+        prints(buf, ".L", nextAnonSym ++);
         strings.push(buf);
         return strings.size() - 1;
     }
