@@ -1913,15 +1913,24 @@ namespace clover {
             case ASTKind::Global: {
                 const auto& varInfo = ast.varInfo(genCtx.func());
                 auto name = genCtx.module->str(varInfo.name);
-                auto loweredType = genCtx.lower(ast.module->types->get(varInfo.type));
+                auto globalType = expand(ast.module->types->get(varInfo.type));
+                auto loweredType = genCtx.lower(globalType);
                 if (genCtx.module->node(varInfo.decl).kind() == ASTKind::FunDecl) {
                     // Function with known def - we should reference its symbol directly.
                     auto name = genCtx.module->str(genCtx.mangledName(module, module->node(varInfo.decl).function()));
                     return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.funcref(name));
                 }
+                // We need to maintain lvalue semantics if the destination is
+                // also a reference type. Loading eagerly won't work - imagine
+                // we have a global array, and want to coerce it to a slice.
+                // Since this is behavior somewhat unique to global variables,
+                // we add special checking for it here.
+                if (expand(destType).is<TypeKind::Slice>() && globalType.is<TypeKind::Array>())
+                    return generateGetSlice(genCtx, builder, globalType, genCtx.staticref(name), none<JasmineOperand>(), none<JasmineOperand>());
+
                 auto dest = genCtx.temp();
                 jasmine_append_load(builder, loweredType, dest, genCtx.staticref(name));
-                return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), dest);
+                return coerce(genCtx, builder, destType, globalType, dest);
             }
 
             case ASTKind::Paren:
