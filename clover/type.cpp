@@ -5,11 +5,11 @@ namespace clover {
     TypeSystem* TypeKey::sys;
 
     void StructBuilder::add(Scope* scope) {
-        this->scope = scope->index;
+        this->scope = scope;
     }
 
     void UnionBuilder::add(Scope* scope) {
-        this->scope = scope->index;
+        this->scope = scope;
     }
 
     void Constraints::validateConstraintGraph() {

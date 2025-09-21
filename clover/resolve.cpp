@@ -133,9 +133,9 @@ namespace clover {
                     assert(isTypeExpression(ast.child(1)) || ast.child(1).missing());
                     Type type = ast.child(1).missing() ? module->voidType() : evaluateType(module, fixups, ast.scope(), ast.child(1));
                     if (ast.kind() == ASTKind::NamedCaseDecl)
-                        ast.setType(module->namedType(ast.child(0).symbol(), ast.scope()->index, type, IsCase));
+                        ast.setType(module->namedType(ast.child(0).symbol(), ast.scope(), type, IsCase));
                     else
-                        ast.setType(module->namedType(ast.child(0).symbol(), ast.scope()->index, type));
+                        ast.setType(module->namedType(ast.child(0).symbol(), ast.scope(), type));
                 }
                 assert(!placeholder.asVar().isEqual());
                 placeholder.asVar().makeEqual(ast.type());
@@ -248,26 +248,37 @@ namespace clover {
         }
     }
 
-    AST resolveTypeField(Module* module, Fixups& fixups, Scope* scope, AST base, AST child, Pos pos) {
+    maybe<AST> resolveTypeField(Module* module, Fixups& fixups, Scope* scope, AST base, AST child, Pos pos) {
         Type baseType = evaluateType(module, fixups, scope, base);
+
+        // If the base type is an atom, it's possible this is in fact a field
+        // or method access, and the type should be interpreted as a value. We
+        // check for this here, and later when we would normally report an
+        // error, we instead just return an empty optional which indicates to
+        // the caller that we did not successfully resolve a type field.
+        bool atom = isAtom(baseType);
+
         Scope* typeScope;
         switch (baseType.kind()) {
             case TypeKind::Named:
-                typeScope = module->scopes[baseType.as<TypeKind::Named>().scope()];
+                typeScope = baseType.as<TypeKind::Named>().scope();
                 break;
             case TypeKind::Struct:
-                typeScope = module->scopes[baseType.as<TypeKind::Struct>().scope()];
+                typeScope = baseType.as<TypeKind::Struct>().scope();
                 break;
             case TypeKind::Union:
-                typeScope = module->scopes[baseType.as<TypeKind::Union>().scope()];
+                typeScope = baseType.as<TypeKind::Union>().scope();
                 break;
             default:
                 unreachable("Tried to access field ", module->str(child.symbol()), " of non-named type ", baseType);
         }
         assert(child.kind() == ASTKind::Ident);
         auto result = typeScope->findLocal(child.symbol());
-        if (!result)
+        if (!result) {
+            if (atom)
+                return none<AST>();
             unreachable("Unknown field ", module->str(child.symbol()), " within type ", baseType);
+        }
 
         VariableInfo info;
         if (result.isGlobal())
@@ -277,16 +288,16 @@ namespace clover {
 
         switch (info.kind) {
             case VariableKind::Type:
-                return module->add(ASTKind::TypeField, pos, scope, info.type, base, module->add(ASTKind::Field, FieldId(0)));
+                return some<AST>(module->add(ASTKind::TypeField, pos, scope, info.type, base, module->add(ASTKind::Field, FieldId(0))));
             case VariableKind::Constant: {
                 if (result.isGlobal() && !scope->function)
-                    return module->add(ASTKind::GlobalConst, ConstId(info.constantIndex));
+                    return some<AST>(module->add(ASTKind::GlobalConst, ConstId(info.constantIndex)));
                 else if (scope->function == typeScope->function)
-                    return module->add(ASTKind::Const, ConstId(info.constantIndex));
+                    return some<AST>(module->add(ASTKind::Const, ConstId(info.constantIndex)));
                 else {
                     auto it = scope->function->importedConstants.find({ typeScope->function, info.constantIndex });
                     if (it != scope->function->importedConstants.end())
-                        return module->add(ASTKind::Const, ConstId(it->value));
+                        return some<AST>(module->add(ASTKind::Const, ConstId(it->value)));
 
                     ConstInfo constInfo;
                     constInfo.origin = typeScope->function;
@@ -294,11 +305,14 @@ namespace clover {
                     auto id = scope->function->constants.size();
                     scope->function->constants.push(constInfo);
                     scope->function->importedConstants.put({ typeScope->function, info.constantIndex }, id);
-                    return module->add(ASTKind::Const, ConstId(id));
+                    return some<AST>(module->add(ASTKind::Const, ConstId(id)));
                 }
             }
-            default:
+            default: {
+                if (atom)
+                    return none<AST>();
                 unreachable("Can't access non-constant, non-type field ", module->str(child.symbol()), " from type ", baseType);
+            }
         }
     }
 
@@ -312,12 +326,19 @@ namespace clover {
                 // expression for a method call, i.e. Foo.Bar(x). In this
                 // scenario, we turn the method name and base into a type, turn
                 // the call into a normal call, then proceed.
-                call.setChild(1, resolveTypeField(module, fixups, scope, base, call.child(0), call.pos()));
-                for (u32 i = 0; i < call.arity() - 1; i ++)
-                    call.setChild(i, call.child(i + 1));
-                call.setArity(call.arity() - 1);
-                call.setKind(ASTKind::Call);
-                func = call.child(0);
+                if (auto newAST = resolveTypeField(module, fixups, scope, base, call.child(0), call.pos())) {
+                    call.setChild(1, *newAST);
+                    for (u32 i = 0; i < call.arity() - 1; i ++)
+                        call.setChild(i, call.child(i + 1));
+                    call.setArity(call.arity() - 1);
+                    call.setKind(ASTKind::Call);
+                    func = call.child(0);
+                } else {
+                    // If we failed to resolve the type field, either we just
+                    // reported an error, or this is *actually* a method call
+                    // on an atom type instance. In either case, we just
+                    // continue with the remaining logic.
+                }
             }
         }
         if (!func)
@@ -910,8 +931,14 @@ namespace clover {
                     return module->add(ASTKind::Construct, resolvedField.pos(), resolvedField.scope(), resolvedField.type(), ast.child(0), nestedChildren);
                 }
 
-                if (isTypeExpression(ast.child(0)))
-                    return resolveTypeField(module, fixups, scope, ast.child(0), ast.child(1), ast.pos());
+                if (isTypeExpression(ast.child(0))) {
+                    if (auto typeField = resolveTypeField(module, fixups, scope, ast.child(0), ast.child(1), ast.pos()))
+                        return *typeField;
+                    // Otherwise, assume the base is meant to be interpreted
+                    // as a value, i.e. it's an atom type. This is a little
+                    // weird, but we might as well leave the error reporting to
+                    // the typechecker.
+                }
                 resolveFieldnameChild(module, fixups, ast, 1, ExpectValue);
                 return ast;
             }
@@ -1370,7 +1397,7 @@ namespace clover {
             case ASTKind::StructDecl:
             case ASTKind::StructCaseDecl:
                 assert(ast.typeIndex() != InvalidType);
-                assert(ast.type().is<TypeKind::Struct>());
+                assert(ast.type().is<TypeKind::Struct>() || isAtom(ast.type()));
                 break;
             case ASTKind::UnionDecl:
             case ASTKind::UnionCaseDecl:

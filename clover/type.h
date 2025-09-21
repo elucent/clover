@@ -463,8 +463,8 @@ namespace clover {
         inline Type parentType() const;
         inline void setParentType(TypeIndex i);
 
-        inline ScopeIndex scope() const;
-        inline void setScope(ScopeIndex scope);
+        inline Scope* scope() const;
+        inline void setScope(Scope* scope);
 
         inline TypeIndex typeTag() const;
         inline void setTypeTag(TypeIndex tag);
@@ -1024,8 +1024,8 @@ namespace clover {
         inline Type parentType() const;
         inline void setParentType(TypeIndex i);
 
-        inline ScopeIndex scope() const;
-        inline void setScope(ScopeIndex scope);
+        inline Scope* scope() const;
+        inline void setScope(Scope* scope);
 
         inline TypeIndex typeTag() const;
         inline void setTypeTag(TypeIndex tag);
@@ -1046,7 +1046,7 @@ namespace clover {
         TypeSystem* types;
         Symbol name;
         vec<Field, 8> fields;
-        ScopeIndex scope;
+        Scope* scope;
         bool isCase;
 
         template<typename... Args>
@@ -1113,8 +1113,8 @@ namespace clover {
         inline Type parentType() const;
         inline void setParentType(TypeIndex i);
 
-        inline ScopeIndex scope() const;
-        inline void setScope(ScopeIndex scope);
+        inline Scope* scope() const;
+        inline void setScope(Scope* scope);
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
@@ -1127,7 +1127,7 @@ namespace clover {
     struct UnionBuilder {
         Symbol name;
         vec<Type, 8> cases;
-        ScopeIndex scope;
+        Scope* scope;
         bool isCase;
 
         inline UnionBuilder(Symbol name_in): name(name_in) {}
@@ -1194,6 +1194,7 @@ namespace clover {
         Compilation* compilation;
         SymbolTable* symbols;
         vec<TypeIndex> vars;
+        vec<Scope*> scopes;
 
         TypeIndex signedTypeCache[66];
         TypeIndex unsignedTypeCache[65];
@@ -1339,6 +1340,11 @@ namespace clover {
         inline VarType var(const Type& bottom, const Type& top) {
             return encode<TypeKind::Var>(bottom, top);
         }
+
+        inline ScopeIndex internScope(Scope* scope) {
+            scopes.push(scope);
+            return scopes.size() - 1;
+        }
     };
 
     namespace TypeSystemMethods {
@@ -1460,7 +1466,7 @@ namespace clover {
         }
 
         template<>
-        inline u32 encode<TypeKind::Named>(TypeSystem& sys, const Symbol& name, const ScopeIndex& scope, const TypeIndex& inner) {
+        inline u32 encode<TypeKind::Named>(TypeSystem& sys, const Symbol& name, Scope* const& scope, const TypeIndex& inner) {
             u32 index = sys.words.size();
             TypeWord word;
             word.bits = 0;
@@ -1469,12 +1475,12 @@ namespace clover {
             word.extElement = inner;
             sys.words.push(word);
             sys.words.push({ .name = name.symbol });
-            sys.words.push({ .scope = scope });
+            sys.words.push({ .scope = sys.internScope(scope) });
             return index;
         }
 
         template<>
-        inline u32 encode<TypeKind::Named>(TypeSystem& sys, const Symbol& name, const ScopeIndex& scope, const TypeIndex& inner, const IsCaseTag&) {
+        inline u32 encode<TypeKind::Named>(TypeSystem& sys, const Symbol& name, Scope* const& scope, const TypeIndex& inner, const IsCaseTag&) {
             u32 index = sys.words.size();
             TypeWord word;
             word.bits = 0;
@@ -1484,7 +1490,7 @@ namespace clover {
             word.extElement = inner;
             sys.words.push(word);
             sys.words.push({ .name = name.symbol });
-            sys.words.push({ .scope = scope }); // Scope
+            sys.words.push({ .scope = sys.internScope(scope) }); // Scope
             sys.words.push({ .typeBound = InvalidType }); // Parent type
             sys.words.push({ .tag = InvalidType }); // Tag
             return index;
@@ -1516,12 +1522,12 @@ namespace clover {
         }
 
         template<>
-        inline u32 encode<TypeKind::Named>(TypeSystem& sys, const Symbol& name, const ScopeIndex& scope, const Type& inner) {
+        inline u32 encode<TypeKind::Named>(TypeSystem& sys, const Symbol& name, Scope* const& scope, const Type& inner) {
             return encode<TypeKind::Named>(sys, name, scope, inner.index);
         }
 
         template<>
-        inline u32 encode<TypeKind::Named>(TypeSystem& sys, const Symbol& name, const ScopeIndex& scope, const Type& inner, const IsCaseTag&) {
+        inline u32 encode<TypeKind::Named>(TypeSystem& sys, const Symbol& name, Scope* const& scope, const Type& inner, const IsCaseTag&) {
             return encode<TypeKind::Named>(sys, name, scope, inner.index, IsCase);
         }
 
@@ -1661,7 +1667,7 @@ namespace clover {
             word.fieldCount = builder.fields.size();
             sys.words.push(word);
             sys.words.push({ .name = builder.name.symbol });
-            sys.words.push({ .scope = builder.scope });
+            sys.words.push({ .scope = sys.internScope(builder.scope) });
             for (const Field& f : builder.fields) {
                 sys.words.push({ .hasName = f.hasName, .isBitField = f.isBitField, .bitFieldSize = f.bitFieldSize, .fieldType = f.index });
                 sys.words.push({ .name = f.hasName ? f.name.symbol : InvalidSymbol });
@@ -1685,7 +1691,7 @@ namespace clover {
             word.fieldCount = builder.cases.size();
             sys.words.push(word);
             sys.words.push({ .name = builder.name.symbol });
-            sys.words.push({ .scope = builder.scope });
+            sys.words.push({ .scope = sys.internScope(builder.scope) });
             for (const Type& t : builder.cases) {
                 TypeWord w;
                 w.bits = 0;
@@ -2824,13 +2830,12 @@ namespace clover {
         nthWord(3).typeBound = i;
     }
 
-    inline ScopeIndex NamedType::scope() const {
-        return nthWord(2).scope;
+    inline Scope* NamedType::scope() const {
+        return types->scopes[nthWord(2).scope];
     }
 
-    inline void NamedType::setScope(ScopeIndex i) {
-        assert(i != InvalidScope);
-        nthWord(2).scope = i;
+    inline void NamedType::setScope(Scope* scope) {
+        nthWord(2).scope = types->internScope(scope);
     }
 
     inline TypeIndex NamedType::typeTag() const {
@@ -3162,13 +3167,12 @@ namespace clover {
         nthWord(3 + count() * 2).typeBound = i;
     }
 
-    inline ScopeIndex StructType::scope() const {
-        return nthWord(2).scope;
+    inline Scope* StructType::scope() const {
+        return types->scopes[nthWord(2).scope];
     }
 
-    inline void StructType::setScope(ScopeIndex i) {
-        assert(i != InvalidScope);
-        nthWord(2).scope = i;
+    inline void StructType::setScope(Scope* scope) {
+        nthWord(2).scope = types->internScope(scope);
     }
 
     inline TypeIndex StructType::typeTag() const {
@@ -3184,6 +3188,8 @@ namespace clover {
     // StructBuilder
 
     inline Type StructBuilder::build(TypeSystem* types) {
+        if (fields.size() == 0)
+            return types->encode<TypeKind::Named>(name, scope, Void);
         return types->encode<TypeKind::Struct>(*this);
     }
 
@@ -3593,13 +3599,12 @@ namespace clover {
         nthWord(3 + count()).typeBound = i;
     }
 
-    inline ScopeIndex UnionType::scope() const {
-        return nthWord(2).scope;
+    inline Scope* UnionType::scope() const {
+        return types->scopes[nthWord(2).scope];
     }
 
-    inline void UnionType::setScope(ScopeIndex i) {
-        assert(i != InvalidScope);
-        nthWord(2).scope = i;
+    inline void UnionType::setScope(Scope* scope) {
+        nthWord(2).scope = types->internScope(scope);
     }
 
     // UnionBuilder
