@@ -1087,6 +1087,10 @@ namespace clover {
                     funcType = function->cloneGenericType();
                 }
                 entry.setType(funcType);
+                if (entry.isGlobal())
+                    module->globals[entry.index()].functionIndex = module->functionIndex(function);
+                else
+                    scope->function->locals[entry.index()].functionIndex = module->functionIndex(function);
                 ast.setType(funcType);
                 function->typeIndex = funcType.index;
                 ast.setChild(1, module->add(ASTKind::ResolvedFunction, function));
