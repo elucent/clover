@@ -1790,6 +1790,8 @@ namespace clover {
                     value = createIntArrayValue<int32_t>(genCtx, init, module->i32Type(), jasmine_i32_array_value);
                 else if (elementType == module->u32Type())
                     value = createIntArrayValue<uint32_t>(genCtx, init, module->u32Type(), jasmine_u32_array_value);
+                else if (elementType == module->charType())
+                    value = createIntArrayValue<uint32_t>(genCtx, init, module->u32Type(), jasmine_u32_array_value);
                 else if (elementType == module->i64Type())
                     value = createIntArrayValue<int64_t>(genCtx, init, module->i64Type(), jasmine_i64_array_value);
                 else if (elementType == module->u64Type())
