@@ -545,7 +545,7 @@ namespace clover {
 
         inline Local addConstantIndirect(ScopeIndex scope, u32 constantIndex);
 
-        inline Local addLocalFunctionImport(VariableKind kind, Function* function);
+        inline Local addLocalFunction(VariableKind kind, Function* function);
 
         inline Local addLocalImport(VariableKind kind, TypeIndex type, Symbol name) {
             assert(kind != VariableKind::Function);
@@ -1420,9 +1420,12 @@ namespace clover {
             return it->value;
         }
 
-        inline Global addGlobalFunctionImport(VariableKind kind, Function* function) {
+        inline Global addGlobalFunction(VariableKind kind, Function* function) {
             assert(kind == VariableKind::Function);
-            assert(function->typeIndex != InvalidType);
+
+            // Either we are defining a local function, or we're importing a
+            // function which must have already been typechecked.
+            assert(function->typeIndex != InvalidType || function->module == this);
 
             VariableInfo info;
             info.kind = kind;
@@ -1607,9 +1610,12 @@ namespace clover {
         isConst = module->node(decl).kind() == ASTKind::ConstFunDecl;
     }
 
-    inline Local Function::addLocalFunctionImport(VariableKind kind, Function* function) {
+    inline Local Function::addLocalFunction(VariableKind kind, Function* function) {
         assert(kind == VariableKind::Function);
-        assert(function->typeIndex != InvalidType);
+
+        // Either we are defining a local function, or we're importing a
+        // function which must have already been typechecked.
+        assert(function->typeIndex != InvalidType || function->module == module);
 
         VariableInfo info;
         info.kind = kind;

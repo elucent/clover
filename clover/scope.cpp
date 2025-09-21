@@ -26,6 +26,7 @@ namespace clover {
     }
 
     void Scope::add(VariableKind kind, const AST& decl, Symbol name) {
+        assert(kind != VariableKind::Constant && kind != VariableKind::Function && kind != VariableKind::ConstFunction);
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
@@ -43,6 +44,7 @@ namespace clover {
     }
 
     void Scope::add(VariableKind kind, const AST& decl, TypeIndex type, Symbol name) {
+        assert(kind != VariableKind::Constant && kind != VariableKind::Function && kind != VariableKind::ConstFunction);
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
@@ -77,7 +79,7 @@ namespace clover {
         inTable.add(name.symbol);
     }
 
-    void Scope::addFunctionImport(VariableKind kind, Function* function) {
+    void Scope::addFunction(VariableKind kind, Function* function) {
         Symbol name = function->name;
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
@@ -87,9 +89,9 @@ namespace clover {
         }
         u32 var;
         if (this->function)
-            var = this->function->addLocalFunctionImport(kind, function).index;
+            var = this->function->addLocalFunction(kind, function).index;
         else
-            var = module->addGlobalFunctionImport(kind, function).index;
+            var = module->addGlobalFunction(kind, function).index;
         entries.put(name, var);
         inTable.add(name.symbol);
     }
@@ -205,13 +207,8 @@ namespace clover {
         } else {
             if (isOverloads)
                 scope->addOverloadedFunction((Overloads*)ptr, name);
-            else {
-                Function* function = (Function*)ptr;
-                if (function->module == module)
-                    scope->add(VariableKind::Function, module->node(((Function*)ptr)->decl), name);
-                else
-                    scope->addFunctionImport(VariableKind::Function, function);
-            }
+            else
+                scope->addFunction(VariableKind::Function, (Function*)ptr);
         }
     }
 

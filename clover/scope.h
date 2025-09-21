@@ -145,7 +145,7 @@ namespace clover {
         void add(VariableKind kind, const AST& decl, TypeIndex type, Symbol name);
         void addConstant(VariableKind kind, const AST& decl, Symbol name, Value value);
         void addImport(VariableKind kind, TypeIndex type, Symbol name);
-        void addFunctionImport(VariableKind kind, Function* function);
+        void addFunction(VariableKind kind, Function* function);
         void addOverloadedFunction(Overloads* overloads, Symbol name);
         void addIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
         void addConstantIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);

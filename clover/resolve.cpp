@@ -774,11 +774,7 @@ namespace clover {
                         const VariableInfo& info = entry.isGlobal()
                             ? module->globals[entry.index()]
                             : scope->function->locals[entry.index()];
-                        Function* function;
-                        if (info.isImport)
-                            function = module->functions[info.functionIndex];
-                        else
-                            function = module->node(info.decl).function();
+                        Function* function = module->functions[info.functionIndex];
                         return module->add(ASTKind::ResolvedFunction, function);
                     }
 
@@ -786,11 +782,7 @@ namespace clover {
                         const VariableInfo& info = entry.isGlobal()
                             ? module->globals[entry.index()]
                             : scope->function->locals[entry.index()];
-                        Function* function;
-                        if (info.isImport)
-                            function = module->functions[info.functionIndex];
-                        else
-                            function = module->node(info.decl).function();
+                        Function* function = module->functions[info.functionIndex];
                         return module->add(ASTKind::ResolvedFunction, function);
                     }
 
@@ -1087,10 +1079,6 @@ namespace clover {
                     funcType = function->cloneGenericType();
                 }
                 entry.setType(funcType);
-                if (entry.isGlobal())
-                    module->globals[entry.index()].functionIndex = module->functionIndex(function);
-                else
-                    scope->function->locals[entry.index()].functionIndex = module->functionIndex(function);
                 ast.setType(funcType);
                 function->typeIndex = funcType.index;
                 ast.setChild(1, module->add(ASTKind::ResolvedFunction, function));
