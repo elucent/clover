@@ -791,7 +791,7 @@ namespace jasmine {
                 const auto& arrayType = mod->typeContext()[data[-1].type];
                 alignTo(repr(arrayType.elementType()).alignment());
                 if (def) def->def(as);
-                if (arrayType.elementType() < 0) switch (arrayType.elementType()) {
+                if (arrayType.elementType() < 0 && data[-1].isSpecialized) switch (arrayType.elementType()) {
                     case I8:
                     case U8:
                         for (u32 i = 0; i < roundUpToNearest<u32>(arrayType.length(), 4); i ++)
@@ -814,6 +814,8 @@ namespace jasmine {
                         for (u32 i = 0; i < arrayType.length(); i ++)
                             buf.write<i64>(with_endian<Target::endianness, i64>(((i64*)data)[i]));
                         return;
+                    default:
+                        unreachable("Unexpected element type ", TypeLogger { *mod, arrayType.elementType() }, " in specialized array data.");
                 }
                 for (u32 i = 0; i < arrayType.length(); i ++)
                     generateDataValue(mod, as, buf, data[i], none<DefInfo>());

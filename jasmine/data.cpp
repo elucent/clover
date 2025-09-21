@@ -18,12 +18,19 @@ namespace jasmine {
     }
 
     template<typename T>
+    constexpr bool isSpecialized() { return true; }
+
+    template<>
+    constexpr bool isSpecialized<Value>() { return false; }
+
+    template<typename T>
     Value ValueTable::makeArray(TypeIndex type, const_slice<T> data) {
         const auto& arrayType = mod->typeContext()[type];
 
         u32 result = words.size();
         Value header;
         header.kind = Value::Array;
+        header.isSpecialized = isSpecialized<T>();
         header.type = type;
         words.push(header);
 
@@ -35,7 +42,7 @@ namespace jasmine {
         for (u32 i = 0; i < numWords; i ++)
             words.push({ .bits = 0 });
         memory::copy(words.end() - numWords, data.data(), data.size() * sizeof(T));
-        
+
         Value ref;
         ref.kind = header.kind;
         ref.ref = result;
@@ -102,11 +109,12 @@ namespace jasmine {
         u32 result = words.size();
         Value firstWord;
         firstWord.kind = Value::Struct;
+        firstWord.isSpecialized = 0;
         firstWord.type = type;
         words.push(firstWord);
         for (u32 i = 0; i < numWords; i ++)
             words.push(data[i]);
-        
+
         Value ref;
         ref.kind = Value::Struct;
         ref.ref = result;

@@ -20,7 +20,7 @@ namespace jasmine {
             struct { Kind kind : 4; u32 isInline : 1; i32 payload : 27; };
             struct { u32 : 4; ValueIndex ref : 28; };
             struct { u32 : 4; Symbol sym : 28; };
-            struct { u32 : 4; TypeIndex type : 28; };
+            struct { u32 : 4; u32 isSpecialized : 1; TypeIndex type : 27; };
             u32 bits;
         };
 
@@ -40,7 +40,7 @@ namespace jasmine {
             return isInline ? bitcast<f64>(u64(payload) << 37) : (*constants)[payload].d;
         }
     };
-    
+
     static_assert(sizeof(Value) == 4);
 
     struct ValueTable {
