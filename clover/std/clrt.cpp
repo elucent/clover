@@ -59,6 +59,12 @@ extern const_slice<i8> process_arg(u64 i) {
 // alias CLRTMemoryFlags: u32
 u32 CLRT_MAP_READ = 1, CLRT_MAP_WRITE = 2, CLRT_MAP_EXEC = 4;
 
+// u64 CLRTMemoryPagesize()
+u64 CLRTMemoryPagesize() ASMLABEL("CLRTMemoryPagesize()");
+u64 CLRTMemoryPagesize() {
+    return memory::pagesize();
+}
+
 // i8[] CLRTMemoryMap(u64 bytes)
 slice<i8> CLRTMemoryMap(u64) ASMLABEL("CLRTMemoryMap(u64)");
 slice<i8> CLRTMemoryMap(u64 bytes) {
@@ -69,25 +75,19 @@ slice<i8> CLRTMemoryMap(u64 bytes) {
 // void CLRTMemoryUnmap(i8[] pages)
 void CLRTMemoryUnmap(slice<i8>) ASMLABEL("CLRTMemoryUnmap(i8[])");
 void CLRTMemoryUnmap(slice<i8> pages) {
-    memory::unmap(pages.as_slice<memory::page>());
+    memory::unmap(pages);
 }
 
 // void CLRTMemoryTag(i8[] pages, CLRTMemoryFlags)
-void CLRTMemoryTag(slice<i8>, i32) ASMLABEL("CLRTMemoryTag(i8[],u32)");
-void CLRTMemoryTag(slice<i8> pages, i32 flags) {
-    memory::tag(pages.as_slice<memory::page>(), flags);
+void CLRTMemoryTag(slice<i8>, u32) ASMLABEL("CLRTMemoryTag(i8[],u32)");
+void CLRTMemoryTag(slice<i8> pages, u32 flags) {
+    memory::tag(pages, flags);
 }
 
 // void CLRTMemoryDecommit(i8[] pages)
 void CLRTMemoryDecommit(slice<i8>) ASMLABEL("CLRTMemoryDecommit(i8[])");
 void CLRTMemoryDecommit(slice<i8> pages) {
-    memory::decommit(pages.as_slice<memory::page>());
-}
-
-// i8* CLRTMemorySp()
-void* CLRTMemorySp() ASMLABEL("CLRTMemorySp()");
-void* CLRTMemorySp() {
-    return (void*)memory::sp();
+    memory::decommit(pages);
 }
 
 // alias CLRTFileFlags: u32

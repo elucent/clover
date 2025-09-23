@@ -5,11 +5,11 @@
 
 alias CLRTMemoryFlags: u32
 
+u64 CLRTMemoryPagesize()
 i8[] CLRTMemoryMap(u64 bytes)
 void CLRTMemoryUnmap(i8[] pages)
 void CLRTMemoryTag(i8[] pages, CLRTMemoryFlags)
 void CLRTMemoryDecommit(i8[] pages)
-i8* CLRTMemorySp()
 
 ###########
 #  Files  #

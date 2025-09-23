@@ -823,7 +823,9 @@ namespace jasmine {
 
 using namespace jasmine;
 
-extern "C" i32 main(i32 argc, i8** argv) {
+extern "C" i32 main(i32 argc, i8** argv, i8** envp) {
+    process::init(argc, argv, envp);
+
     if (argc < 3) {
         println("Usage: ", argv[0], " FILE... DEST");
         process::exit(1);

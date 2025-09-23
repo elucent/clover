@@ -12,8 +12,7 @@ CC := $(shell $(DETECT) cc)
 CXX := $(shell $(DETECT) cxx)
 TOOLCHAIN := $(shell $(DETECT) toolchain)
 
-ifeq ($(RT_LIBC_COMPATIBLE), 1)
-else
+ifeq ($(RT_FREESTANDING), 1)
 FREESTANDING := 1
 endif
 
@@ -27,10 +26,10 @@ else
 		-DRT_GCC_COMPATIBLE=1 -DRT_$(OS_UPPER)=1 -DRT_$(ARCH_UPPER)=1 -DRT_$(WORDSIZE)=1
 	DEFINES += RT_GCC_COMPATIBLE
 	FREESTANDING_FLAGS := -DRT_FREESTANDING=1 -nostdlib -nostdlib++ -nodefaultlibs -fno-builtin -ffreestanding -fno-builtin-bcmp -fno-use-cxa-atexit -fno-threadsafe-statics
-	ifeq ($(RT_LIBC_COMPATIBLE), 1)
-		CXX_FLAGS += -DRT_LIBC_COMPATIBLE=1
-	else
+	ifeq ($(RT_FREESTANDING), 1)
 		CXX_FLAGS += $(FREESTANDING_FLAGS)
+	else
+		CXX_FLAGS += -DRT_LIBC_COMPATIBLE=1
 	endif
 	DEBUG_CXX_FLAGS := -O0 -g3 -Ibin/debug
 	DEBUG_LINK_FLAGS := -Wl,--gc-sections -z noexecstack

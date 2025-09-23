@@ -4,19 +4,14 @@
 #include "util/hash.h"
 #include "util/math.h"
 
-using memory::PAGESIZE;
-
 void LinkedAssembly::load() {
-    iword n_code = codesize / PAGESIZE;
-    iword n_data = datasize / PAGESIZE;
-    iword n_static = statsize / PAGESIZE;
+    auto pagesize = memory::pagesize();
+    iword n_code = roundUpToNearest<u64>(codesize, pagesize);
+    iword n_data = roundUpToNearest<u64>(datasize, pagesize);
+    iword n_static = roundUpToNearest<u64>(statsize, pagesize);
     memory::tag({pages.data(), n_code}, memory::READ | memory::EXEC);
     memory::tag({pages.data() + n_code, n_data}, memory::READ);
     memory::tag({pages.data() + n_code + n_data, n_static}, memory::READ | memory::WRITE);
-}
-
-inline iword up_to_nearest_page(iword p) {
-    return p + PAGESIZE - 1 & ~(PAGESIZE - 1);
 }
 
 void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind) {
@@ -88,15 +83,16 @@ void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind) {
 }
 
 void Assembly::linkInto(LinkedAssembly& linked) {
-    iword codestart = 0;
-    iword datastart = codestart + up_to_nearest_page(code.size());
-    iword staticstart = datastart + up_to_nearest_page(data.size());
-    iword totalsize = staticstart + up_to_nearest_page(stat.size());
+    u64 codestart = 0;
+    u64 pagesize = memory::pagesize();
+    u64 datastart = codestart + roundUpToNearest<u64>(code.size(), pagesize);
+    u64 staticstart = datastart + roundUpToNearest<u64>(data.size(), pagesize);
+    u64 totalsize = staticstart + roundUpToNearest<u64>(stat.size(), pagesize);
 
     linked.codesize = datastart;
     linked.datasize = staticstart - datastart;
     linked.statsize = totalsize - staticstart;
-    linked.pages = memory::map(totalsize / PAGESIZE);
+    linked.pages = memory::map(totalsize);
     linked.code = (i8*)linked.pages.data() + codestart;
     linked.data = (i8*)linked.pages.data() + datastart;
     linked.stat = (i8*)linked.pages.data() + staticstart;

@@ -4,41 +4,38 @@
 #include "rt/def.h"
 
 namespace memory {
-    constexpr iword KiB = 1024;
-    constexpr iword MiB = KiB * 1024;
-    constexpr iword GiB = MiB * 1024;
+    constexpr u64 KiB = 1024;
+    constexpr u64 MiB = KiB * 1024;
+    constexpr u64 GiB = MiB * 1024;
 
     /*
-     * Assumed page size for targets.
-     */
-    constexpr iword PAGESIZE = 4 * KiB;
-
-    /*
-     * Storage type for a single memory page.
-     */
-    using page = array<i8, PAGESIZE>;
-
-    /*
-     * memory.map(pages)
+     * memory.pagesize()
      *
-     * Requests the provided number of memory pages from the operating system
-     * and returns a pointer to them. Returns 0 if the request fails.
+     * Returns the current system page size in bytes.
      */
-    extern slice<page> map(iword pages) ASMLABEL("memory.map");
+    extern u64 pagesize() ASMLABEL("memory.pagesize");
+
+    /*
+     * memory.map(bytes)
+     *
+     * Requests pages from the operating system to contain the specified number
+     * of bytes, and returns a pointer to them. Returns 0 if the request fails.
+     */
+    extern slice<i8> map(u64 bytes) ASMLABEL("memory.map");
 
     /*
      * memory.unmap(pages)
      *
      * Releases the provided contiguous block of pages from this process.
      */
-    extern void unmap(slice<page> pages) ASMLABEL("memory.unmap");
+    extern void unmap(slice<i8> pages) ASMLABEL("memory.unmap");
 
     /*
      * memory.tag(pages)
      *
      * Sets the permissions for the provided contiguous block of pages.
      */
-    extern void tag(slice<page> pages, iword flags) ASMLABEL("memory.tag");
+    extern void tag(slice<i8> pages, u32 flags) ASMLABEL("memory.tag");
 
     /*
      * memory.decommit(pages)
@@ -46,21 +43,7 @@ namespace memory {
      * Does not unmap, but allows the decommitting of memory in the provided
      * page block.
      */
-    extern void decommit(slice<page> pages) ASMLABEL("memory.decommit");
-
-    /*
-     * memory.sp()
-     *
-     * Returns the current value of the stack pointer.
-     */
-    extern iword sp() ASMLABEL("memory.sp");
-
-    /*
-     * memory.flush()
-     *
-     * Flush all registers to the stack and call.
-     */
-    extern iword flush(void* func) ASMLABEL("memory.flush");
+    extern void decommit(slice<i8> pages) ASMLABEL("memory.decommit");
 
     enum Tag {
         READ = 1,       // Specifies that the memory pages should be readable.
@@ -124,7 +107,7 @@ namespace file {
      * if it does not exist.
      * Returns -1 if the file could not be opened.
      */
-    extern fd open(const_slice<i8> path, iword flags) ASMLABEL("file.open");
+    extern fd open(const_slice<i8> path, u32 flags) ASMLABEL("file.open");
 
     /*
      * file.read(file, buf)
@@ -300,19 +283,18 @@ namespace net {
 
 namespace process {
     /*
-     * process.init(argc, argv)
+     * process.init(argc, argv, envp)
      *
-     * Initializes an already-started program. Used when this runtime is not the
-     * provider of the entrypoint function.
+     * Initializes the runtime for the process with the specified arguments.
      */
-    extern void init(i32 argc, i8** argv) ASMLABEL("process.init");
+    extern void init(i32 argc, i8** argv, i8** envp) ASMLABEL("process.init");
 
     /*
      * process.exit(code)
      *
      * Exits the program with the given exit code.
      */
-    extern void exit(iword code) ASMLABEL("process.exit");
+    extern void exit(i32 code) ASMLABEL("process.exit");
 
     /*
      * process.try_lock(ptr)
@@ -338,82 +320,12 @@ namespace process {
      */
     extern void unlock(i8* ptr) ASMLABEL("process.unlock");
 
-    using thread = iword;
-    constexpr u32 CHANNEL_BUFFER_SIZE = 512;
-
-    /*
-     * process.current()
-     *
-     * Returns the currently-executing thread.
-     */
-    extern thread current() ASMLABEL("process.current");
-
     /*
      * process.tls()
      *
      * Returns a pointer to the thread-local storage of the current thread.
      */
     extern void* tls() ASMLABEL("process.tls");
-
-    /*
-     * process.spawn(task, parameter, stack, channels)
-     *
-     * Spawns a new thread with the provided number of stack pages, the desired
-     * number of channels, running the provided task function. Returns a handle
-     * to the newly-created thread.
-     */
-    extern thread spawn(void (*task)(iword), iword parameter, iword stack, iword tls, iword channels) ASMLABEL("process.spawn");
-
-    /*
-     * process.send(thread, channel, message)
-     *
-     * Sends a message to the specified channel of the specified thread. Returns
-     * whether sending the message succeeded.
-     */
-    extern bool send(thread t, iword channel, iword message) ASMLABEL("process.send");
-
-    /*
-     * process.isempty(channel)
-     *
-     * Returns whether the specified channel on the current thread is empty.
-     */
-    extern bool isempty(iword channel) ASMLABEL("process.isempty");
-
-    /*
-     * process.receive(channel)
-     *
-     * Waits to receive a message from the specified channel of the current
-     * thread. Returns the message once one is received.
-     */
-    extern iword receive(iword channel) ASMLABEL("process.receive");
-
-    /*
-     * process.await(thread)
-     *
-     * Waits until the specified thread finishes.
-     */
-    extern void await(thread t) ASMLABEL("process.await");
-
-    /*
-     * process.sleep()
-     *
-     * Suspends the current thread until it's woken by another thread.
-     */
-    extern void sleep() ASMLABEL("process.sleep");
-
-    /*
-     * process.running(thread)
-     *
-     * Returns whether the specified thread is currently running.
-     */
-    extern bool running(thread t) ASMLABEL("process.running");
-
-    /*
-     * process.wake(thread)
-     *
-     * Wakes up a sleeping thread.
-     */
-    extern void wake(thread t) ASMLABEL("process.wake");
 
     /*
      * process.exec(path, argv)
@@ -430,28 +342,28 @@ namespace time {
      *
      * Returns a clock time in seconds.
      */
-    extern iword seconds() ASMLABEL("time.seconds");
+    extern u64 seconds() ASMLABEL("time.seconds");
 
     /*
      * time.millis()
      *
      * Returns a clock time in milliseconds.
      */
-    extern iword millis() ASMLABEL("time.millis");
+    extern u64 millis() ASMLABEL("time.millis");
 
     /*
      * time.nanos()
      *
      * Returns a clock time in nanoseconds, guaranteed to be at least millisecond-precise and usually more.
      */
-    extern iword nanos() ASMLABEL("time.nanos");
+    extern u64 nanos() ASMLABEL("time.nanos");
 
     /*
      * time.ticks()
      *
      * Returns a clock time in ticks, based on the most precise available clock on the target hardware.
      */
-    extern iword ticks() ASMLABEL("time.ticks");
+    extern u64 ticks() ASMLABEL("time.ticks");
 }
 
 namespace atomics {

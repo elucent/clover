@@ -483,7 +483,7 @@ struct Reloc : public Def {
 
 // Unified buffer representing fully-linked code.
 struct LinkedAssembly {
-    slice<memory::page> pages;
+    slice<i8> pages;
     i8 *code, *data, *stat;
     i32 codesize, datasize, statsize;
     ::map<Symbol, iptr> defs;

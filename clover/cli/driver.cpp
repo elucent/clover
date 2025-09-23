@@ -6,7 +6,9 @@
 
 using namespace clover;
 
-extern "C" i32 main(i32 argc, i8** argv) {
+extern "C" i32 main(i32 argc, i8** argv, i8** envp) {
+    process::init(argc, argv, envp);
+
     parseOptions(argc, argv);
 
     Compilation compilation;

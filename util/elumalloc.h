@@ -40,7 +40,7 @@ extern i8 allocLogLock;
 #define ALLOC_LOG(verbosity, ...) do { \
         if (ELUMALLOC_VERBOSE >= verbosity) { \
             process::lock(&allocLogLock); \
-            println("[ALLOC]\t(#", process::current(), ")\t", __VA_ARGS__); \
+            println("[ALLOC]\t(#", 42, ")\t", __VA_ARGS__); \
             process::unlock(&allocLogLock); \
         } \
     } while (false)
@@ -96,7 +96,7 @@ constexpr u64 GB = 1024 * MB;
  * relatively simple, we take a lock around every malloc and free.
  */
 
-slice<memory::page> mapAligned(u64 size, u64 align);
+slice<i8> mapAligned(u64 size, u64 align);
 
 template<typename T>
 struct PrimitiveHeap {
@@ -118,8 +118,8 @@ struct PrimitiveHeap {
 
         inline void unmap() {
             memory::unmap({
-                bitcast<memory::page*>(this),
-                BlockSize / memory::PAGESIZE
+                bitcast<i8*>(this),
+                BlockSize
             });
         }
     };
@@ -876,6 +876,8 @@ namespace elumalloc {
     void deinitialize();
 
     inline void* allocateInHeap(HeapHandle& handle, u64 bytes) {
+        if (!bytes)
+            return nullptr;
         if UNLIKELY(bytes > Block::MaxSizeForMedium)
             return allocateLarge(handle, bytes);
         u64 sizeClass = Block::sizeClassFor(bytes);
@@ -885,6 +887,8 @@ namespace elumalloc {
     }
 
     inline void freeInHeap(HeapHandle& handle, void* ptr) {
+        if (!ptr)
+            return;
         uptr addr = bitcast<uptr>(ptr);
         uptr mediumBase = addr & ~(Block::MediumBlockSize - 1ull);
         Block* block = bitcast<Block*>(mediumBase);

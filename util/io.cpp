@@ -19,7 +19,7 @@ extern "C" void io_deinit() {
         if (fd_table[i] && fd_table[i]->meta.kind == file::FILE)
             flush(i);
         if (fd_table[i])
-            memory::unmap({ (page*)fd_table[i], FDBUF_SIZE / PAGESIZE });
+            memory::unmap({ (i8*)fd_table[i], FDBUF_SIZE });
     }
 }
 

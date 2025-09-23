@@ -33,7 +33,7 @@ struct TestContext {
 #define RUN(results, returntype, ret) do { \
     LinkedAssembly linked = ctx.as.link(); \
     linked.load(); \
-    allocated_bytes += linked.pages.size() * memory::PAGESIZE; \
+    allocated_bytes += linked.pages.size(); \
     for (Symbol sym : ctx.funcList) { \
         returntype(*fun)() = linked.lookup<returntype()>(sym); \
         using Ret = decltype(fun()); \
@@ -47,7 +47,7 @@ struct TestContext {
         } \
         ASSERT(bits_equal(fun(), Ret(ret))); \
     } \
-} while(false); 
+} while(false);
 
 template<typename MoveType, typename OpType>
 struct TernaryFuncs {
@@ -147,7 +147,7 @@ template<typename MoveType, typename OpType>
 void gen_ternary_int(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, ASMVal left, ASMVal right) {
     Assembly& as = ctx.as;
     RegSet allowed = Assembler::gps() - Assembler::clobbers(funcs.opcode);
-    
+
     // Both in registers.
     for (mreg l : allowed) {
         for (mreg r : allowed) {
@@ -223,7 +223,7 @@ template<typename MoveType, typename OpType>
 void gen_ternary_float(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, ASMVal left, ASMVal right) {
     Assembly& as = ctx.as;
     RegSet allowed = Assembler::fps() - Assembler::clobbers(funcs.opcode);
-    
+
     // Both in registers.
     for (mreg l : allowed) {
         for (mreg r : allowed) {

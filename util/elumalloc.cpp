@@ -2,23 +2,25 @@
 
 i8 allocLogLock = 0;
 
-slice<memory::page> mapAligned(u64 size, u64 align) {
+slice<i8> mapAligned(u64 size, u64 align) {
     assert(!(align & align - 1));
+    u64 pagesize = memory::pagesize();
+
     size = (size + align - 1) / align * align;
-    u64 mapPages = (size + memory::PAGESIZE - 1) / memory::PAGESIZE + (align + memory::PAGESIZE - 1) * 2 / memory::PAGESIZE;
-    auto pages = memory::map(mapPages);
+    u64 mapPages = (size + pagesize - 1) / pagesize + ((align + pagesize - 1) / pagesize) * 2;
+    auto pages = memory::map(mapPages * pagesize);
 
     uptr base = uptr(pages.data()) + align - (uptr(pages.data()) % align);
     assert(base % align == 0);
 
     uptr end = uptr(pages.data() + pages.size());
     if (uptr(pages.data()) != base)
-        memory::unmap({ pages.data(), iword(base - uptr(pages.data())) / memory::PAGESIZE });
+        memory::unmap({ pages.data(), iword(base - uptr(pages.data())) });
     if (end != base + size)
-        memory::unmap({ (memory::page*)(base + size), iword(end - (base + size)) / memory::PAGESIZE });
+        memory::unmap({ (i8*)(base + size), iword(end - (base + size)) });
 
     ALLOC_LOG(1, "Mapped aligned pages (", size, " bytes, ", align, " aligned) from ", hex(base), " to ", hex(base + size));
-    return { (memory::page*)base, iword(size / memory::PAGESIZE) };
+    return { (i8*)base, iword(size) };
 }
 
 static i8 smallToMediumMappingLock = 0;

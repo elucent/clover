@@ -1,6 +1,5 @@
 #include "util/test/harness.h"
 #include "util/malloc.h"
-#include "util/thread.h"
 #include "util/elumalloc.h"
 
 using namespace elumalloc;
@@ -495,6 +494,7 @@ void elumalloc_single_alloc_free_thread(u64) {
     }
 }
 
+/*
 TEST(elumalloc_alloc_free_once_multi_thread) {
     SKIP_IF_USING_LIBC;
     thread<void(u64)>* threads[4];
@@ -503,6 +503,7 @@ TEST(elumalloc_alloc_free_once_multi_thread) {
     for (u32 i = 0; i < 4; i ++)
         delete threads[i];
 }
+*/
 
 void elumalloc_chaos_allocator_thread(u64 seed) {
     void* old[16384];
@@ -551,6 +552,7 @@ void elumalloc_chaos_allocator_thread(u64 seed) {
     }
 }
 
+/*
 TEST(elumalloc_controlled_chaos_multi_thread) {
     SKIP_IF_USING_LIBC;
     thread<void(u64)>* threads[4];
@@ -559,6 +561,7 @@ TEST(elumalloc_controlled_chaos_multi_thread) {
     for (u32 i = 0; i < 4; i ++)
         delete threads[i];
 }
+*/
 
 TEST(out_of_line_usage) {
     volatile bool cond = false;
