@@ -133,6 +133,11 @@ extern "C" i32 main(i32 argc, i8** argv, i8** envp) {
         args.push(cstring("ld"));
         args.push(cstring("-z"));
         args.push(cstring("noexecstack"));
+
+        // TODO: Actually look this up instead of hardcoding it lol.
+        args.push(cstring("-dynamic-linker"));
+        args.push(cstring("/lib64/ld-linux-x86-64.so.2"));
+
         args.push(outputFile);
         args.push(cstring("-o"));
         args.push(outputFile.take(outputFile.size() - 2));

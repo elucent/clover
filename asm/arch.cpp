@@ -175,11 +175,13 @@ void Assembly::writeELFObject(fd file) {
     constexpr u16 ET_NONE = 0, ET_REL = 1, ET_EXEC = 2, ET_DYN = 3;
     objectHeader.writeLEUnchecked<u16>(ET_REL); // e_type : u16
 
-    constexpr u16 EM_NONE = 0, EM_X86_64 = 62, EM_AARCH64 = 183;
+    constexpr u16 EM_NONE = 0, EM_X86_64 = 62, EM_AARCH64 = 183, EM_RISCV = 243;
     #ifdef RT_AMD64
     objectHeader.writeLEUnchecked<u16>(EM_X86_64); // e_machine : u16
     #elif defined(RT_ARM64)
     objectHeader.writeLEUnchecked<u16>(EM_AARCH64); // e_machine : u16
+    #elif defined(RT_RISCV64)
+    objectHeader.writeLEUnchecked<u16>(EM_RISCV); // e_machine : u16
     #else
     #error "Can't generate ELF binaries for this machine."
     #endif

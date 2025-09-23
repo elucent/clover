@@ -28,11 +28,9 @@ extern f64 math_fpow(f64 f, f64 p) {
     return fpow(f, p);
 }
 
-void setup_main_thread() ASMLABEL("process.setup_main_thread");
-
-extern void clrt_init() ASMLABEL(".clrt.init");
-extern void clrt_init() {
-    setup_main_thread();
+extern void clrt_init(i32 argc, i8** argv, i8** envp) ASMLABEL(".clrt.init");
+extern void clrt_init(i32 argc, i8** argv, i8** envp) {
+    process::init(argc, argv, envp);
     lib_init();
 }
 
