@@ -6,6 +6,11 @@
     using Assembler = AMD64LinuxAssembler;
     constexpr mreg returnRegister = Assembler::RAX;
     constexpr mreg floatReturnRegister = Assembler::XMM0;
+#elif defined(RT_RISCV64) && defined(RT_LINUX)
+    #include "asm/arch/riscv64.h"
+    using Assembler = RISCV64Assembler;
+    constexpr mreg returnRegister = Assembler::A0;
+    constexpr mreg floatReturnRegister = Assembler::FA0;
 #else
     #error Unsupported target for assembler tests.
 #endif
