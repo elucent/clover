@@ -1,5 +1,5 @@
-#ifndef ASM_TARGET_H
-#define ASM_TARGET_H
+#ifndef ASM_ARCH_H
+#define ASM_ARCH_H
 
 #include "util/buffer.h"
 #include "util/io.h"

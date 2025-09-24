@@ -1,5 +1,5 @@
-#ifndef BASIL_JASMINE_ARCH_AMD64_H
-#define BASIL_JASMINE_ARCH_AMD64_H
+#ifndef ASM_ARCH_AMD64_H
+#define ASM_ARCH_AMD64_H
 
 #include "asm/arch.h"
 
