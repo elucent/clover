@@ -516,6 +516,8 @@ void Assembly::writeELFObject(fd file) {
                 case Reloc::ABS64_BE:
                     unreachable("Shouldn't have big-endian relocations on amd64.");
             }
+        #elif defined(RT_RISCV64)
+            unreachable("TODO: Implement ELF relocations for RISC-V");
         #else
             #error "Unsupported architecture for ELF relocations."
         #endif

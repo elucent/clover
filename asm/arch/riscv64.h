@@ -134,7 +134,7 @@ static constexpr mreg
             | (rs1 & 0b11111) << 15
             | (funct3 & 0b111) << 12
             | (rd & 0b11111) << 7
-            | opcode & 0b1111111;
+            | (opcode & 0b1111111);
         as.code.writeLE<u32>(word);
     }
 
@@ -148,7 +148,7 @@ static constexpr mreg
             | (rs1 & 0b11111) << 15
             | (funct3 & 0b111) << 12
             | (rd & 0b11111) << 7
-            | opcode & 0b1111111;
+            | (opcode & 0b1111111);
         as.code.writeLE<u32>(word);
     }
 
@@ -163,7 +163,7 @@ static constexpr mreg
             | (rs1 & 0b11111) << 15
             | (funct3 & 0b111) << 12
             | (imm & 0b11111) << 7
-            | opcode & 0b1111111;
+            | (opcode & 0b1111111);
         as.code.writeLE<u32>(word);
     }
 
@@ -175,7 +175,7 @@ static constexpr mreg
         assert(fitsSigned<20>(imm));
         u32 word = (imm & 0xfffff) << 12
             | (rd & 0b11111) << 7
-            | opcode & 0b1111111;
+            | (opcode & 0b1111111);
         as.code.writeLE<u32>(word);
     }
 
@@ -800,48 +800,17 @@ static constexpr mreg
         add64(as, ::GP(SP), ::GP(SP), dst);
     }
 
-    static void leave(Assembly& as) {
-        mov64(as, GP(RSP), GP(RBP));
-        pop64(as, GP(RBP));
-    }
-
     static inline void trap(Assembly& as) {
         as.code.write<u16>(0); // unimp
     }
 
-    // macro(ADD8,         add8,           0x00,   Size::BITS8,    TERNARY_GP_IMM)             \
-    // macro(ADD16,        add16,          0x01,   Size::BITS16,   TERNARY_GP_IMM)             \
-    // macro(ADD32,        add32,          0x02,   Size::BITS32,   TERNARY_GP_IMM)             \
-    // macro(ADD64,        add64,          0x03,   Size::BITS64,   TERNARY_GP_IMM)             \
-    // macro(SUB8,         sub8,           0x04,   Size::BITS8,    TERNARY_GP_IMM)             \
-    // macro(SUB16,        sub16,          0x05,   Size::BITS16,   TERNARY_GP_IMM)             \
-    // macro(SUB32,        sub32,          0x06,   Size::BITS32,   TERNARY_GP_IMM)             \
-    // macro(SUB64,        sub64,          0x07,   Size::BITS64,   TERNARY_GP_IMM)             \
-    // macro(MUL8,         mul8,           0x08,   Size::BITS8,    TERNARY_GP_IMM)             \
-    // macro(MUL16,        mul16,          0x09,   Size::BITS16,   TERNARY_GP_IMM)             \
-    // macro(MUL32,        mul32,          0x0a,   Size::BITS32,   TERNARY_GP_IMM)             \
-    // macro(MUL64,        mul64,          0x0b,   Size::BITS64,   TERNARY_GP_IMM)             \
-    // macro(SDIV8,        sdiv8,          0x0c,   Size::BITS8,    TERNARY_GP_IMM)             \
-    // macro(SDIV16,       sdiv16,         0x0d,   Size::BITS16,   TERNARY_GP_IMM)             \
-    // macro(SDIV32,       sdiv32,         0x0e,   Size::BITS32,   TERNARY_GP_IMM)             \
-    // macro(SDIV64,       sdiv64,         0x0f,   Size::BITS64,   TERNARY_GP_IMM)             \
-    // macro(UDIV8,        udiv8,          0x10,   Size::BITS8,    TERNARY_GP_IMM)             \
-    // macro(UDIV16,       udiv16,         0x11,   Size::BITS16,   TERNARY_GP_IMM)             \
-    // macro(UDIV32,       udiv32,         0x12,   Size::BITS32,   TERNARY_GP_IMM)             \
-    // macro(UDIV64,       udiv64,         0x13,   Size::BITS64,   TERNARY_GP_IMM)             \
-    // macro(SREM8,        srem8,          0x14,   Size::BITS8,    TERNARY_GP_IMM)             \
-    // macro(SREM16,       srem16,         0x15,   Size::BITS16,   TERNARY_GP_IMM)             \
-    // macro(SREM32,       srem32,         0x16,   Size::BITS32,   TERNARY_GP_IMM)             \
-    // macro(SREM64,       srem64,         0x17,   Size::BITS64,   TERNARY_GP_IMM)             \
-    // macro(UREM8,        urem8,          0x18,   Size::BITS8,    TERNARY_GP_IMM)             \
-    // macro(UREM16,       urem16,         0x19,   Size::BITS16,   TERNARY_GP_IMM)             \
-    // macro(UREM32,       urem32,         0x1a,   Size::BITS32,   TERNARY_GP_IMM)             \
-    // macro(UREM64,       urem64,         0x1b,   Size::BITS64,   TERNARY_GP_IMM)             \
-    // macro(NEG8,         neg8,           0x1c,   Size::BITS8,    BINARY_GP)                  \
-    // macro(NEG16,        neg16,          0x1d,   Size::BITS16,   BINARY_GP)                  \
-    // macro(NEG32,        neg32,          0x1e,   Size::BITS32,   BINARY_GP)                  \
-    // macro(NEG64,        neg64,          0x1f,   Size::BITS64,   BINARY_GP)                  \
+    static inline void global(Assembly& as, Symbol sym) {
+        as.def(CODE_SECTION, DEF_GLOBAL, sym);
+    }
 
+    static inline void local(Assembly& as, Symbol sym) {
+        as.def(CODE_SECTION, DEF_LOCAL, sym);
+    }
 };
 
 #endif

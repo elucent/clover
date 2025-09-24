@@ -31,7 +31,7 @@ struct TestContext {
     Assembly as;
 
     inline TestContext(): as(table) {
-        Printer<AMD64LinuxAssembler>::write_to(io_stdout);
+        Printer<Assembler>::write_to(io_stdout);
     }
 };
 
