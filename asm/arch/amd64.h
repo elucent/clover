@@ -241,27 +241,27 @@ struct AMD64Assembler {
         bool lit;
 
         static inline Opcode from(u8 prefix, u8 prefix2, u8 base) {
-            return { base, prefix, prefix2, -1, false };
+            return { base, prefix, prefix2, i8(-1), false };
         }
 
         static inline Opcode from(u8 prefix, u8 base) {
-            return { base, prefix, 0, -1, false };
+            return { base, prefix, 0, i8(-1), false };
         }
 
         static inline Opcode from(u8 base) {
-            return { base, 0, 0, -1, false };
+            return { base, 0, 0, i8(-1), false };
         }
 
         static inline Opcode literal(u8 prefix, u8 prefix2, u8 base) {
-            return { base, prefix, prefix2, -1, true };
+            return { base, prefix, prefix2, i8(-1), true };
         }
 
         static inline Opcode literal(u8 opcode) {
-            return { opcode, 0, 0, -1, true };
+            return { opcode, 0, 0, i8(-1), true };
         }
 
         static inline Opcode literal(u8 prefix, u8 opcode) {
-            return { opcode, prefix, 0, -1, true };
+            return { opcode, prefix, 0, i8(-1), true };
         }
 
         static inline Opcode withExt(u8 base, i8 ext) {
