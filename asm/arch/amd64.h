@@ -1678,12 +1678,16 @@ struct AMD64Assembler {
         if (src.kind == ASMVal::IMM) {
             if (src.imm == 0) return xor64(as, dst, dst, dst);
 
-            unary_prefix(as, DWORD, dst); // DWORD, not QWORD, since imm can only be 32 bits
-            as.code.write<u8>(0xB8 + (dst.gp & 0b111));
-            as.code.writeLE<i32>(src.imm);
-
-            if (src.imm < 0)
-                binaryop(as, QWORD, Opcode::literal(0x63), dst, dst); // movsxd
+            if (src.imm < 0) {
+                binary_prefix(as, QWORD, dst, src); // QWORD because we want sign extension.
+                as.code.write<u8>(0xc7);
+                modrm(as, dst, GP(RAX)); // RAX because the immediate means there's no actual register there.
+                as.code.writeLE<i32>(src.imm);
+            } else {
+                unary_prefix(as, DWORD, dst); // DWORD for shorter encoding size, since zero-extension doesn't affect the value.
+                as.code.write<u8>(0xB8 + (dst.gp & 0b111));
+                as.code.writeLE<i32>(src.imm);
+            }
         }
         else binaryop(as, QWORD, Opcode::from(0x88), dst, src);
     }
@@ -2080,6 +2084,18 @@ struct AMD64Assembler {
     }
 
     static inline void lc(Assembly& as, ASMVal dst, ASMVal src) {
+        i64 value = src.imm64;
+        if (!(value & 0xffffffff00000000ull)) {
+            if (value & 0x80000000ull) {
+                // Significant unsigned value, so use zero-extending 32-bit mov.
+                unary_prefix(as, DWORD, dst);
+                as.code.write<u8>(0xB8 + (dst.gp & 0b111));
+                as.code.writeLE<u32>(src.imm64);
+            } else
+                mov32(as, dst, Imm(src.imm64)); // This could have been a 32-bit imm.
+            return;
+        }
+
         unary_prefix(as, QWORD, dst);
         as.code.write<u8>(0xB8 + (dst.gp & 0b111));
         as.code.writeLE<i64>(src.imm64);

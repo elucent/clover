@@ -5,8 +5,8 @@ DEFINE_TEST(load_after_store, 42, i32, I32,
     bb0.addNode(Opcode::MOV, I32, fn.variable("x"), fn.intConst(20));
     bb0.addNode(Opcode::ADDR, PTR, fn.variable("p"), fn.variable("x"));
     bb0.addNode(Opcode::LOAD, I32, fn.variable("y"), fn.variable("p"));
-    bb0.addNode(Opcode::ADD, I32, fn.variable("y"), fn.variable("y"), fn.intConst(2));
-    bb0.addNode(Opcode::STORE, I32, fn.variable("p"), fn.variable("y"));
+    bb0.addNode(Opcode::ADD, I32, fn.variable("w"), fn.variable("y"), fn.intConst(2));
+    bb0.addNode(Opcode::STORE, I32, fn.variable("p"), fn.variable("w"));
     bb0.addNode(Opcode::LOAD, I32, fn.variable("z"), fn.variable("p"));
     bb0.addNode(Opcode::ADD, I32, fn.variable("y"), fn.variable("y"), fn.variable("z"));
     bb0.addNode(Opcode::RET, I32, fn.variable("y"));
