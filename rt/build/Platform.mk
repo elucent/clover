@@ -31,7 +31,7 @@ else
 	else
 		CXX_FLAGS += -DRT_LIBC_COMPATIBLE=1
 	endif
-	DEBUG_CXX_FLAGS := -O0 -g3 -Ibin/debug
+	DEBUG_CXX_FLAGS := -O0 -g3 -Ibin/debug -fsanitize=address,undefined
 	DEBUG_LINK_FLAGS := -Wl,--gc-sections -z noexecstack
 	RELEASE_CXX_FLAGS := -Ofast -Ibin/release -DRELEASE -flto
 	RELEASE_LINK_FLAGS := -Wl,--gc-sections -z noexecstack
