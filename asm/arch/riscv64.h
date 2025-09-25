@@ -3,8 +3,10 @@
 
 #include "asm/arch.h"
 
+#if INCLUDE_ARCH_RISCV64
+
 struct RISCV64Assembler {
-static constexpr mreg
+    static constexpr mreg
         ZERO = 0, RA = 1, SP = 2, GP = 3, TP = 4,
         T0 = 5, T1 = 6, T2 = 7,
         S0 = 8, S1 = 9,
@@ -812,5 +814,7 @@ static constexpr mreg
         as.def(CODE_SECTION, DEF_LOCAL, sym);
     }
 };
+
+#endif
 
 #endif

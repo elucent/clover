@@ -2,6 +2,8 @@
 #include "rt/def.h"
 #include "util/malloc.h"
 
+#if INCLUDE_ARCH_AMD64
+
 const TargetDesc AMD64LinuxAssembler::DESC = TargetDesc(OS_LINUX, ARCH_AMD64);
 
 struct PlacementState {
@@ -181,3 +183,5 @@ MaybePair<ASMVal> AMD64LinuxAssembler::place_aggregate_return_value(void* state,
         return { Mem(((PlacementState*)state)->takeGP(), RAX), {} };
     }
 }
+
+#endif

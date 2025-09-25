@@ -8,6 +8,19 @@
 #include "util/hash.h"
 #include "util/utf.h"
 
+#ifndef INCLUDE_ARCH_AMD64
+    #define INCLUDE_ARCH_AMD64 1
+#endif
+
+#ifndef INCLUDE_ARCH_ARM64
+    // TODO: Implement arm64 assembler.
+    #define INCLUDE_ARCH_ARM64 0
+#endif
+
+#ifndef INCLUDE_ARCH_RISCV
+    #define INCLUDE_ARCH_RISCV 1
+#endif
+
 enum Arch : u8 {
     ARCH_X86,
     ARCH_AMD64,

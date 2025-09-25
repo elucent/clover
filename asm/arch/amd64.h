@@ -3,6 +3,8 @@
 
 #include "asm/arch.h"
 
+#if INCLUDE_ARCH_AMD64
+
 struct AMD64Assembler {
     static constexpr mreg
         RAX = 0, RCX = 1, RDX = 2, RBX = 3, RSP = 4, RBP = 5, RSI = 6, RDI = 7,
@@ -2531,5 +2533,7 @@ struct AMD64LinuxAssembler : public AMD64Assembler {
 };
 
 struct AMD64DarwinAssembler : public AMD64LinuxAssembler {};
+
+#endif
 
 #endif
