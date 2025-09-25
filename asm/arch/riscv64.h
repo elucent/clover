@@ -941,43 +941,29 @@ struct RISCV64Assembler {
     }
 
     static inline void sxt8(Assembly& as, ASMVal dst, ASMVal src) {
-        if (src.kind == ASMVal::IMM)
-            return mov64(as, dst, src);
         shl64(as, dst, src, Imm(56));
         sar64(as, dst, dst, Imm(56));
     }
 
     static inline void sxt16(Assembly& as, ASMVal dst, ASMVal src) {
-        if (src.kind == ASMVal::IMM)
-            return mov64(as, dst, src);
         shl64(as, dst, src, Imm(48));
         sar64(as, dst, dst, Imm(48));
     }
 
     static inline void sxt32(Assembly& as, ASMVal dst, ASMVal src) {
-        if (src.kind == ASMVal::IMM)
-            return mov64(as, dst, src);
         encodeci(as, 0b01, dst.gp, 0, 0b001); // c.addiw
     }
 
     static inline void zxt8(Assembly& as, ASMVal dst, ASMVal src) {
-        if (src.kind == ASMVal::IMM)
-            return mov64(as, dst, src);
         and64(as, dst, dst, Imm(0xff)); // andi
     }
 
     static inline void zxt16(Assembly& as, ASMVal dst, ASMVal src) {
-        if (src.kind == ASMVal::IMM)
-            return mov64(as, dst, src);
         shl64(as, dst, src, Imm(48));
         shr64(as, dst, dst, Imm(48));
     }
 
     static inline void zxt32(Assembly& as, ASMVal dst, ASMVal src) {
-        if (src.kind == ASMVal::IMM) {
-            materializeUimm(as, dst, src);
-            return;
-        }
         shl64(as, dst, src, Imm(32));
         shr64(as, dst, dst, Imm(32));
     }
