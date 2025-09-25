@@ -364,22 +364,65 @@ struct RISCV64Assembler {
         return true;
     }
 
-    static inline ASMVal materializeImm(Assembly& as, ASMVal dst, i32 src) {
+    static inline ASMVal materializeImm32(Assembly& as, ASMVal dst, i32 src) {
         assert(dst.kind == ASMVal::GP);
         if (fitsSigned<6>(src) && encodeci(as, 0b01, dst.gp, src, 0b010)) // c.li
             return dst;
-        i32 upper = src >> 12;
+        i32 upper = src >> 12, lower = src & 0xfff;
         if (!upper) {
-            encodei(as, 0b0010011, dst.gp, ZERO, src & 0xfff); // addi (zero)
-        } else {
+            encodei(as, 0b0010011, dst.gp, ZERO, lower); // addi (zero)
+            return;
+        }
+        if (fitsSigned<6>(upper))
+            encodeci(as, 0b01, dst.gp, upper, 0b011); // c.lui
+        else
+            encodeu(as, 0b0110111, dst.gp, upper); // lui
+        if (src & 0xfff) {
+            if (fitsSigned<6>(src & 0xfff))
+                encodeci(as, 0b01, dst.gp, src & 0xfff, 0b000); // c.addi
+            else
+                encodei(as, 0b0010011, dst.gp, dst.gp, src & 0xfff); // addi
+        }
+        return dst;
+    }
+
+    template<typename IsSigned>
+    static inline ASMVal materializeImm64(Assembly& as, ASMVal dst, i32 src) {
+        assert(dst.kind == ASMVal::GP);
+        if (fitsSigned<31>(src) || IsSigned)
+            return materializeImm32(as, dst, src);
+
+        assert(!IsSigned); // Otherwise we'd already have exited.
+        u32 upper = u32(src) >> 12, lower = u32(src) & 0xfff;
+        if (auto shift = ctz32(upper)) {
+            // If the upper half has trailing zeroes, then we can just lui
+            // then shift.
+            u32 smallerUpper = upper >> ctz32(upper);
             if (fitsSigned<6>(upper))
                 encodeci(as, 0b01, dst.gp, upper, 0b011); // c.lui
             else
                 encodeu(as, 0b0110111, dst.gp, src >> 12); // lui
-            if (src & 0xfff)
+            shl64(as, dst, dst, Imm(shift));
+
+            // If we have a lower component, then addi that in now.
+            if (lower)
                 encodei(as, 0b0010011, dst.gp, dst.gp, src & 0xfff); // addi
+            return;
         }
-        return dst;
+        if ((upper & 1) == lower >> 11) {
+            // There is a bit in common between the upper and lower components,
+            // which lets us do lui + slli + addi
+
+        }
+    }
+
+    template<bool IsSigned>
+    static inline ASMVal materializeImm64(Assembly& as, ASMVal dst, i64 src) {
+        if (fitsSigned<32>(src))
+            return materializeImm64(as, dst, i32(src));
+
+        // Scratch shouldn't be live across this, so we clobber it in multiple
+        // steps.
     }
 
     // For 8-bit arithmetic, since RISC-V has no native instructions for it, we
@@ -426,7 +469,7 @@ struct RISCV64Assembler {
                 return;
             if (fitsSigned<12>(b.imm))
                 return encodei(as, 0b0010011, dst.gp, a.gp, b.imm, 0b000); // addi
-            b = materializeImm(as, ::GP(scratch), b.imm);
+            b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
@@ -453,7 +496,7 @@ struct RISCV64Assembler {
                 return;
             if (fitsSigned<12>(b.imm))
                 return encodei(as, 0b0011011, dst.gp, a.gp, -b.imm, 0b000); // addiw
-            b = materializeImm(as, ::GP(scratch), b.imm);
+            b = materializeImm32(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
@@ -472,7 +515,7 @@ struct RISCV64Assembler {
                 return;
             if (fitsSigned<12>(-b.imm))
                 return encodei(as, 0b0010011, dst.gp, a.gp, -b.imm, 0b000); // addi (negative imm)
-            b = materializeImm(as, ::GP(scratch), b.imm);
+            b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
@@ -481,6 +524,158 @@ struct RISCV64Assembler {
         return encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b000, 0b0100000); // sub
     }
 
+    static inline void mul8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        mul32(as, dst, a, b);
+    }
+
+    static inline void mul16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        mul32(as, dst, a, b);
+    }
+
+    static inline void mul32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        if (a.kind == ASMVal::IMM)
+            swap(a, b); // Ensure immediate if present is in b.
+        if (b.kind == ASMVal::IMM) {
+            if (b.imm == 0)
+                return mov32(as, dst, ::GP(ZERO));
+            if (b.imm == 1)
+                return mov32(as, dst, a);
+            if (b.imm > 0 && isPowerOfTwo(b.imm))
+                return shl32(as, dst, a, ::Imm(intLog2(u32(b.imm))));
+            b = materializeImm32(as, ::GP(scratch), b.imm);
+        }
+        encoder(as, 0b0111011, dst.gp, a.gp, b.gp, 0b000, 0b0000001); // mulw
+    }
+
+    static inline void mul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        if (a.kind == ASMVal::IMM)
+            swap(a, b); // Ensure immediate if present is in b.
+        if (b.kind == ASMVal::IMM) {
+            if (b.imm == 0)
+                return mov64(as, dst, ::GP(ZERO));
+            if (b.imm == 1)
+                return mov64(as, dst, a);
+            if (b.imm > 0 && isPowerOfTwo(b.imm))
+                return shl64(as, dst, a, ::Imm(intLog2(u32(b.imm))));
+            b = materializeImm64<true>(as, ::GP(scratch), b.imm);
+        }
+        encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b000, 0b0000001); // mul
+    }
+
+    template<typename Func>
+    static inline void extendOperandsForDiv(Assembly& as, Func&& extfunc, ASMVal& dst, ASMVal& a, ASMVal& b) {
+        if (a.kind == ASMVal::IMM)
+            extfunc(as, dst, b);
+        else if (b.kind == ASMVal::IMM)
+            extfunc(as, dst, a);
+        else {
+            // Both operands must be registers.
+            if (a == dst) {
+                extfunc(as, dst, a);
+                extfunc(as, ::GP(scratch), b);
+                a = dst, b = ::GP(scratch);
+            } else if (b == dst) {
+                extfunc(as, dst, b);
+                extfunc(as, ::GP(scratch), a);
+                a = ::GP(scratch), b = dst;
+            }
+        }
+    }
+
+    template<bool Is32, bool IsRem, bool IsSigned, i8 Opcode, i8 Funct3, i8 Funct7>
+    static inline void encodeDivRem(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        if (a.kind == ASMVal::IMM) {
+            assert(b.gp != scratch);
+            a = Is32 ? materializeImm32(as, ::GP(scratch), a.imm) : materializeImm64<IsSigned>(as, ::GP(scratch), a.imm);
+        }
+        if (b.kind == ASMVal::IMM) {
+            if (b.imm == 1) {
+                if (IsRem) {
+                    if (Is32)
+                        return mov32(as, dst, ::GP(ZERO));
+                    return mov64(as, dst, ::GP(ZERO));
+                } else {
+                    if (Is32)
+                        return mov32(as, dst, a);
+                    return mov64(as, dst, a);
+                }
+            }
+            b = Is32 ? materializeImm32(as, ::GP(scratch), b.imm) : materializeImm64<IsSigned>(as, ::GP(scratch), b.imm);
+        }
+        encoder(as, Opcode, dst.gp, a.gp, b.gp, Funct3, Funct7); // divw
+    }
+
+    static inline void sdiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        extendOperandsForDiv(as, sxt8, dst, a, b);
+        sdiv64(as, dst, a, b);
+    }
+
+    static inline void sdiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        extendOperandsForDiv(as, sxt16, dst, a, b);
+        sdiv64(as, dst, a, b);
+    }
+
+    static inline void sdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        encodeDivRem<true, false, 0b0111011, 0b100, 0b0000001>(as, dst, a, b); // divw
+    }
+
+    static inline void sdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        encodeDivRem<false, false, 0b0110011, 0b100, 0b0000001>(as, dst, a, b); // div
+    }
+
+    static inline void udiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        extendOperandsForDiv(as, zxt8, dst, a, b);
+        udiv64(as, dst, a, b);
+    }
+
+    static inline void udiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        extendOperandsForDiv(as, zxt16, dst, a, b);
+        udiv64(as, dst, a, b);
+    }
+
+    static inline void udiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        encodeDivRem<true, false, 0b0111011, 0b101, 0b0000001>(as, dst, a, b); // divuw
+    }
+
+    static inline void udiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        encodeDivRem<false, false, 0b0110011, 0b101, 0b0000001>(as, dst, a, b); // divu
+    }
+
+    static inline void srem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        extendOperandsForDiv(as, sxt8, dst, a, b);
+        srem64(as, dst, a, b);
+    }
+
+    static inline void srem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        extendOperandsForDiv(as, sxt16, dst, a, b);
+        srem64(as, dst, a, b);
+    }
+
+    static inline void srem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        encodeDivRem<true, true, 0b0111011, 0b110, 0b0000001>(as, dst, a, b); // remw
+    }
+
+    static inline void srem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        encodeDivRem<false, true, 0b0110011, 0b110, 0b0000001>(as, dst, a, b); // rem
+    }
+
+    static inline void urem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        extendOperandsForDiv(as, zxt8, dst, a, b);
+        urem64(as, dst, a, b);
+    }
+
+    static inline void urem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        extendOperandsForDiv(as, zxt16, dst, a, b);
+        urem64(as, dst, a, b);
+    }
+
+    static inline void urem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        encodeDivRem<true, true, 0b0111011, 0b111, 0b0000001>(as, dst, a, b); // remuw
+    }
+
+    static inline void urem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        encodeDivRem<false, true, 0b0110011, 0b111, 0b0000001>(as, dst, a, b); // remu
+    }
 
     static inline void and8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         and64(as, dst, a, b);
@@ -779,8 +974,10 @@ struct RISCV64Assembler {
     }
 
     static inline void zxt32(Assembly& as, ASMVal dst, ASMVal src) {
-        if (src.kind == ASMVal::IMM)
-            return mov64(as, dst, src);
+        if (src.kind == ASMVal::IMM) {
+            materializeUimm(as, dst, src);
+            return;
+        }
         shl64(as, dst, src, Imm(32));
         shr64(as, dst, dst, Imm(32));
     }
