@@ -7,13 +7,13 @@ TEST(assembly_round_trip_to_file) {
     Assembly as(table);
     using ASM = AMD64LinuxAssembler;
 
-    ASM::global(as, as.symtab["add"]);
+    ASM::global(as, Label::fromSym(as.symtab["add"]));
     ASM::enter(as);
     ASM::add64(as, GP(ASM::RAX), GP(ASM::RDI), GP(ASM::RSI));
     ASM::leave(as);
     ASM::ret(as);
 
-    as.def(DATA_SECTION, DEF_GLOBAL, as.symtab["nums"]);
+    as.def(DATA_SECTION, DEF_GLOBAL, Label::fromSym(as.symtab["nums"]));
     as.data.writeLE<double>(1.0);
     as.data.writeLE<double>(2.0);
     as.data.writeLE<double>(3.0);
@@ -26,7 +26,7 @@ TEST(assembly_round_trip_to_file) {
     as.deserialize(input);
     file::close(input);
 
-    auto linked = as.link();
+    auto linked = as.link(Assembly::defaultRelocator);
     linked.load();
     auto add = linked.lookup<i32(i32, i32)>("add");
     ASSERT_EQUAL(add(1, 2), 3);
@@ -37,16 +37,16 @@ TEST(assembly_serialize_hello_world) {
     Assembly as(table);
     using ASM = AMD64LinuxAssembler;
 
-    ASM::global(as, as.symtab["hello"]);
+    ASM::global(as, Label::fromSym(as.symtab["hello"]));
     ASM::mov64(as, GP(ASM::RDI), Imm(1)); // stdout
-    ASM::la(as, GP(ASM::RSI), Label(as.symtab["msg"]));
+    ASM::la(as, GP(ASM::RSI), LocalLabel(as.symtab["msg"]));
     ASM::mov64(as, GP(ASM::RDX), Imm(12));
     ASM::mov64(as, GP(ASM::RAX), Imm(1));
     as.code.write<u8>(0x0f);
     as.code.write<u8>(0x05);
     ASM::ret(as);
 
-    as.def(DATA_SECTION, DEF_GLOBAL, as.symtab["msg"]);
+    as.def(DATA_SECTION, DEF_GLOBAL, Label::fromSym(as.symtab["msg"]));
     as.data.write("hello world\n", 12);
 
     file::fd output = file::open(cstring("bin/hello.as"), file::WRITE);
@@ -57,7 +57,7 @@ TEST(assembly_serialize_hello_world) {
     as.deserialize(input);
     file::close(input);
 
-    auto linked = as.link();
+    auto linked = as.link(Assembly::defaultRelocator);
     linked.load();
     auto hello = linked.lookup<void()>("hello");
     hello();

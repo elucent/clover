@@ -6,6 +6,7 @@
 #include "util/sym.h"
 #include "util/vec.h"
 #include "util/hash.h"
+#include "util/sort.h"
 #include "util/utf.h"
 
 #ifndef INCLUDE_ARCH_AMD64
@@ -17,18 +18,28 @@
     #define INCLUDE_ARCH_ARM64 0
 #endif
 
-#ifndef INCLUDE_ARCH_RISCV
-    #define INCLUDE_ARCH_RISCV 1
+#ifndef INCLUDE_ARCH_RISCV64
+    #define INCLUDE_ARCH_RISCV64 1
+#endif
+
+#ifndef INCLUDE_OS_LINUX
+    #define INCLUDE_OS_LINUX 1
+#endif
+
+#ifndef INCLUDE_OS_DARWIN
+    #define INCLUDE_OS_DARWIN 1
 #endif
 
 enum Arch : u8 {
     ARCH_X86,
     ARCH_AMD64,
-    ARCH_ARM64
+    ARCH_ARM64,
+    ARCH_RISCV64,
+    ARCH_WASM
 };
 
 constexpr const i8* ARCH_NAMES[] = {
-    "x86", "amd64", "arm64", "wasm"
+    "x86", "amd64", "arm64", "riscv64", "wasm"
 };
 
 enum OS : u8 {
@@ -56,6 +67,30 @@ struct TargetDesc {
         return !(*this == other);
     }
 };
+
+inline Arch currentArch() {
+    #ifdef RT_AMD64
+        return ARCH_AMD64;
+    #elif defined(RT_ARM64)
+        return ARCH_ARM64;
+    #elif defined(RT_RISCV64)
+        return ARCH_RISCV64;
+    #else
+        #error "Tried to get unknown current architecture."
+    #endif
+}
+
+inline OS currentOS() {
+    #ifdef RT_WINDOWS
+        return OS_WINDOWS;
+    #elif defined(RT_OSX)
+        return OS_OSX;
+    #elif defined(RT_LINUX)
+        return OS_LINUX;
+    #else
+        #error "Tried to get unknown current architecture."
+    #endif
+}
 
 using mreg = i8;   // Generic type of machine register.
 
@@ -273,13 +308,34 @@ struct CallBindings {
     }
 };
 
-enum Section : u8 {
+enum Section : u32 {
     CODE_SECTION, DATA_SECTION, STATIC_SECTION
 };
 
-enum DefType : u8 {
+enum DefType : u32 {
     DEF_GLOBAL, DEF_LOCAL
 };
+
+struct Label {
+    u32 hasSym : 1;
+    Symbol sym : 31;
+
+    inline static Label fromSym(Symbol sym) {
+        Label label;
+        label.hasSym = 1;
+        label.sym = sym;
+        return label;
+    }
+
+    inline static Label fromIndex(i32 idx) {
+        Label label;
+        label.hasSym = 0;
+        label.sym = idx;
+        return label;
+    }
+};
+
+static_assert(sizeof(Label) == 4);
 
 // Machine-level value.
 union ASMVal {
@@ -308,7 +364,7 @@ union ASMVal {
             mreg gp;
             mreg fp;
             struct { MemKind memkind; mreg base; i32 offset; };
-            struct { MemKind : 8;     mreg : 8;  i32 sym; };
+            struct { MemKind : 8;     mreg : 8; Label label; };
             u64 uval;
         };
         Kind kind;
@@ -330,6 +386,8 @@ union ASMVal {
         return kind == IMM || kind == IMM64 || kind == F32 || kind == F64;
     }
 };
+
+static_assert(sizeof(ASMVal) == 16);
 
 inline static ASMVal None() {
     ASMVal m;
@@ -394,40 +452,56 @@ inline static ASMVal Mem(mreg base, i32 offset) {
     return m;
 }
 
-inline static ASMVal Func(Symbol sym) {
+inline static ASMVal Func(Label label) {
     ASMVal m;
     m.uval = 0;
     m.kind = ASMVal::MEM;
     m.memkind = ASMVal::FUNC_LABEL;
-    m.sym = sym;
+    m.label = label;
     return m;
 }
 
-inline static ASMVal Label(Symbol sym) {
+inline static ASMVal LocalLabel(Label label) {
     ASMVal m;
     m.uval = 0;
     m.kind = ASMVal::MEM;
     m.memkind = ASMVal::LOCAL_LABEL;
-    m.sym = sym;
+    m.label = label;
     return m;
 }
 
-inline static ASMVal Data(Symbol sym) {
+inline static ASMVal Data(Label label) {
     ASMVal m;
     m.uval = 0;
     m.kind = ASMVal::MEM;
     m.memkind = ASMVal::DATA_LABEL;
-    m.sym = sym;
+    m.label = label;
     return m;
 }
 
-inline static ASMVal Static(Symbol sym) {
+inline static ASMVal Static(Label label) {
     ASMVal m;
     m.uval = 0;
     m.kind = ASMVal::MEM;
     m.memkind = ASMVal::STATIC_LABEL;
-    m.sym = sym;
+    m.label = label;
     return m;
+}
+
+inline static ASMVal Func(Symbol sym) {
+    return Func(Label::fromSym(sym));
+}
+
+inline static ASMVal LocalLabel(Symbol sym) {
+    return LocalLabel(Label::fromSym(sym));
+}
+
+inline static ASMVal Data(Symbol sym) {
+    return Data(Label::fromSym(sym));
+}
+
+inline static ASMVal Static(Symbol sym) {
+    return Static(Label::fromSym(sym));
 }
 
 // Either a simple ASMVal or a pair of ASMVals.
@@ -456,59 +530,64 @@ struct MaybePair {
 // Abstract representation of a symbol location.
 struct Def {
     i32 offset;
-    Symbol sym;
-    Section section;
-    DefType type;
+    Section section : 2;
+    DefType type : 1;
+    u32 hasSym : 1;
+    Symbol sym : 28;
 
     inline Def() {}
 
-    inline Def(Section section_in, DefType type_in, i32 offset_in, Symbol sym_in):
-        offset(offset_in), sym(sym_in), section(section_in), type(type_in) {}
+    inline Def(Section section_in, DefType type_in, i32 offset_in, Label label):
+        offset(offset_in), section(section_in), type(type_in), hasSym(label.hasSym), sym(label.sym) {}
+
+    inline Def(Section section_in, DefType type_in, i32 offset_in):
+        offset(offset_in), section(section_in), type(type_in), hasSym(0), sym(0) {}
 };
+
+static_assert(sizeof(Def) == 8);
 
 // Abstract representation of a relocation.
 struct Reloc : public Def {
     enum Kind : u8 {
-        // PC-relative relocations.
+        #if INCLUDE_ARCH_AMD64
+        // AMD64 specific
+        REL32_LE_J_AMD64,   // 32-bit PC-relative relocation that's part of a jump.
+        REL32_LE_M_AMD64,   // 32-bit PC-relative relocation that's part of a data reference.
+        #endif
 
-        REL8,
-        REL16_LE, REL32_LE, REL64_LE,
-        REL16_BE, REL32_BE, REL64_BE,
+        #if INCLUDE_ARCH_RISCV64
         // RISC-V specific
-        REL20_12_RV64, REL_CONDBR32_RV64,
-        LAST_RELATIVE_KIND = REL64_BE,
+        REL20_12_JALR_RV64, // 32-bit PC-relative relocation that's split between an auipc and jalr.
+        REL20_12_JR_RV64,   // 32-bit PC-relative relocation that's split between an auipc and jalr, where Rd == zero (i.e. it's a jump, not a call).
+        REL20_12_JCC_RV64,  // Same as previous, but auipc is preceded by a condition jump, which we can encode directly in if the displacement is 12 bits or under.
+        #endif
 
-        // Absolute relocations.
+        // Common
+        REL8,               // These usually don't originate directly, but
+        REL16_LE, REL16_BE, // rather as intermediate relocations during branch
+        REL32_LE, REL32_BE, // compaction.
+        REL64_LE, REL64_BE,
 
-        ABS8,
-        ABS16_LE, ABS32_LE, ABS64_LE,
-        ABS16_BE, ABS32_BE, ABS64_BE,
-        // RISC-V specific
-        ABS20_12_RV64, ABS_CONDBR32_RV64
+        ABS64_LE, ABS64_BE  // 64-bit pointer values meant to be fixed up by the linker.
     };
 
     Kind kind;
 
     inline Reloc() {}
 
-    inline Reloc(Section section_in, DefType type_in, Kind kind_in, i32 offset_in, Symbol sym_in):
-        Def(section_in, type_in, offset_in, sym_in), kind(kind_in) {}
-
-    inline bool isRelative() const {
-        return kind <= LAST_RELATIVE_KIND;
-    }
-
-    inline bool isAbsolute() const {
-        return kind > LAST_RELATIVE_KIND;
-    }
+    inline Reloc(Section section_in, DefType type_in, Kind kind_in, i32 offset_in, Label label):
+        Def(section_in, type_in, offset_in, label), kind(kind_in) {}
 };
+
+static_assert(sizeof(Reloc) == 12);
 
 // Unified buffer representing fully-linked code.
 struct LinkedAssembly {
     slice<i8> pages;
     i8 *code, *data, *stat;
     i32 codesize, datasize, statsize;
-    ::map<Symbol, iptr> defs;
+    vec<iptr> defs;
+    ::map<Symbol, u32> defmap;
     SymbolTable* symtab;
 
     inline LinkedAssembly() {}
@@ -516,7 +595,7 @@ struct LinkedAssembly {
     inline LinkedAssembly(LinkedAssembly&& other):
         pages(other.pages), code(other.code), data(other.data), stat(other.stat),
         codesize(other.codesize), datasize(other.datasize), statsize(other.statsize),
-        defs(move(other.defs)), symtab(other.symtab) {
+        defs(move(other.defs)), defmap(move(other.defmap)), symtab(other.symtab) {
         other.pages = { nullptr, iptr(0) };
         other.code = other.data = other.stat = nullptr;
     }
@@ -533,6 +612,7 @@ struct LinkedAssembly {
             datasize = other.datasize;
             statsize = other.statsize;
             defs = move(other.defs);
+            defmap = move(other.defmap);
             symtab = other.symtab;
             other.pages = { nullptr, iptr(0) };
             other.code = other.data = other.stat = nullptr;
@@ -553,10 +633,10 @@ struct LinkedAssembly {
 
     template<typename T>
     T* lookup(Symbol sym) const {
-        auto it = defs.find(sym);
-        if (it == defs.end())
+        auto it = defmap.find(sym);
+        if (it == defmap.end())
             return nullptr;
-        return (T*)it->value;
+        return (T*)defs[it->value];
     }
 
     template<typename T>
@@ -578,6 +658,8 @@ struct LinkedAssembly {
     void writeELFExecutable(fd file);
 };
 
+using RelocationFunction = void(*)(LinkedAssembly&, vec<Reloc, 16>& relocs);
+
 // Collection of buffers for target-specific code.
 struct Assembly {
     bytebuf code, data, stat;
@@ -596,31 +678,33 @@ struct Assembly {
         relocs.clear();
     }
 
-    inline void def(Section section, DefType type, Symbol sym) {
+    inline void def(Section section, DefType type, Label label) {
         bytebuf* ptr;
         switch (section) {
             case CODE_SECTION: ptr = &code; break;
             case DATA_SECTION: ptr = &data; break;
             case STATIC_SECTION: ptr = &stat; break;
         }
-        defs.push(Def(section, type, ptr->size(), sym));
+        defs.push(Def(section, type, ptr->size(), label));
     }
 
-    inline void ref(Section section, DefType type, Reloc::Kind kind, Symbol sym) {
+    inline void ref(Section section, DefType type, Reloc::Kind kind, Label label) {
         bytebuf* ptr;
         switch (section) {
             case CODE_SECTION: ptr = &code; break;
             case DATA_SECTION: ptr = &data; break;
             case STATIC_SECTION: ptr = &stat; break;
         }
-        relocs.push(Reloc(section, type, kind, ptr->size(), sym));
+        relocs.push(Reloc(section, type, kind, ptr->size(), label));
     }
 
-    void linkInto(LinkedAssembly& linked);
+    static void defaultRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs);
 
-    inline LinkedAssembly link() {
+    void linkInto(LinkedAssembly& linked, RelocationFunction relocator);
+
+    inline LinkedAssembly link(RelocationFunction relocator) {
         LinkedAssembly linked;
-        linkInto(linked);
+        linkInto(linked, relocator);
         return move(linked);
     }
 
@@ -699,6 +783,100 @@ struct Assembly {
 
     void writeELFObject(fd file);
 };
+
+void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind);
+
+template<typename ASM>
+void compactingRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs) {
+    if constexpr (ASM::shouldCompact) {
+        for (Reloc& ref : relocs) {
+            iptr base;
+            switch (ref.section) {
+                case CODE_SECTION: base = (iptr)linked.code; break;
+                case DATA_SECTION: base = (iptr)linked.data; break;
+                case STATIC_SECTION: base = (iptr)linked.stat; break;
+            }
+            iptr reloc = base + ref.offset;
+            iptr sym;
+            if (ref.hasSym) {
+                auto it = linked.defmap.find(ref.sym);
+                if (it == linked.defmap.end())
+                    panic("Undefined symbol ", (*linked.symtab)[ref.sym]);
+                ref.hasSym = 0;
+                ref.sym = it->value;
+                sym = linked.defs[it->value];
+            } else
+                sym = linked.defs[ref.sym]; // ref.sym encodes symbol index directly.
+            if (ref.section == CODE_SECTION)
+                continue;
+            linkReloc(reloc, sym, ref.kind);
+        }
+
+        // Should have already linked all these...
+        // TODO: Support partial links, and leaving any undefined symbols in the final linked assembly.
+        relocs.removeIf([](const Reloc& a) -> bool { return a.section != CODE_SECTION; });
+
+        for (auto [i, def] : enumerate(linked.defs)) if (def >= iptr(linked.code) && def < iptr(linked.code + linked.codesize)) {
+            // Total hack, we store the defs intrusively in the relocs array as
+            // DATA_SECTION relocs. This lets us sort them in seamlessly.
+            relocs.push(Reloc(DATA_SECTION, DEF_LOCAL, Reloc::ABS64_LE, def - iptr(linked.code), Label::fromIndex(i)));
+        }
+
+        // Sort by offset order, but with a bias for symbol definitions. This
+        // is so that a relocation at the end of a function isn't processed
+        // after the definition of the next function.
+        sort(relocs, [](const Reloc& a, const Reloc& b) -> bool {
+            i64 arank = i64(a.offset) * 2 + (a.section == DATA_SECTION ? 1 : 0);
+            i64 brank = i64(b.offset) * 2 + (b.section == DATA_SECTION ? 1 : 0);
+            return arank < brank;
+        });
+
+        i8* writer = linked.code;
+        i8* reader = writer;
+        vec<pair<i8*, Symbol>> records;
+        for (Reloc& ref : relocs) {
+
+            // Note that this will point *after* the relocation. Assemblers
+            // need to backtrack a few bytes, and we subtract the diff from the
+            // write pointer.
+
+            i8* data = linked.code + ref.offset;
+            memory::copy(writer, reader, data - reader);
+            writer += data - reader;
+            reader = data;
+
+            if (ref.section == DATA_SECTION) {
+                // Secretly a symbol definition.
+                linked.defs[ref.sym] -= (reader - writer);
+                continue;
+            }
+
+            assert(ref.section == CODE_SECTION);
+            assert(!ref.hasSym);
+            const i8* sym = (const i8*)linked.defs[ref.sym];
+            if (sym >= reader)
+                sym -= reader - writer; // Adjust symbol by the amount we've compacted already.
+            i32 shrunk = ASM::compactReloc(writer, sym, ref);
+            writer -= shrunk;
+            ref.offset -= reader - writer;
+        }
+        if (reader < linked.code + linked.codesize) {
+            memory::copy(writer, reader, linked.code + linked.codesize - reader);
+            writer += linked.code + linked.codesize - reader;
+        }
+
+        relocs.removeIf([](const Reloc& a) -> bool { return a.section != CODE_SECTION; }); // Trim the bogus symbol "relocations".
+        linked.codesize = writer - linked.code;
+    }
+
+    // Even if we did compact, the outcome of that will be a set of relocations
+    // whose kinds now reflect the new, compacted reality. We can't link the
+    // compressed jumps in the same loop that we shrink them anyway, so this is
+    // not too bad.
+    Assembly::defaultRelocator(linked, relocs);
+}
+
+RelocationFunction relocatorFor(Arch arch, OS os);
 
 struct Offsets {
     u32 code, data, stat;
@@ -1424,24 +1602,39 @@ struct Printer : public Assembler {
                         ::write(io, '[', Assembler::reg_name(val.base), val.offset < 0 ? " - " : " + ", val.offset < 0 ? -val.offset : val.offset, ']');
                     break;
                 case ASMVal::FUNC_LABEL:
-                    ::write(io, "func:", as.symtab[val.sym]);
+                    if (val.label.hasSym)
+                        ::write(io, "func:", as.symtab[val.label.sym]);
+                    else
+                        ::write(io, "func:.", val.label.sym);
                     break;
                 case ASMVal::LOCAL_LABEL:
-                    ::write(io, as.symtab[val.sym]);
+                    if (val.label.hasSym)
+                        ::write(io, as.symtab[val.label.sym]);
+                    else
+                        ::write(io, ".L", val.label.sym);
                     break;
                 case ASMVal::DATA_LABEL:
-                    ::write(io, "data:", as.symtab[val.sym]);
+                    if (val.label.hasSym)
+                        ::write(io, "data:", as.symtab[val.label.sym]);
+                    else
+                        ::write(io, "data:.", val.label.sym);
                     break;
                 case ASMVal::STATIC_LABEL:
-                    ::write(io, "static:", as.symtab[val.sym]);
+                    if (val.label.hasSym)
+                        ::write(io, "static:", as.symtab[val.label.sym]);
+                    else
+                        ::write(io, "static:.", val.label.sym);
                     break;
             }
             break;
         }
     }
 
-    static void write_label(fd io, Assembly& as, Symbol label) {
-        ::write(io, as.symtab[label], ":\n");
+    static void write_label(fd io, Assembly& as, Label label) {
+        if (label.hasSym)
+            ::write(io, as.symtab[label.sym], ":\n");
+        else
+            ::write(io, ".L", label.sym, ":\n");
     }
 
     static void write_nullary(fd io, Assembly& as, ASMOpcode opcode) {
@@ -1699,8 +1892,8 @@ struct Printer : public Assembler {
 
     // Labels
 
-    static void global(Assembly& as, Symbol sym) { write_label(output, as, sym); }
-    static void local(Assembly& as, Symbol sym) { write_label(output, as, sym); }
+    static void global(Assembly& as, Label label) { write_label(output, as, label); }
+    static void local(Assembly& as, Label label) { write_label(output, as, label); }
 };
 
 template<typename Assembler>
@@ -1821,8 +2014,8 @@ struct Compose {
 
     // Labels
 
-    static void global(Assembly& as, Symbol sym) { A::global(as, sym); B::global(as, sym); }
-    static void local(Assembly& as, Symbol sym) { A::local(as, sym); B::local(as, sym); }
+    static void global(Assembly& as, Label label) { A::global(as, label); B::global(as, label); }
+    static void local(Assembly& as, Label label) { A::local(as, label); B::local(as, label); }
 
     // Other target methods
 
@@ -1956,8 +2149,8 @@ struct TargetInterface {
 
     // Labels
 
-    virtual void global(Assembly& as, Symbol sym) const = 0;
-    virtual void local(Assembly& as, Symbol sym) const = 0;
+    virtual void global(Assembly& as, Label label) const = 0;
+    virtual void local(Assembly& as, Label label) const = 0;
 
     // Other target methods
 
@@ -2094,8 +2287,8 @@ struct TargetImplementation : public TargetInterface {
 
     // Labels
 
-    virtual void global(Assembly& as, Symbol sym) const override { Target::global(as, sym); }
-    virtual void local(Assembly& as, Symbol sym) const override { Target::local(as, sym); }
+    virtual void global(Assembly& as, Label label) const override { Target::global(as, label); }
+    virtual void local(Assembly& as, Label label) const override { Target::local(as, label); }
 
     // Other target methods
 

@@ -9,7 +9,7 @@ using namespace jasmine;
 inline LinkedAssembly compile(Assembly& as, Function& fn) {
     PassContext& ctx = fn.mod->passContext();
     ctx.targetSpecificPasses->generateAssembly(ctx, fn, as);
-    auto linked = as.link();
+    auto linked = as.link(Assembly::defaultRelocator);
     linked.load();
     return linked;
 }
@@ -23,7 +23,7 @@ struct FunctionAddressifier {
 #define COMPILE(artifact) \
     Assembly as(mod.syms); \
     compileWithOptimizations(&mod, as, 2, true); \
-    auto artifact = as.link(); \
+    auto artifact = as.link(Assembly::defaultRelocator); \
     artifact .load();
 
 #define DEFINE_SIMPLE_TEST(name, result, type_lower, type_upper, ...) \

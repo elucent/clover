@@ -237,7 +237,7 @@ namespace jasmine {
                 section(section_in), sym(sym_in) {}
 
             inline void def(Assembly& as) {
-                as.def(section, DEF_GLOBAL, sym);
+                as.def(section, DEF_GLOBAL, Label::fromSym(sym));
             }
         };
 

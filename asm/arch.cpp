@@ -17,81 +17,111 @@ void LinkedAssembly::load() {
 void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind) {
     iptr diff = sym - reloc;
     switch (kind) {
+        #if INCLUDE_ARCH_AMD64
+            case Reloc::REL32_LE_J_AMD64:
+            case Reloc::REL32_LE_M_AMD64:
+                if (diff < -0x80000000l || diff > 0x7fffffffl)
+                    panic("Difference is too big for 32-bit relative relocation!");
+                ((i32*)reloc)[-1] = little_endian<i32>(diff);
+                break;
+        #endif
+
+        #if INCLUDE_ARCH_RISCV64
+            case Reloc::REL20_12_JALR_RV64:
+            case Reloc::REL20_12_JCC_RV64:
+            case Reloc::REL20_12_JR_RV64: {
+                if (diff < -0x80000000l || diff > 0x7fffffffl)
+                    panic("Difference is too big for 32-bit relative relocation!");
+
+                i32& first = ((i32*)reloc)[-2];
+                i32& second = ((i32*)reloc)[-1];
+                i32 auipc = from_little_endian<i32>(first);
+                i32 jalr = from_little_endian<i32>(second);
+
+                assert(auipc >> 12 == 0);
+                assert((jalr & 0xfff) == 0);
+                auipc |= (diff >> 12) << 12;
+                jalr |= diff & 0xfff;
+                first = little_endian<i32>(auipc);
+                second = little_endian<i32>(jalr);
+                break;
+            }
+        #endif
+
         case Reloc::REL8:
-            if (diff < -128 || diff > 127)
+            if (diff < -0x80l || diff > 0x7fl)
                 panic("Difference is too big for 8-bit relative relocation!");
-            ((i8*)reloc)[-1] = i8(diff);
+            store(i8(diff), (i8*)reloc - 1);
             break;
         case Reloc::REL16_LE:
-            if (diff < -32768 || diff > 32767)
+            if (diff < -0x8000l || diff > 0x7fffl)
                 panic("Difference is too big for 16-bit relative relocation!");
-            ((i16*)reloc)[-1] = little_endian<i16>(diff);
+            store(little_endian<i16>(diff), (i16*)reloc - 1);
             break;
         case Reloc::REL32_LE:
-            if (diff < -0x80000000l || diff > 0xffffffffl)
+            if (diff < -0x80000000l || diff > 0x7fffffffl)
                 panic("Difference is too big for 32-bit relative relocation!");
-            ((i32*)reloc)[-1] = little_endian<i32>(diff);
+            store(little_endian<i32>(diff), (i32*)reloc - 1);
             break;
         case Reloc::REL64_LE:
-            ((i64*)reloc)[-1] = little_endian<i64>(diff);
+            store(little_endian<i64>(diff), (i64*)reloc - 1);
             break;
         case Reloc::REL16_BE:
-            if (diff < -32768 || diff > 32767)
+            if (diff < -0x8000l || diff > 0x7fffl)
                 panic("Difference is too big for 16-bit relative relocation!");
-            ((i16*)reloc)[-1] = big_endian<i16>(diff);
+            store(big_endian<i16>(diff), (i16*)reloc - 1);
             break;
         case Reloc::REL32_BE:
-            if (diff < -0x80000000l || diff > 0xffffffffl)
+            if (diff < -0x80000000l || diff > 0x7fffffffl)
                 panic("Difference is too big for 32-bit relative relocation!");
-            ((i32*)reloc)[-1] = big_endian<i32>(diff);
+            store(big_endian<i32>(diff), (i32*)reloc - 1);
             break;
         case Reloc::REL64_BE:
-            ((i64*)reloc)[-1] = big_endian<i64>(diff);
+            store(big_endian<i64>(diff), (i64*)reloc - 1);
             break;
-        case Reloc::ABS8:
-            if (sym < -128 || sym > 127)
-                panic("Symbol address is too big for 8-bit absolute relocation!");
-            ((i8*)reloc)[-1] = i8(sym);
-            break;
-        case Reloc::ABS16_LE:
-            if (sym < -32768 || sym > 32767)
-                panic("Symbol address is too big for 16-bit absolute relocation!");
-            ((i16*)reloc)[-1] = little_endian<i16>(sym);
-            break;
-        case Reloc::ABS32_LE:
-            if (sym < -0x80000000l || sym > 0xffffffffl)
-                panic("Symbol address is too big for 32-bit absolute relocation!");
-            ((i32*)reloc)[-1] = little_endian<i32>(sym);
-            break;
+
         case Reloc::ABS64_LE:
-            ((i64*)reloc)[-1] = little_endian<i64>(sym);
+            store(little_endian<i64>(sym), (i64*)reloc - 1);
             break;
-        case Reloc::ABS16_BE:
-            if (sym < -32768 || sym > 32767)
-                panic("Symbol address is too big for 16-bit absolute relocation!");
-            ((i16*)reloc)[-1] = big_endian<i16>(sym);
-            break;
-        case Reloc::ABS32_BE:
-            if (sym < -0x80000000l || sym > 0xffffffffl)
-                panic("Symbol address is too big for 32-bit absolute relocation!");
-            ((i32*)reloc)[-1] = big_endian<i32>(sym);
-            break;
+
         case Reloc::ABS64_BE:
-            ((i64*)reloc)[-1] = big_endian<i64>(sym);
+            store(big_endian<i64>(sym), (i64*)reloc - 1);
             break;
     }
 }
 
-void Assembly::linkInto(LinkedAssembly& linked) {
+void Assembly::defaultRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs) {
+    for (const Reloc& ref : relocs) {
+        iptr base;
+        switch (ref.section) {
+            case CODE_SECTION: base = (iptr)linked.code; break;
+            case DATA_SECTION: base = (iptr)linked.data; break;
+            case STATIC_SECTION: base = (iptr)linked.stat; break;
+        }
+        iptr reloc = base + ref.offset;
+        iptr sym;
+        if (ref.hasSym) {
+            auto it = linked.defmap.find(ref.sym);
+            if (it == linked.defmap.end())
+                panic("Undefined symbol ", (*linked.symtab)[ref.sym]);
+            sym = linked.defs[it->value];
+        } else
+            sym = linked.defs[ref.sym]; // ref.sym encodes symbol index directly.
+
+        linkReloc(reloc, sym, ref.kind);
+    }
+}
+
+void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
     u64 codestart = 0;
     u64 pagesize = memory::pagesize();
     u64 datastart = codestart + roundUpToNearest<u64>(code.size(), pagesize);
     u64 staticstart = datastart + roundUpToNearest<u64>(data.size(), pagesize);
     u64 totalsize = staticstart + roundUpToNearest<u64>(stat.size(), pagesize);
 
-    linked.codesize = datastart;
-    linked.datasize = staticstart - datastart;
-    linked.statsize = totalsize - staticstart;
+    linked.codesize = code.size();
+    linked.datasize = data.size();
+    linked.statsize = stat.size();
     linked.pages = memory::map(totalsize);
     linked.code = (i8*)linked.pages.data() + codestart;
     linked.data = (i8*)linked.pages.data() + datastart;
@@ -109,28 +139,60 @@ void Assembly::linkInto(LinkedAssembly& linked) {
             case DATA_SECTION: base = (iptr)linked.data; break;
             case STATIC_SECTION: base = (iptr)linked.stat; break;
         }
-        linked.defs.put(def.sym, base + def.offset);
-    }
-
-    for (const Reloc& ref : relocs) {
-        iptr base;
-        switch (ref.section) {
-            case CODE_SECTION: base = (iptr)linked.code; break;
-            case DATA_SECTION: base = (iptr)linked.data; break;
-            case STATIC_SECTION: base = (iptr)linked.stat; break;
-        }
-        iptr reloc = base + ref.offset;
-        auto it = linked.defs.find(ref.sym);
-        if (it == linked.defs.end())
-            panic("Undefined symbol ", symtab[ref.sym]);
-        iptr sym = it->value;
-        linkReloc(reloc, sym, ref.kind);
+        if (def.hasSym)
+            linked.defmap.put(def.sym, linked.defs.size());
+        linked.defs.push(base + def.offset);
     }
 
     if (config::printMachineCode) {
         for (i8 i : const_slice<i8>{ linked.code, linked.codesize })
             print(hex((u64)(u8)i, 2));
         println("");
+    }
+    auto sizebefore = linked.codesize;
+
+    relocator(linked, relocs);
+
+    if (config::printMachineCode) {
+        for (i8 i : const_slice<i8>{ linked.code, linked.codesize })
+            print(hex((u64)(u8)i, 2));
+        println("");
+    }
+
+    println("Branch compaction decreased code size from ", sizebefore, " -> ", linked.codesize, " bytes (", (double(sizebefore - linked.codesize) / double(sizebefore)) * 100, "% smaller)");
+}
+
+#if INCLUDE_ARCH_AMD64
+    #include "asm/arch/amd64.h"
+#endif
+
+#if INCLUDE_ARCH_ARM64
+    #include "asm/arch/arm64.h"
+#endif
+
+#if INCLUDE_ARCH_RISCV64
+    #include "asm/arch/riscv64.h"
+#endif
+
+RelocationFunction relocatorFor(Arch arch, OS os) {
+    switch (arch) {
+        #if INCLUDE_ARCH_AMD64
+            case ARCH_AMD64:
+                return compactingRelocator<AMD64Assembler>;
+        #endif
+
+        #if INCLUDE_ARCH_ARM64
+            case ARCH_ARM64:
+                return compactingRelocator<ARM64Assembler>;
+        #endif
+
+        #if INCLUDE_ARCH_RISCV64
+            case ARCH_RISCV64:
+                return compactingRelocator<RISCV64Assembler>;
+        #endif
+
+        default:
+            unreachable("Couldn't construct relocator for arch ", ARCH_NAMES[arch], " and os ", OS_NAMES[os]);
     }
 }
 
@@ -347,10 +409,12 @@ void Assembly::writeELFObject(fd file) {
     vec<ELFSymbolInfo> symbolInfo;
     symbols.expandTo(symtab.strings.size(), -1);
     for (Def def : defs) if (def.sym >= symbols.size() || symbols[def.sym] == -1) {
+        assert(def.hasSym); // Otherwise, it shouldn't have made it this far.
         symbols[def.sym] = symbolInfo.size();
         symbolInfo.push({ def.sym, 0, 0, (u32)def.offset, def.section, def.type });
     }
     for (Reloc reloc : relocs) if (symbols[reloc.sym] == -1) {
+        assert(reloc.hasSym); // Otherwise, it shouldn't have made it this far.
         symbols[reloc.sym] = symbolInfo.size();
         symbolInfo.push({ reloc.sym, 0, 0, 0xffffffffu, CODE_SECTION, DEF_GLOBAL }); // If a symbol is referenced only in relocations, it must not be defined locally, so it must be global.
     }
@@ -468,53 +532,14 @@ void Assembly::writeELFObject(fd file) {
             constexpr u8 R_AMD64_PC16 = 13, R_AMD64_PC32 = 2, R_AMD64_PC8 = 15, R_AMD64_PC64 = 24;
             constexpr u8 R_AMD64_16 = 12, R_AMD64_32 = 10, R_AMD64_8 = 14, R_AMD64_64 = 1;
             switch (reloc.kind) {
-                case Reloc::REL8:
-                    offset -= 1;
-                    type = R_AMD64_PC8;
-                    addend = -1;
-                    break;
-                case Reloc::REL16_LE:
-                    offset -= 2;
-                    type = R_AMD64_PC16;
-                    addend = -2;
-                    break;
-                case Reloc::REL32_LE:
+                case Reloc::REL32_LE_J_AMD64:
+                case Reloc::REL32_LE_M_AMD64:
                     offset -= 4;
                     type = R_AMD64_PC32;
                     addend = -4;
                     break;
-                case Reloc::REL64_LE:
-                    offset -= 8;
-                    type = R_AMD64_PC64;
-                    addend = -8;
-                    break;
-                case Reloc::ABS8:
-                    offset -= 1;
-                    type = R_AMD64_8;
-                    addend = 0;
-                    break;
-                case Reloc::ABS16_LE:
-                    offset -= 2;
-                    type = R_AMD64_16;
-                    addend = 0;
-                    break;
-                case Reloc::ABS32_LE:
-                    offset -= 4;
-                    type = R_AMD64_32;
-                    addend = 0;
-                    break;
-                case Reloc::ABS64_LE:
-                    offset -= 8;
-                    type = R_AMD64_64;
-                    addend = 0;
-                    break;
-                case Reloc::REL16_BE:
-                case Reloc::REL32_BE:
-                case Reloc::REL64_BE:
-                case Reloc::ABS16_BE:
-                case Reloc::ABS32_BE:
-                case Reloc::ABS64_BE:
-                    unreachable("Shouldn't have big-endian relocations on amd64.");
+                default:
+                    unreachable("Invalid relocation kind for AMD64");
             }
         #elif defined(RT_RISCV64)
             unreachable("TODO: Implement ELF relocations for RISC-V");

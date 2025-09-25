@@ -286,12 +286,12 @@ namespace jasmine {
         vec<ASMVal, 16> blockLabels;
         for (Block b : fn.blocks()) {
             blockNames.push(as.symtab.anon());
-            blockLabels.push(Label(blockNames.back()));
+            blockLabels.push(LocalLabel(Label::fromSym(blockNames.back())));
         }
 
         u32 totalStackWithCalleeSaves = allocations.stack + (allocations.stack ? 8 : 0) + allocations.calleeSaves.size() * 8;
 
-        Target::global(as, as.symtab[fn.name()]);
+        Target::global(as, Label::fromSym(as.symtab[fn.name()]));
 
         if (totalStackWithCalleeSaves % 16 == 0 && fn.makesCalls) {
             // We need to make sure our callees have 16-byte aligned stack. So
@@ -347,7 +347,7 @@ namespace jasmine {
 
         for (u32 i : *ctx.schedule) {
             Block b = fn.block(i);
-            Target::local(as, blockNames[b.index()]);
+            Target::local(as, Label::fromSym(blockNames[b.index()]));
             for (Node n : b.nodes()) {
                 Repr repr = this->repr(n.type());
                 switch (n.opcode()) {
@@ -759,7 +759,7 @@ namespace jasmine {
                     relKind = Reloc::ABS64_LE;
                 else
                     relKind = Reloc::ABS64_BE;
-                as.ref(CODE_SECTION, DEF_GLOBAL, relKind, value.sym);
+                as.ref(CODE_SECTION, DEF_GLOBAL, relKind, Label::fromSym(value.sym));
                 break;
             }
             case Value::Data: {
@@ -771,7 +771,7 @@ namespace jasmine {
                     relKind = Reloc::ABS64_LE;
                 else
                     relKind = Reloc::ABS64_BE;
-                as.ref(DATA_SECTION, DEF_GLOBAL, relKind, value.sym);
+                as.ref(DATA_SECTION, DEF_GLOBAL, relKind, Label::fromSym(value.sym));
                 break;
             }
             case Value::Static: {
@@ -783,7 +783,7 @@ namespace jasmine {
                     relKind = Reloc::ABS64_LE;
                 else
                     relKind = Reloc::ABS64_BE;
-                as.ref(STATIC_SECTION, DEF_GLOBAL, relKind, value.sym);
+                as.ref(STATIC_SECTION, DEF_GLOBAL, relKind, Label::fromSym(value.sym));
                 break;
             }
             case Value::Array: {
@@ -843,7 +843,7 @@ namespace jasmine {
             auto r = repr(v);
             while (stat.size() % r.alignment())
                 stat.write<i8>(0);
-            as.def(STATIC_SECTION, DEF_GLOBAL, k);
+            as.def(STATIC_SECTION, DEF_GLOBAL, Label::fromSym(k));
             for (u32 i = 0; i < r.size(); i ++)
                 stat.write<i8>(0);
         }

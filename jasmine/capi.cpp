@@ -688,7 +688,7 @@ JASMINE_EXPORT JasmineExecutable jasmine_link_assemblies(JasmineAssembly* assemb
     Assembly joined(sources[0]->symtab);
     join(joined, sources);
     LinkedAssembly* linked = new LinkedAssembly();
-    joined.linkInto(*linked);
+    joined.linkInto(*linked, relocatorFor(currentArch(), currentOS()));
     return JasmineExecutable { .handle = linked };
 }
 

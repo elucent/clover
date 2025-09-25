@@ -24,6 +24,7 @@ struct AMD64Assembler {
 
     constexpr static mreg fp = RBP, sp = RSP;
     constexpr static EndianOrder endianness = EndianOrder::LITTLE;
+    constexpr static bool shouldCompact = true;
 
     static constexpr inline RegSet gps() {
         return RegSet(GP_REGS, 14);
@@ -225,13 +226,13 @@ struct AMD64Assembler {
                     break;
                 case ASMVal::LOCAL_LABEL:
                     as.code.writeLE<i32>(0);
-                    as.ref(CODE_SECTION, DEF_LOCAL, Reloc::REL32_LE, rm.sym);
+                    as.ref(CODE_SECTION, DEF_LOCAL, Reloc::REL32_LE_M_AMD64, rm.label);
                     break;
                 case ASMVal::FUNC_LABEL:
                 case ASMVal::DATA_LABEL:
                 case ASMVal::STATIC_LABEL:
                     as.code.writeLE<i32>(0);
-                    as.ref(CODE_SECTION, DEF_GLOBAL, Reloc::REL32_LE, rm.sym);
+                    as.ref(CODE_SECTION, DEF_GLOBAL, Reloc::REL32_LE_M_AMD64, rm.label);
                     break;
             }
         }
@@ -1683,7 +1684,7 @@ struct AMD64Assembler {
             if (src.imm < 0) {
                 binary_prefix(as, QWORD, dst, src); // QWORD because we want sign extension.
                 as.code.write<u8>(0xc7);
-                modrm(as, dst, GP(RAX)); // RAX because the immediate means there's no actual register there.
+                modrm(as, GP(RAX), dst); // RAX because the immediate means there's no actual register there.
                 as.code.writeLE<i32>(src.imm);
             } else {
                 unary_prefix(as, DWORD, dst); // DWORD for shorter encoding size, since zero-extension doesn't affect the value.
@@ -1695,14 +1696,14 @@ struct AMD64Assembler {
     }
 
     static inline ASMVal emitF32Constant(Assembly& as, ASMVal src) {
-        Symbol label = as.symtab.anon();
+        Label label = Label::fromSym(as.symtab.anon());
         as.def(DATA_SECTION, DEF_LOCAL, label);
         as.data.writeLE<i32>(*(i32*)&src.f32);
         return Data(label);
     }
 
     static inline ASMVal emitF64Constant(Assembly& as, ASMVal src) {
-        Symbol label = as.symtab.anon();
+        Label label = Label::fromSym(as.symtab.anon());
         as.def(DATA_SECTION, DEF_LOCAL, label);
         as.data.writeLE<i64>(*(i64*)&src.f64);
         return Data(label);
@@ -2105,12 +2106,12 @@ struct AMD64Assembler {
 
     // Labels
 
-    static inline void global(Assembly& as, Symbol sym) {
-        as.def(CODE_SECTION, DEF_GLOBAL, sym);
+    static inline void global(Assembly& as, Label label) {
+        as.def(CODE_SECTION, DEF_GLOBAL, label);
     }
 
-    static inline void local(Assembly& as, Symbol sym) {
-        as.def(CODE_SECTION, DEF_LOCAL, sym);
+    static inline void local(Assembly& as, Label label) {
+        as.def(CODE_SECTION, DEF_LOCAL, label);
     }
 
     // Jumps
@@ -2121,7 +2122,7 @@ struct AMD64Assembler {
             as.code.write<u8>(0xe9);
             as.code.write<i32>(0);
             assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
-            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE, dst.sym);
+            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_J_AMD64, dst.label);
         }
     }
 
@@ -2130,7 +2131,7 @@ struct AMD64Assembler {
         as.code.write<u8>(0x80 + CCodes[cc]);
         as.code.writeLE<i32>(0);
         assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
-        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE, dst.sym);
+        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_J_AMD64, dst.label);
     }
 
     static inline void jcc(Assembly& as, FloatCondition cc, ASMVal dst) {
@@ -2138,7 +2139,7 @@ struct AMD64Assembler {
         as.code.write<u8>(0x80 + CCodes[cc]);
         as.code.writeLE<i32>(0);
         assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
-        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE, dst.sym);
+        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_J_AMD64, dst.label);
     }
 
     static inline void brz(Assembly& as, ASMVal dst, ASMVal cond) {
@@ -2240,7 +2241,7 @@ struct AMD64Assembler {
             as.code.write<u8>(0xe8);
             as.code.write<i32>(0);
             assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
-            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE, dst.sym);
+            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_J_AMD64, dst.label);
         }
     }
 
@@ -2491,6 +2492,50 @@ struct AMD64Assembler {
 
     static void mbrcc(Assembly& as, Condition cond, ASMVal dst, ASMVal a, ASMVal b, ASMVal c) {
 
+    }
+
+    static i32 compactReloc(i8* code, const i8* sym, Reloc& reloc) {
+        // Note that we don't need to adjust this by the amount we're about to
+        // compact, since the symbol will still be at the same relative
+        // distance from our instruction after our local compaction.
+        i64 diff = sym - code;
+
+        switch (reloc.kind) {
+            case Reloc::REL32_LE_J_AMD64: {
+                u8 opcode = code[-5]; // What was the opcode that came before the relocation?
+                switch (opcode) {
+                    case 0x80 ... 0x8f:
+                        // Conditional jumps with 32-bit displacement.
+                        if (fitsSigned<8>(diff)) {
+                            opcode -= 0x10;     // It happens that conditional jump opcodes are exactly 16 lower.
+                            code[-6] = opcode;  // -6 to overwrite the 0x0f prefix.
+                            reloc.kind = Reloc::REL8;
+                            return 4;
+                        }
+                        reloc.kind = Reloc::REL32_LE;
+                        return 0;
+                    case 0xe8 ... 0xe9:
+                        // Direct jump.
+                        if (opcode == 0xe9 && fitsSigned<8>(diff)) {
+                            code[-5] = 0xeb;    // 8-bit displacement jmp.
+                            reloc.kind = Reloc::REL8;
+                            return 3;
+                        }
+                        reloc.kind = Reloc::REL32_LE;
+                        return 0;
+                    default:
+                        unreachable("Surprising opcode ", hex(opcode), " in jump relocation.");
+                }
+                return 0;
+            }
+            case Reloc::REL32_LE_M_AMD64:
+                reloc.kind = Reloc::REL32_LE;
+                return 0;
+            case Reloc::ABS64_LE:
+                return 0;
+            default:
+                unreachable("Unexpected relocation kind.");
+        }
     }
 };
 

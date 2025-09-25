@@ -36,7 +36,7 @@ struct TestContext {
 };
 
 #define RUN(results, returntype, ret) do { \
-    LinkedAssembly linked = ctx.as.link(); \
+    LinkedAssembly linked = ctx.as.link(Assembly::defaultRelocator); \
     linked.load(); \
     allocated_bytes += linked.pages.size(); \
     for (Symbol sym : ctx.funcList) { \
@@ -137,7 +137,7 @@ void gen_binary_int(TestContext& ctx, BinaryFuncs<MoveType, OpType> funcs, ASMVa
         for (mreg d : allowed) {
             Symbol sym = anon(as);
             ctx.funcList.push(sym);
-            Assembler::global(as, sym);
+            Assembler::global(as, Label::fromSym(sym));
             save_callee_saved_gps(as, l, d);
             funcs.move(as, GP(l), operand);
             funcs.op(as, GP(d), GP(l));
@@ -161,7 +161,7 @@ void gen_ternary_int(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, ASM
                     continue;
                 Symbol sym = anon(as);
                 ctx.funcList.push(sym);
-                Assembler::global(as, sym);
+                Assembler::global(as, Label::fromSym(sym));
                 save_callee_saved_gps(as, l, r, d);
                 funcs.move(as, GP(l), left);
                 funcs.move(as, GP(r), right);
@@ -178,7 +178,7 @@ void gen_ternary_int(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, ASM
         for (mreg d : allowed) {
             Symbol sym = anon(as);
             ctx.funcList.push(sym);
-            Assembler::global(as, sym);
+            Assembler::global(as, Label::fromSym(sym));
             save_callee_saved_gps(as, r, d);
             funcs.move(as, GP(r), right);
             funcs.op(as, GP(d), left, GP(r));
@@ -193,7 +193,7 @@ void gen_ternary_int(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, ASM
         for (mreg d : allowed) {
             Symbol sym = anon(as);
             ctx.funcList.push(sym);
-            Assembler::global(as, sym);
+            Assembler::global(as, Label::fromSym(sym));
             save_callee_saved_gps(as, l, d);
             funcs.move(as, GP(l), left);
             funcs.op(as, GP(d), GP(l), right);
@@ -213,7 +213,7 @@ void gen_binary_float(TestContext& ctx, BinaryFuncs<MoveType, OpType> funcs, ASM
         for (mreg d : allowed) {
             Symbol sym = anon(as);
             ctx.funcList.push(sym);
-            Assembler::global(as, sym);
+            Assembler::global(as, Label::fromSym(sym));
             save_callee_saved_fps(as, l, d);
             funcs.move(as, FP(l), operand);
             funcs.op(as, FP(d), FP(l));
@@ -237,7 +237,7 @@ void gen_ternary_float(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, A
                     continue;
                 Symbol sym = anon(as);
                 ctx.funcList.push(sym);
-                Assembler::global(as, sym);
+                Assembler::global(as, Label::fromSym(sym));
                 save_callee_saved_fps(as, l, r, d);
                 funcs.move(as, FP(l), left);
                 funcs.move(as, FP(r), right);
@@ -254,7 +254,7 @@ void gen_ternary_float(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, A
         for (mreg d : allowed) {
             Symbol sym = anon(as);
             ctx.funcList.push(sym);
-            Assembler::global(as, sym);
+            Assembler::global(as, Label::fromSym(sym));
             save_callee_saved_fps(as, r, d);
             funcs.move(as, FP(r), right);
             funcs.op(as, FP(d), left, FP(r));
@@ -269,7 +269,7 @@ void gen_ternary_float(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, A
         for (mreg d : allowed) {
             Symbol sym = anon(as);
             ctx.funcList.push(sym);
-            Assembler::global(as, sym);
+            Assembler::global(as, Label::fromSym(sym));
             save_callee_saved_fps(as, l, d);
             funcs.move(as, FP(l), left);
             funcs.op(as, FP(d), FP(l), right);

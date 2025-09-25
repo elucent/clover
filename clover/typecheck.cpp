@@ -2998,7 +2998,7 @@ namespace clover {
             if UNLIKELY(config::printTypeConstraints)
                 printTypeConstraints(module->types, ctx.constraints);
             if UNLIKELY(config::printInferredTreeAfterEachPass) {
-                println("| Function ", ASTWithParent(ast, ast.child(1)), " after type discovery pass: ");
+                println("| Function ", ASTWithParent { ast, ast.child(1) }, " after type discovery pass: ");
                 println("*-----------------------------------");
                 println(Multiline(ast)); printTypeVariableState(module->types); println();
             }
@@ -3007,7 +3007,7 @@ namespace clover {
 
             refineGraph(module, ctx);
             if UNLIKELY(config::printInferredTreeAfterEachPass) {
-                println("| Function ", ASTWithParent(ast, ast.child(1)), " after type refinement pass: ");
+                println("| Function ", ASTWithParent { ast, ast.child(1) }, " after type refinement pass: ");
                 println("*------------------------------------");
                 println(Multiline(ast)); printTypeVariableState(module->types); println();
             }
@@ -3023,7 +3023,7 @@ namespace clover {
             ctx.lateResolves->clear();
 
             if UNLIKELY(config::printInferredTreeAfterEachPass) {
-                println("| Function ", ASTWithParent(ast, ast.child(1)), " after type checking pass: ");
+                println("| Function ", ASTWithParent { ast, ast.child(1) }, " after type checking pass: ");
                 println("*----------------------------------");
                 println(Multiline(ast)); printTypeVariableState(module->types); println();
             }

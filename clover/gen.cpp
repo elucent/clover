@@ -2751,7 +2751,7 @@ namespace clover {
             #ifdef RT_LINUX
                 using ASM = AMD64LinuxAssembler;
 
-                ASM::global(*as, as->symtab["_start"]);
+                ASM::global(*as, Label::fromSym(as->symtab["_start"]));
                 ASM::pop64(*as, GP(ASM::RDI));
                 ASM::mov64(*as, GP(ASM::RSI), GP(ASM::RSP));
                 ASM::lai64(*as, GP(ASM::RDX), Mem(ASM::RSP, 8), GP(ASM::RDI));

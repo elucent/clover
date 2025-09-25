@@ -18,7 +18,7 @@ namespace clover {
     void JITRuntimeShims::define(Symbol name, void* ptr) {
         mreg tmp = ASM::caller_saved_gps().next();
 
-        ASM::global(*assembly, name.symbol);
+        ASM::global(*assembly, Label::fromSym(name.symbol));
         ASM::lc(*assembly, GP(tmp), Imm64(bitcast<i64>(ptr)));
         ASM::br(*assembly, GP(tmp));
     }

@@ -51,6 +51,7 @@ struct RISCV64Assembler {
     constexpr static mreg scratch = T6, fscratch = FT7;
     constexpr static mreg fp = S0, sp = SP;
     constexpr static EndianOrder endianness = EndianOrder::LITTLE;
+    constexpr static bool shouldCompact = true;
 
     static constexpr inline RegSet gps() {
         return RegSet(GP_REGS, 26);
@@ -88,7 +89,7 @@ struct RISCV64Assembler {
     // For now, we include the ABI methods in the base.
 
     static inline constexpr RegSet caller_saved_gps() {
-        return RegSet(T0, T1, T2, T3, T4, T5, T6, A0, A1, A2, A3, A4, A5, A6, A7);
+        return RegSet(T0, T1, T2, T3, T4, T5, A0, A1, A2, A3, A4, A5, A6, A7);
     }
 
     static inline constexpr RegSet caller_saved_fps() {
@@ -100,7 +101,7 @@ struct RISCV64Assembler {
     }
 
     static inline constexpr RegSet callee_saved_gps() {
-        return RegSet(SP, FP, S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11);
+        return RegSet(S0, S1, S2, S3, S4, S5, S6, S7, S8, S9, S10, S11);
     }
 
     static inline constexpr RegSet callee_saved_fps() {
@@ -371,7 +372,7 @@ struct RISCV64Assembler {
         i32 upper = src >> 12, lower = src & 0xfff;
         if (!upper) {
             encodei(as, 0b0010011, dst.gp, ZERO, lower); // addi (zero)
-            return;
+            return dst;
         }
         if (fitsSigned<6>(upper))
             encodeci(as, 0b01, dst.gp, upper, 0b011); // c.lui
@@ -386,7 +387,7 @@ struct RISCV64Assembler {
         return dst;
     }
 
-    template<typename IsSigned>
+    template<bool IsSigned>
     static inline ASMVal materializeImm64(Assembly& as, ASMVal dst, i32 src) {
         assert(dst.kind == ASMVal::GP);
         if (fitsSigned<31>(src) || IsSigned)
@@ -407,22 +408,24 @@ struct RISCV64Assembler {
             // If we have a lower component, then addi that in now.
             if (lower)
                 encodei(as, 0b0010011, dst.gp, dst.gp, src & 0xfff); // addi
-            return;
+            return dst;
         }
         if ((upper & 1) == lower >> 11) {
             // There is a bit in common between the upper and lower components,
             // which lets us do lui + slli + addi
 
         }
+        unreachable("TODO: Finish immediate materialization logic.");
     }
 
     template<bool IsSigned>
     static inline ASMVal materializeImm64(Assembly& as, ASMVal dst, i64 src) {
         if (fitsSigned<32>(src))
-            return materializeImm64(as, dst, i32(src));
+            return RISCV64Assembler::materializeImm64<IsSigned>(as, dst, i32(src));
 
         // Scratch shouldn't be live across this, so we clobber it in multiple
         // steps.
+        unreachable("TODO: Finish immediate materialization logic.");
     }
 
     // For 8-bit arithmetic, since RISC-V has no native instructions for it, we
@@ -450,7 +453,7 @@ struct RISCV64Assembler {
                 return;
             if (fitsSigned<12>(b.imm))
                 return encodei(as, 0b0011011, dst.gp, a.gp, b.imm, 0b000); // addiw
-            b = materializeImm(as, ::GP(scratch), b.imm);
+            b = materializeImm32(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
@@ -616,11 +619,11 @@ struct RISCV64Assembler {
     }
 
     static inline void sdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        encodeDivRem<true, false, 0b0111011, 0b100, 0b0000001>(as, dst, a, b); // divw
+        encodeDivRem<true, false, true, 0b0111011, 0b100, 0b0000001>(as, dst, a, b); // divw
     }
 
     static inline void sdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        encodeDivRem<false, false, 0b0110011, 0b100, 0b0000001>(as, dst, a, b); // div
+        encodeDivRem<false, false, true, 0b0110011, 0b100, 0b0000001>(as, dst, a, b); // div
     }
 
     static inline void udiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -634,11 +637,11 @@ struct RISCV64Assembler {
     }
 
     static inline void udiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        encodeDivRem<true, false, 0b0111011, 0b101, 0b0000001>(as, dst, a, b); // divuw
+        encodeDivRem<true, false, false, 0b0111011, 0b101, 0b0000001>(as, dst, a, b); // divuw
     }
 
     static inline void udiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        encodeDivRem<false, false, 0b0110011, 0b101, 0b0000001>(as, dst, a, b); // divu
+        encodeDivRem<false, false, false, 0b0110011, 0b101, 0b0000001>(as, dst, a, b); // divu
     }
 
     static inline void srem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -652,11 +655,11 @@ struct RISCV64Assembler {
     }
 
     static inline void srem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        encodeDivRem<true, true, 0b0111011, 0b110, 0b0000001>(as, dst, a, b); // remw
+        encodeDivRem<true, true, true, 0b0111011, 0b110, 0b0000001>(as, dst, a, b); // remw
     }
 
     static inline void srem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        encodeDivRem<false, true, 0b0110011, 0b110, 0b0000001>(as, dst, a, b); // rem
+        encodeDivRem<false, true, true, 0b0110011, 0b110, 0b0000001>(as, dst, a, b); // rem
     }
 
     static inline void urem8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -670,11 +673,11 @@ struct RISCV64Assembler {
     }
 
     static inline void urem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        encodeDivRem<true, true, 0b0111011, 0b111, 0b0000001>(as, dst, a, b); // remuw
+        encodeDivRem<true, true, false, 0b0111011, 0b111, 0b0000001>(as, dst, a, b); // remuw
     }
 
     static inline void urem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        encodeDivRem<false, true, 0b0110011, 0b111, 0b0000001>(as, dst, a, b); // remu
+        encodeDivRem<false, true, false, 0b0110011, 0b111, 0b0000001>(as, dst, a, b); // remu
     }
 
     static inline void and8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -699,7 +702,7 @@ struct RISCV64Assembler {
                 return;
             if (fitsSigned<12>(b.imm))
                 return encodei(as, 0b0010011, dst.gp, a.gp, b.imm, 0b111); // andi
-            b = materializeImm(as, ::GP(scratch), b.imm);
+            b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
@@ -728,7 +731,7 @@ struct RISCV64Assembler {
                 return mov64(as, dst, a);
             if (fitsSigned<12>(b.imm))
                 return encodei(as, 0b0010011, dst.gp, a.gp, b.imm, 0b110); // ori
-            b = materializeImm(as, ::GP(scratch), b.imm);
+            b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
@@ -757,7 +760,7 @@ struct RISCV64Assembler {
                 return mov64(as, dst, a);
             if (fitsSigned<12>(b.imm))
                 return encodei(as, 0b0010011, dst.gp, a.gp, b.imm, 0b100); // xori
-            b = materializeImm(as, ::GP(scratch), b.imm);
+            b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
@@ -934,7 +937,7 @@ struct RISCV64Assembler {
     static inline void mov64(Assembly& as, ASMVal dst, ASMVal src) {
         if (dst == src) return;
         if (src.kind == ASMVal::IMM) {
-            materializeImm(as, dst, src.imm);
+            materializeImm64<true>(as, dst, src.imm);
             return;
         }
         encodecr(as, 0b10, dst.gp, src.gp, 0b1000); // c.mv
@@ -989,12 +992,16 @@ struct RISCV64Assembler {
         as.code.write<u16>(0); // unimp
     }
 
-    static inline void global(Assembly& as, Symbol sym) {
-        as.def(CODE_SECTION, DEF_GLOBAL, sym);
+    static inline void global(Assembly& as, Label label) {
+        as.def(CODE_SECTION, DEF_GLOBAL, label);
     }
 
-    static inline void local(Assembly& as, Symbol sym) {
-        as.def(CODE_SECTION, DEF_LOCAL, sym);
+    static inline void local(Assembly& as, Label label) {
+        as.def(CODE_SECTION, DEF_LOCAL, label);
+    }
+
+    static i32 compactReloc(i8* code, const i8* sym, Reloc& reloc) {
+        return 0;
     }
 };
 
