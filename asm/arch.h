@@ -469,13 +469,22 @@ struct Def {
 // Abstract representation of a relocation.
 struct Reloc : public Def {
     enum Kind : u8 {
+        // PC-relative relocations.
+
         REL8,
         REL16_LE, REL32_LE, REL64_LE,
         REL16_BE, REL32_BE, REL64_BE,
+        // RISC-V specific
+        REL20_12_RV64, REL_CONDBR32_RV64,
         LAST_RELATIVE_KIND = REL64_BE,
+
+        // Absolute relocations.
+
         ABS8,
         ABS16_LE, ABS32_LE, ABS64_LE,
-        ABS16_BE, ABS32_BE, ABS64_BE
+        ABS16_BE, ABS32_BE, ABS64_BE,
+        // RISC-V specific
+        ABS20_12_RV64, ABS_CONDBR32_RV64
     };
 
     Kind kind;
