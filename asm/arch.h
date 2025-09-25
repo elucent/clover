@@ -1384,8 +1384,6 @@ inline IO format_impl(IO io, Repr repr) {
     \
     /* Block 6: Jumps and branches. */                                                      \
     macro(BR,           br,             0xb0,   Size::OTHER,    UNARY_JUMP)                 \
-    macro(BRZ,          brz,            0xb1,   Size::OTHER,    BINARY_BRANCH_GP)           \
-    macro(BRNZ,         brnz,           0xb2,   Size::OTHER,    BINARY_BRANCH_GP)           \
     macro(BRCC8,        brcc8,          0xb3,   Size::BITS8,    BRANCH_COMPARE_GP_IMM)      \
     macro(BRCC16,       brcc16,         0xb4,   Size::BITS16,   BRANCH_COMPARE_GP_IMM)      \
     macro(BRCC32,       brcc32,         0xb5,   Size::BITS32,   BRANCH_COMPARE_GP_IMM)      \

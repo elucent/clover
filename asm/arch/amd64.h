@@ -2142,16 +2142,6 @@ struct AMD64Assembler {
         as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_J_AMD64, dst.label);
     }
 
-    static inline void brz(Assembly& as, ASMVal dst, ASMVal cond) {
-        test64(as, cond, cond);
-        jcc(as, COND_EQ, dst);
-    }
-
-    static inline void brnz(Assembly& as, ASMVal dst, ASMVal cond) {
-        test64(as, cond, cond);
-        jcc(as, COND_NE, dst);
-    }
-
     static inline void brcc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) {
         if (a.kind == ASMVal::IMM) {
             swap(a, b);
