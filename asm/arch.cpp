@@ -157,7 +157,6 @@ void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
             print(hex((u64)(u8)i, 2));
         println("");
     }
-    auto sizebefore = linked.codesize;
 
     relocator(linked, relocs);
 
@@ -166,8 +165,6 @@ void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
             print(hex((u64)(u8)i, 2));
         println("");
     }
-
-    println("Branch compaction decreased code size from ", sizebefore, " -> ", linked.codesize, " bytes (", (double(sizebefore - linked.codesize) / double(sizebefore)) * 100, "% smaller)");
 }
 
 #if INCLUDE_ARCH_AMD64
