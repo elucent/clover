@@ -841,7 +841,7 @@ void compactingRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs) {
             // write pointer.
 
             i8* data = linked.code + ref.offset;
-            memory::copy(writer, reader, data - reader);
+            memory::move(writer, reader, data - reader);
             writer += data - reader;
             reader = data;
 
@@ -861,7 +861,7 @@ void compactingRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs) {
             ref.offset -= reader - writer;
         }
         if (reader < linked.code + linked.codesize) {
-            memory::copy(writer, reader, linked.code + linked.codesize - reader);
+            memory::move(writer, reader, linked.code + linked.codesize - reader);
             writer += linked.code + linked.codesize - reader;
         }
 
