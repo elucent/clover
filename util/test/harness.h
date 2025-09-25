@@ -1,5 +1,5 @@
-#ifndef BASIL_TEST_HARNESS_H
-#define BASIL_TEST_HARNESS_H
+#ifndef UTIL_TEST_HARNESS_H
+#define UTIL_TEST_HARNESS_H
 
 #include "rt/def.h"
 #include "util/config.h"
@@ -9,7 +9,7 @@
 #include "util/io.h"
 #include "util/func.h"
 
-extern const i8* current_test_name;
+extern const_slice<i8> current_test_name;
 
 #ifdef RT_LIBC_COMPATIBLE
 #define SKIP_IF_USING_LIBC return
@@ -17,10 +17,10 @@ extern const i8* current_test_name;
 #define SKIP_IF_USING_LIBC do {} while (false)
 #endif
 
-inline bool lexicographic_less(const i8* const& a, const i8* const& b) {
-    auto len_a = findc(a, 0), len_b = findc(b, 0);
+inline bool lexicographic_less(const const_slice<i8>& a, const const_slice<i8>& b) {
+    auto len_a = a.size(), len_b = b.size();
     auto len = min<iword>(len_a, len_b);
-    auto compare = memory::compare(a, b, len_a);
+    auto compare = memory::compare(a.data(), b.data(), len);
     if (compare < 0) return true;
     if (compare == 0)
         return len_a < len_b;
@@ -29,7 +29,7 @@ inline bool lexicographic_less(const i8* const& a, const i8* const& b) {
 
 struct OverallResultList {
     i32 n_tests = 0, n_passed = 0, total_tests = 0;
-    vec<const i8*> failing_tests;
+    vec<const_slice<i8>> failing_tests;
 
     inline void pass() {
         n_tests ++;
@@ -38,7 +38,7 @@ struct OverallResultList {
             println(BOLDGREEN "✓ " RESET);
     }
 
-    inline void fail(const i8* failed) {
+    inline void fail(const_slice<i8> failed) {
         n_tests ++;
         failing_tests.push(failed);
         if (config::printTestNames)
@@ -60,7 +60,7 @@ struct TestResults {
 
     inline TestResults() {}
 
-    inline TestResults(OverallResultList& summary, const i8* name) {
+    inline TestResults(OverallResultList& summary, const_slice<i8> name) {
         current_test_name = name;
         print("[TEST]   (", summary.n_tests + 1, " / ", summary.total_tests);
         if (summary.n_passed < summary.n_tests)
@@ -83,8 +83,8 @@ struct TestResults {
     }
 };
 
-extern map<const i8*, void(*)(TestResults&)> test_map;
-extern vec<entry<const i8*, void(*)(TestResults&)>> test_list;
+extern map<const_slice<i8>, void(*)(TestResults&)> test_map;
+extern vec<entry<const_slice<i8>, void(*)(TestResults&)>> test_list;
 
 #define TEST(name) \
     NOINLINE extern "C" __attribute((used)) void test_##name##_fn(TestResults& results)
@@ -100,7 +100,7 @@ inline void setup_harness(i32 argc, char** argv) {
 }
 
 inline void sort_tests() {
-    sort(test_list.begin(), test_list.end(), [](const entry<const i8*, void(*)(TestResults&)>& lhs, const entry<const i8*, void(*)(TestResults&)>& rhs) -> bool { return lexicographic_less(lhs.key, rhs.key); });
+    sort(test_list.begin(), test_list.end(), [](const entry<const_slice<i8>, void(*)(TestResults&)>& lhs, const entry<const_slice<i8>, void(*)(TestResults&)>& rhs) -> bool { return lexicographic_less(lhs.key, rhs.key); });
 }
 
 inline void parse_arguments_in_harness(i32 argc, char** argv) {
@@ -131,7 +131,7 @@ inline void parse_arguments_in_harness(i32 argc, char** argv) {
             const_slice<i8> prefix = { argv[i], globPos };
             const_slice<i8> suffix = { argv[i] + globPos + 1, findc(argv[i], 0) - globPos - 1 };
             for (const auto& p : test_map) {
-                const_slice<i8> name = { p.key, findc(p.key, 0) };
+                const_slice<i8> name = p.key;
                 if (name.size() < prefix.size() + suffix.size())
                     continue;
                 for (i32 i = 0; i < prefix.size(); i ++)
@@ -146,7 +146,7 @@ inline void parse_arguments_in_harness(i32 argc, char** argv) {
             }
         } else {
             sawRealTestSpecifier = true;
-            auto it = test_map.find(argv[i]);
+            auto it = test_map.find(cstring(argv[i]));
             if (it != test_map.end())
                 test_list.push(*it);
         }

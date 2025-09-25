@@ -17,7 +17,7 @@ for obj in ${@:2:$#-1}; do
         trimmed=${test%_fn}
         trimmed=${trimmed#test_}
         echo "extern \"C\" void $test(TestResults&);" >> $HDR
-        echo "    test_map.put(\"$trimmed\", $test);" >> $SRC
+        echo "    test_map.put(cstring(\"$trimmed\"), $test);" >> $SRC
     done
 done
 echo "

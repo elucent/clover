@@ -1,6 +1,6 @@
 #include "util/test/harness.h"
 
-const i8* current_test_name;
+const_slice<i8> current_test_name;
 
-map<const i8*, void(*)(TestResults&)> test_map;
-vec<entry<const i8*, void(*)(TestResults&)>> test_list;
+map<const_slice<i8>, void(*)(TestResults&)> test_map;
+vec<entry<const_slice<i8>, void(*)(TestResults&)>> test_list;
