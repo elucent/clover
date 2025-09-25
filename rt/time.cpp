@@ -55,7 +55,7 @@ namespace time {
             u64 result;
             asm volatile (
                 "\trdtsc\n"
-                "\tshlq 32, %%rdx\n"
+                "\tshlq $32, %%rdx\n"
                 "\torq %%rdx, %0\n"
                 : "=a"(result)
                 :
