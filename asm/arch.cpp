@@ -44,6 +44,14 @@ void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind) {
                 jalr |= diff & 0xfff;
                 first = little_endian<i32>(auipc);
                 second = little_endian<i32>(jalr);
+
+                if (kind == Reloc::REL20_12_JCC_RV64) {
+                    // Also need to finish up the preceding conditional branch.
+                    i32& bcc = ((i32*)reloc)[-3];
+                    i32 bccw = from_little_endian<i32>(bcc);
+                    bccw |= 4 << 7; // It's always two instructions.
+                    bcc = little_endian<i32>(bccw);
+                }
                 break;
             }
         #endif

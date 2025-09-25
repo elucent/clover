@@ -914,16 +914,18 @@ struct RISCV64Assembler {
         encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b101, 0b0100000); // srl
     }
 
-    template<bool Right, u32 Size, typename Func>
-    static inline void emitRotate(Assembly& as, Func&& ext, ASMVal dst, ASMVal a, ASMVal b) {
+    using ExtensionFunction = void(*)(Assembly&, ASMVal, ASMVal);
+
+    template<bool Right, u32 Size, ExtensionFunction Func>
+    static inline void emitRotate(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (b.kind == ASMVal::IMM) {
             if (b.imm == 0)
                 return;
             ASMVal leftAmount = Right ? Imm(Size - b.imm) : b, rightAmount = Right ? b : Imm(Size - b.imm);
             shl64(as, ::GP(scratch), a, leftAmount);
             (Size == 32 ? shr32 : shr64)(as, dst, a, rightAmount);
-            if (ext)
-                ext(as, dst, dst);
+            if ((bool)Func)
+                Func(as, dst, dst);
             or64(as, dst, dst, ::GP(scratch));
             return;
         }
@@ -939,47 +941,47 @@ struct RISCV64Assembler {
         if constexpr (Right) {
             shl64(as, ::GP(scratch), a, ::GP(scratch));
             (Size == 32 ? shr32 : shr64)(as, dst, a, b);
-            if (ext)
-                ext(as, dst, dst);
+            if ((bool)Func)
+                Func(as, dst, dst);
         } else {
             (Size == 32 ? shr32 : shr64)(as, ::GP(scratch), a, ::GP(scratch));
-            if (ext)
-                ext(as, ::GP(scratch), ::GP(scratch));
+            if ((bool)Func)
+                Func(as, ::GP(scratch), ::GP(scratch));
             shl64(as, dst, a, b);
         }
         or64(as, dst, dst, ::GP(scratch));
     }
 
     static inline void rol8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        emitRotate<false, 8>(as, zxt8, dst, a, b);
+        emitRotate<false, 8, zxt8>(as, dst, a, b);
     }
 
     static inline void rol16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        emitRotate<false, 16>(as, zxt16, dst, a, b);
+        emitRotate<false, 16, zxt16>(as, dst, a, b);
     }
 
     static inline void rol32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        emitRotate<false, 32>(as, nullptr, dst, a, b);
+        emitRotate<false, 32, nullptr>(as, dst, a, b);
     }
 
     static inline void rol64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        emitRotate<false, 64>(as, nullptr, dst, a, b);
+        emitRotate<false, 64, nullptr>(as, dst, a, b);
     }
 
     static inline void ror8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        emitRotate<true, 8>(as, zxt8, dst, a, b);
+        emitRotate<true, 8, zxt8>(as, dst, a, b);
     }
 
     static inline void ror16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        emitRotate<true, 16>(as, zxt16, dst, a, b);
+        emitRotate<true, 16, zxt16>(as, dst, a, b);
     }
 
     static inline void ror32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        emitRotate<true, 32>(as, nullptr, dst, a, b);
+        emitRotate<true, 32, nullptr>(as, dst, a, b);
     }
 
     static inline void ror64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        emitRotate<true, 64>(as, nullptr, dst, a, b);
+        emitRotate<true, 64, nullptr>(as, dst, a, b);
     }
 
     static inline void mov8(Assembly& as, ASMVal dst, ASMVal src) {

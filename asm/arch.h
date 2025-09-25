@@ -1646,12 +1646,7 @@ struct Printer : public Assembler {
     }
 
     static void write_binary(fd io, Assembly& as, ASMOpcode opcode, const ASMVal& dst, const ASMVal& src) {
-        if (opcode == ASMOpcode::BRZ)
-            ::write(io, "  br.z ");
-        else if (opcode == ASMOpcode::BRNZ)
-            ::write(io, "  br.nz ");
-        else
-            ::write(io, "  ", ASM_OPCODE_NAMES[(unsigned)opcode], ' ');
+        ::write(io, "  ", ASM_OPCODE_NAMES[(unsigned)opcode], ' ');
         write_mval(io, as, dst);
         ::write(io, ", ");
         write_mval(io, as, src);
@@ -1659,12 +1654,7 @@ struct Printer : public Assembler {
     }
 
     static void write_big_constant(fd io, Assembly& as, ASMOpcode opcode, const ASMVal& dst, const ASMVal& src) {
-        if (opcode == ASMOpcode::BRZ)
-            ::write(io, "  br.z ");
-        else if (opcode == ASMOpcode::BRNZ)
-            ::write(io, "  br.nz ");
-        else
-            ::write(io, "  ", ASM_OPCODE_NAMES[(unsigned)opcode], ' ');
+        ::write(io, "  ", ASM_OPCODE_NAMES[(unsigned)opcode], ' ');
         write_mval(io, as, dst);
         ::write(io, ", 0x");
         ::write(io, hex((u64)src.imm64));
