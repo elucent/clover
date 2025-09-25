@@ -7,7 +7,7 @@
 template<typename T, uptr N = 8>
 struct deque {
     T* data;
-    u32 start = 0, end = 0, capacity = 0;
+    u32 start = 0, end = 0, capacity = 0, pad = 0;
     i8 fixed[N * sizeof(T)];
 
     void init(u32 size) {

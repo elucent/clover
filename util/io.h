@@ -224,7 +224,7 @@ inline IO format_impl(IO io, u64 u) {
         q = p, p *= 10, ++ c;
     d = c;
     while (c >= 2) {
-        *(u16*)(buf.data() + c - 2) = *(u16*)(digits[u % 100]);
+        store<u16>(load<u16>(digits[u % 100]), buf.data() + c - 2);
         u /= 100;
         c -= 2;
     }
