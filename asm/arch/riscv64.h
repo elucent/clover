@@ -48,7 +48,9 @@ struct RISCV64Assembler {
         "ft8", "ft9", "ft10", "ft11"
     };
 
-    constexpr static mreg scratch = T6, fscratch = FT7;
+    // scratch and fscratch are always reserved; optScratch2 needs to be
+    // explicitly clobbered. We just define it here so it has a clear name.
+    constexpr static mreg scratch = T6, optScratch2 = T5, fscratch = FT7;
     constexpr static mreg fp = S0, sp = SP;
     constexpr static EndianOrder endianness = EndianOrder::LITTLE;
     constexpr static bool shouldCompact = true;
@@ -83,7 +85,17 @@ struct RISCV64Assembler {
     }
 
     static inline constexpr RegSet clobbers(ASMOpcode opcode) {
-        return RegSet();
+        switch (opcode) {
+            case ASMOpcode::ROL32:
+            case ASMOpcode::ROL64:
+            case ASMOpcode::ROR32:
+            case ASMOpcode::ROR64:
+                // These require an emulation without extensions we don't
+                // assume, so we borrow a scratch just in case.
+                return RegSet(optScratch2);
+            default:
+                return RegSet();
+        }
     }
 
     // For now, we include the ABI methods in the base.
@@ -785,6 +797,8 @@ struct RISCV64Assembler {
             encodei(as, 0b0011011, dst.gp, a.gp, 0b000000 << 6 | b.imm, 0b001); // slliw
             return;
         }
+        if (a.kind == ASMVal::IMM)
+            a = materializeImm32(as, ::GP(scratch), a.imm);
         encoder(as, 0b0111011, dst.gp, a.gp, b.gp, 0b001, 0b0000000); // sllw
     }
 
@@ -798,6 +812,8 @@ struct RISCV64Assembler {
             encodei(as, 0b0010011, dst.gp, a.gp, 0b000000 << 6 | b.imm, 0b001); // slli
             return;
         }
+        if (a.kind == ASMVal::IMM)
+            a = materializeImm64<true>(as, ::GP(scratch), a.imm);
         encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b001, 0b0000000); // sll
     }
 
@@ -829,6 +845,8 @@ struct RISCV64Assembler {
             encodei(as, 0b0011011, dst.gp, a.gp, 0b000000 << 6 | b.imm, 0b101); // srliw
             return;
         }
+        if (a.kind == ASMVal::IMM)
+            a = materializeImm32(as, ::GP(scratch), a.imm);
         encoder(as, 0b0111011, dst.gp, a.gp, b.gp, 0b101, 0b0000000); // srlw
     }
 
@@ -842,6 +860,8 @@ struct RISCV64Assembler {
             encodei(as, 0b0010011, dst.gp, a.gp, 0b000000 << 6 | b.imm, 0b101); // srli
             return;
         }
+        if (a.kind == ASMVal::IMM)
+            a = materializeImm64<true>(as, ::GP(scratch), a.imm);
         encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b101, 0b0000000); // srl
     }
 
@@ -873,6 +893,8 @@ struct RISCV64Assembler {
             encodei(as, 0b0011011, dst.gp, a.gp, 0b010000 << 6 | b.imm, 0b101); // srliw
             return;
         }
+        if (a.kind == ASMVal::IMM)
+            a = materializeImm32(as, ::GP(scratch), a.imm);
         encoder(as, 0b0111011, dst.gp, a.gp, b.gp, 0b101, 0b0100000); // sraw
     }
 
@@ -887,39 +909,77 @@ struct RISCV64Assembler {
             encodei(as, 0b0010011, dst.gp, a.gp, 0b010000 << 6 | b.imm, 0b101); // srli
             return;
         }
+        if (a.kind == ASMVal::IMM)
+            a = materializeImm64<true>(as, ::GP(scratch), a.imm);
         encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b101, 0b0100000); // srl
     }
 
-    static inline void rol8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+    template<bool Right, u32 Size, typename Func>
+    static inline void emitRotate(Assembly& as, Func&& ext, ASMVal dst, ASMVal a, ASMVal b) {
+        if (b.kind == ASMVal::IMM) {
+            if (b.imm == 0)
+                return;
+            ASMVal leftAmount = Right ? Imm(Size - b.imm) : b, rightAmount = Right ? b : Imm(Size - b.imm);
+            shl64(as, ::GP(scratch), a, leftAmount);
+            (Size == 32 ? shr32 : shr64)(as, dst, a, rightAmount);
+            if (ext)
+                ext(as, dst, dst);
+            or64(as, dst, dst, ::GP(scratch));
+            return;
+        }
+        if (a.kind == ASMVal::IMM) {
+            if (a.imm == 0)
+                return;
+            if constexpr (Size == 64)
+                a = materializeImm64<true>(as, ::GP(optScratch2), a.imm);
+            else
+                a = materializeImm32(as, ::GP(optScratch2), a.imm);
+        }
+        sub64(as, ::GP(scratch), ::GP(ZERO), b); // Should wrap around and compute 64 - b.
+        if constexpr (Right) {
+            shl64(as, ::GP(scratch), a, ::GP(scratch));
+            (Size == 32 ? shr32 : shr64)(as, dst, a, b);
+            if (ext)
+                ext(as, dst, dst);
+        } else {
+            (Size == 32 ? shr32 : shr64)(as, ::GP(scratch), a, ::GP(scratch));
+            if (ext)
+                ext(as, ::GP(scratch), ::GP(scratch));
+            shl64(as, dst, a, b);
+        }
+        or64(as, dst, dst, ::GP(scratch));
+    }
 
+    static inline void rol8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
+        emitRotate<false, 8>(as, zxt8, dst, a, b);
     }
 
     static inline void rol16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-
+        emitRotate<false, 16>(as, zxt16, dst, a, b);
     }
 
     static inline void rol32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-
+        emitRotate<false, 32>(as, nullptr, dst, a, b);
     }
 
     static inline void rol64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-
+        emitRotate<false, 64>(as, nullptr, dst, a, b);
     }
 
     static inline void ror8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-
+        emitRotate<true, 8>(as, zxt8, dst, a, b);
     }
 
     static inline void ror16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-
+        emitRotate<true, 16>(as, zxt16, dst, a, b);
     }
 
     static inline void ror32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-
+        emitRotate<true, 32>(as, nullptr, dst, a, b);
     }
 
     static inline void ror64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-
+        emitRotate<true, 64>(as, nullptr, dst, a, b);
     }
 
     static inline void mov8(Assembly& as, ASMVal dst, ASMVal src) {
