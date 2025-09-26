@@ -256,7 +256,7 @@ inline bool fitsUnsigned(T t) {
 template<u32 N, typename T>
 inline T signExtend(T t) {
     using type = bit_int<T>;
-    constexpr amt = sizeof(T) * 8 - N;
+    constexpr u32 amt = sizeof(T) * 8 - N;
     return type(t) << amt >> amt;
 }
 
