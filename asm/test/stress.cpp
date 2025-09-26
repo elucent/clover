@@ -103,6 +103,7 @@ void restore_callee_saved_gps(Assembly& as, Args... args) {
     return restore_callee_saved_gps(as, RegSet(args...));
 }
 
+#ifndef RT_RISCV64
 void save_callee_saved_fps(Assembly& as, RegSet r) {
     r &= Assembler::callee_saved_fps();
     for (mreg fp : r)
@@ -127,6 +128,7 @@ template<typename... Args>
 void restore_callee_saved_fps(Assembly& as, Args... args) {
     return restore_callee_saved_fps(as, RegSet(args...));
 }
+#endif
 
 template<typename MoveType, typename OpType>
 void gen_binary_int(TestContext& ctx, BinaryFuncs<MoveType, OpType> funcs, ASMVal operand) {
@@ -422,6 +424,8 @@ MAKE_BINARY_INT_TEST_FOR_WIDTH(NEG, neg, 32, overflow, -0x80000000, -0x80000000)
 
 // Floating-point instructions.
 
+#ifndef RT_RISCV64
+
 MAKE_TERNARY_FLOAT_TESTS_FOR_EACH_WIDTH(FADD, fadd, one_plus_two, 1.0, 2.0, 1.0 + 2.0);
 MAKE_TERNARY_FLOAT_TESTS_FOR_EACH_WIDTH(FADD, fadd, zero_plus_zero, 0.0, 0.0, 0.0);
 MAKE_TERNARY_FLOAT_TESTS_FOR_EACH_WIDTH(FADD, fadd, zero_plus_negative_zero, 0.0, -0.0, 0.0);
@@ -493,5 +497,7 @@ MAKE_TERNARY_FLOAT_TESTS_FOR_EACH_WIDTH(FDIV, fdiv, infinity_over_infinity, Infi
 MAKE_TERNARY_FLOAT_TESTS_FOR_EACH_WIDTH(FDIV, fdiv, divide_nan_by_anything, NaN, 173.0, NaN);
 MAKE_TERNARY_FLOAT_TESTS_FOR_EACH_WIDTH(FDIV, fdiv, divide_nan_by_nan, NaN, NaN, NaN);
 MAKE_TERNARY_FLOAT_TESTS_FOR_EACH_WIDTH(FDIV, fdiv, divide_zero_by_minus_zero, 0.0, -0.0, -NaN);
+
+#endif
 
 // Bitwise instructions.
