@@ -6,6 +6,10 @@
 #include "util/ptrhax.h"
 
 namespace clover {
+    struct Counted {
+        i64 count;
+    };
+
     struct IndexedProps;
     struct KeyedProps;
 
@@ -13,6 +17,11 @@ namespace clover {
         IndexedProps* indices;
         KeyedProps* keys;
     };
+
+    inline void ref(IndexedProps* props);
+    inline void deref(IndexedProps* props);
+    inline void ref(KeyedProps* props);
+    inline void deref(KeyedProps* props);
 
     struct Value {
         enum Kind : u8 {
@@ -36,13 +45,13 @@ namespace clover {
 
         inline void setObj(Object obj) {
             if (indexedProps() != obj.indices) {
-                asref<IndexedProps>(indexedProps()).deref();
-                asref<IndexedProps>(obj.indices).ref();
+                ref(obj.indices);
+                deref(indexedProps());
                 ptr = obj.indices;
             }
             if (keyedProps() != obj.keys) {
-                asref<KeyedProps>(keyedProps()).deref();
-                asref<KeyedProps>(obj.keys).ref();
+                ref(obj.keys);
+                deref(keyedProps());
                 kindAndPointer.setPtr(obj.keys);
             }
         }
@@ -64,13 +73,13 @@ namespace clover {
         }
 
         inline void refObj() {
-            asref<IndexedProps>(indexedProps()).ref();
-            asref<KeyedProps>(keyedProps()).ref();
+            ref(indexedProps());
+            ref(keyedProps());
         }
 
         inline void derefObj() {
-            asref<IndexedProps>(indexedProps()).deref();
-            asref<KeyedProps>(keyedProps()).deref();
+            deref(indexedProps());
+            deref(keyedProps());
         }
 
         inline Value(): kindAndPointer(nullptr, Undefined) {
@@ -120,9 +129,25 @@ namespace clover {
             }
             return *this;
         }
+
+        inline Value(Value&& other): kindAndPointer(other.kindAndPointer) {
+            bits = other.bits;
+            other.setKind(Value::Undefined); // This is to prevent the other value from referencing its object, if it had one.
+        }
+
+        inline Value& operator=(Value&& other) {
+            if (&other != this) {
+                if (isObj())
+                    derefObj();
+                kindAndPointer = other.kindAndPointer;
+                bits = other.bits;
+                other.setKind(Value::Undefined);
+            }
+            return *this;
+        }
     };
 
-    struct IndexedProps {
+    struct IndexedProps : public Counted {
         u32 length;
         bool isString;
         union {
@@ -147,9 +172,33 @@ namespace clover {
         }
     };
 
-    struct KeyedProps {
+    struct KeyedProps : public Counted {
         map<Value, Value> fields;
     };
+
+    inline void ref(IndexedProps* props) {
+        if (props)
+            props->count ++;
+    }
+
+    inline void deref(IndexedProps* props) {
+        if (props) {
+            if (!-- props->count)
+                delete props;
+        }
+    }
+
+    inline void ref(KeyedProps* props) {
+        if (props)
+            props->count ++;
+    }
+
+    inline void deref(KeyedProps* props) {
+        if (props) {
+            if (!-- props->count)
+                delete props;
+        }
+    }
 
     inline Value boxInt(i64 i) {
         Value value;

@@ -112,16 +112,4 @@ struct rc {
     }
 };
 
-template<typename T>
-rc<T> asref(void* ptr) {
-    rc<T> ref;
-    ref.ptr = (typename rc<T>::pointee*)ptr;
-    return ref;
-}
-
-template<typename T>
-void* asptr(rc<T> ref) {
-    return ref.ptr;
-}
-
 #endif
