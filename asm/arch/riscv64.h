@@ -1267,6 +1267,54 @@ struct RISCV64Assembler {
         emitStoreIndex<0b0100011, 0b011, 3>(as, dst, src, idx);
     }
 
+    static inline void push8(Assembly& as, ASMVal src) {
+        assert(src.kind == ASMVal::GP);
+        sub64(as, ::GP(SP), ::GP(SP), Imm(1));
+        st8(as, Mem(SP, 0), src);
+    }
+
+    static inline void push16(Assembly& as, ASMVal src) {
+        assert(src.kind == ASMVal::GP);
+        sub64(as, ::GP(SP), ::GP(SP), Imm(2));
+        st16(as, Mem(SP, 0), src);
+    }
+
+    static inline void push32(Assembly& as, ASMVal src) {
+        assert(src.kind == ASMVal::GP);
+        sub64(as, ::GP(SP), ::GP(SP), Imm(4));
+        st32(as, Mem(SP, 0), src);
+    }
+
+    static inline void push64(Assembly& as, ASMVal src) {
+        assert(src.kind == ASMVal::GP);
+        sub64(as, ::GP(SP), ::GP(SP), Imm(8));
+        st64(as, Mem(SP, 0), src);
+    }
+
+    static inline void pop8(Assembly& as, ASMVal dst) {
+        assert(dst.kind == ASMVal::GP);
+        lds8(as, Mem(SP, 0), dst);
+        add64(as, ::GP(SP), ::GP(SP), Imm(1));
+    }
+
+    static inline void pop16(Assembly& as, ASMVal dst) {
+        assert(dst.kind == ASMVal::GP);
+        lds16(as, Mem(SP, 0), dst);
+        add64(as, ::GP(SP), ::GP(SP), Imm(2));
+    }
+
+    static inline void pop32(Assembly& as, ASMVal dst) {
+        assert(dst.kind == ASMVal::GP);
+        lds32(as, Mem(SP, 0), dst);
+        add64(as, ::GP(SP), ::GP(SP), Imm(4));
+    }
+
+    static inline void pop64(Assembly& as, ASMVal dst) {
+        assert(dst.kind == ASMVal::GP);
+        ld64(as, Mem(SP, 0), dst);
+        add64(as, ::GP(SP), ::GP(SP), Imm(8));
+    }
+
     // Control flow
 
     static inline void br(Assembly& as, ASMVal dst) {
