@@ -206,6 +206,7 @@ void gen_ternary_int(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, ASM
     }
 }
 
+#ifndef RT_RISCV64
 template<typename MoveType, typename OpType>
 void gen_binary_float(TestContext& ctx, BinaryFuncs<MoveType, OpType> funcs, ASMVal operand) {
     Assembly& as = ctx.as;
@@ -281,6 +282,7 @@ void gen_ternary_float(TestContext& ctx, TernaryFuncs<MoveType, OpType> funcs, A
         }
     }
 }
+#endif
 
 #define MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(upper, lower, test_name, left, right, result) \
 MAKE_TERNARY_INT_TEST_FOR_WIDTH(upper, lower, 8, test_name, left, right, result) \
