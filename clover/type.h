@@ -1047,7 +1047,7 @@ namespace clover {
         Symbol name;
         vec<Field, 8> fields;
         Scope* scope;
-        bool isCase;
+        bool isCase = false;
 
         template<typename... Args>
         inline StructBuilder(TypeSystem* types_in, Symbol name_in, const Args&... args):
@@ -1128,7 +1128,7 @@ namespace clover {
         Symbol name;
         vec<Type, 8> cases;
         Scope* scope;
-        bool isCase;
+        bool isCase = false;
 
         inline UnionBuilder(Symbol name_in): name(name_in) {}
 
