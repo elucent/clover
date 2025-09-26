@@ -401,7 +401,7 @@ struct RISCV64Assembler {
         assert(dst.kind == ASMVal::GP);
         if (fitsSigned<6>(src) && encodeci(as, 0b01, dst.gp, src, 0b010)) // c.li
             return dst;
-        i32 upper = src >> 12, lower = src & 0xfff;
+        i32 upper = src >> 12, lower = signExtend<12>(src);
         if (!upper) {
             encodei(as, 0b0010011, dst.gp, ZERO, lower); // addi (zero)
             return dst;
@@ -411,10 +411,11 @@ struct RISCV64Assembler {
         else
             encodeu(as, 0b0110111, dst.gp, upper); // lui
         if (src & 0xfff) {
-            if (fitsSigned<6>(src & 0xfff))
-                encodeci(as, 0b01, dst.gp, src & 0xfff, 0b000); // c.addi
+            auto imm12 = signExtend<12>(src);
+            if (fitsSigned<6>(imm12))
+                encodeci(as, 0b01, dst.gp, imm12, 0b000); // c.addi
             else
-                encodei(as, 0b0010011, dst.gp, dst.gp, src & 0xfff); // addi
+                encodei(as, 0b0010011, dst.gp, dst.gp, imm12); // addi
         }
         return dst;
     }
@@ -426,7 +427,7 @@ struct RISCV64Assembler {
             return materializeImm32(as, dst, src);
 
         assert(!IsSigned); // Otherwise we'd already have exited.
-        u32 upper = u32(src) >> 12, lower = u32(src) & 0xfff;
+        u32 upper = u32(src) >> 12, lower = u32(signExtend<12>(src));
         if (auto shift = ctz32(upper)) {
             // If the upper half has trailing zeroes, then we can just lui
             // then shift.
@@ -439,7 +440,7 @@ struct RISCV64Assembler {
 
             // If we have a lower component, then addi that in now.
             if (lower)
-                encodei(as, 0b0010011, dst.gp, dst.gp, src & 0xfff); // addi
+                encodei(as, 0b0010011, dst.gp, dst.gp, lower); // addi
             return dst;
         }
         if ((upper & 1) == lower >> 11) {
@@ -1089,7 +1090,7 @@ struct RISCV64Assembler {
             assert(src.base != scratch);
             materializeImm32(as, ::GP(scratch), src.offset & ~0xfff);
             add64(as, ::GP(scratch), ::GP(scratch), ::GP(src.base));
-            src = Mem(scratch, dst.offset & 0xfff);
+            src = Mem(scratch, signExtend<12>(src.offset));
         }
         encodei(as, Opcode, dst.gp, src.base, src.offset, Funct3);
     }
@@ -1136,7 +1137,7 @@ struct RISCV64Assembler {
             assert(dst.base != scratch);
             materializeImm32(as, ::GP(scratch), dst.offset & ~0xfff);
             add64(as, ::GP(scratch), ::GP(scratch), ::GP(dst.base));
-            dst = Mem(scratch, dst.offset & 0xfff);
+            dst = Mem(scratch, signExtend<12>(dst.offset));
         }
         encodes(as, Opcode, dst.base, src.gp, dst.offset, Funct3);
     }
@@ -1164,7 +1165,7 @@ struct RISCV64Assembler {
                 assert(src.base != scratch);
                 materializeImm32(as, ::GP(scratch), src.offset & ~0xfff);
                 add64(as, ::GP(scratch), ::GP(scratch), ::GP(src.base));
-                src = Mem(scratch, src.offset & 0xfff);
+                src = Mem(scratch, signExtend<12>(src.offset));
             }
             if (ScaleShift > 1) {
                 // If we've already used the scratch register, it must have been
@@ -1225,7 +1226,7 @@ struct RISCV64Assembler {
                 assert(dst.base != scratch);
                 materializeImm32(as, ::GP(scratch), dst.offset & ~0xfff);
                 add64(as, ::GP(scratch), ::GP(scratch), ::GP(dst.base));
-                dst = Mem(scratch, dst.offset & 0xfff);
+                dst = Mem(scratch, signExtend<12>(dst.offset));
             }
             if (ScaleShift > 1) {
                 // If we've already used the scratch register, it must have been
