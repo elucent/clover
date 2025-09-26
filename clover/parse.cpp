@@ -75,7 +75,7 @@ namespace clover {
 
         Token peekIgnoringWhitespace() const {
             u32 i = offset;
-            while (i < tokens.size() && tokens[i].token.symbol < 64ull && (1 << tokens[i].token.symbol & SkipIfEnclosedMask))
+            while (i < tokens.size() && tokens[i].token.symbol < 64ull && (1ull << tokens[i].token.symbol & SkipIfEnclosedMask))
                 i ++;
             if (i >= tokens.size())
                 return Token(MetaNone, Pos(0, 0));
