@@ -1065,8 +1065,8 @@ struct RISCV64Assembler {
     static inline void emitLoad(Assembly& as, ASMVal dst, ASMVal src) {
         if (src.memkind != ASMVal::REG_OFFSET) {
             // Must be a label access.
-            encodeu(as, 0b0010111, scratch, 0); // auipc
             as.ref(CODE_SECTION, src.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_LD_RV64, src.label);
+            encodeu(as, 0b0010111, scratch, 0); // auipc
             src = Mem(scratch, 0);
         }
         if (!fitsSigned<12>(src.offset)) {
@@ -1112,8 +1112,8 @@ struct RISCV64Assembler {
             src = materializeImm32(as, ::GP(optScratch2), src.imm);
         if (dst.memkind != ASMVal::REG_OFFSET) {
             // Must be a label access.
+            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_ST_RV64, dst.label);
             encodeu(as, 0b0010111, scratch, 0); // auipc
-            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_LD_RV64, dst.label);
             dst = Mem(scratch, 0);
         }
         if (!fitsSigned<12>(dst.offset)) {
@@ -1160,13 +1160,13 @@ struct RISCV64Assembler {
                 idx = newidx;
             }
         } else {
-            // Must be a label access.
-            encodeu(as, 0b0010111, scratch, 0); // auipc
-
             // Note we use a different relocation here to indicate that the
             // constant will be split between two non-adjacent instructions,
             // since we now have an add64 in the middle.
             as.ref(CODE_SECTION, src.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_LDI_RV64, src.label);
+
+            // Must be a label access.
+            encodeu(as, 0b0010111, scratch, 0); // auipc
             src = Mem(scratch, 0);
         }
 
@@ -1221,13 +1221,13 @@ struct RISCV64Assembler {
                 idx = newidx;
             }
         } else {
-            // Must be a label access.
-            encodeu(as, 0b0010111, scratch, 0); // auipc
-
             // Note we use a different relocation here to indicate that the
             // constant will be split between two non-adjacent instructions,
             // since we now have an add64 in the middle.
-            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_LDI_RV64, dst.label);
+            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_STI_RV64, dst.label);
+
+            // Must be a label access.
+            encodeu(as, 0b0010111, scratch, 0); // auipc
             dst = Mem(scratch, 0);
         }
 
@@ -1256,10 +1256,10 @@ struct RISCV64Assembler {
     static inline void br(Assembly& as, ASMVal dst) {
         if (dst.kind == ASMVal::GP && encodecr(as, 0b10, dst.gp, ZERO, 0b1000)) // c.jr
             return;
+        assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
+        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_JR_RV64, dst.label);
         encodeu(as, 0b0010111, scratch, 0); // auipc
         encodei(as, 0b1100111, ZERO, scratch, 0, 0b000); // jalr
-        assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
-        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_J_AMD64, dst.label);
     }
 
     template<u32 Size>
@@ -1282,6 +1282,9 @@ struct RISCV64Assembler {
             if (b.kind != ASMVal::IMM)
                 shl64(as, ::GP(scratch), b, Imm(64 - Size));
         }
+
+        assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
+        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_JCC_RV64, dst.label);
 
         // Note: all of these are inverted! This is because since conditional
         // branches have such small displacements, prior to linking we
@@ -1329,7 +1332,6 @@ struct RISCV64Assembler {
         }
         encodeu(as, 0b0010111, scratch, 0); // auipc
         encodei(as, 0b1100111, ZERO, scratch, 0, 0b000); // jalr
-        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_JCC_AMD64, dst.label);
     }
 
     static inline void brcc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) {

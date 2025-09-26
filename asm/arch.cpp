@@ -22,7 +22,7 @@ void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind) {
             case Reloc::REL32_LE_M_AMD64:
                 if (diff < -0x80000000l || diff > 0x7fffffffl)
                     panic("Difference is too big for 32-bit relative relocation!");
-                ((i32*)reloc)[-1] = little_endian<i32>(diff);
+                store<i32>(little_endian<i32>(diff), (i32*)reloc - 1);
                 break;
         #endif
 
@@ -32,26 +32,65 @@ void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind) {
             case Reloc::REL20_12_JR_RV64: {
                 if (diff < -0x80000000l || diff > 0x7fffffffl)
                     panic("Difference is too big for 32-bit relative relocation!");
+                i32 bccOffset = kind == Reloc::REL20_12_JCC_RV64 ? 1 : 0;
 
-                i32& first = ((i32*)reloc)[-2];
-                i32& second = ((i32*)reloc)[-1];
-                i32 auipc = from_little_endian<i32>(first);
-                i32 jalr = from_little_endian<i32>(second);
+                i32* first = (i32*)reloc + bccOffset;
+                i32* second = (i32*)reloc + bccOffset + 1;
+                i32 auipc = from_little_endian<i32>(load<i32>(first));
+                i32 jalr = from_little_endian<i32>(load<i32>(second));
 
                 assert(auipc >> 12 == 0);
-                assert((jalr & 0xfff) == 0);
+                assert((jalr >> 20 & 0xfff) == 0);
                 auipc |= (diff >> 12) << 12;
-                jalr |= diff & 0xfff;
-                first = little_endian<i32>(auipc);
-                second = little_endian<i32>(jalr);
+                jalr |= (diff & 0xfff) << 20;
+                store(little_endian<i32>(auipc), first);
+                store(little_endian<i32>(jalr), second);
 
                 if (kind == Reloc::REL20_12_JCC_RV64) {
                     // Also need to finish up the preceding conditional branch.
-                    i32& bcc = ((i32*)reloc)[-3];
+                    i32& bcc = ((i32*)reloc)[0];
                     i32 bccw = from_little_endian<i32>(bcc);
                     bccw |= 4 << 7; // It's always two instructions.
                     bcc = little_endian<i32>(bccw);
                 }
+                break;
+            }
+
+            case Reloc::REL20_12_LD_RV64:
+            case Reloc::REL20_12_LDI_RV64: {
+                if (diff < -0x80000000l || diff > 0x7fffffffl)
+                    panic("Difference is too big for 32-bit relative relocation!");
+                i32* first = (i32*)reloc;
+                i32* second = (i32*)reloc + (kind == Reloc::REL20_12_LDI_RV64 ? 2 : 1);
+                i32 auipc = from_little_endian<i32>(load<i32>(first));
+                i32 ld = from_little_endian<i32>(load<i32>(second));
+
+                assert(auipc >> 12 == 0);
+                assert((ld >> 20 & 0xfff) == 0);
+                auipc |= (diff >> 12) << 12;
+                ld |= (diff & 0xfff) << 20;
+                store(little_endian<i32>(auipc), first);
+                store(little_endian<i32>(ld), second);
+                break;
+            }
+
+            case Reloc::REL20_12_ST_RV64:
+            case Reloc::REL20_12_STI_RV64: {
+                if (diff < -0x80000000l || diff > 0x7fffffffl)
+                    panic("Difference is too big for 32-bit relative relocation!");
+                i32* first = (i32*)reloc;
+                i32* second = (i32*)reloc + (kind == Reloc::REL20_12_STI_RV64 ? 2 : 1);
+                i32 auipc = from_little_endian<i32>(load<i32>(first));
+                i32 st = from_little_endian<i32>(load<i32>(second));
+
+                assert(auipc >> 12 == 0);
+                assert((st >> 7 & 0b11111) == 0);
+                assert((st >> 25 & 0b1111111) == 0);
+                auipc |= (diff >> 12) << 12;
+                st |= (diff & 0b11111) << 7;
+                st |= (diff & 0b1111111) << 25;
+                store(little_endian<i32>(auipc), first);
+                store(little_endian<i32>(st), second);
                 break;
             }
         #endif

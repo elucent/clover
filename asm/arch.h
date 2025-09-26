@@ -562,6 +562,8 @@ struct Reloc : public Def {
         REL20_12_JCC_RV64,  // Same as previous, but auipc is preceded by a condition jump, which we can encode directly in if the displacement is 12 bits or under.
         REL20_12_LD_RV64,   // 32-bit PC-relative relocation used in an auipc + lb/lh/lw/ld.
         REL20_12_ST_RV64,   // Same as previous, but for sb/sh/sw/sd.
+        REL20_12_LDI_RV64,  // 32-bit PC-relative relocation split between an auipc and load, with an add in-between.
+        REL20_12_STI_RV64,  // Same as previous, but for indexed stores.
         #endif
 
         // Common
