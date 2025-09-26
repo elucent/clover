@@ -23,7 +23,7 @@ inline u64 raw_hash(const void* input, u64 size){
 	const u64* end = data + (size / 8);
 
 	while(data != end) {
-		u64 k = *data ++;
+		u64 k = load<u64>(data ++);
 		k *= m;
 		k ^= k >> r;
 		k *= m;
