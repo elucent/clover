@@ -93,6 +93,26 @@ struct RISCV64Assembler {
                 // These require an emulation without extensions we don't
                 // assume, so we borrow a scratch just in case.
                 return RegSet(optScratch2);
+            case ASMOpcode::ST8:
+            case ASMOpcode::ST16:
+            case ASMOpcode::ST32:
+            case ASMOpcode::ST64:
+            case ASMOpcode::STI8:
+            case ASMOpcode::STI16:
+            case ASMOpcode::STI32:
+            case ASMOpcode::STI64:
+                // These require a second scratch for when we're storing an
+                // immediate.
+                return RegSet(optScratch2);
+            case ASMOpcode::BRCC8:
+            case ASMOpcode::BRCC16:
+            case ASMOpcode::CMPCC8:
+            case ASMOpcode::CMPCC16:
+                // These require two scratches for a really sad reason, which
+                // is that because RISC-V has no native 8 or 16-bit conditional
+                // branches or comparisons, we need to conservatively shift
+                // each operand left to ensure the upper bits are cleared.
+                return RegSet(optScratch2);
             default:
                 return RegSet();
         }
@@ -440,6 +460,8 @@ struct RISCV64Assembler {
         unreachable("TODO: Finish immediate materialization logic.");
     }
 
+    // Integer arithmetic
+
     // For 8-bit arithmetic, since RISC-V has no native instructions for it, we
     // generally just emit the 32-bit form. This is broadly consistent with the
     // semantics of our macro assembly language, in that an N-bit result only
@@ -691,6 +713,8 @@ struct RISCV64Assembler {
     static inline void urem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         encodeDivRem<false, true, false, 0b0110011, 0b111, 0b0000001>(as, dst, a, b); // remu
     }
+
+    // Bitwise operations
 
     static inline void and8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         and64(as, dst, a, b);
@@ -984,6 +1008,8 @@ struct RISCV64Assembler {
         emitRotate<true, 64, nullptr>(as, dst, a, b);
     }
 
+    // Moves and extends
+
     static inline void mov8(Assembly& as, ASMVal dst, ASMVal src) {
         mov64(as, dst, src);
     }
@@ -1033,6 +1059,297 @@ struct RISCV64Assembler {
         shr64(as, dst, dst, Imm(32));
     }
 
+    // Loads and stores
+
+    template<u32 Opcode, u32 Funct3>
+    static inline void emitLoad(Assembly& as, ASMVal dst, ASMVal src) {
+        if (src.memkind != ASMVal::REG_OFFSET) {
+            // Must be a label access.
+            encodeu(as, 0b0010111, scratch, 0); // auipc
+            as.ref(CODE_SECTION, src.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_LD_RV64, src.label);
+            src = Mem(scratch, 0);
+        }
+        if (!fitsSigned<12>(src.offset)) {
+            assert(src.base != scratch);
+            materializeImm32(as, ::GP(scratch), src.offset & ~0xfff);
+            add64(as, ::GP(scratch), ::GP(scratch), ::GP(src.base));
+            src = Mem(scratch, dst.offset & 0xfff);
+        }
+        encodei(as, Opcode, dst.gp, src.base, src.offset, Funct3);
+    }
+
+    static inline void lds8(Assembly& as, ASMVal dst, ASMVal src) {
+        emitLoad<0b0000011, 0b000>(as, dst, src);
+    }
+
+    static inline void lds16(Assembly& as, ASMVal dst, ASMVal src) {
+        emitLoad<0b0000011, 0b001>(as, dst, src);
+    }
+
+    static inline void lds32(Assembly& as, ASMVal dst, ASMVal src) {
+        emitLoad<0b0000011, 0b010>(as, dst, src);
+    }
+
+    static inline void ldz8(Assembly& as, ASMVal dst, ASMVal src) {
+        emitLoad<0b0000011, 0b100>(as, dst, src);
+    }
+
+    static inline void ldz16(Assembly& as, ASMVal dst, ASMVal src) {
+        emitLoad<0b0000011, 0b101>(as, dst, src);
+    }
+
+    static inline void ldz32(Assembly& as, ASMVal dst, ASMVal src) {
+        emitLoad<0b0000011, 0b110>(as, dst, src);
+    }
+
+    static inline void ld64(Assembly& as, ASMVal dst, ASMVal src) {
+        emitLoad<0b0000011, 0b011>(as, dst, src);
+    }
+
+    template<u32 Opcode, u32 Funct3>
+    static inline void emitStore(Assembly& as, ASMVal dst, ASMVal src) {
+        if (src.kind == ASMVal::IMM)
+            src = materializeImm32(as, ::GP(optScratch2), src.imm);
+        if (dst.memkind != ASMVal::REG_OFFSET) {
+            // Must be a label access.
+            encodeu(as, 0b0010111, scratch, 0); // auipc
+            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_LD_RV64, dst.label);
+            dst = Mem(scratch, 0);
+        }
+        if (!fitsSigned<12>(dst.offset)) {
+            assert(dst.base != scratch);
+            materializeImm32(as, ::GP(scratch), dst.offset & ~0xfff);
+            add64(as, ::GP(scratch), ::GP(scratch), ::GP(dst.base));
+            dst = Mem(scratch, dst.offset & 0xfff);
+        }
+        encodes(as, Opcode, dst.base, src.gp, dst.offset, Funct3);
+    }
+
+    static inline void st8(Assembly& as, ASMVal dst, ASMVal src) {
+        emitStore<0b0100011, 0b000>(as, dst, src);
+    }
+
+    static inline void st16(Assembly& as, ASMVal dst, ASMVal src) {
+        emitStore<0b0100011, 0b001>(as, dst, src);
+    }
+
+    static inline void st32(Assembly& as, ASMVal dst, ASMVal src) {
+        emitStore<0b0100011, 0b010>(as, dst, src);
+    }
+
+    static inline void st64(Assembly& as, ASMVal dst, ASMVal src) {
+        emitStore<0b0100011, 0b011>(as, dst, src);
+    }
+
+    template<u32 Opcode, u32 Funct3, u32 ScaleShift>
+    static inline void emitLoadIndex(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        if (src.memkind == ASMVal::REG_OFFSET) {
+            if (!fitsSigned<12>(src.offset)) {
+                assert(src.base != scratch);
+                materializeImm32(as, ::GP(scratch), src.offset & ~0xfff);
+                add64(as, ::GP(scratch), ::GP(scratch), ::GP(src.base));
+                src = Mem(scratch, src.offset & 0xfff);
+            }
+            if (ScaleShift > 1) {
+                // If we've already used the scratch register, it must have been
+                // to materialize the address, meaning that dst can no longer alias
+                // with the base address of our source. So, it's safe to use dst as
+                // a temporary destination for the shifted source.
+                ASMVal newidx = src.base == scratch ? dst : ::GP(scratch);
+                shl64(as, newidx, idx, Imm(ScaleShift));
+                idx = newidx;
+            }
+        } else {
+            // Must be a label access.
+            encodeu(as, 0b0010111, scratch, 0); // auipc
+
+            // Note we use a different relocation here to indicate that the
+            // constant will be split between two non-adjacent instructions,
+            // since we now have an add64 in the middle.
+            as.ref(CODE_SECTION, src.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_LDI_RV64, src.label);
+            src = Mem(scratch, 0);
+        }
+
+        add64(as, ::GP(scratch), ::GP(src.base), ::GP(idx.gp));
+        encodei(as, Opcode, dst.gp, scratch, src.offset, Funct3);
+    }
+
+    static inline void ldis8(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitLoadIndex<0b0000011, 0b000, 0>(as, dst, src, idx);
+    }
+
+    static inline void ldis16(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitLoadIndex<0b0000011, 0b001, 1>(as, dst, src, idx);
+    }
+
+    static inline void ldis32(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitLoadIndex<0b0000011, 0b010, 2>(as, dst, src, idx);
+    }
+
+    static inline void ldiz8(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitLoadIndex<0b0000011, 0b100, 0>(as, dst, src, idx);
+    }
+
+    static inline void ldiz16(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitLoadIndex<0b0000011, 0b101, 1>(as, dst, src, idx);
+    }
+
+    static inline void ldiz32(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitLoadIndex<0b0000011, 0b110, 2>(as, dst, src, idx);
+    }
+
+    static inline void ldi64(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitLoadIndex<0b0000011, 0b011, 3>(as, dst, src, idx);
+    }
+
+    template<u32 Opcode, u32 Funct3, u32 ScaleShift>
+    static inline void emitStoreIndex(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        if (dst.memkind == ASMVal::REG_OFFSET) {
+            if (!fitsSigned<12>(dst.offset)) {
+                assert(dst.base != scratch);
+                materializeImm32(as, ::GP(scratch), dst.offset & ~0xfff);
+                add64(as, ::GP(scratch), ::GP(scratch), ::GP(dst.base));
+                dst = Mem(scratch, dst.offset & 0xfff);
+            }
+            if (ScaleShift > 1) {
+                // If we've already used the scratch register, it must have been
+                // to materialize the address, meaning that dst can no longer alias
+                // with the base address of our source. So, it's safe to use dst as
+                // a temporary destination for the shifted source.
+                ASMVal newidx = dst.base == scratch ? dst : ::GP(scratch);
+                shl64(as, newidx, idx, Imm(ScaleShift));
+                idx = newidx;
+            }
+        } else {
+            // Must be a label access.
+            encodeu(as, 0b0010111, scratch, 0); // auipc
+
+            // Note we use a different relocation here to indicate that the
+            // constant will be split between two non-adjacent instructions,
+            // since we now have an add64 in the middle.
+            as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_LDI_RV64, dst.label);
+            dst = Mem(scratch, 0);
+        }
+
+        add64(as, ::GP(scratch), ::GP(dst.base), ::GP(idx.gp));
+        encodes(as, Opcode, dst.base, scratch, dst.offset, Funct3);
+    }
+
+    static inline void sti8(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitStoreIndex<0b0100011, 0b000, 0>(as, dst, src, idx);
+    }
+
+    static inline void sti16(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitStoreIndex<0b0100011, 0b001, 1>(as, dst, src, idx);
+    }
+
+    static inline void sti32(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitStoreIndex<0b0100011, 0b010, 2>(as, dst, src, idx);
+    }
+
+    static inline void sti64(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
+        emitStoreIndex<0b0100011, 0b011, 3>(as, dst, src, idx);
+    }
+
+    // Control flow
+
+    static inline void br(Assembly& as, ASMVal dst) {
+        if (dst.kind == ASMVal::GP && encodecr(as, 0b10, dst.gp, ZERO, 0b1000)) // c.jr
+            return;
+        encodeu(as, 0b0010111, scratch, 0); // auipc
+        encodei(as, 0b1100111, ZERO, scratch, 0, 0b000); // jalr
+        assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
+        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_J_AMD64, dst.label);
+    }
+
+    template<u32 Size>
+    static inline void emitBranch(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) {
+        if (a.kind == ASMVal::IMM) {
+            swap(a, b);
+            cc = commute(cc);
+        }
+        if (b.kind == ASMVal::IMM) {
+            if (Size < 32) { // We assume all registers of 32-bits or higher are well-behaved.
+                // Shift the immediate up a tad so we use just a single lui.
+                b = materializeImm32(as, ::GP(scratch), b.imm << (32 - Size));
+                shl64(as, b, b, Imm(32));
+            } else
+                b = materializeImm32(as, ::GP(scratch), b.imm);
+        }
+
+        if (Size < 32) {
+            shl64(as, ::GP(optScratch2), a, Imm(64 - Size));
+            if (b.kind != ASMVal::IMM)
+                shl64(as, ::GP(scratch), b, Imm(64 - Size));
+        }
+
+        // Note: all of these are inverted! This is because since conditional
+        // branches have such small displacements, prior to linking we
+        // conservatively lower them as *skipping* an unconditional branch to
+        // the destination. So we emit a bge for COND_LT for example, so that
+        // if the first operand is not less than the second, we don't jump to
+        // dst.
+        switch (cc) {
+            case COND_LT:
+                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b101); // bge
+                break;
+            case COND_LE:
+                encodes(as, 0b1100011, b.gp, a.gp, 0, 0b100); // bgt (blt b, a)
+                break;
+            case COND_GT:
+                encodes(as, 0b1100011, b.gp, a.gp, 0, 0b101); // ble (bge b, a)
+                break;
+            case COND_GE:
+                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b100); // blt
+                break;
+            case COND_ABOVE:
+                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b111); // bgeu
+                break;
+            case COND_AE:
+                encodes(as, 0b1100011, b.gp, a.gp, 0, 0b110); // bgtu (bltu b, a)
+                break;
+            case COND_BELOW:
+                encodes(as, 0b1100011, b.gp, a.gp, 0, 0b111); // bleu (bgeu b, a)
+                break;
+            case COND_BE:
+                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b110); // bltu
+                break;
+            case COND_EQ:
+                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b001); // bne
+                break;
+            case COND_NE:
+                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b000); // beq
+                break;
+            case COND_TEST_ZERO:
+                encodes(as, 0b1100011, a.gp, ZERO, 0, 0b001); // bneqz (bne a, zero)
+                break;
+            case COND_TEST_NONZERO:
+                encodes(as, 0b1100011, a.gp, ZERO, 0, 0b000); // beqz (beq a, zero)
+                break;
+        }
+        encodeu(as, 0b0010111, scratch, 0); // auipc
+        encodei(as, 0b1100111, ZERO, scratch, 0, 0b000); // jalr
+        as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_JCC_AMD64, dst.label);
+    }
+
+    static inline void brcc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) {
+        emitBranch<8>(as, cc, dst, a, b);
+    }
+
+    static inline void brcc16(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) {
+        emitBranch<16>(as, cc, dst, a, b);
+    }
+
+    static inline void brcc32(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) {
+        emitBranch<32>(as, cc, dst, a, b);
+    }
+
+    static inline void brcc64(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b) {
+        emitBranch<64>(as, cc, dst, a, b);
+    }
+
+    // Frames, calls, and returns
+
     static inline void ret(Assembly& as) {
         encodecr(as, 0b10, RA, ZERO, 0b1000); // c.jal ra, x0
     }
@@ -1053,6 +1370,8 @@ struct RISCV64Assembler {
     static inline void trap(Assembly& as) {
         as.code.write<u16>(0); // unimp
     }
+
+    // Label definitions
 
     static inline void global(Assembly& as, Label label) {
         as.def(CODE_SECTION, DEF_GLOBAL, label);

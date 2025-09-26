@@ -560,6 +560,8 @@ struct Reloc : public Def {
         REL20_12_JALR_RV64, // 32-bit PC-relative relocation that's split between an auipc and jalr.
         REL20_12_JR_RV64,   // 32-bit PC-relative relocation that's split between an auipc and jalr, where Rd == zero (i.e. it's a jump, not a call).
         REL20_12_JCC_RV64,  // Same as previous, but auipc is preceded by a condition jump, which we can encode directly in if the displacement is 12 bits or under.
+        REL20_12_LD_RV64,   // 32-bit PC-relative relocation used in an auipc + lb/lh/lw/ld.
+        REL20_12_ST_RV64,   // Same as previous, but for sb/sh/sw/sd.
         #endif
 
         // Common
