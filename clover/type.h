@@ -1197,9 +1197,9 @@ namespace clover {
         vec<Scope*> scopes;
 
         TypeIndex signedTypeCache[66];
-        TypeIndex unsignedTypeCache[65];
+        TypeIndex unsignedTypeCache[66];
         TypeIndex signedRangeCache[66];
-        TypeIndex unsignedRangeCache[65];
+        TypeIndex unsignedRangeCache[66];
 
         inline TypeSystem(Compilation* compilation_in):
             compilation(compilation_in), symbols(&compilation->symbols) {
