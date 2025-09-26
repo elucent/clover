@@ -561,6 +561,22 @@ struct RISCV64Assembler {
         return encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b000, 0b0100000); // sub
     }
 
+    static inline void neg8(Assembly& as, ASMVal dst, ASMVal src) {
+        return sub8(as, dst, ::GP(ZERO), src);
+    }
+
+    static inline void neg16(Assembly& as, ASMVal dst, ASMVal src) {
+        return sub16(as, dst, ::GP(ZERO), src);
+    }
+
+    static inline void neg32(Assembly& as, ASMVal dst, ASMVal src) {
+        return sub32(as, dst, ::GP(ZERO), src);
+    }
+
+    static inline void neg64(Assembly& as, ASMVal dst, ASMVal src) {
+        return sub64(as, dst, ::GP(ZERO), src);
+    }
+
     static inline void mul8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         mul32(as, dst, a, b);
     }
