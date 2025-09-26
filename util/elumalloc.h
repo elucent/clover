@@ -6,6 +6,17 @@
 #include "util/io.h"
 #include "util/math.h"
 
+#ifdef RT_ASAN
+extern "C" void __asan_poison_memory_region(void const volatile *addr, size_t size);
+extern "C" void __asan_unpoison_memory_region(void const volatile *addr, size_t size);
+
+#define ASAN_POISON(ptr, size) __asan_poison_memory_region((ptr), (size))
+#define ASAN_UNPOISON(ptr, size) __asan_unpoison_memory_region((ptr), (size))
+#else
+#define ASAN_POISON(ptr, size) do {} while (0)
+#define ASAN_UNPOISON(ptr, size) do {} while (0)
+#endif
+
 // Enables verbose logging basically everywhere in the malloc.
 #define ELUMALLOC_VERBOSE 0
 
@@ -178,6 +189,9 @@ struct PrimitiveHeap {
 
     inline void addBlock() {
         auto pages = mapAligned(BlockSize, BlockSize);
+
+        ASAN_UNPOISON(pages.data(), HeaderSize);
+
         if (!head) {
             head = bitcast<Block*>(pages.data());
             head->next = head;
@@ -220,12 +234,17 @@ struct PrimitiveHeap {
         word &= mask;
         head->bitmap[index] &= mask;
         assert(word == head->bitmap[index]);
+        u64 offsetInBlock = indexInBlock * AllocationSize;
+        T* result = bitcast<T*>(bitcast<u8*>(head) + offsetInBlock);
+
+        ASAN_UNPOISON(result, sizeof(T));
+
         process::unlock(&lock);
 
-        u64 offsetInBlock = indexInBlock * AllocationSize;
         ALLOC_LOG(3, "Allocated primitive value of ", sizeof(T), " bytes at ", hex(uptr(head) + offsetInBlock), " from heap ", hex(uptr(this)));
         ALLOC_LOG(3, "    Current alloc word: ", binary(word | (1ull << i), 64), " -> ", binary(word, 64));
-        return bitcast<T*>(bitcast<u8*>(head) + offsetInBlock);
+
+        return result;
     }
 
     inline void free(void* t) {
@@ -241,6 +260,8 @@ struct PrimitiveHeap {
         if (wordIndex == index && block == head)
             word |= mask;
         assert(word == head->bitmap[index]);
+
+        ASAN_POISON(t, sizeof(T));
 
         ALLOC_LOG(3, "Freed primitive value at ", hex(uptr(t)), " in heap ", hex(uptr(this)));
         ALLOC_LOG(3, "    Underlying bitmap word ", wordIndex, ": ", binary(block->bitmap[wordIndex] & ~mask, 64), " -> ", binary(block->bitmap[wordIndex], 64));
@@ -442,6 +463,8 @@ struct Block {
     constexpr static u64 UsableMediumBlockSize = MediumBlockSize - sizeof(Header);
 
     inline void initializeWithSize(SizeClass sizeClass, u64 roundedSize) {
+        ASAN_UNPOISON(this, sizeof(Header));
+
         header.sizeClass = sizeClass;
         header.freeSlots = 0;
         u64 allocationSize = roundedSize;
@@ -462,6 +485,8 @@ struct Block {
     }
 
     inline void initializeLarge(u64 size) {
+        ASAN_UNPOISON(this, sizeof(Header) - BitmapBytes);
+
         u64 roundedSize = (size + MediumBlockSize - 1) / MediumBlockSize;
         assert(roundedSize < 1ull << 32);
         header.sizeClass = LargeSizeClass;
@@ -775,6 +800,8 @@ struct Allocator {
             #endif
             ALLOC_LOG(2, "Bump allocated object of size class ", Block::SizeClasses[sizeClass], " at ", hex(uptr(result)));
 
+            ASAN_UNPOISON(result, roundedSize);
+
             #if ELUMALLOC_VALIDATE_ALLOCATION_SIZE
                 assert(!(uptr(bottom) & 0xffff000000000000ull));
                 assert(!(uptr(top) & 0xffff000000000000ull));
@@ -801,11 +828,13 @@ struct Allocator {
             AllocStats::freeListAllocs ++;
         #endif
 
+        ASAN_UNPOISON(next, sizeof(FreeList));
+
         bottom = next;
         FreeList freeList = load<FreeList>(bottom);
         ALLOC_LOG(2, "Loaded free list at ", hex(uptr(bottom)), " with size = ", freeList.size, " and offset = ", freeList.offsetToNext);
         top = bottom + freeList.size;
-        next = bottom + freeList.offsetToNext;
+        next = (u8*)(iptr(bottom) + freeList.offsetToNext);
         ALLOC_LOG(2, "Set up bump interval in local allocator from ", hex(uptr(bottom)), " to ", hex(uptr(top)), " with next = ", hex(uptr(next)));
 
         #if ELUMALLOC_MARK_DEAD_ON_FREE
@@ -818,6 +847,8 @@ struct Allocator {
             }
             process::unlock(&markDeadLock);
         #endif
+
+        ASAN_POISON(bottom, sizeof(FreeList));
 
         goto fastPath;
     }
@@ -929,6 +960,8 @@ namespace elumalloc {
                 *iter ++ = 0xdeadbeefdeadbeef;
             process::unlock(&markDeadLock);
         #endif
+
+        ASAN_POISON(ptr, Block::sizeForClass(block->header.sizeClass));
     }
 
     inline void* allocate(u64 bytes) {

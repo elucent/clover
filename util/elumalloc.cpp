@@ -20,6 +20,9 @@ slice<i8> mapAligned(u64 size, u64 align) {
         memory::unmap({ (i8*)(base + size), iword(end - (base + size)) });
 
     ALLOC_LOG(1, "Mapped aligned pages (", size, " bytes, ", align, " aligned) from ", hex(base), " to ", hex(base + size));
+
+    ASAN_POISON((i8*)base, size);
+
     return { (i8*)base, iword(size) };
 }
 
@@ -69,9 +72,11 @@ NOINLINE FreeList* Block::takeList() {
                 bits &= 0xffffffffffffffffull << (first + len);
 
             u8* next = begin + firstWordIndex * incrementPerWord + first * allocationSize;
-            if (list)
+            if (list) {
+                ASAN_UNPOISON(list, sizeof(FreeList));
                 list->offsetToNext = next - bitcast<u8*>(list);
-            else
+                ASAN_POISON(list, sizeof(FreeList));
+            } else
                 head = bitcast<FreeList*>(next);
 
             #if ELUMALLOC_MARK_DEAD_ON_FREE
@@ -86,7 +91,9 @@ NOINLINE FreeList* Block::takeList() {
             #endif
 
             list = bitcast<FreeList*>(next);
+            ASAN_UNPOISON(list, sizeof(FreeList));
             list->size = len * allocationSize;
+            ASAN_POISON(list, sizeof(FreeList));
 
             ALLOC_LOG(3, " - Created new freelist entry of size ", list->size, ", bit word is now ", binary(bits));
         }
@@ -97,7 +104,9 @@ NOINLINE FreeList* Block::takeList() {
         // Tie up the list with a sentinel in the last value. We do this by
         // storing the negative address of the list in the offset to the next
         // interval, since this means we'll actually compute a null pointer.
+        ASAN_UNPOISON(list, sizeof(FreeList));
         list->offsetToNext = -bitcast<i64>(list);
+        ASAN_POISON(list, sizeof(FreeList));
 
         #if ELUMALLOC_VALIDATE_FREE_LIST
             uptr iter = bitcast<uptr>(head);
@@ -106,7 +115,10 @@ NOINLINE FreeList* Block::takeList() {
 
             while (iter) {
                 assert(iter >= begin + sizeof(Header) && iter < end);
-                iter += bitcast<FreeList*>(iter)->offsetToNext;
+                FreeList* list = bitcast<FreeList*>(iter);
+                ASAN_UNPOISON(list, sizeof(FreeList));
+                iter += list->offsetToNext;
+                ASAN_POISON(list, sizeof(FreeList));
             }
         #endif
 
@@ -115,13 +127,17 @@ NOINLINE FreeList* Block::takeList() {
                 uptr iter = bitcast<uptr>(head);
                 print("[ALLOC]\tSet up free interval list in block ", hex(uptr(this)), ": ");
                 while (iter) {
-                    print(hex(iter), "(size=", bitcast<FreeList*>(iter)->size, ", offset=", bitcast<FreeList*>(iter)->offsetToNext, ") -> ");
-                    iter += bitcast<FreeList*>(iter)->offsetToNext;
+                    FreeList* list = bitcast<FreeList*>(iter);
+                    ASAN_UNPOISON(list, sizeof(FreeList));
+                    print(hex(iter), "(size=", list->size, ", offset=", list->offsetToNext, ") -> ");
+                    iter += list->offsetToNext;
+                    ASAN_POISON(list, sizeof(FreeList));
                 }
                 println();
             }
         #endif
     }
+
     return head;
 }
 
@@ -173,10 +189,13 @@ NOINLINE void* Allocator::allocateSlow(HeapHandle& handle, u64 sizeClass, u64 ro
             blocks.push(block);
         }
         if (list) {
+            ASAN_UNPOISON(list, sizeof(FreeList));
             bottom = bitcast<u8*>(list);
             top = bottom + list->size;
-            next = bottom + list->offsetToNext;
+            next = (u8*)(iptr(bottom) + list->offsetToNext);
             ALLOC_LOG(1, "Found list ", hex(uptr(list)), " in block ", hex(uptr(block)));
+            ASAN_POISON(list, sizeof(FreeList));
+
             return allocate(handle, sizeClass, roundedSize);
         }
     }
@@ -254,6 +273,8 @@ namespace elumalloc {
                 *iter ++ = 0xdeadbeefdeadbeef;
             process::unlock(&markDeadLock);
         #endif
+
+        ASAN_POISON(block, block->header.largeSize());
     }
 
     NOINLINE void* allocateLarge(HeapHandle& handle, u64 bytes) {
@@ -266,6 +287,8 @@ namespace elumalloc {
             AllocStats::largeAllocs ++;
             AllocStats::totalAllocatedBytes += block->header.largeSize();
         #endif
+
+        ASAN_UNPOISON(block, block->header.largeSize());
 
         return block->startOfAllocatableRegion();
     }
