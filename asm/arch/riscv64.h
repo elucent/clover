@@ -263,7 +263,7 @@ struct RISCV64Assembler {
     }
 
     static inline mreg compressReg(mreg rd) {
-        assert(!(rd - 8 & 0b111));
+        assert(!(rd - 8 & ~0b111));
         return rd - 8;
     }
 
