@@ -221,6 +221,15 @@ namespace types {
     template<typename T>
     constexpr bool isSigned = IsSigned<T>::value;
 
+    template<typename T, typename U>
+    struct IsSame { constexpr static bool value = false; };
+
+    template<typename T>
+    struct IsSame<T, T> { constexpr static bool value = true; };
+
+    template<typename T, typename U>
+    constexpr bool isSame = IsSame<T, U>::value;
+
     template<typename A, typename B, bool C>
     struct Choice;
 
