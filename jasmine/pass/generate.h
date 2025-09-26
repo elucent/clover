@@ -812,7 +812,7 @@ namespace jasmine {
                     case U64:
                     case F64:
                         for (u32 i = 0; i < arrayType.length(); i ++)
-                            buf.write<i64>(with_endian<Target::endianness, i64>(((i64*)data)[i]));
+                            buf.write<i64>(with_endian<Target::endianness, i64>(load<i64>((i64*)data + i)));
                         return;
                     default:
                         unreachable("Unexpected element type ", TypeLogger { *mod, arrayType.elementType() }, " in specialized array data.");
