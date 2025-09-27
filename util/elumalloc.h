@@ -128,6 +128,7 @@ struct PrimitiveHeap {
         u64 bitmap[BitmapWords];
 
         inline void unmap() {
+            ASAN_POISON(this, HeaderSize);
             memory::unmap({
                 bitcast<i8*>(this),
                 BlockSize

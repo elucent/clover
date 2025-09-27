@@ -93,9 +93,8 @@ NOINLINE FreeList* Block::takeList() {
             list = bitcast<FreeList*>(next);
             ASAN_UNPOISON(list, sizeof(FreeList));
             list->size = len * allocationSize;
-            ASAN_POISON(list, sizeof(FreeList));
-
             ALLOC_LOG(3, " - Created new freelist entry of size ", list->size, ", bit word is now ", binary(bits));
+            ASAN_POISON(list, sizeof(FreeList));
         }
         wordIndex ++;
     }
@@ -274,7 +273,7 @@ namespace elumalloc {
             process::unlock(&markDeadLock);
         #endif
 
-        ASAN_POISON(block, block->header.largeSize());
+        ASAN_POISON((u8*)block + sizeof(Block::Header), block->header.largeSize() - sizeof(Block::Header));
     }
 
     NOINLINE void* allocateLarge(HeapHandle& handle, u64 bytes) {
