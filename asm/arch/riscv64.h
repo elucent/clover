@@ -1294,25 +1294,25 @@ struct RISCV64Assembler {
 
     static inline void pop8(Assembly& as, ASMVal dst) {
         assert(dst.kind == ASMVal::GP);
-        lds8(as, Mem(SP, 0), dst);
+        lds8(as, dst, Mem(SP, 0));
         add64(as, ::GP(SP), ::GP(SP), Imm(1));
     }
 
     static inline void pop16(Assembly& as, ASMVal dst) {
         assert(dst.kind == ASMVal::GP);
-        lds16(as, Mem(SP, 0), dst);
+        lds16(as, dst, Mem(SP, 0));
         add64(as, ::GP(SP), ::GP(SP), Imm(2));
     }
 
     static inline void pop32(Assembly& as, ASMVal dst) {
         assert(dst.kind == ASMVal::GP);
-        lds32(as, Mem(SP, 0), dst);
+        lds32(as, dst, Mem(SP, 0));
         add64(as, ::GP(SP), ::GP(SP), Imm(4));
     }
 
     static inline void pop64(Assembly& as, ASMVal dst) {
         assert(dst.kind == ASMVal::GP);
-        ld64(as, Mem(SP, 0), dst);
+        ld64(as, dst, Mem(SP, 0));
         add64(as, ::GP(SP), ::GP(SP), Imm(8));
     }
 
