@@ -55,6 +55,8 @@ struct TestContext {
                         && linked.defs[v] < nextHighest) \
                         nextHighest = linked.defs[v]; \
                 } \
+                if (nextHighest == 0x7fffffffffffffffll) \
+                    nextHighest = iptr(linked.code) + linked.codesize; \
                 for (u8* p = start; p < (u8*)nextHighest; p ++) \
                     print(hex(*p, 2), ' '); \
                 println(); \
