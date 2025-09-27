@@ -48,8 +48,16 @@ struct TestContext {
             println("  Test returned ", fun(), ", correct answer was ", Ret(ret)); \
             print("  "); \
             if (config::printMachineCode) { \
-                while (*start != 0xc3) print(hex(*start ++, 2), ' '); \
-                println(hex(*start, 2), ' '); \
+                iptr nextHighest = 0x7fffffffffffffffll; \
+                for (const auto& [k, v] : linked.defmap) { \
+                    if ((*linked.symtab)[k][0] != '.' \
+                        && linked.defs[v] > iptr(start) \
+                        && linked.defs[v] < nextHighest) \
+                        nextHighest = linked.defs[v]; \
+                } \
+                for (u8* p = start; p < (u8*)nextHighest; p ++) \
+                    print(hex(*p, 2), ' '); \
+                println(); \
             } \
         } \
         ASSERT(bits_equal(fun(), Ret(ret))); \
