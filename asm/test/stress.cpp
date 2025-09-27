@@ -47,8 +47,10 @@ struct TestContext {
             println(); \
             println("  Test returned ", fun(), ", correct answer was ", Ret(ret)); \
             print("  "); \
-            while (*start != 0xc3) print(hex(*start ++, 2), ' '); \
-            println(hex(*start, 2), ' '); \
+            if (config::printMachineCode) { \
+                while (*start != 0xc3) print(hex(*start ++, 2), ' '); \
+                println(hex(*start, 2), ' '); \
+            } \
         } \
         ASSERT(bits_equal(fun(), Ret(ret))); \
     } \
