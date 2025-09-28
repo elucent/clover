@@ -260,6 +260,13 @@ inline T signExtend(T t) {
     return type(t) << amt >> amt;
 }
 
+template<u32 N, typename T>
+inline T zeroExtend(T t) {
+    using type = bit_uint<T>;
+    constexpr u32 amt = sizeof(T) * 8 - N;
+    return type(t) << amt >> amt;
+}
+
 template<typename T>
 inline bool addOverflows(T a, T b);
 template<typename T>

@@ -191,15 +191,10 @@ void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
         linked.defs.push(base + def.offset);
     }
 
-    if (config::printMachineCode) {
-        for (i8 i : const_slice<i8>{ linked.code, linked.codesize })
-            print(hex((u64)(u8)i, 2));
-        println("");
-    }
-
     relocator(linked, relocs);
 
     if (config::printMachineCode) {
+        println("Loaded ", linked.codesize, " bytes at ", hex(linked.code));
         for (i8 i : const_slice<i8>{ linked.code, linked.codesize })
             print(hex((u64)(u8)i, 2));
         println("");

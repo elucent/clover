@@ -39,31 +39,39 @@ struct TestContext {
     LinkedAssembly linked = ctx.as.link(Assembly::defaultRelocator); \
     linked.load(); \
     allocated_bytes += linked.pages.size(); \
-    for (Symbol sym : ctx.funcList) { \
+    if (config::printTestNames) \
+        println(); \
+    for (auto [i, sym] : enumerate(ctx.funcList)) { \
         returntype(*fun)() = linked.lookup<returntype()>(sym); \
         using Ret = decltype(fun()); \
+        if (config::printTestNames) { \
+            print("\r[", i, " / ", ctx.funcList.size(), "]\tCalling ", hex(fun)); \
+            flush_output(io_stdout); \
+        } \
         if (!bits_equal(fun(), Ret(ret))) { \
             u8* start = (u8*)fun; \
             println(); \
             println("  Test returned ", fun(), ", correct answer was ", Ret(ret)); \
             print("  "); \
-            if (config::printMachineCode) { \
-                iptr nextHighest = 0x7fffffffffffffffll; \
-                for (const auto& [k, v] : linked.defmap) { \
-                    if ((*linked.symtab)[k][0] != '.' \
-                        && linked.defs[v] > iptr(start) \
-                        && linked.defs[v] < nextHighest) \
-                        nextHighest = linked.defs[v]; \
-                } \
-                if (nextHighest == 0x7fffffffffffffffll) \
-                    nextHighest = iptr(linked.code) + linked.codesize; \
-                for (u8* p = start; p < (u8*)nextHighest; p ++) \
-                    print(hex(*p, 2), ' '); \
-                println(); \
+            iptr nextHighest = 0x7fffffffffffffffll; \
+            for (Symbol k : ctx.funcList) { \
+                auto i = linked.defs[linked.defmap[k]]; \
+                if (i > iptr(start) && i < nextHighest) \
+                    nextHighest = i; \
             } \
+            if (nextHighest == 0x7fffffffffffffffll) \
+                nextHighest = iptr(linked.code) + linked.codesize; \
+            println("    Function bounds: ", hex(start), " - ", hex((i8*)nextHighest)); \
+            for (u8* p = start; p < (u8*)nextHighest; p ++) \
+                print(hex(*p, 2), ' '); \
+            println(); \
+            if (config::crashOnTestFailure) \
+                __builtin_trap(); \
         } \
         ASSERT(bits_equal(fun(), Ret(ret))); \
     } \
+    if (config::printTestNames) \
+        println("\r[", ctx.funcList.size(), " / ", ctx.funcList.size(), "]"); \
 } while(false);
 
 template<typename MoveType, typename OpType>
@@ -515,3 +523,15 @@ MAKE_TERNARY_FLOAT_TESTS_FOR_EACH_WIDTH(FDIV, fdiv, divide_zero_by_minus_zero, 0
 #endif
 
 // Bitwise instructions.
+
+MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(AND, and, zero, 42, 0, 0);
+MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(AND, and, minus_one, -42, -1, -42);
+MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(AND, and, numbers, 43, 102, 34);
+
+MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(OR, or, zero, 42, 0, 42);
+MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(OR, or, minus_one, -42, -1, -1);
+MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(OR, or, numbers, 43, 102, 111);
+
+MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(XOR, xor, zero, 42, 0, 42);
+MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(XOR, xor, minus_one, -42, -1, 41);
+MAKE_TERNARY_INT_TESTS_FOR_EACH_WIDTH(XOR, xor, numbers, 43, 102, 77);
