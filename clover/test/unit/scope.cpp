@@ -1,7 +1,7 @@
 #include "clover/test/unit/helpers.h"
 
 TEST(scope_simple_function) {
-    auto artifact = RESOLVE("fun foo(i32 x): i32 y then y + 1");
+    auto artifact = RESOLVE("i32 foo(i32 x): i32 y then y + 1");
     auto topLevel = artifact.as<Module>()->getTopLevel();
     auto func = topLevel.child(0);
 
@@ -11,12 +11,12 @@ TEST(scope_simple_function) {
 }
 
 TEST(scope_overloaded_function) {
-    auto artifact = SCOPE(R"(
-fun foo(i32 x): x
-fun foo(f32 x): x
+    auto artifact = RESOLVE(R"(
+i32 foo(i32 x): x
+i32 foo(f32 x): x
 
-fun bar():
-    fun foo(i32[] xs): xs
+i32 bar():
+    i32[] foo(i32[] xs): xs
     foo(42)
 )");
 }
@@ -43,32 +43,32 @@ type Bar: f32
 TEST(scope_bad_duplicate_local) {
     EXPECT_ERRORS;
     auto dupVars = RESOLVE(R"(
-fun foo():
+i32 foo():
     var x: 1, y: 2
     var x: 2
 )");
     ASSERT_DID_ERROR(dupVars);
 
     auto dupVarsSameDecl = RESOLVE(R"(
-fun foo():
+void foo():
     var x: 1, y: 2, x: 3
 )");
     ASSERT_DID_ERROR(dupVarsSameDecl);
 
     auto dupParams = RESOLVE(R"(
-fun foo(i32 x, i32 y, i32 z, i32 x):
+void foo(i32 x, i32 y, i32 z, i32 x):
     var bar
 )");
     ASSERT_DID_ERROR(dupParams);
 
     auto dupVarAndParam = RESOLVE(R"(
-fun foo(i32 x):
+void foo(i32 x):
     var x: 1
 )");
     ASSERT_DID_ERROR(dupVarAndParam);
 
     auto dupFuncAndParam = RESOLVE(R"(
-fun foo(i32 foo):
+i32 foo(i32 foo):
     foo + 1
 )");
 

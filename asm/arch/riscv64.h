@@ -438,18 +438,13 @@ struct RISCV64Assembler {
             if (fitsSigned<6>(upper))
                 encodeci(as, 0b01, dst.gp, upper, 0b011); // c.lui
             else
-                encodeu(as, 0b0110111, dst.gp, src >> 12); // lui
+                encodeu(as, 0b0110111, dst.gp, upper); // lui
             shl64(as, dst, dst, Imm(shift));
 
             // If we have a lower component, then addi that in now.
             if (lower)
                 encodei(as, 0b0010011, dst.gp, dst.gp, lower); // addi
             return dst;
-        }
-        if ((upper & 1) == lower >> 11) {
-            // There is a bit in common between the upper and lower components,
-            // which lets us do lui + slli + addi
-
         }
         unreachable("TODO: Finish immediate materialization logic.");
     }

@@ -1600,6 +1600,8 @@ namespace clover {
             case ASTKind::Call:
             case ASTKind::CallMethod: {
                 ast.setType(module->varType(ast.node));
+                if (ast.arity() == 1)
+                    ctx.constraints->constrainOrder(module->voidType(), ast.type());
                 ctx.ensureResolved(ast.type());
                 if (!isOverloadedFunction(function, ast.child(0))) {
                     auto func = inferChild(ctx, function, ast, 0);
@@ -2113,7 +2115,7 @@ namespace clover {
         computeScopes(module, newScope, newDecl.child(4));
         newDecl.setChild(4, resolveNode(newDecl.scope(), newDecl, newDecl.child(4)));
 
-        infer(ctx, newFunction, newDecl.child(4));
+        ctx.discoveredFunctions->push(newDecl.node);
 
         if (oldDecl.child(1).missing())
             oldDecl.setChild(1, newDecl);
@@ -2123,12 +2125,23 @@ namespace clover {
         return newFunction;
     }
 
+    struct Overload {
+        Function* function;
+        TypeIndex type;
+        u32 rank;
+    };
+
     maybe<TypeIndex> refineOverloadedCall(InferenceContext& ctx, Function* function, AST ast) {
         assert(isOverloadedFunction(function, ast.child(0)));
         Overloads* overloads = ast.module->overloads[ast.child(0).varInfo(function).overloads];
+        auto returnType = ast.type();
 
-        vec<pair<Function*, TypeIndex>> possibleFunctions;
+        if UNLIKELY(config::verboseUnify >= 3)
+            println("[TYPE]\tRefining overloaded call ", ast);
+
+        vec<Overload> possibleFunctions;
         Module* module = ast.module;
+        u32 arity = ast.arity();
         overloads->forEachFunction([&](Function* overload) {
             if (overload->isConst) {
                 // TODO: Possibly re-evaluate this. It kind of sucks that
@@ -2149,22 +2162,45 @@ namespace clover {
             auto funcType = type.as<TypeKind::Function>();
             if (ast.arity() - 1 != funcType.as<TypeKind::Function>().parameterCount())
                 return;
+
+            u32 rank = 0;
+            if (!canUnify(funcType.returnType(), returnType, ast))
+                return;
+            if (expand(funcType.returnType()) == expand(returnType) && !overload->isGeneric)
+                rank += arity; // Prioritize exact matches.
+            else
+                rank += 1;
             for (u32 i = 1; i < ast.arity(); i ++) {
                 auto arg = inferredType(ctx, function, ast.child(i));
                 auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
                 if (!canUnify(arg, parameterType, ast))
                     return;
+
+                if (expand(arg) == expand(parameterType) && !overload->isGeneric)
+                    rank += arity; // Prioritize exact matches.
+                else
+                    rank += 1;
             }
-            possibleFunctions.push({ overload, type.index });
+            if UNLIKELY(config::verboseUnify >= 3)
+                println("[TYPE]\t - Added matching overload ", type);
+            if (!overload->isGeneric)
+                rank *= arity; // Prioritize non-generic functions.
+
+            possibleFunctions.push({ overload, type.index, rank });
         });
+
+        u32 maxRank = 0;
+        for (const auto& func : possibleFunctions)
+            maxRank = max(func.rank, maxRank);
+        possibleFunctions.removeIf([=](const Overload& overload) -> bool { return overload.rank != maxRank; });
 
         type_assert(possibleFunctions.size() <= 1);
         if (possibleFunctions.size() == 1) {
-            Function* candidate = possibleFunctions[0].first;
+            Function* candidate = possibleFunctions[0].function;
             if (candidate->isGeneric)
                 candidate = instantiate(ctx, candidate, ast);
             ast.setChild(0, module->add(ASTKind::ResolvedFunction, candidate));
-            return some<TypeIndex>(possibleFunctions[0].second);
+            return some<TypeIndex>(possibleFunctions[0].type);
         }
         return none<TypeIndex>();
     }
@@ -2172,9 +2208,12 @@ namespace clover {
     maybe<TypeIndex> refineCall(InferenceContext& ctx, Function* function, AST ast) {
         auto type = inferredType(ctx, function, ast.child(0));
         type_assert(type.is<TypeKind::Function>());
-
         auto funcType = type.as<TypeKind::Function>();
         type_assert(ast.arity() - 1 == funcType.as<TypeKind::Function>().parameterCount());
+
+        auto returnType = ast.type();
+        if (!canUnify(funcType.returnType(), returnType, ast))
+            return none<TypeIndex>();
         for (u32 i = 1; i < ast.arity(); i ++) {
             auto arg = inferredType(ctx, function, ast.child(i));
             auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
@@ -2391,8 +2430,8 @@ namespace clover {
                         resolvedType = refineOverloadedCall(ctx, function, ast);
                     else
                         resolvedType = refineCall(ctx, function, ast);
-                    type_assert(resolvedType);
                 }
+                type_assert(resolvedType);
 
                 auto funcType = module->types->get(*resolvedType).as<TypeKind::Function>();
                 for (u32 i = 1; i < ast.arity(); i ++) {

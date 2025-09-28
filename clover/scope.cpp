@@ -179,14 +179,14 @@ namespace clover {
             if (info->kind == VariableKind::Function) {
                 if (existing.scope == scope) {
                     info->kind = VariableKind::OverloadedFunction;
-                    Overloads* inPlaceOverloads = module->addOverloads(module->node(info->decl).function());
+                    Overloads* inPlaceOverloads = module->addOverloads(module->functions[info->functionIndex]);
                     if (isOverloads)
                         inPlaceOverloads->add((Overloads*)ptr);
                     else
                         inPlaceOverloads->add((Function*)ptr);
                     info->overloads = inPlaceOverloads->index;
                 } else
-                    overloads = module->addOverloads(module->node(info->decl).function());
+                    overloads = module->addOverloads(module->functions[info->functionIndex]);
             } else if (info->kind == VariableKind::OverloadedFunction) {
                 if (existing.scope == scope) {
                     if (isOverloads)

@@ -865,3 +865,23 @@ i32 baz():
     ASSERT_EQUAL(z.child(2).kind(), ASTKind::Unsigned);
     ASSERT_EQUAL(z.child(2).uintConst(), 42);
 }
+
+TEST(typecheck_overload_by_return_type) {
+    auto instance = TYPECHECK(R"(
+i32[3] global: [1, 2, 3]
+i32[] makeNum(): global
+i32 makeNum(): 42
+
+i32 x: makeNum()
+i32[] y: makeNum()
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto x = topLevel.child(3);
+    ASSERT_TYPE_EQUAL(x.child(2).type(), module->i32Type());
+
+    auto y = topLevel.child(4);
+    ASSERT_TYPE_EQUAL(y.child(2).type(), module->sliceType(I32));
+}

@@ -780,13 +780,13 @@ namespace clover {
                     case VariableKind::Constant: {
                         if (entry.isGlobal() && !scope->function)
                             return module->add(ASTKind::GlobalConst, ConstId(module->globals[entry.index()].constantIndex));
-                        if (entry.function == scope->function)
+                        if (entry.scope->function == scope->function)
                             return module->add(ASTKind::Const, ConstId(scope->function->locals[entry.index()].constantIndex));
 
                         // It's an external constant, so we need to close over
                         // it.
-                        VariableInfo info = entry.isGlobal() ? module->globals[entry.index()] : entry.function->locals[entry.index()];
-                        scope->addConstantIndirect(module, *parent, entry.decl().scope(), info.constantIndex, ast.symbol());
+                        VariableInfo info = entry.isGlobal() ? module->globals[entry.index()] : entry.scope->function->locals[entry.index()];
+                        scope->addConstantIndirect(module, *parent, entry.scope, info.constantIndex, ast.symbol());
                         auto reentry = scope->findLocal(ast.symbol());
                         assert(reentry);
                         return module->add(ASTKind::Const, ConstId(scope->function->locals[reentry.index].constantIndex));
@@ -1022,6 +1022,9 @@ namespace clover {
             case ASTKind::FunDecl: {
                 vec<Type> argumentTypes;
                 Function* function = ast.function();
+
+                if (ast.child(0).missing())
+                    function->isGeneric = true;
 
                 // First we have to see if the function is generic.
                 for (auto [i, a] : enumerate(ast.child(2))) switch (a.kind()) {

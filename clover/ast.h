@@ -631,24 +631,18 @@ namespace clover {
     };
 
     struct VariableHandle {
-        union {
-            Module* module;
-            Function* function;
-        };
+        Scope* scope;
         bool g;
         u32 i;
 
         inline VariableHandle():
-            module(nullptr), i(0) {}
+            scope(nullptr), i(0) {}
 
-        inline VariableHandle(Module* module_in, u32 index_in):
-            module(module_in), g(true), i(index_in) {}
-
-        inline VariableHandle(Function* function_in, u32 index_in):
-            function(function_in), g(false), i(index_in) {}
+        inline VariableHandle(Scope* scope_in, u32 index_in):
+            scope(scope_in), g(!scope_in->function), i(index_in) {}
 
         inline operator bool() const {
-            return module;
+            return scope;
         }
 
         inline VariableHandle expand() const;
@@ -1485,12 +1479,12 @@ namespace clover {
             if (!handle)
                 return handle;
             if (!handle.isGlobal()) {
-                assert(handle.function->module == this);
+                assert(handle.scope->function->module == this);
                 return handle;
             }
             assert(handle.isGlobal());
-            Global global = naturalize(handle.module, handle.i);
-            return VariableHandle(this, global.index).expand();
+            Global global = naturalize(handle.scope->module, handle.i);
+            return VariableHandle(getTopLevel().scope(), global.index).expand();
         }
 
         inline Global naturalize(Module* other, Global global) {
@@ -1507,8 +1501,8 @@ namespace clover {
             auto result = scope->find(name);
             if (result) {
                 if (result.scope->function)
-                    return VariableHandle(result.scope->function, result.index).expand();
-                return VariableHandle(result.scope->module, result.index).expand();
+                    return VariableHandle(result.scope, result.index).expand();
+                return VariableHandle(result.scope, result.index).expand();
             } else
                 return VariableHandle();
         }
@@ -2001,23 +1995,23 @@ namespace clover {
 
     inline VariableHandle VariableHandle::expand() const {
         if (kind() == VariableKind::Forward) {
-            const auto& info = isGlobal() ? module->globals[i] : function->locals[i];
-            Scope* scope = isGlobal() ? module->scopes[info.scope] : function->module->scopes[info.scope];
-            return scope->isGlobal() ? VariableHandle(scope->module, info.index) : VariableHandle(scope->function, info.index);
+            const auto& info = isGlobal() ? scope->module->globals[i] : scope->function->locals[i];
+            Scope* originalScope = isGlobal() ? scope->module->scopes[info.scope] : scope->function->module->scopes[info.scope];
+            return VariableHandle(originalScope, info.index);
         }
         return *this;
     }
 
     inline VariableKind VariableHandle::kind() const {
         if (isGlobal())
-            return module->globals[i].kind;
-        return function->locals[i].kind;
+            return scope->module->globals[i].kind;
+        return scope->function->locals[i].kind;
     }
 
     inline TypeIndex VariableHandle::type() const {
         if (isGlobal())
-            return module->globals[i].type;
-        return function->locals[i].type;
+            return scope->module->globals[i].type;
+        return scope->function->locals[i].type;
     }
 
     inline void VariableHandle::setType(Type type) {
@@ -2026,25 +2020,25 @@ namespace clover {
 
     inline void VariableHandle::setType(TypeIndex type) {
         if (isGlobal())
-            module->globals[i].type = type;
+            scope->module->globals[i].type = type;
         else
-            function->locals[i].type = type;
+            scope->function->locals[i].type = type;
     }
 
     inline Symbol VariableHandle::name() const {
         if (isGlobal())
-            return module->globals[i].name;
-        return function->locals[i].name;
+            return scope->module->globals[i].name;
+        return scope->function->locals[i].name;
     }
 
     inline bool VariableHandle::hasDecl() const {
-        const auto& info = isGlobal() ? module->globals[i] : function->locals[i];
+        const auto& info = isGlobal() ? scope->module->globals[i] : scope->function->locals[i];
         return !info.isImport && info.decl != InvalidNode;
     }
 
     inline AST VariableHandle::decl() const {
         assert(hasDecl());
-        return module->node((isGlobal() ? module->globals[i] : function->locals[i]).decl);
+        return scope->module->node((isGlobal() ? scope->module->globals[i] : scope->function->locals[i]).decl);
     }
 
     bool isTypeExpression(AST);
