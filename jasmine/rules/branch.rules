@@ -1,0 +1,95 @@
+# Branch-if reduction rules.
+
+br_if_fold(br_if num x:i ifTrue:l ifFalse:l):
+    (br void [x ? ifTrue : ifFalse]:l)
+
+br_if_not_operand(br_if any (not T:any x:?)):
+    (br_if_not T x:?)
+
+br_if_lt(br_if bool (is_lt T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_lt T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_le(br_if bool (is_le T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_le T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_gt(br_if bool (is_gt T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_gt T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_ge(br_if bool (is_ge T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_ge T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_eq(br_if bool (is_eq T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_eq T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_ne(br_if bool (is_ne T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_ne T a:? b:? ifTrue:l ifFalse:l)
+
+# Branch-if-not reduction rules.
+
+br_if_not_fold(br_if_not num x:i ifTrue:l ifFalse:l):
+    (br void [x ? ifFalse : ifTrue]:l)
+
+br_if_not_not_operand(br_if_not any (not T:any x:?)):
+    (br_if T x:?)
+
+br_if_not_lt(br_if_not bool (is_lt T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_ge T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_not_le(br_if_not bool (is_le T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_gt T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_not_gt(br_if_not bool (is_gt T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_le T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_not_ge(br_if_not bool (is_ge T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_lt T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_not_eq(br_if_not bool (is_eq T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_ne T a:? b:? ifTrue:l ifFalse:l)
+
+br_if_not_ne(br_if_not bool (is_ne T:any a:? b:?) ifTrue:l ifFalse:l):
+    (br_eq T a:? b:? ifTrue:l ifFalse:l)
+
+# Branch-if-less reduction rules.
+
+br_lt_fold_int(br_lt num x:i y:i ifTrue:l ifFalse:l):
+    (br void [x < y ? ifTrue : ifFalse]:l)
+
+br_lt_fold_float(br_lt num x:f y:f ifTrue:l ifFalse:l):
+    (br void [x < y ? ifTrue : ifFalse]:l)
+
+br_lt_fold_double(br_lt num x:d y:d ifTrue:l ifFalse:l):
+    (br void [x < y ? ifTrue : ifFalse]:l)
+
+# Branch-if-less-equal reduction rules.
+
+br_le_fold_int(br_le num x:i y:i ifTrue:l ifFalse:l):
+    (br void [x <= y ? ifTrue : ifFalse]:l)
+
+br_le_fold_float(br_le num x:f y:f ifTrue:l ifFalse:l):
+    (br void [x <= y ? ifTrue : ifFalse]:l)
+
+br_le_fold_double(br_le num x:d y:d ifTrue:l ifFalse:l):
+    (br void [x <= y ? ifTrue : ifFalse]:l)
+
+# Branch-if-greater reduction rules.
+
+br_gt_fold_int(br_gt num x:i y:i ifTrue:l ifFalse:l):
+    (br void [x > y ? ifTrue : ifFalse]:l)
+
+br_gt_fold_float(br_gt num x:f y:f ifTrue:l ifFalse:l):
+    (br void [x > y ? ifTrue : ifFalse]:l)
+
+br_gt_fold_double(br_gt num x:d y:d ifTrue:l ifFalse:l):
+    (br void [x > y ? ifTrue : ifFalse]:l)
+
+# Branch-if-greater-equal reduction rules.
+
+br_ge_fold_int(br_ge num x:i y:i ifTrue:l ifFalse:l):
+    (br void [x >= y ? ifTrue : ifFalse]:l)
+
+br_ge_fold_float(br_ge num x:f y:f ifTrue:l ifFalse:l):
+    (br void [x >= y ? ifTrue : ifFalse]:l)
+
+br_ge_fold_double(br_ge num x:d y:d ifTrue:l ifFalse:l):
+    (br void [x >= y ? ifTrue : ifFalse]:l)

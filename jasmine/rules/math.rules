@@ -12,6 +12,14 @@ iadd_combine_constants(add T:int (add T a:v b:i) (add T c:v d:i)):
 iadd_fold(add int a:i b:i):
     [a + b]:i
 
+# Floating point addition rules.
+
+fadd_fold(add num a:f b:f):
+    [a + b]:f
+
+dadd_fold(add num a:d b:d):
+    [a + b]:d
+
 # Integer negation rules.
 
 ineg_fold(neg T:int a:i):
@@ -19,6 +27,14 @@ ineg_fold(neg T:int a:i):
 
 ineg_combine(neg T:int (neg T:int x:v)):
     x:v
+
+# Floating point negation rules.
+
+fneg_fold(neg num a:f):
+    [-a]:f
+
+dneg_fold(neg num a:d):
+    [-a]:d
 
 # Integer subtraction rules.
 
@@ -36,6 +52,14 @@ isub_constant_rhs(sub T:sint a:v b:i):
 
 isub_fold(sub T:int a:i b:i):
     [a - b]:i
+
+# Floating point subtraction rules.
+
+fsub_fold(sub num a:f b:f):
+    [a - b]:f
+
+dsub_fold(sub num a:d b:d):
+    [a - b]:d
 
 # Integer multiplication rules.
 
@@ -60,6 +84,14 @@ imul_combine_constants(mul T:int (mul T a:v b:i) (mul T c:v d:i)):
 imul_fold(mul T:int a:i b:i):
     [a * b]:i
 
+# Floating point multiplication rules.
+
+fmul_fold(mul num a:f b:f):
+    [a * b]:f
+
+dmul_fold(mul num a:d b:d):
+    [a * b]:d
+
 # Integer division rules.
 
 idiv_zero_identity(div int 0:i a:v):
@@ -68,5 +100,5 @@ idiv_zero_identity(div int 0:i a:v):
 idiv_one_identity(div int a:v 1:i):
     a:v
 
-idiv_minus_one_identity(idiv T:sint a:v -1:i):
+idiv_minus_one_identity(div T:sint a:v -1:i):
     (neg T a:v)

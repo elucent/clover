@@ -33,7 +33,7 @@ namespace jasmine {
     }
 
     enum class PatternType {
-        Int, F32, F64, Var, Wildcard
+        Int, F32, F64, Var, Label, Wildcard
     };
 
     struct TypeSystem {
@@ -132,10 +132,10 @@ namespace jasmine {
 
     struct AST {
         enum Kind {
-            IntDecl, F32Decl, F64Decl, VarDecl, WildcardDecl,
+            IntDecl, F32Decl, F64Decl, VarDecl, LabelDecl, WildcardDecl,
             IntConst, F32Const, F64Const,
-            IntUse, F32Use, F64Use, VarUse, WildcardUse,
-            IntExpr, F32Expr, F64Expr, VarExpr, WildcardExpr,
+            IntUse, F32Use, F64Use, VarUse, LabelUse, WildcardUse,
+            IntExpr, F32Expr, F64Expr, VarExpr, LabelExpr, WildcardExpr,
             Rule, RuleParams, RuleResult,
             Typename, TypeConstraint,
             WhereClause
@@ -152,6 +152,10 @@ namespace jasmine {
             switch (kind) {
                 case WhereClause:
                     ::write(io, name);
+                    break;
+                case LabelDecl:
+                case LabelUse:
+                    ::write(io, name, ":l");
                     break;
                 case IntDecl:
                 case IntUse:
@@ -187,6 +191,9 @@ namespace jasmine {
                     break;
                 case VarExpr:
                     ::write(io, '[', name, "]:v");
+                    break;
+                case LabelExpr:
+                    ::write(io, '[', name, "]:l");
                     break;
                 case WildcardExpr:
                     ::write(io, '[', name, "]:?");
@@ -346,6 +353,7 @@ namespace jasmine {
             AST::Kind kind;
             PatternType type;
             switch (peek()) {
+                case 'l': kind = !isParams ? (isCode ? AST::LabelExpr : AST::LabelUse) : AST::LabelDecl, type = PatternType::Label; break;
                 case 'v': kind = (!isParams ? (isCode ? AST::VarExpr : AST::VarUse) : AST::VarDecl), type = PatternType::Var; break;
                 case 'i': kind = (isConst ? AST::IntConst : (!isParams ? (isCode ? AST::IntExpr : AST::IntUse) : AST::IntDecl)), type = PatternType::Int; break;
                 case 'f': kind = (isConst ? AST::F32Const : (!isParams ? (isCode ? AST::F32Expr : AST::F32Use) : AST::F32Decl)), type = PatternType::F32; break;
@@ -383,7 +391,7 @@ namespace jasmine {
                 AST* result = new AST(AST::TypeConstraint);
                 result->children.push(lhs, rhs);
                 if (env->types.contains(lhs->name))
-                    env->types[lhs->name] = env->typeSystem->intersect(env->types[lhs->name], constraint);
+                    env->types.put(lhs->name, env->typeSystem->intersect(env->types[lhs->name], constraint));
                 else
                     env->types.put(lhs->name, constraint);
                 return result;
@@ -524,6 +532,10 @@ namespace jasmine {
                     indent(); writeln(out, "if (_operand.kind != Operand::Var) FAIL;");
                     indent(); writeln(out, pattern->name, " = _operand.var;");
                     break;
+                case AST::LabelDecl:
+                    indent(); writeln(out, "if (_operand.kind != Operand::Branch) FAIL;");
+                    indent(); writeln(out, pattern->name, " = _operand.edge;");
+                    break;
                 case AST::WildcardDecl:
                     indent(); writeln(out, pattern->name, " = _operand;");
                     break;
@@ -547,7 +559,7 @@ namespace jasmine {
                     if (pattern->type->kind == AST::TypeConstraint) {
                         // Constraints are used to introduce type variables.
                         indent(), writeln(out, "if (!(u32(abstractType(_fn, _node.type())) & ", (u32)rule->env->typeSystem->get(pattern->type->children[1]->name), ")) FAIL;");
-                        indent(), writeln(out, "auto ", pattern->type->children[0]->name, " = _node.type();");
+                        indent(), writeln(out, pattern->type->children[0]->name, " = _node.type();");
                     } else {
                         assert(pattern->type->kind == AST::Typename);
                         if (rule->env->types.contains(pattern->type->name))
@@ -578,27 +590,35 @@ namespace jasmine {
                         unreachable("Result patterns can only have numeric or variable types");
                     for (AST* other : pattern->children)
                         compileTransform(rule, other);
-                    indent(); writeln(out, "Operand _result = _fn.variable();");
-                    indent(); write(out, "_fn.variableList[_result.var].type = ");
-                    if (rule->env->typeSystem->contains(pattern->type->name))
-                        write(out, "TypeKind::", rule->env->typeSystem->nameOf(rule->env->typeSystem->get(pattern->type->name)));
-                    else
-                        write(out, pattern->type->name);
-                    writeln(out, ";");
+                    if (hasDef(opcodeMap[pattern->name])) {
+                        indent(); writeln(out, "Operand _result = _fn.variable();");
+                        indent(); write(out, "_fn.variableList[_result.var].type = ");
+                        if (rule->env->typeSystem->contains(pattern->type->name))
+                            write(out, "TypeKind::", rule->env->typeSystem->nameOf(rule->env->typeSystem->get(pattern->type->name)));
+                        else
+                            write(out, pattern->type->name);
+                        writeln(out, ";");
+                    }
                     indent(); write(out, "Node _newNode = _fn.addNode(Opcode::", OPCODE_NAMES_UPPER[(i32)opcodeMap[pattern->name]], ", ");
                     if (rule->env->typeSystem->contains(pattern->type->name))
                         write(out, "TypeKind::", rule->env->typeSystem->nameOf(rule->env->typeSystem->get(pattern->type->name)));
                     else
                         write(out, pattern->type->name);
-                    writeln(out, ", _result, const_slice<Operand>{ &_operands[_operands.size() - ", pattern->children.size(), "], ", pattern->children.size(), "});");
+                    if (hasDef(opcodeMap[pattern->name]))
+                        writeln(out, ", _result");
+                    writeln(out, ", const_slice<Operand>{ &_operands[_operands.size() - ", pattern->children.size(), "], ", pattern->children.size(), "});");
                     indent(); writeln(out, "(*_ctx.defs).push(_newNode.index());");
                     indent(); writeln(out, "_fn.addNodeToInsertion(_newNode);");
                     indent(); writeln(out, "_operands.trim(", pattern->children.size(), ");");
-                    indent(); writeln(out, "_operands.push(_result);");
+                    indent(); writeln(out, "if (hasDef(_newNode.opcode())) _operands.push(_result);");
                     indentation -= 4;
                     indent(); writeln(out, "}");
                     break;
                 }
+                case AST::LabelUse:
+                case AST::LabelExpr:
+                    indent(), writeln(out, "_operands.push(_fn.branch(", pattern->name, "));");
+                    break;
                 case AST::VarUse:
                 case AST::VarExpr:
                     indent(), writeln(out, "_operands.push(_fn.variableById(", pattern->name, "));");
@@ -628,6 +648,7 @@ namespace jasmine {
                 case AST::IntDecl:
                 case AST::F32Decl:
                 case AST::F64Decl:
+                case AST::LabelDecl:
                 case AST::WildcardDecl:
                 case AST::WhereClause:
                 case AST::Typename:
@@ -650,10 +671,14 @@ namespace jasmine {
             writeln(out, "        Operand _resultOperand;");
             writeln(out, "        if (_uses.size() != ", rule->children[0]->children.size(), ") FAIL;");
             indentation = 8;
+            for (const auto [k, v] : rule->env->types) {
+                indent();
+                writeln(out, "TypeIndex ", k, ";");
+            }
             if (rule->children[0]->type->kind == AST::TypeConstraint) {
                 // Constraints are used to introduce type variables.
                 indent(), writeln(out, "if (!(u32(abstractType(_fn, _node.type())) & ", (u32)rule->env->typeSystem->get(rule->children[0]->type->children[1]->name), ")) FAIL;");
-                indent(), writeln(out, "auto ", rule->children[0]->type->children[0]->name, " = _node.type();");
+                indent(), writeln(out, rule->children[0]->type->children[0]->name, " = _node.type();");
             } else {
                 assert(rule->children[0]->type->kind == AST::Typename);
                 if (rule->env->types.contains(rule->children[0]->type->name))
@@ -669,6 +694,7 @@ namespace jasmine {
                     case PatternType::F32: write(out, "f32 "); break;
                     case PatternType::F64: write(out, "f64 "); break;
                     case PatternType::Var: write(out, "i32 "); break;
+                    case PatternType::Label: write(out, "i32 "); break;
                     case PatternType::Wildcard: write(out, "Operand "); break;
                 }
                 writeln(out, k, ";");
@@ -691,7 +717,11 @@ namespace jasmine {
                 case AST::RuleResult: {
                     indent(), writeln(out, "vec<Operand, 16> _operands;");
                     assert(rule->children[2]->type->kind == AST::Typename);
-                    indent(), write(out, "_operands.push(_node.operand(0));");
+                    if (hasDef(opcodeMap[rule->children[2]->name])) {
+                        assert(hasDef(opcode));
+                        indent(), write(out, "_operands.push(_node.operand(0));");
+                    } else
+                        assert(!hasDef(opcode));
                     if (rule->env->typeSystem->contains(rule->children[2]->type->name) && rule->env->typeSystem->get(rule->children[2]->type->name) >= AbstractType::STRUCT)
                         unreachable("Result patterns can only have numeric or variable types");
                     if (hasNestedTransform)
@@ -711,6 +741,12 @@ namespace jasmine {
                 case AST::VarExpr:
                     indent(), writeln(out, "_fn.replaceNode(_node, Opcode::NOP, _node.type());");
                     writeln(out, "        _operand = _fn.variableById(", rule->children[2]->name, ");");
+                    writeln(out, "        PASS(_operand);");
+                    break;
+                case AST::LabelUse:
+                case AST::LabelExpr:
+                    indent(), writeln(out, "_fn.replaceNode(_node, Opcode::NOP, _node.type());");
+                    writeln(out, "        _operand = _fn.edge(", rule->children[2]->name, ");");
                     writeln(out, "        PASS(_operand);");
                     break;
                 case AST::IntUse:
@@ -746,6 +782,7 @@ namespace jasmine {
                 case AST::IntDecl:
                 case AST::F32Decl:
                 case AST::F64Decl:
+                case AST::LabelDecl:
                 case AST::WildcardDecl:
                 case AST::WhereClause:
                 case AST::Typename:
@@ -799,6 +836,9 @@ namespace jasmine {
                         case AST::IntConst:
                         case AST::IntDecl:
                             signature.push((u8)~signTreeElement(TreeElement::IntConst)), size ++;
+                            break;
+                        case AST::LabelDecl:
+                            signature.push((u8)~signTreeElement(TreeElement::Label)), size ++;
                             break;
                         case AST::VarDecl: // Variables are basically wildcards that we don't clone.
                         case AST::WildcardDecl:

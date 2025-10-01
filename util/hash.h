@@ -389,8 +389,14 @@ public:
             if (nelts >= mem.capacity)
                 grow();
             else if (mem.isLinearSearched()) {
-               new(mem.linearValues() + nelts ++) T(t);
-               return;
+                for (u32 i = 0; i < nelts; i ++) if (t == mem.linearValues()[i]) {
+                    // Like below, we do a potentially redundant write to
+                    // allow updating old entries.
+                    mem.linearValues()[i] = t;
+                    return;
+                }
+                new(mem.linearValues() + nelts ++) T(t);
+                return;
             }
         }
 

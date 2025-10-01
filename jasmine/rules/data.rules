@@ -1,4 +1,4 @@
 # Move elimination.
 
-iconst_propagate(mov T:int (mov T x:i)):
-    (mov T x:i)
+move_elimination(mov any x:?):
+    x:?

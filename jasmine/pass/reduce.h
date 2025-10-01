@@ -8,7 +8,7 @@ namespace jasmine {
     #define DEFINE_ENUM(upper, ...) upper,
     enum class TreeElement : u8 {
         FOR_EACH_OPCODE(DEFINE_ENUM)
-        IntConst, FirstNonOpcode = IntConst, F32Const, F64Const, Var, Unknown
+        IntConst, FirstNonOpcode = IntConst, F32Const, F64Const, Var, Label, Unknown
     };
     #undef DEFINE_ENUM
 
