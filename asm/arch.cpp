@@ -137,26 +137,74 @@ void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind) {
     }
 }
 
-void Assembly::defaultRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs) {
+void Assembly::defaultRelocator(AssemblyView& view, vec<Reloc, 16>& relocs) {
     for (const Reloc& ref : relocs) {
         iptr base;
         switch (ref.section) {
-            case CODE_SECTION: base = (iptr)linked.code; break;
-            case DATA_SECTION: base = (iptr)linked.data; break;
-            case STATIC_SECTION: base = (iptr)linked.stat; break;
+            case CODE_SECTION: base = (iptr)view.code; break;
+            case DATA_SECTION: base = (iptr)view.data; break;
+            case STATIC_SECTION: base = (iptr)view.stat; break;
         }
         iptr reloc = base + ref.offset;
         iptr sym;
         if (ref.hasSym) {
-            auto it = linked.defmap.find(ref.sym);
-            if (it == linked.defmap.end())
-                panic("Undefined symbol ", (*linked.symtab)[ref.sym]);
-            sym = linked.defs[it->value];
+            auto it = view.defmap->find(ref.sym);
+            if (it == view.defmap->end())
+                panic("Undefined symbol ", (*view.symtab)[ref.sym]);
+            sym = (*view.defs)[it->value];
         } else
-            sym = linked.defs[ref.sym]; // ref.sym encodes symbol index directly.
+            sym = (*view.defs)[ref.sym]; // ref.sym encodes symbol index directly.
 
         linkReloc(reloc, sym, ref.kind);
     }
+}
+
+void Assembly::linkInternally(RelocationFunction relocator) {
+    code.rebase();
+    data.rebase();
+    stat.rebase();
+    vec<iptr, 16> defs;
+    map<Symbol, u32> defmap;
+
+    for (const Def& def : this->defs) {
+        iptr base;
+        switch (def.section) {
+            case CODE_SECTION: base = (iptr)code._data; break;
+            case DATA_SECTION: base = (iptr)data._data; break;
+            case STATIC_SECTION: base = (iptr)stat._data; break;
+        }
+        if (def.hasSym)
+            defmap.put(def.sym, defs.size());
+        defs.push(base + def.offset);
+    }
+
+    vec<Reloc, 16> internalRelocs;
+    relocs.removeIf([&](const Reloc& reloc) -> bool {
+        if (!reloc.hasSym && this->defs[reloc.sym].section == reloc.section) {
+            internalRelocs.push(reloc);
+            return true;
+        }
+        return false;
+    });
+
+    AssemblyView view;
+    view.code = code._data;
+    view.data = data._data;
+    view.stat = stat._data;
+
+    i32 codesize = code.size(), datasize = data.size(), statsize = stat.size();
+    view.codesize = &codesize;
+    view.datasize = &datasize;
+    view.statsize = &statsize;
+
+    code._end = codesize;
+    data._end = datasize;
+    stat._end = statsize;
+
+    view.defs = &defs;
+    view.defmap = &defmap;
+    view.symtab = &symtab;
+    relocator(view, internalRelocs);
 }
 
 void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
@@ -191,7 +239,8 @@ void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
         linked.defs.push(base + def.offset);
     }
 
-    relocator(linked, relocs);
+    auto view = linkedAssemblyView(linked);
+    relocator(view, relocs);
 
     if (config::printMachineCode) {
         println("Loaded ", linked.codesize, " bytes at ", hex(linked.code));

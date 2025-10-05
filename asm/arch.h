@@ -590,7 +590,7 @@ struct LinkedAssembly {
     slice<i8> pages;
     i8 *code, *data, *stat;
     i32 codesize, datasize, statsize;
-    vec<iptr> defs;
+    vec<iptr, 16> defs;
     ::map<Symbol, u32> defmap;
     SymbolTable* symtab;
 
@@ -662,7 +662,33 @@ struct LinkedAssembly {
     void writeELFExecutable(fd file);
 };
 
-using RelocationFunction = void(*)(LinkedAssembly&, vec<Reloc, 16>& relocs);
+struct AssemblyView {
+    i8* code;
+    i8* data;
+    i8* stat;
+    i32* codesize;
+    i32* datasize;
+    i32* statsize;
+    SymbolTable* symtab;
+    vec<iptr, 16>* defs;
+    ::map<Symbol, u32>* defmap;
+};
+
+inline AssemblyView linkedAssemblyView(LinkedAssembly& linked) {
+    AssemblyView view;
+    view.code = linked.code;
+    view.data = linked.data;
+    view.stat = linked.stat;
+    view.codesize = &linked.codesize;
+    view.datasize = &linked.datasize;
+    view.statsize = &linked.statsize;
+    view.defs = &linked.defs;
+    view.defmap = &linked.defmap;
+    view.symtab = linked.symtab;
+    return view;
+}
+
+using RelocationFunction = void(*)(AssemblyView&, vec<Reloc, 16>& relocs);
 
 // Collection of buffers for target-specific code.
 struct Assembly {
@@ -702,8 +728,9 @@ struct Assembly {
         relocs.push(Reloc(section, type, kind, ptr->size(), label));
     }
 
-    static void defaultRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs);
+    static void defaultRelocator(AssemblyView& linked, vec<Reloc, 16>& relocs);
 
+    void linkInternally(RelocationFunction relocator);
     void linkInto(LinkedAssembly& linked, RelocationFunction relocator);
 
     inline LinkedAssembly link(RelocationFunction relocator) {
@@ -791,7 +818,7 @@ struct Assembly {
 void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind);
 
 template<typename ASM>
-void compactingRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs) {
+void compactingRelocator(AssemblyView& linked, vec<Reloc, 16>& relocs) {
     if constexpr (ASM::shouldCompact) {
         for (Reloc& ref : relocs) {
             iptr base;
@@ -803,14 +830,14 @@ void compactingRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs) {
             iptr reloc = base + ref.offset;
             iptr sym;
             if (ref.hasSym) {
-                auto it = linked.defmap.find(ref.sym);
-                if (it == linked.defmap.end())
+                auto it = linked.defmap->find(ref.sym);
+                if (it == linked.defmap->end())
                     panic("Undefined symbol ", (*linked.symtab)[ref.sym]);
                 ref.hasSym = 0;
                 ref.sym = it->value;
-                sym = linked.defs[it->value];
+                sym = (*linked.defs)[it->value];
             } else
-                sym = linked.defs[ref.sym]; // ref.sym encodes symbol index directly.
+                sym = (*linked.defs)[ref.sym]; // ref.sym encodes symbol index directly.
             if (ref.section == CODE_SECTION)
                 continue;
             linkReloc(reloc, sym, ref.kind);
@@ -820,7 +847,7 @@ void compactingRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs) {
         // TODO: Support partial links, and leaving any undefined symbols in the final linked assembly.
         relocs.removeIf([](const Reloc& a) -> bool { return a.section != CODE_SECTION; });
 
-        for (auto [i, def] : enumerate(linked.defs)) if (def >= iptr(linked.code) && def < iptr(linked.code + linked.codesize)) {
+        for (auto [i, def] : enumerate(*linked.defs)) if (def >= iptr(linked.code) && def < iptr(linked.code + *linked.codesize)) {
             // Total hack, we store the defs intrusively in the relocs array as
             // DATA_SECTION relocs. This lets us sort them in seamlessly.
             relocs.push(Reloc(DATA_SECTION, DEF_LOCAL, Reloc::ABS64_LE, def - iptr(linked.code), Label::fromIndex(i)));
@@ -851,26 +878,26 @@ void compactingRelocator(LinkedAssembly& linked, vec<Reloc, 16>& relocs) {
 
             if (ref.section == DATA_SECTION) {
                 // Secretly a symbol definition.
-                linked.defs[ref.sym] -= (reader - writer);
+                (*linked.defs)[ref.sym] -= (reader - writer);
                 continue;
             }
 
             assert(ref.section == CODE_SECTION);
             assert(!ref.hasSym);
-            const i8* sym = (const i8*)linked.defs[ref.sym];
+            const i8* sym = (const i8*)(*linked.defs)[ref.sym];
             if (sym >= reader)
                 sym -= reader - writer; // Adjust symbol by the amount we've compacted already.
             i32 shrunk = ASM::compactReloc(writer, sym, ref);
             writer -= shrunk;
             ref.offset -= reader - writer;
         }
-        if (reader < linked.code + linked.codesize) {
-            memory::move(writer, reader, linked.code + linked.codesize - reader);
-            writer += linked.code + linked.codesize - reader;
+        if (reader < linked.code + *linked.codesize) {
+            memory::move(writer, reader, linked.code + *linked.codesize - reader);
+            writer += linked.code + *linked.codesize - reader;
         }
 
         relocs.removeIf([](const Reloc& a) -> bool { return a.section != CODE_SECTION; }); // Trim the bogus symbol "relocations".
-        linked.codesize = writer - linked.code;
+        *linked.codesize = writer - linked.code;
     }
 
     // Even if we did compact, the outcome of that will be a set of relocations
