@@ -33,8 +33,8 @@ else
 	endif
 	DEBUG_CXX_FLAGS := -O0 -g3 -Ibin/debug -fsanitize=address,undefined -fsanitize-trap=undefined -fno-sanitize=function -DRT_ASAN=1
 	DEBUG_LINK_FLAGS := -Wl,--gc-sections -z noexecstack
-	RELEASE_CXX_FLAGS := -Ofast -Ibin/release -DRELEASE -flto
-	RELEASE_LINK_FLAGS := -Wl,--gc-sections -z noexecstack
+	RELEASE_CXX_FLAGS := -O3 -ffast-math -Ibin/release -DRELEASE -flto
+	RELEASE_LINK_FLAGS := -Wl,--gc-sections -z noexecstack -flto
 	CXX_EMIT_DEPFILE_DEBUG := $(CXX) $(CXX_FLAGS) $(DEBUG_CXX_FLAGS) -E -o
 	CXX_EMIT_DEPFILE_RELEASE := $(CXX) $(CXX_FLAGS) $(RELEASE_CXX_FLAGS) -E -o
 	EMIT_DEPFILE_TO := -MMD -MF
