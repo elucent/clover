@@ -7,7 +7,7 @@ echo "
 " > $HDR
 echo "
 #include \"$HDR\"
-extern \"C\" i32 main(i32 argc, i8** argv, i8** envp) {
+i32 main(i32 argc, i8** argv, i8** envp) {
     process::init(argc, argv, envp);
     setup_harness(argc, argv);
     OverallResultList summary;" > $SRC
