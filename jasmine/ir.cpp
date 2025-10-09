@@ -60,11 +60,13 @@ namespace jasmine {
                 continue;
 
             u32 oldSize = block.nodeIndices().size();
+            u32 oldLength = block.dims().length;
             u32 newSize = oldSize;
             for (u16 i : inserts) newSize += insertions[i].length;
             if (inserts.size() > 1)
                 sort(inserts, [&](u16 a, u16 b) -> bool { return insertions[a].indexInBlock < insertions[b].indexInBlock; });
-            block.growTo(newSize + 4);
+            u32 newLength = newSize + (oldLength - oldSize);
+            block.growTo(newLength + 4);
             NodeIndex* writer = &block.nodeIndices()[0] + newSize;
             const NodeIndex* reader = &block.nodeIndices()[0] + oldSize;
             for (i32 i = i32(oldSize) - 1; i >= 0; i --) {

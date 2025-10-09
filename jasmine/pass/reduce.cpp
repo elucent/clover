@@ -4,6 +4,28 @@
 #include "jasmine/pass/reduce.h"
 
 namespace jasmine {
+    struct ValueNumbering {
+        vec<i32, 32> numbers; // Maps each defined variable to a value numbering.
+
+        struct LazyTable {
+            using Table = vec<NodeIndex, 8>;
+            Table* pointer;
+
+            inline LazyTable():
+                pointer(nullptr) {}
+
+            PREVENT_COPYING(LazyTable);
+            PREVENT_MOVING(LazyTable);
+
+            inline ~LazyTable() {
+                if (pointer)
+                    delete pointer;
+            }
+        };
+
+        LazyTable opcodeTables[NUM_OPCODES];
+    };
+
     void computeForNode(PassContext& ctx, PassContext::Defs& defs, Function& fn, Node node, deque<NodeIndex, 32>& frontier) {
         if (node.arity() == 0)
             return;
@@ -85,7 +107,7 @@ namespace jasmine {
         order.push(index);
     }
 
-    void reduceStrength(PassContext& ctx, Function& fn) {
+    NOINLINE void reduceStrength(PassContext& ctx, Function& fn) {
         JASMINE_PASS(STRENGTH_REDUCTION);
         ctx.require(SSA);
         recordDefs(ctx, fn);
@@ -126,95 +148,68 @@ namespace jasmine {
         bitset<128> seenNodes, changedDef;
         for (NodeIndex index = 0; index < fn.nodeList.size(); index ++) if (!seenNodes[index])
             scheduleNodesTopologically(ctx, defs, fn, seenNodes, order, index);
+        reverse(order);
         for (NodeIndex i : order)
             assert(i < fn.nodeList.size());
 
-        vec<u32, 64> uses;
-        vec<NodeIndex, 64> userNodes;
-        {
-            vec<vec<NodeIndex, 4>> useTable;
-            for (i32 i = 0; i < fn.variableList.size(); i ++)
-                useTable.push({});
+        vec<biasedset<128>> userNodes, userEdges;
+        auto recomputeUses = [&]() {
+            userNodes.clear();
+            userEdges.clear();
+            userNodes.expandTo(fn.variableList.size());
+            userEdges.expandTo(fn.variableList.size());
             for (Node node : fn.nodes()) {
                 for (Operand o : node.uses()) if (o.kind == Operand::Var)
-                    useTable[o.var].push(node.index());
+                    userNodes[o.var].on(node.index());
             }
-            for (i32 i = 0; i < fn.variableList.size(); i ++) {
-                uses.push(userNodes.size());
-                for (NodeIndex n : useTable[i])
-                    userNodes.push(n);
+            for (Edge edge : fn.edges()) for (Move move : edge.moves()) {
+                if (move.src.kind == Operand::Var)
+                    userEdges[move.src.var].on(edge.index());
             }
-        }
-
-        auto usesOf = [&](i32 var) -> slice<NodeIndex> {
-            NodeIndex* start = userNodes.data() + uses[var];
-            NodeIndex* end;
-            if UNLIKELY(var == uses.size() - 1)
-                end = userNodes.end();
-            else
-                end = userNodes.data() + uses[var + 1];
-            return { start, end - start };
         };
+        recomputeUses();
 
         bool fixpoint = false;
         u32 iteration = 0;
         while (!fixpoint) {
             fixpoint = true;
-            seenNodes.clear(); // We'll use this to track which nodes changed from now on.
-
             if UNLIKELY(config::verboseStrengthReduction)
-                println("[STRED]\tBeginning iteration ", ++ iteration, ", current IR is:\n", fn);
+                println("[STRED]\tBeginning iteration ", iteration, ", ", order.size(), " nodes to investigate");
 
-            for (NodeIndex index : order) {
-                bool shouldRecompute = false;
+            while (order.size()) {
+                NodeIndex index = order.pop();
+                seenNodes.off(index);
                 Node node = fn.node(index);
-                if UNLIKELY(config::verboseStrengthReduction) {
-                    bool willChangeUse = false;
-                    for (auto& use : node.uses()) if (use.kind == Operand::Var && changedDef[use.var])
-                        willChangeUse = true;
-                    if (willChangeUse)
-                        print("[STRED]\tTransformed ", node, " to ");
-                }
-                bool changedAnyUse = false;
-                for (auto& use : node.uses()) if (use.kind == Operand::Var) {
-                    if (changedDef[use.var]) {
-                        changedAnyUse = true;
-                        shouldRecompute = true;
-                        use = defOperands[use.var];
-                    } else {
-                        auto def = defs[use.var];
-                        if UNLIKELY(def == -1)
-                            continue;
-                        if (seenNodes[def])
-                            shouldRecompute = true;
-                    }
-                }
-                if UNLIKELY(config::verboseStrengthReduction && changedAnyUse)
-                    println(node, " via copy propagation");
-                if (shouldRecompute)
-                    computeForNode(ctx, defs, fn, node, frontier);
 
                 TreeSignature sig = ctx.treeSignatures[index];
                 Opcode currentOpcode = node.opcode();
-                Operand currentDef;
+                Operand currentDef = fn.invalid();
                 if LIKELY(hasDef(node.opcode()))
                     currentDef = node.defs()[0];
                 auto& rules = ruleDatabase.ensureRuleSet(currentOpcode);
+                bool eliminatedNode = false;
+                bool addedAnyInsertion = false;
+                bool anySuccessfulTransform = false;
                 for (const auto& rule : rules.rules) {
                     if (!sig.matches(rule.signature))
                         continue;
                     auto loc = locations[index];
-                    array<i8, 128> buffer;
+                    array<i8, 256> buffer;
                     const_slice<i8> nodeStr;
                     if UNLIKELY(config::verboseStrengthReduction)
                         nodeStr = prints(buffer, node);
+                    u32 numNodesBefore = fn.nodeList.size();
                     auto result = rule.reduction(ctx, fn, fn.block(loc.block), loc.indexInBlock, node);
                     if (result) {
-                        fixpoint = false;
                         if UNLIKELY(config::verboseStrengthReduction)
                             print("[STRED]\tApplied rule ", cstring(rule.name), " to node ", nodeStr);
+                        fixpoint = false;
+                        anySuccessfulTransform = true;
+                        if (result.addedInsertion())
+                            addedAnyInsertion = true, fixpoint = false;
                         if (result.isNode()) {
                             seenNodes.on(result.newNode);
+                            order.push(result.newNode);
                             auto newNode = fn.node(result.newNode);
                             if UNLIKELY(config::verboseStrengthReduction)
                                 println(" and got ", newNode);
@@ -234,15 +229,50 @@ namespace jasmine {
                                 println(" and got ", OperandLogger { fn, result.operand });
                             changedDef.on(currentDef.var);
                             defOperands[currentDef.var] = result.operand;
+                            eliminatedNode = true;
                             break;
                         }
                     }
                 }
+                if (anySuccessfulTransform && currentDef.kind == Operand::Var) {
+                    for (i32 i : userNodes[currentDef.var]) {
+                        if (eliminatedNode) {
+                            for (Operand& use : fn.node(i).uses()) if (use == currentDef)
+                                use = defOperands[currentDef.var];
+                        }
+                        if UNLIKELY(config::verboseStrengthReduction)
+                            println("[STRED]\tUpdated node ", fn.node(i));
+                        if (!addedAnyInsertion) {
+                            computeForNode(ctx, defs, fn, fn.node(i), frontier);
+                            if (!seenNodes[i]) {
+                                seenNodes.on(i);
+                                order.push(i);
+                            }
+                        }
+                    }
+                    if (eliminatedNode) for (i32 i : userEdges[currentDef.var]) {
+                        for (Move& move : fn.edge(i).moves()) if (move.src == currentDef)
+                            move.src = defOperands[currentDef.var];
+                        if UNLIKELY(config::verboseStrengthReduction)
+                            println("[STRED]\tUpdated edge ", fn.edge(i));
+                    }
+                }
             }
 
-            changedDef.clear();
-
-            fn.executeInsertions();
+            if (fn.insertions.size()) {
+                recomputeUses();
+                fn.forEachInsertedNode([&](Node node) {
+                    if LIKELY(hasDef(node.opcode())) {
+                        for (i32 i : userNodes[node.defs()[0].var]) {
+                            if (!seenNodes[i]) {
+                                seenNodes.on(i);
+                                order.push(i);
+                            }
+                        }
+                    }
+                });
+                fn.executeInsertions();
+            }
         }
     }
 }

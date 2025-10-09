@@ -89,8 +89,9 @@ namespace jasmine {
         mreg hint;
         u16 overlappingCalls;
         u32 range;
-        u8 necessaryScratches;
-        bool isMemory;
+        u32 necessaryScratches : 3;
+        u32 isMemory : 1;
+        i32 link : 28;
         BlockIndex block;
         RegSet allowed;
     };
@@ -211,10 +212,15 @@ namespace jasmine {
                 }
                 u16 overlappingCalls = 0;
                 u8 necessaryScratches = 0;
-                for (u32 j = liveness.ranges[i].start + 1; j < liveness.ranges[i].end; j ++) {
+                u32 blockLength = block.nodeIndices().size();
+                for (u32 j = liveness.ranges[i].start; j <= liveness.ranges[i].end; j ++) {
+                    if (j == 0)
+                        continue;
+                    if (j == blockLength)
+                        break;
                     NodeIndex node = block.nodeIndices()[j - 1];
                     if UNLIKELY(config::verboseRegalloc)
-                        println("Clobber list for ", fn.node(node), " is ", SeqFormat(", ", clobberList[node]));
+                        println("  Clobber list for ", fn.node(node), " is ", SeqFormat(", ", clobberList[node]));
                     if UNLIKELY(!clobberList[node].empty())
                         allowed -= clobberList[node];
                     if UNLIKELY(callInsns[node] != -1) {
@@ -233,10 +239,14 @@ namespace jasmine {
                         }
                     }
                     if UNLIKELY(config::verboseRegalloc)
-                        println("Scratches needed for ", fn.node(node), " is ", (u32)scratchesPerNode[node]);
+                        println("  Scratches needed for ", fn.node(node), " is ", (u32)scratchesPerNode[node]);
                     necessaryScratches = max(necessaryScratches, scratchesPerNode[node]);
                 }
-                priorities[i] += overlappingCalls * 10;
+                if UNLIKELY(config::verboseRegalloc)
+                    println("Total necessary scratches for ", OperandLogger { fn, fn.variableById(liveness[i].var) }, "[bb", block.index(), ":", liveness[i].start, ":", liveness[i].end, "] is ", (u32)necessaryScratches);
+                priorities[i] += overlappingCalls * 2;
+                if (liveness[i].start == 0)
+                    priorities[i] += block.predecessorIndices().size() * 5;
                 graph.push(GraphNode {
                     .assigned = false,
                     .hint = overlappingCalls ? mreg(-1) : variableHints[liveness[i].var],
@@ -244,6 +254,7 @@ namespace jasmine {
                     .range = i,
                     .necessaryScratches = necessaryScratches,
                     .isMemory = isCompound(fn.variableList[liveness[i].var].type) && !isFunction(fn, fn.variableList[liveness[i].var].type),
+                    .link = -1,
                     .block = block.index(),
                     .allowed = allowed,
                 });
@@ -330,7 +341,9 @@ namespace jasmine {
                     assignment = (node.allowed & Target::callee_saves()).next();
 
                 bool didFail = false;
-                for (u32 adj : interference[node.range]) {
+                if (node.allowed.without(assignment).size() < node.necessaryScratches)
+                    didFail = true;
+                else for (u32 adj : interference[node.range]) {
                     if (isEdge(adj)) {
                         if UNLIKELY(availablePerEdge[adj - edgeOffset].without(assignment).empty()) {
                             didFail = true;
@@ -355,6 +368,7 @@ namespace jasmine {
 
                 if UNLIKELY(config::verboseRegalloc) {
                     println("Assigned range ", OperandLogger { fn, fn.variableById(range.var) }, "[bb", node.block, ":", range.start, ":", range.end, "] to ", OperandLogger { fn, Target::is_gp(assignment) ? fn.gp(assignment) : fn.fp(assignment) });
+                    println(" - Necessary scratches = ", node.necessaryScratches, ", remaining allowed = ", node.allowed.without(assignment).size());
                     print(" - Removing ", OperandLogger { fn, Target::is_gp(assignment) ? fn.gp(assignment) : fn.fp(assignment) }, " from");
                 }
                 for (u32 adj : interference[node.range]) {
@@ -449,6 +463,10 @@ namespace jasmine {
                         allowed.remove(returnOperand.gp);
                     else if (returnOperand.kind == Operand::RegPair)
                         allowed.remove(returnOperand.ra), allowed.remove(returnOperand.rb);
+                    else if (returnOperand.kind == Operand::Memory) {
+                        // The base of the result is encoded in the return placement's offset.
+                        allowed.remove(returnOperand.offset);
+                    }
                 }
                 RegSet calleeSaves = allowed & Target::callee_saves();
                 RegSet callerSaves = allowed & Target::caller_saves();

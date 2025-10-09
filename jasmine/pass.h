@@ -26,7 +26,7 @@ namespace jasmine {
         macro(CONSTANT_FOLDING, constant_folding, false) \
         macro(STRENGTH_REDUCTION, strength_reduction, false) \
         macro(LIVENESS, liveness, false) \
-        macro(CONTAINMENT, containment, false) \
+        macro(INTERFERENCE, interference, false) \
         macro(VALIDATION, validation, false) \
         macro(REGISTER_ALLOCATION, register_allocation, true) \
         macro(STACK_ALLOCATION, stack_allocation, true) \
@@ -57,7 +57,6 @@ namespace jasmine {
         ~PassTimer();
 
         i64 current();
-        static void printPassTime(Pass pass);
         static void printSums();
     };
 
@@ -276,7 +275,7 @@ namespace jasmine {
                 return { nullptr, 0 };
             u32 index = byBlock[block];
             u32 size = block == byBlock.size() - 1 ? ranges.size() - index : byBlock[block + 1] - index;
-            return { &ranges[index], size };
+            return { ranges.begin() + index, size };
         }
 
         inline Range<LiveRangeIndex> indicesInBlock(BlockIndex block) const {
@@ -382,24 +381,28 @@ namespace jasmine {
         vec<u32, 128> data;
         vec<u32, 32> indices;
 
-        template<typename T>
-        inline void add(i32 index, const T& adjacency) {
-            i32 min = -1, max = -1;
-            for (i32 i : adjacency) {
-                if (min == -1)
-                    min = i;
-                max = i;
-            }
-            u32 bitsNeeded = divideRoundingUp(max - min + 1, 32);
+        inline void add(i32 index, const biasedset<256>& adjacency) {
+            // TODO: Do we actually even need to bother encoding this? Maybe
+            // it's fine to use the existing biasedsets.
             u32 setIndex = data.size();
-            data.expandBy(2 + bitsNeeded);
+            u32 numWords = (adjacency.maxp1 - adjacency.min + 31) / 32;
+            data.expandBy(2 + numWords);
             AdjacencySet* set = bitcast<AdjacencySet*>(data.data() + setIndex);
-            set->min = min;
-            set->max = max;
-            memory::fill(&set->bits, 0, bitsNeeded * sizeof(u32));
-            for (u32 i : adjacency) // Could be sped up, but it's probably unnecessary.
-                set->set(i);
-
+            if (adjacency.empty()) {
+                set->min = -1;
+                set->max = -2;
+            } else {
+                set->min = adjacency.min;
+                set->max = adjacency.maxp1 - 1;
+                u64 word;
+                for (u32 i = 0; i < numWords; i += 1) {
+                    if (i % 2 == 0) {
+                        word = adjacency.bits[i / 2];
+                        set->bits[i] = u32(word);
+                    } else
+                        set->bits[i] = word >> 32;
+                }
+            }
             indices.expandBy(index - (indices.size() - 1));
             indices[index] = setIndex;
         }
@@ -460,13 +463,15 @@ namespace jasmine {
         }
     };
 
-    using LoopIndex = u32;
+    using LoopIndex = i32;
 
     struct Loop {
         Loop* parent = nullptr;
         LoopIndex index;
         BlockIndex headerIndex;
         maybe<BlockIndex> preHeaderIndex = none<BlockIndex>();
+        bool isLeaf; // This loop is not the parent of any other loop.
+        i16 depth;
         vec<u32, 2> backEdges;
         bitset<128> blocks;
 
@@ -480,6 +485,235 @@ namespace jasmine {
 
         inline bool matches(TreeSignature other) const {
             return !(sig & other.sig);
+        }
+    };
+
+    struct TinyIntSet {
+        enum Mode : u32 {
+            Bits, Range, All
+        };
+
+        u32 mode : 2, bits : 15, lo : 15;
+
+        inline TinyIntSet() {
+            mode = Bits;
+            bits = 0;
+        }
+
+        inline TinyIntSet(u32 val) {
+            if (val >= 0x7fff) {
+                mode = All;
+                bits = 2;
+            } else {
+                mode = Bits;
+                lo = val, bits = 1;
+            }
+        }
+
+        inline TinyIntSet(u32 lo, u32 hi) {
+            if (lo >= 0x7ff0 || hi >= 0x7ff0)
+                mode = All;
+            else if (hi - lo <= 15) {
+                mode = Bits;
+                this->lo = lo;
+                this->bits = 0xffff >> (16 - (hi - lo));
+            } else {
+                mode = Range;
+                this->lo = lo;
+                this->bits = hi;
+            }
+        }
+
+        inline static u32 maxbit(u32 word) {
+            assert(word);
+            return 32 - clz32(word);
+        }
+
+        inline void add(TinyIntSet other) {
+            if (mode == All)
+                return;
+            if (other.mode == All) {
+                mode = All;
+                bits = 2; // Nonzero for easy emptiness checking.
+                return;
+            }
+            if (bits == 0) {
+                *this = other;
+                return;
+            }
+            if (other.bits == 0)
+                return;
+            if (mode == Bits && other.mode == Bits) {
+                if (abs(lo - other.lo) < 15) {
+                    u32 newlo = min(lo, other.lo);
+                    u32 newhi = max(lo + maxbit(bits), other.lo + maxbit(other.bits));
+                    if (newhi - newlo <= 15) {
+                        bits = (bits << (lo - newlo)) | (other.bits << (other.lo - newlo));
+                        lo = newlo;
+                        return;
+                    }
+                }
+            }
+            if (mode == Bits) {
+                mode = Range;
+                bits = lo + maxbit(bits);
+            }
+            u32 otherlo = other.lo;
+            u32 otherhi = other.bits;
+            if (other.mode == Bits)
+                otherhi = otherlo + maxbit(otherhi);
+            lo = min(lo, other.lo);
+            bits = max(bits, otherhi);
+        }
+
+        inline bool intersects(TinyIntSet other) const {
+            if (!bits || !other.bits)
+                return false;
+            if (mode == All || other.mode == All)
+                return true;
+            if (mode == Bits && other.mode == Bits) {
+                if (abs(lo - other.lo) < 15) {
+                    u32 newlo = min(lo, other.lo);
+                    return (bits << (lo - newlo)) & (other.bits << (other.lo - newlo));
+                }
+            }
+            u32 mylo = lo, myhi = bits;
+            if (mode == Bits)
+                myhi = mylo + maxbit(bits);
+            u32 otherlo = other.lo, otherhi = other.bits;
+            if (other.mode == Bits)
+                otherhi = otherlo + maxbit(otherhi);
+            return !(otherhi <= mylo || otherlo >= myhi);
+        }
+
+        inline static TinyIntSet all() {
+            TinyIntSet s;
+            s.mode = All;
+            s.bits = 2;
+            return s;
+        }
+
+        inline bool empty() const {
+            return mode == Bits && bits == 0;
+        }
+    };
+
+    struct Effect {
+        TinyIntSet classes, fields;
+
+        inline Effect() {}
+
+        inline Effect(TinyIntSet classes_in, TinyIntSet fields_in):
+            classes(classes_in), fields(fields_in) {}
+
+        inline bool intersects(Effect other) const {
+            return classes.intersects(other.classes) && fields.intersects(other.fields);
+        }
+
+        inline bool empty() const {
+            return classes.empty() && fields.empty();
+        }
+
+        inline void add(i32 aliasingClass) {
+            classes.add(TinyIntSet(aliasingClass));
+            fields.add(TinyIntSet::all());
+        }
+
+        inline void add(i32 aliasingClass, i32 field) {
+            classes.add(TinyIntSet(aliasingClass));
+            fields.add(TinyIntSet(field));
+        }
+
+        inline void add(Effect other) {
+            classes.add(other.classes);
+            fields.add(other.fields);
+        }
+    };
+
+    struct EffectTable {
+        // Effect tables allow the mapping of an index type (which can be a
+        // NodeIndex, BlockIndex, EdgeIndex, etc - really any integer) to a set
+        // of effects corresponding to that index. To save memory, since we
+        // don't expect most entries to have nontrivial effects (at least for
+        // high-N index systems, like for nodes - blocks and loops are more
+        // likely to have effects but there's fewer of them), we initialize
+        // most indices as having no effects, and store actual effect scopes
+        // for only those indices that have nontrivial effect instances. We
+        // also only store one effect scope whenever possible. Most effectful
+        // nodes trivially only read or write, not both. But there are a few
+        // instructions, namely calls, that can have complex effects reading
+        // and writing different parameters. Again to save memory in the common
+        // case, we only store a pair of effect scopes in the case we have an
+        // index with EntryKind::ReadWrite, in which case the reads are stored
+        // at the mapped-to index, and the writes stored immediately after.
+
+        enum EntryKind {
+            ReadBit = 1, WriteBit = 2,
+            None = 0,
+            ReadOnly = ReadBit,
+            WriteOnly = WriteBit,
+            ReadWrite = ReadBit | WriteBit
+        };
+
+        struct Mapping {
+            EntryKind kind : 2;
+            u32 effectIndex : 30;
+        };
+
+        vec<Mapping, 32> indexMapping;
+        vec<Effect, 16> effects;
+
+        inline void clear() {
+            indexMapping.clear();
+            effects.clear();
+        }
+
+        inline void init(u32 numIndices) {
+            indexMapping.expandTo(numIndices, Mapping { .kind = None, .effectIndex = 0 });
+        }
+
+        inline void addReadOnly(u32 index, Effect effect) {
+            assert(indexMapping[index].kind == None);
+            indexMapping[index].kind = ReadOnly;
+            indexMapping[index].effectIndex = effects.size();
+            effects.push(effect);
+        }
+
+        inline void addWriteOnly(u32 index, Effect effect) {
+            assert(indexMapping[index].kind == None);
+            indexMapping[index].kind = WriteOnly;
+            indexMapping[index].effectIndex = effects.size();
+            effects.push(effect);
+        }
+
+        inline void addReadWrite(u32 index, Effect reads, Effect writes) {
+            assert(indexMapping[index].kind == None);
+            indexMapping[index].kind = ReadWrite;
+            indexMapping[index].effectIndex = effects.size();
+            effects.push(reads);
+            effects.push(writes);
+        }
+
+        inline bool hasReads(u32 index) const {
+            return indexMapping[index].kind & ReadBit;
+        }
+
+        inline bool hasWrites(u32 index) const {
+            return indexMapping[index].kind & WriteBit;
+        }
+
+        inline Effect readsOf(u32 index) const {
+            auto mapping = indexMapping[index];
+            if (!(mapping.kind & ReadBit))
+                return Effect();
+            return effects[mapping.effectIndex];
+        }
+
+        inline Effect writesOf(u32 index) const {
+            auto mapping = indexMapping[index];
+            if (!(mapping.kind & WriteBit))
+                return Effect();
+            return effects[mapping.effectIndex + (mapping.kind & ReadBit)];
         }
     };
 
@@ -550,6 +784,9 @@ namespace jasmine {
         PassBound<Pins, IRTrait::PINS> pins;
         using TreeSignatures = vec<TreeSignature, 64>;
         TreeSignatures treeSignatures;
+        PassBound<EffectTable, IRTrait::EFFECTS> effectsByInstruction;
+        PassBound<EffectTable, IRTrait::EFFECTS> effectsByBlock;
+        PassBound<EffectTable, IRTrait::EFFECTS> effectsByLoop;
         PassBound<Liveness, IRTrait::LIVENESS> liveness;
         PassBound<Adjacency, IRTrait::CONTAINMENT> containment;
         PassBound<Adjacency, IRTrait::INTERFERENCE> interference;
@@ -575,6 +812,9 @@ namespace jasmine {
             blockLoops(this),
             defs(this),
             pins(this),
+            effectsByInstruction(this),
+            effectsByBlock(this),
+            effectsByLoop(this),
             liveness(this),
             containment(this),
             interference(this),
@@ -621,6 +861,9 @@ namespace jasmine {
             blockLoops.clear();
             schedule.clear();
             defs.clear();
+            effectsByInstruction.clear();
+            effectsByBlock.clear();
+            effectsByLoop.clear();
             liveness.clear();
             clobberList.clear();
             scratchesPerNode.clear();
@@ -748,11 +991,6 @@ namespace jasmine {
      * to all uses.
      */
     void foldConstants(PassContext& ctx, Function& fn);
-
-    /*
-     * Deduplicates expressions to reduce redundant computation in the program.
-     */
-    void eliminateCommonSubexpressions(PassContext& ctx, Function& fn);
 
     /*
      * Discover loop structures within the function and store them in the pass

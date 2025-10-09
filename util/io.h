@@ -234,8 +234,9 @@ inline IO format_impl(IO io, u64 u) {
 
 template<typename IO, typename Format = Formatter<IO>>
 inline IO format_impl(IO io, i64 i) {
-    if (i < 0) io = Format::put(io, '-'), i = -i;
-    return format_impl(io, u64(i));
+    u64 u = i;
+    if (i < 0) io = Format::put(io, '-'), u = ~u64(i) + 1;
+    return format_impl(io, u);
 }
 
 template<typename IO, typename Format = Formatter<IO>>
@@ -275,8 +276,16 @@ inline IO format_impl(IO io, const_slice<i8> str) {
 
 #define FP_PRECISION 7
 
+struct WithPrecision {
+    u32 min, max;
+    double f;
+
+    inline WithPrecision(u32 min_in, u32 max_in, double f_in): min(min_in), max(max_in), f(f_in) {}
+};
+
 template<typename IO, typename Format = Formatter<IO>>
-inline IO format_impl(IO io, double f) {
+inline IO format_impl(IO io, const WithPrecision& p) {
+    double f = p.f;
     if UNLIKELY(is_nan(f)) {
         if (bitcast<u64>(f) & 0x8000000000000000ull)
             return Format::put(io, const_slice<i8>{ "-NaN", 4 });
@@ -297,7 +306,7 @@ inline IO format_impl(IO io, double f) {
     u64 ndigits = 0, leadingZeroes = 0;
     bool isLeading = true;
     double roundUpThreshold = 1;
-    while (ndigits < FP_PRECISION) {
+    while (ndigits < p.max) {
         frac *= 10;
         i64 ipart = i64(frac);
         if (!ipart && isLeading)
@@ -308,6 +317,8 @@ inline IO format_impl(IO io, double f) {
             roundUpThreshold *= 10;
         ndigits ++;
     }
+    while (ndigits < p.min)
+        ndigits ++, frac *= 10;
     u64 digits = (u64)round(frac);
     if (digits >= roundUpThreshold && leadingZeroes)
         leadingZeroes --;
@@ -316,6 +327,11 @@ inline IO format_impl(IO io, double f) {
         digits /= 10;
     for (i64 i = 0; i < leadingZeroes; i ++) io = Format::put(io, '0');
     return format_impl<IO>(io, digits);
+}
+
+template<typename IO, typename Format = Formatter<IO>>
+inline IO format_impl(IO io, double f) {
+    return format_impl<IO>(io, WithPrecision(0, FP_PRECISION, f));
 }
 
 template<typename IO, typename Format = Formatter<IO>>

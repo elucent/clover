@@ -227,7 +227,7 @@ namespace jasmine {
         };
 
         auto checkIsInt = [&](Block block, Node node) {
-            if (!isInt(node.type()))
+            if (!isInt(node.type()) && node.type() != PTR)
                 ctx.error(block, node, "Expected integral type for node with opcode ", node.opcode(), ", found non-integral type ", TypeLogger { fn, node.type() }, '.');
         };
 
@@ -237,7 +237,7 @@ namespace jasmine {
         };
 
         auto checkIsNumeric = [&](Block block, Node node) {
-            if (!isInt(node.type()) && !isFloat(node.type()))
+            if (!isInt(node.type()) && !isFloat(node.type()) && node.type() != PTR)
                 ctx.error(block, node, "Expected numeric type for node with opcode ", node.opcode(), ", found non-numeric type ", TypeLogger { fn, node.type() }, '.');
         };
 
@@ -249,6 +249,11 @@ namespace jasmine {
         auto checkMemory = [&](Block block, Node node, Operand operand) {
             if (operand.isConst() || operand.isReg() || operand.kind == Operand::Branch)
                 ctx.error(block, node, "Expected memory operand in node with opcode ", node.opcode(), ", found ", OperandLogger { *node.function, operand }, '.');
+        };
+
+        auto checkVar = [&](Block block, Node node, Operand operand) {
+            if (operand.kind != Operand::Var)
+                ctx.error(block, node, "Expected variable operand in node with opcode ", node.opcode(), ", found ", OperandLogger { *node.function, operand }, '.');
         };
 
         auto validateArity = [&](Block block, Node node, i32 arity) -> bool {
@@ -453,7 +458,7 @@ namespace jasmine {
                 case Opcode::ADDR:
                     if (!validateArityAndDest(block, node, 2))
                         break;
-                    checkMemory(block, node, node.operand(1));
+                    checkVar(block, node, node.operand(1));
                     unify(block, node, node.operand(0), PTR);
                     break;
                 case Opcode::STORE:

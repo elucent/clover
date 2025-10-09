@@ -19,7 +19,7 @@ namespace jasmine {
         vec<BlockIndex> reversePostorder;
         fn.scheduleInReversePostorder(reversePostorder);
 
-        // Compute immediate dominators and dominator sets via 
+        // Compute immediate dominators and dominator sets via
         // "A Simple, Fast Dominance Algorithm" (Cooper, Harvey, Kennedy)
         // http://www.hipersoft.rice.edu/grads/publications/dom14.pdf
 
@@ -78,7 +78,7 @@ namespace jasmine {
 
         // Use the computed immediate dominators to compute dominance sets.
 
-        vec<bitset<128>> dominatorSets;
+        vec<biasedset<256>> dominatorSets;
         dominatorSets.expandTo(fn.blockList.size());
         for (BlockIndex index : indices(fn.blockList)) {
             auto& set = dominatorSets[index];

@@ -75,8 +75,7 @@ macro(name, result, u32, TypeKind::U32, __VA_ARGS__) \
 macro(name, result, u64, TypeKind::U64, __VA_ARGS__)
 
 #define FOR_EACH_UINT(macro, name, result, ...) \
-FOR_EACH_NON_PTR_UINT(macro, name, result, __VA_ARGS__) \
-macro(name, result, uptr, TypeKind::PTR, __VA_ARGS__)
+FOR_EACH_NON_PTR_UINT(macro, name, result, __VA_ARGS__)
 
 #define FOR_EACH_SINT(macro, name, result, ...) \
 macro(name, result, i8, TypeKind::I8, __VA_ARGS__) \

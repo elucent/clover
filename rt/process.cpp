@@ -26,6 +26,11 @@ namespace process {
         lib_init();
     }
 
+    void deinit() ASMLABEL("process.deinit");
+    void deinit() {
+        lib_deinit();
+    }
+
     void exit(i32 code) ASMLABEL("process.exit");
     void exit(i32 code) {
         thread_deinit();

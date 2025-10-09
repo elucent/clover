@@ -58,7 +58,7 @@ namespace jasmine {
         };
 
         union {
-            struct { Kind typeKind : 3; u32 fieldCount : 29; };
+            struct { Kind typeKind : 3; u32 hasPointerFields : 1; u32 fieldCount : 28; };
             struct { Kind : 3; u32 : 1; bool isInline : 1; u32 typeLength : 27; };
             struct { Kind : 3; u32 : 1; u32 argumentCount : 28; };
         };
@@ -98,6 +98,10 @@ namespace jasmine {
             assert(typeKind == ARRAY || typeKind == VECTOR);
             return isInline ? typeLength : (u32)members[1];
         }
+
+        inline bool containsPointers() const {
+            return hasPointerFields;
+        }
     };
 
     union TypeWord {
@@ -124,6 +128,8 @@ namespace jasmine {
         inline void encode(const TypeContext& context, vec<TypeWord, N>& storage) const;
     };
 
+    inline const CompoundType& getType(const TypeContext& context, TypeIndex type);
+
     struct VectorBuilder : public IncompleteType {
         TypeIndex element;
         u32 arrayLength;
@@ -145,6 +151,7 @@ namespace jasmine {
             CompoundType header;
             header.typeKind = CompoundType::VECTOR;
             assert(!isCompound(element));
+            header.hasPointerFields = element == PTR;
             header.isInline = canInlineLength;
             header.typeLength = canInlineLength ? arrayLength : 0;
             storage.push({ .type = header });
@@ -176,6 +183,7 @@ namespace jasmine {
             bool canInlineLength = arrayLength <= 0x0fffffff;
             CompoundType header;
             header.typeKind = CompoundType::ARRAY;
+            header.hasPointerFields = element == PTR || (isCompound(element) && getType(context, element).containsPointers());
             header.isInline = canInlineLength;
             header.typeLength = canInlineLength ? arrayLength : 0;
             storage.push({ .type = header });
@@ -209,6 +217,14 @@ namespace jasmine {
             CompoundType header;
             header.typeKind = CompoundType::STRUCT;
             header.fieldCount = members.size();
+
+            bool hasPointers = false;
+            for (TypeIndex field : members) if (field == PTR || (isCompound(field) && getType(context, field).containsPointers())) {
+                hasPointers = true;
+                break;
+            }
+            header.hasPointerFields = hasPointers;
+
             storage.push({ .type = header });
             for (TypeIndex field : members)
                 storage.push({ .index = field });
@@ -239,6 +255,14 @@ namespace jasmine {
             CompoundType header;
             header.typeKind = CompoundType::UNION;
             header.fieldCount = members.size();
+
+            bool hasPointers = false;
+            for (TypeIndex caseType : members) if (caseType == PTR || (isCompound(caseType) && getType(context, caseType).containsPointers())) {
+                hasPointers = true;
+                break;
+            }
+            header.hasPointerFields = hasPointers;
+
             storage.push({ .type = header });
             for (TypeIndex caseType : members)
                 storage.push({ .index = caseType });
@@ -274,6 +298,7 @@ namespace jasmine {
             CompoundType header;
             header.typeKind = CompoundType::FUNCTION;
             header.argumentCount = members.size();
+            header.hasPointerFields = false;
             storage.push({ .type = header });
             storage.push({ .index = ret });
             for (TypeIndex field : members)
@@ -445,6 +470,10 @@ namespace jasmine {
         }
     };
 
+    inline const CompoundType& getType(const TypeContext& context, TypeIndex type) {
+        return context[type];
+    }
+
     inline TypeIndex StructBuilder::build(TypeContext& context) const {
         return context[*this];
     }
@@ -611,6 +640,10 @@ namespace jasmine {
 
     inline bool isUnion(const TypeContext& ctx, TypeIndex type) {
         return type >= 0 && ctx[type].kind() == CompoundType::UNION;
+    }
+
+    inline bool isScalar(Function& fn, TypeIndex type) {
+        return !isCompound(type) || isFunction(fn, type);
     }
 
     template<TypeKind Kind>

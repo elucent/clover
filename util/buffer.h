@@ -3,6 +3,7 @@
 
 #include "rt/def.h"
 #include "util/malloc.h"
+#include "util/sort.h"
 
 template<typename T, uptr N>
 struct buffer {
@@ -245,6 +246,25 @@ struct bytebuf {
 
         // free old buffer
         free(old_data);
+    }
+
+    void rebase() {
+        // Moves all bytes so that _start is zero and _end is at size().
+
+        if (_start > _end) {
+            // Rotate array right by _capacity - _start slots.
+            reverse(_data, _data + _start);
+            reverse(_data + _start, _data + _capacity);
+            reverse(_data, _data + _capacity);
+            _end += _capacity - _start;
+            _start = 0;
+            return;
+        }
+
+        // Otherwise, we can safely do one memmove.
+        memory::move(_data, _data + _start, _end - _start);
+        _end -= _start;
+        _start = 0;
     }
 
     void reserve(u32 n) {

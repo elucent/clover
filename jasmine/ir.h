@@ -158,49 +158,54 @@ namespace jasmine {
         }
     }
 
-    inline bool hasDef(Opcode opcode) {
-        switch (opcode) {
-            case Opcode::BR:
-            case Opcode::BR_IF:
-            case Opcode::BR_IF_NOT:
-            case Opcode::BR_LT:
-            case Opcode::BR_LE:
-            case Opcode::BR_GT:
-            case Opcode::BR_GE:
-            case Opcode::BR_EQ:
-            case Opcode::BR_NE:
-            case Opcode::BR_INB:
-            case Opcode::BR_OOB:
-            case Opcode::RET:
-            case Opcode::TRAP:
-            case Opcode::STORE:
-            case Opcode::STORE_FIELD:
-            case Opcode::STORE_INDEX:
-            case Opcode::NOP:
-            case Opcode::COMMENT:
-            case Opcode::SET_FIELD:
-            case Opcode::SET_INDEX:
-            case Opcode::CALL_VOID:
-                return false;
-            default:
-                return true;
+    constexpr u64 makeMask(const Opcode* opcodes, u32 n, i32 bias) {
+        u64 mask = 0;
+        for (u32 i = 0; i < n; i ++) {
+            i32 code = (i32)opcodes[i];
+            if (code - bias >= 0 && code - bias < 64)
+                mask |= 1ull << (code - bias);
         }
+        return mask;
+    }
+
+    inline bool hasDef(Opcode opcode) {
+        using enum Opcode;
+        static constexpr Opcode opcodes[] = {
+            BR, BR_IF, BR_IF_NOT,
+            BR_LT, BR_LE, BR_GT, BR_GE, BR_EQ, BR_NE,
+            BR_INB, BR_OOB,
+            RET, CALL_VOID,
+            NOP, TRAP, COMMENT,
+            STORE, STORE_FIELD, STORE_INDEX,
+            SET_FIELD, SET_INDEX
+        };
+
+        static constexpr u64
+            lowMask = ~makeMask(opcodes, 21, 0),
+            highMask = ~makeMask(opcodes, 21, 64);
+
+        static_assert(NUM_OPCODES < 128);
+
+        u32 val = u32(opcode);
+        if (val < 64)
+            return lowMask & 1ull << val;
+        return highMask & 1ull << (val - 64);
     }
 
     inline bool isCompare(Opcode opcode) {
-        switch (opcode) {
-            case Opcode::IS_LT:
-            case Opcode::IS_LE:
-            case Opcode::IS_EQ:
-            case Opcode::IS_NE:
-            case Opcode::IS_GT:
-            case Opcode::IS_GE:
-            case Opcode::IS_INB:
-            case Opcode::IS_OOB:
-                return true;
-            default:
-                return false;
-        }
+        using enum Opcode;
+
+        static constexpr Opcode opcodes[] = {
+            IS_LT, IS_LE, IS_EQ, IS_NE, IS_GT, IS_GE,
+            IS_INB, IS_OOB
+        };
+        constexpr u64 lowMask = makeMask(opcodes, 8, 0),
+            highMask = makeMask(opcodes, 8, 64);
+
+        static_assert(!highMask);
+
+        u32 val = u32(opcode);
+        return val < 64 && lowMask & (1ull << val);
     }
 
     inline bool isBranch(Opcode opcode) {
@@ -956,7 +961,7 @@ namespace jasmine {
             i32 arity = computeArity(args...);
             i32 necessaryStorage = arity + 1 + (type >= 0 ? 1 : 0);
             i32 currentStorage = node.arity() + 1 + (node.type() >= 0 ? 1 : 0);
-            if (necessaryStorage < currentStorage) {
+            if (necessaryStorage <= currentStorage) {
                 u32 storage = node.headidx;
                 if (type >= 0) {
                     nodeWords[storage ++] = NodeWord { .header = { opcode, TypeKind::EXT, u16(arity) }};
@@ -1349,14 +1354,20 @@ namespace jasmine {
         void scheduleTopologically(vec<BlockIndex>& indices) const;
         void validateAggressively() const;
 
-        void addInsertion(Block block, u32 indexInBlock) {
+        inline void addInsertion(Block block, u32 indexInBlock) {
             blockInsertions[block.index()].push(insertions.size());
             insertions.push({ block.index(), indexInBlock, (i32)nodesToInsert.size(), 0 });
         }
 
-        void addNodeToInsertion(Node node) {
+        inline void addNodeToInsertion(Node node) {
             nodesToInsert.push(node.index());
             insertions.back().length ++;
+        }
+
+        template<typename Func>
+        void forEachInsertedNode(Func&& func) {
+            for (NodeIndex n : nodesToInsert)
+                func(node(n));
         }
 
         void executeInsertions();
@@ -1525,19 +1536,23 @@ namespace jasmine {
     }
 
     inline const_slice<Operand> Node::defs() const {
-        return operands().take(hasDef(opcode()) ? 1 : 0);
+        return { bitcast<const Operand*>(function->nodeWords.data() + base()), !!hasDef(opcode()) };
     }
 
     inline slice<Operand> Node::defs() {
-        return operands().take(hasDef(opcode()) ? 1 : 0);
+        return { bitcast<Operand*>(function->nodeWords.data() + base()), !!hasDef(opcode()) };
     }
 
     inline Operand Node::def(u32 i) const {
-        return defs()[i];
+        assert(hasDef(opcode()));
+        assert(i == 0);
+        return operand(0);
     }
 
     inline Operand& Node::def(u32 i) {
-        return defs()[i];
+        assert(hasDef(opcode()));
+        assert(i == 0);
+        return operand(0);
     }
 
     inline const_slice<Operand> Node::uses() const {
@@ -2044,8 +2059,13 @@ namespace jasmine {
             io = format(io, OperandLogger { f, p.operand }, ": ", TypeLogger(*f.mod, p.type));
         }
         io = format(io, ") {\n");
-        for (const auto& block : f.blocks())
-            io = format(io, block);
+        vec<BlockIndex> postorder;
+        bitset<128> reachable;
+        f.scheduleInReversePostorder(postorder);
+        for (BlockIndex b : postorder)
+            io = format(io, f.block(b)), reachable.on(b);
+        for (Block b : f.blocks()) if (!reachable[b.index()])
+            io = format(io, b);
         io = format(io, "}\n");
         return io;
     }

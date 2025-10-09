@@ -49,6 +49,7 @@ enum class PassTimeUnit {
     macro(verboseDominators, verbose-dominators, bool, false, Jasmine, "Enables verbose logging for dominator analysis.") \
     macro(verboseNaturalLoops, verbose-natural-loops, bool, false, Jasmine, "Enables verbose logging for natural loop analysis.") \
     macro(verboseEffects, verbose-effects, bool, false, Jasmine, "Enables verbose logging for effects analysis.") \
+    macro(verboseLICM, verbose-licm, bool, false, Jasmine, "Enables verbose logging for loop-invariant code motion.") \
     macro(verboseSSA, verbose-ssa, bool, false, Jasmine, "Enables verbose logging for SSA conversion.") \
     macro(verboseInlining, verbose-inlining, bool, false, Jasmine, "Enables verbose logging for inlining.") \
     macro(verboseLiveness, verbose-liveness, bool, false, Jasmine, "Enables verbose logging for liveness analysis.") \
@@ -92,6 +93,7 @@ enum class PassTimeUnit {
     macro(readableTypeVars, readable-type-vars, bool, IS_DEBUG, Clover, "Give type variables human-readable names instead of just indices.") \
     macro(validateResolution, validate-resolution, bool, true, Clover, "Do extra validation after name and type resolution.") \
     macro(verboseUnify, verbose-unify, i32, 0, Clover, "Enables verbose logging for type unification during Clover type inference and checking passes.") \
+    macro(verboseInstantiation, verbose-instantiation, bool, false, Clover, "Enables verbose logging for generic type and function instantiation.") \
     macro(reportErrorsImmediately, report-errors-immediately, bool, false, Clover, "Report the first error immediately after it happens and exit.") \
     macro(verboseAnalyze, verbose-analyze, i32, 0, Clover, "Enables verbose logging for the Clover memory safety analysis phase.") \
     \

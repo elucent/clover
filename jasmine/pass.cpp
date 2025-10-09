@@ -38,95 +38,74 @@ namespace jasmine {
     PassTimer::~PassTimer() {
         if LIKELY(!config::printJasminePassTimes)
             return;
-        end = current();
-        double floatDiff = bitcast<double>(end) - bitcast<double>(start);
-        i64 intDiff = end - start;
-        switch (timeUnit) {
-            case PassTimeUnit::Seconds:
-            case PassTimeUnit::Milliseconds:
-            case PassTimeUnit::Microseconds:
-            case PassTimeUnit::Nanoseconds:
-                passSums[(u32)pass] = bitcast<i64>(bitcast<double>(passSums[(u32)pass]) + floatDiff);
-                break;
-            case PassTimeUnit::Ticks:
-                passSums[(u32)pass] = passSums[(u32)pass] + intDiff;
-                break;
-        }
+        i64 intDiff = current() - start;
+        passSums[(u32)pass] += intDiff;
     }
 
     i64 PassTimer::current() {
         switch (timeUnit) {
             case PassTimeUnit::Seconds:
-                return bitcast<i64>(time::nanos() / 1000000000.0);
             case PassTimeUnit::Milliseconds:
-                return bitcast<i64>(time::nanos() / 1000000.0);
             case PassTimeUnit::Microseconds:
-                return bitcast<i64>(time::nanos() / 1000.0);
             case PassTimeUnit::Nanoseconds:
-                return bitcast<i64>((double)time::nanos());
+                return time::nanos();
             case PassTimeUnit::Ticks:
                 return time::ticks();
-        }
-    }
-
-    void PassTimer::printPassTime(Pass pass) {
-        i64 intSum = passSums[(u32)pass];
-        double floatSum = bitcast<double>(intSum);
-        if (!intSum || !floatSum)
-            return;
-        print("Pass ", PASS_NAMES[(u32)pass], " took ");
-        switch (config::jasminePassTimingUnit) {
-            case PassTimeUnit::Seconds:
-                println(floatSum, " s");
-                break;
-            case PassTimeUnit::Milliseconds:
-                println(floatSum, " ms");
-                break;
-            case PassTimeUnit::Microseconds:
-                println(floatSum, " us");
-                break;
-            case PassTimeUnit::Nanoseconds:
-                println(floatSum, " ns");
-                break;
-            case PassTimeUnit::Ticks:
-                println(intSum, " ticks");
-                break;
         }
     }
 
     i64 PassTimer::passSums[(u32)Pass::N_PASSES];
 
     void PassTimer::printSums() {
-        #define PRINT_PASS_SUM(upper, ...) printPassTime(Pass:: upper);
-        FOR_EACH_PASS(PRINT_PASS_SUM);
-        #undef PRINT_PASS_SUM
+        vec<entry<const_slice<i8>, i64>> times;
+
+        #define RECORD_PASS_SUM(upper, ...) if (passSums[(u32)Pass:: upper]) times.push({ cstring(PASS_NAMES[(u32)Pass:: upper]), passSums[(u32)Pass:: upper] });
+        FOR_EACH_PASS(RECORD_PASS_SUM);
+        #undef RECORD_PASS_SUM
 
         i64 intSum = 0;
-        double floatSum = 0.0;
-        for (u32 i = 0; i < (u32)Pass::N_PASSES; i ++) {
-            if (config::jasminePassTimingUnit == PassTimeUnit::Ticks)
-                intSum += passSums[i];
-            else
-                floatSum += bitcast<double>(passSums[i]);
+        for (u32 i = 0; i < (u32)Pass::N_PASSES; i ++)
+            intSum += passSums[i];
+
+        auto formatTime = [&](slice<i8> buf, i64 time) -> slice<i8> {
+            double floatSum = time;
+            switch (config::jasminePassTimingUnit) {
+                case PassTimeUnit::Seconds:
+                    return prints(buf, WithPrecision(6, 6, floatSum / 1000000000.0), " s");
+                case PassTimeUnit::Milliseconds:
+                    return prints(buf, WithPrecision(6, 6, floatSum / 1000000.0), " ms");
+                case PassTimeUnit::Microseconds:
+                    return prints(buf, WithPrecision(6, 6, floatSum / 1000.0), " us");
+                case PassTimeUnit::Nanoseconds:
+                    return prints(buf, WithPrecision(6, 6, floatSum), " ns");
+                case PassTimeUnit::Ticks:
+                    return prints(buf, time, " ticks");
+            }
+        };
+
+        sort(times, [&](const auto& a, const auto& b) -> bool { return a.value > b.value; });
+
+        array<i8, 128> linePrefix;
+        println("Passes in order of time spent: ");
+        println("----------------------------------------------------");
+        for (const auto& e : times) {
+            double percent = (double)e.value / (double)intSum;
+            array<i8, 128> percentageBuf;
+            auto spaces = cstring("                    ");
+            auto percentage = prints(percentageBuf, WithPrecision(2, 2, percent * 100), "%");
+            auto name = printsln(linePrefix, '[', spaces.take(7 - percentage.size()), percentage, "] ", e.key);
+            for (u32 i = name.size(); i < 36; i ++)
+                linePrefix[i] = ' ';
+            print((const_slice<i8>)linePrefix);
+            array<i8, 128> timebuf;
+            auto buf = formatTime(timebuf, e.value);
+            println(spaces.take(16 - buf.size()), buf);
         }
+
+        println("----------------------------------------------------");
         print("Total time spent in optimizations was ");
-        switch (config::jasminePassTimingUnit) {
-            case PassTimeUnit::Seconds:
-                println(floatSum, " s");
-                break;
-            case PassTimeUnit::Milliseconds:
-                println(floatSum, " ms");
-                break;
-            case PassTimeUnit::Microseconds:
-                println(floatSum, " us");
-                break;
-            case PassTimeUnit::Nanoseconds:
-                println(floatSum, " ns");
-                break;
-            case PassTimeUnit::Ticks:
-                println(intSum, " ticks");
-                break;
-        }
+        array<i8, 80> buf;
+        println(formatTime(buf, intSum));
     }
 
     i64 CompileStats::functionsCompiled;
@@ -232,9 +211,14 @@ namespace jasmine {
                 // computePins(ctx, fn);
                 // scalarReplacement(ctx, fn);
                 enforceSSA(ctx, fn);
-                // computeEffects(ctx, fn);
                 foldConstants(ctx, fn);
                 reduceStrength(ctx, fn);
+                cleanup(ctx, fn);
+                computeEffects(ctx, fn);
+                hoistLoopInvariantCode(ctx, fn);
+                // enforceSSA(ctx, fn);
+                // foldConstants(ctx, fn);
+                // reduceStrength(ctx, fn);
             }
             simplify(ctx, fn);
             cleanup(ctx, fn);

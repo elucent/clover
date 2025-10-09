@@ -550,7 +550,7 @@ namespace jasmine {
                     break;
                 case AST::RuleParams:
                     indent(); writeln(out, "if (_operand.kind != Operand::Var) FAIL;");
-                    indent(); writeln(out, "if (_defs[_operand.var] == -1) FAIL;");
+                    indent(); writeln(out, "if (_defs[_operand.var] < 0) FAIL;");
                     indent(); writeln(out, "{");
                     indentation += 4;
                     indent(); writeln(out, "Node _node = _fn.node(_defs[_operand.var]);");
@@ -610,7 +610,8 @@ namespace jasmine {
                     indent(); writeln(out, "(*_ctx.defs).push(_newNode.index());");
                     indent(); writeln(out, "_fn.addNodeToInsertion(_newNode);");
                     indent(); writeln(out, "_operands.trim(", pattern->children.size(), ");");
-                    indent(); writeln(out, "if (hasDef(_newNode.opcode())) _operands.push(_result);");
+                    if (hasDef(opcodeMap[pattern->name]))
+                        indent(), writeln(out, "_operands.push(_result);");
                     indentation -= 4;
                     indent(); writeln(out, "}");
                     break;
@@ -664,7 +665,7 @@ namespace jasmine {
             if (name.size() == 0)
                 name = tostring("_anonymous_rule_", anonymousRules ++);
 
-            writeln(out, "    static MatchResult ", name, "(PassContext& _ctx, Function& _fn, Block _block, u32 _indexInBlock, Node _node) {");
+            writeln(out, "    MatchResult ", name, "(PassContext& _ctx, Function& _fn, Block _block, u32 _indexInBlock, Node _node) {");
             writeln(out, "        assert(_node.opcode() == Opcode::", OPCODE_NAMES_UPPER[(i32)opcode], ");");
             writeln(out, "        auto _uses = _node.uses();");
             writeln(out, "        auto& _defs = *_ctx.defs;");
@@ -686,6 +687,11 @@ namespace jasmine {
                 else
                     indent(), writeln(out, "if (!(u32(abstractType(_fn, _node.type())) & ", (u32)rule->env->typeSystem->get(rule->children[0]->type->name), ")) FAIL;");
             }
+
+            // It's illegal to do a reduction rule that might remove a write to a pinned variable.
+            if (hasDef(opcode) && (rule->children[2]->kind != AST::RuleResult || !hasDef(opcodeMap[rule->children[2]->name])))
+                indent(), writeln(out, "if (_ctx.has(IRTrait::PINS) && (*_ctx.pins).isPinned(_node.operand(0).var)) FAIL;");
+
             indent(); writeln(out, "Operand _operand;");
             for (const auto [k, v] : rule->env->vars) {
                 indent();
@@ -701,6 +707,7 @@ namespace jasmine {
             }
             writeln(out, "        {");
             indentation += 4;
+
             for (auto [i, pattern] : enumerate(rule->children[0]->children))
                 compileMatch(rule, pattern, i);
             indentation -= 4;
@@ -728,13 +735,25 @@ namespace jasmine {
                         indent(), writeln(out, "_fn.addInsertion(_block, _indexInBlock);");
                     for (auto [i, a]: enumerate(rule->children[2]->children))
                         compileTransform(rule, a);
+                    if (isBranch(opcode)) {
+                        indent(), write(out, "{");
+                        indentation += 4;
+                        indent(), write(out, "bitset<128> _lostEdges;");
+                        indent(), write(out, "for (Operand _operand : _node.operands()) if (_operand.kind == Operand::Branch)");
+                        indent(), write(out, "    _lostEdges.on(_operand.edge);");
+                        indent(), write(out, "for (Operand _operand : _operands) if (_operand.kind == Operand::Branch)");
+                        indent(), write(out, "    _lostEdges.off(_operand.edge);");
+                        indent(), write(out, "for (EdgeIndex _lostEdge : _lostEdges) _fn.removeEdge(_lostEdge);");
+                        indentation -= 4;
+                        indent(), write(out, "}");
+                    }
                     indent(), write(out, "_fn.replaceNode(_node, Opcode:: ", OPCODE_NAMES_UPPER[(i32)opcodeMap[rule->children[2]->name]], ", ");
                     if (rule->env->typeSystem->contains(rule->children[2]->type->name))
                         write(out, "TypeKind::", rule->env->typeSystem->nameOf(rule->env->typeSystem->get(rule->children[2]->type->name)));
                     else
                         write(out, rule->children[2]->type->name);
                     writeln(out, ", _operands);");
-                    writeln(out, "        PASS(_node);");
+                    writeln(out, "        PASS(_node, ", hasNestedTransform ? "true" : "false", ");");
                     break;
                 }
                 case AST::VarUse:
@@ -799,7 +818,7 @@ namespace jasmine {
             writeln(out, "#include \"jasmine/pass/reduce.h\"");
             writeln(out, "namespace jasmine {");
             writeln(out, "    #define FAIL return MatchResult::fail()");
-            writeln(out, "    #define PASS(n) return MatchResult::success(n)");
+            writeln(out, "    #define PASS(...) return MatchResult::success(__VA_ARGS__)");
 
             vec<RuleHandle> ruleHandles;
             for (AST* ast : rules)
@@ -883,5 +902,6 @@ i32 main(i32 argc, i8** argv, i8** envp) {
 
     Compiler compiler(rules, argv[argc - 1]);
     compiler.compile();
+
     return 0;
 }

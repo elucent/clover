@@ -278,7 +278,7 @@ namespace jasmine {
     }
 
     template<typename Target>
-    void parallelMove(TargetSpecificPassInterface* passes, Function& fn, Block& b, Operand scratch, slice<TypeIndex> moveTypes, slice<Move> moves, vec<MoveStatus>& status, u32 i) {
+    void parallelMove(TargetSpecificPassInterface* passes, Function& fn, Block& b, Operand gpScratch, Operand fpScratch, slice<TypeIndex> moveTypes, slice<Move> moves, vec<MoveStatus>& status, u32 i) {
         Move& move = moves[i];
         auto dest = move.dest;
         auto src = move.src;
@@ -286,16 +286,18 @@ namespace jasmine {
             status[i] = Moved;
             return;
         }
+        auto scratchFor = [&](Operand operand) -> Operand { return operand.kind == Operand::FP ? fpScratch : gpScratch; };
         status[i] = Moving;
         for (u32 j = 0; j < moves.size(); j ++) {
             auto tmpSrc = moves[j].src;
             if (tmpSrc == dest) {
                 switch (status[j]) {
                     case Unmoved:
-                        parallelMove<Target>(passes, fn, b, scratch, moveTypes, moves, status, j);
+                        parallelMove<Target>(passes, fn, b, gpScratch, fpScratch, moveTypes, moves, status, j);
                         break;
                     case Moving: {
-                        makeMove<Target>(passes, fn, b, moveTypes[j], scratch, tmpSrc, scratch); // This seems wrong...
+                        Operand scratch = scratchFor(move.src);
+                        makeMove<Target>(passes, fn, b, moveTypes[j], scratch, tmpSrc, scratch); // This seems possibl wrong...
                         moves[j].src = scratch;
                         break;
                     }
@@ -304,22 +306,24 @@ namespace jasmine {
                 }
             }
         }
-        makeMove<Target>(passes, fn, b, moveTypes[i], dest, move.src, scratch);
+        makeMove<Target>(passes, fn, b, moveTypes[i], dest, move.src, scratchFor(move.src));
         status[i] = Moved;
     }
 
     template<typename Target>
-    void parallelMove(TargetSpecificPassInterface* passes, Function& fn, Block& b, Operand scratch, slice<TypeIndex> moveTypes, slice<Move> moves) {
+    void parallelMove(TargetSpecificPassInterface* passes, Function& fn, Block& b, Operand gpScratch, Operand fpScratch, slice<TypeIndex> moveTypes, slice<Move> moves) {
         vec<MoveStatus> status;
         status.expandTo(moves.size());
         for (u32 i = 0; i < moves.size(); i ++) {
             status[i] = moves[i].src == moves[i].dest ? Moved : Unmoved;
-            assert(moves[i].src != scratch);
-            assert(moves[i].dest != scratch);
+            assert(moves[i].src != gpScratch);
+            assert(moves[i].dest != gpScratch);
+            assert(moves[i].src != fpScratch);
+            assert(moves[i].dest != fpScratch);
         }
         for (u32 i = 0; i < moves.size(); i ++) {
             if (status[i] == Unmoved)
-                parallelMove<Target>(passes, fn, b, scratch, moveTypes, moves, status, i);
+                parallelMove<Target>(passes, fn, b, gpScratch, fpScratch, moveTypes, moves, status, i);
         }
     }
 
@@ -703,7 +707,7 @@ namespace jasmine {
                 return;
             }
 
-            parallelMove<Target>(passes, fn, b, allocations.edgeAllocations[edge], originalEdgeTypes[edge], moves);
+            parallelMove<Target>(passes, fn, b, allocations.edgeAllocations[edge], fn.fp(Target::fps().next()), originalEdgeTypes[edge], moves);
         };
 
         vec<mreg, 8> usedCalleeSaves;
@@ -799,10 +803,11 @@ namespace jasmine {
                     if (pairMove.second.kind == Operand::Memory) available.remove(pairMove.second.base);
                 }
                 gpScratch = fn.gp((available & Target::gps()).next());
+                fpScratch = fn.fp((available & Target::fps()).next());
 
                 for (const auto& pairMove : parameterPairMoves)
                     storeAggregateFromRegisters(fn, b, this->repr(pairMove.type), pairMove.dest, pairMove.first, pairMove.second, gpScratch);
-                parallelMove<Target>(this, fn, b, gpScratch, parameterMoveTypes, parameterMoves);
+                parallelMove<Target>(this, fn, b, gpScratch, fpScratch, parameterMoveTypes, parameterMoves);
             }
 
             auto pointerRepr = repr(PTR);

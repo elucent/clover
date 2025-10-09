@@ -100,11 +100,8 @@ namespace jasmine {
 		ctx.require(SSA);
 
 		auto& defs = *ctx.defs;
-		if (defs.size())
-			return;
 		defs.clear();
-		while (defs.size() < fn.variableList.size())
-			defs.push(-1);
+		defs.expandTo(fn.variableList.size(), -1);
 		for (const auto& param : fn.parameters)
 			defs[param.operand.var] = -1;
 		for (Node n : fn.nodes()) if (hasDef(n.opcode()) && !ctx.pins->isPinned(n.def(0).var))
@@ -116,15 +113,35 @@ namespace jasmine {
 	void computePins(PassContext& ctx, Function& fn) {
 		ctx.did(IRTrait::PINS);
 		auto& pins = *ctx.pins;
-		for (Block block : fn.blocks()) for (Node node : block.nodes()) switch (node.opcode()) {
-			case Opcode::ADDR:
-			case Opcode::ADDR_FIELD:
-			case Opcode::ADDR_INDEX:
-				if (node.operand(1).kind == Operand::Var)
-					pins.pin(node.operand(1).var);
-				break;
-			default:
-				break;
+		for (Block block : fn.blocks()) for (Node node : block.nodes()) {
+			switch (node.opcode()) {
+				case Opcode::ADDR:
+				case Opcode::ADDR_FIELD:
+				case Opcode::ADDR_INDEX:
+					if (node.operand(1).kind == Operand::Var)
+						pins.pin(node.operand(1).var);
+					break;
+				case Opcode::SET_FIELD:
+				case Opcode::SET_INDEX:
+					pins.pin(node.use(0).var);
+					break;
+				case Opcode::GET_INDEX:
+					pins.pin(node.use(0).var);
+					if (!isScalar(fn, node.type()))
+						pins.pin(node.def(0).var);
+					break;
+				case Opcode::GET_FIELD:
+					pins.pin(node.use(0).var);
+					fallthrough;
+				case Opcode::LOAD_FIELD:
+					if (!isScalar(fn, fn.typeContext()[node.type()].fields()[fn.intValueOf(node.operand(2))]))
+						pins.pin(node.def(0).var);
+					break;
+				default:
+					if (hasDef(node.opcode()) && !isScalar(fn, node.type()))
+						pins.pin(node.def(0).var);
+					break;
+			}
 		}
 	}
 

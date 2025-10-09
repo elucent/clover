@@ -144,7 +144,7 @@ namespace jasmine {
 
         inline MemoryMover& dst(Operand operand) {
             if (operand.kind == Operand::Memory && (operand.base == Target::fp || operand.base == Target::sp))
-                dstAlign = 1 << ctz32(operand.offset);
+                dstAlign = operand.offset == 0 ? 16 : 1 << ctz32(operand.offset);
             dstOperand = operand;
             hasDst = true;
             return *this;
@@ -152,7 +152,7 @@ namespace jasmine {
 
         inline MemoryMover& src(Operand operand) {
             if (operand.kind == Operand::Memory && (operand.base == Target::fp || operand.base == Target::sp))
-                srcAlign = 1u << ctz32(operand.offset);
+                srcAlign = operand.offset == 0 ? 16 : 1u << ctz32(operand.offset);
             srcOperand = operand;
             hasSrc = true;
             return *this;
@@ -321,7 +321,7 @@ namespace jasmine {
                 return 2; // One for the pointer, one for memory/memory moves.
             case Opcode::LOAD_INDEX:
             case Opcode::STORE_INDEX:
-                return 3; // One for the index, one for the pointer, one for memory/memory moves.
+                return 2; // One for the index/pointer, one for memory/memory moves.
             case Opcode::CALL:
             case Opcode::CALL_VOID:
                 return 0; // We dynamically select a scratch during lowering based on the arguments.

@@ -3,12 +3,12 @@
 
 namespace jasmine {
     void containment(PassContext& ctx, Function& fn) {
-        JASMINE_PASS(CONTAINMENT);
+        JASMINE_PASS(INTERFERENCE);
         ctx.require(LIVENESS);
         ctx.did(INTERFERENCE);
         ctx.did(CONTAINMENT);
 
-        using Set = bitset<128>;
+        using Set = biasedset<256>;
 
         auto& liveness = *ctx.liveness;
         vec<Set, 64> interferenceList, containmentList;
@@ -28,7 +28,7 @@ namespace jasmine {
         // Create new "edge variables" representing each edge, and make any
         // variables involved in an edge move interfere with it.
 
-        bitset<128> edgeVariables;
+        bitset<256> edgeVariables;
         for (Edge edge : fn.edges()) {
             edgeVariables.clear();
             for (Move move : edge.moves()) if (move.src.kind == Operand::Var)
@@ -55,7 +55,7 @@ namespace jasmine {
             }
         }
 
-        bitset<128> live;
+        bitset<256> live;
         for (Block block : fn.blocks()) {
             live.clear();
             const auto& rangeIndices = liveness.indicesInBlock(block.index());
@@ -108,6 +108,16 @@ namespace jasmine {
                             print(" ", OperandLogger { fn, fn.variableById(ro.var) }, "[bb", block.index(), ":", ro.start, ":", ro.end, "]");
                         }
                     }
+                    println();
+
+                    vec<LiveRangeIndex> a, b;
+                    for (LiveRangeIndex r : interference[i])
+                        a.push(r);
+                    for (LiveRangeIndex r : interferenceList[i])
+                        b.push(r);
+                    assert(a.size() == b.size());
+                    for (u32 i : indices(a))
+                        assert(a[i] == b[i]);
                 }
             }
         }

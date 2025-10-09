@@ -3,6 +3,7 @@
 
 #include "rt/def.h"
 #include "util/malloc.h"
+#include "util/maybe.h"
 
 template<u32 Bits>
 struct bitset {
@@ -256,6 +257,261 @@ struct bitset {
             (u32)n / 64,
             (u8)0
         };
+    }
+};
+
+template<u64 N>
+struct biasedset {
+    u64* bits;
+    u32 min, maxp1; // We store the max plus one so that it and min form an exclusive range.
+    u64 capacity;
+
+    static_assert(N % 64 == 0);
+
+    constexpr static u32 Words = N / 64;
+    u64 fixed[Words];
+
+    inline biasedset():
+        bits(fixed), min(0), maxp1(0), capacity(N) {
+        for (u32 i = 0; i < Words; i ++)
+            fixed[i] = 0;
+    }
+
+    inline ~biasedset() {
+        if (bits != fixed)
+            delete[] bits;
+    }
+
+    inline biasedset(const biasedset& other): bits(fixed), min(other.min), maxp1(other.maxp1), capacity(other.capacity) {
+        if (capacity > N)
+            bits = new u64[capacity / 64];
+        memory::copy(bits, other.bits, capacity / 8);
+    }
+
+    inline biasedset(biasedset&& other): bits(other.bits), min(other.min), maxp1(other.maxp1), capacity(other.capacity) {
+        if (bits == other.fixed) {
+            bits = fixed;
+            memory::copy(bits, other.bits, capacity / 8);
+        } else {
+            other.bits = other.fixed, other.min = other.maxp1 = 0, other.capacity = N;
+            for (u32 i = 0; i < Words; i ++)
+                other.fixed[i] = 0;
+        }
+    }
+
+    inline biasedset& operator=(const biasedset& other) {
+        if (this != &other) {
+            if (bits != fixed)
+                delete[] bits;
+            min = other.min;
+            maxp1 = other.maxp1;
+            capacity = other.capacity;
+            bits = capacity <= N ? fixed : new u64[capacity / 64];
+            memory::copy(bits, other.bits, capacity / 8);
+        }
+        return *this;
+    }
+
+    inline biasedset& operator=(biasedset&& other) {
+        if (this != &other) {
+            if (bits != fixed)
+                delete[] bits;
+            min = other.min;
+            maxp1 = other.maxp1;
+            capacity = other.capacity;
+            bits = other.bits;
+            if (bits == other.fixed) {
+                bits = fixed;
+                memory::copy(bits, other.bits, capacity / 8);
+            } else {
+                other.bits = other.fixed, other.min = other.maxp1 = 0, other.capacity = N;
+                for (u32 i = 0; i < Words; i ++)
+                    other.fixed[i] = 0;
+            }
+            memory::copy(bits, other.bits, capacity / 8);
+        }
+        return *this;
+    }
+
+    inline NOINLINE void growto(u32 i) {
+        u32 newcapacity = capacity;
+        while (newcapacity <= i)
+            newcapacity *= 2;
+        assert(newcapacity > N); // Otherwise, why did we grow?
+
+        auto old = bits;
+        bits = new u64[newcapacity / 64];
+        memory::copy(bits, old, capacity / 8);
+        memory::fill(bits + capacity / 64, 0, (newcapacity - capacity) / 8);
+        capacity = newcapacity;
+        if (old != fixed)
+            delete[] old;
+
+        // Note that min doesn't change.
+    }
+
+    inline NOINLINE void lshift(u32 i) {
+        // Expands the set by moving the minimum down and shifting existing
+        // elements up. Note that this doesn't actually change min - the caller
+        // is responsible for that. This function also assumes our capacity has
+        // already been increased to fit the shifted elements.
+
+        u32 wordDiff = i / 64;
+        u32 bitDiff = i % 64;
+        // First shift by words, then by sub-word amount.
+        // TODO: these can probably be fused...idk if they should be.
+        u32 size = (maxp1 - min + 63) / 64;
+        assert((size + wordDiff) * 64 <= capacity);
+        memory::move(bits + wordDiff * 8, bits, size / 8);
+
+        if (bitDiff) {
+            u64 overflow = 0;
+            for (u32 i = wordDiff; i < size + wordDiff; i ++) {
+                u64 newOverflow = bits[i] >> (64 - bitDiff);
+                bits[i] <<= bitDiff;
+                bits[i] |= overflow;
+                overflow = newOverflow;
+            }
+        }
+    }
+
+    inline NOINLINE void rshift(u32 i) {
+        // Shrinks the set by moving the minimum up by moving existing elements
+        // down. Note that this doesn't actually change min - the caller is
+        // responsible for that.
+
+        u32 wordDiff = i / 64;
+        u32 bitDiff = i % 64;
+
+        u32 size = (maxp1 - min + 63) / 64;
+        assert(size * 64 <= capacity);
+        assert(size >= wordDiff);
+        memory::move(bits, bits + wordDiff * 8, size / 8 - wordDiff * 8);
+
+        if (bitDiff) {
+            u64 underflow = 0;
+            for (i32 i = i32(size - wordDiff) - 1; i >= 0; i --) {
+                u64 newUnderflow = bits[i] << (64 - bitDiff);
+                bits[i] >>= bitDiff;
+                bits[i] |= underflow;
+                underflow = newUnderflow;
+            }
+        }
+    }
+
+    inline void on(u32 i) {
+        if (i < min) {
+            u32 diff = min - i;
+            if (maxp1 + diff > capacity)
+                growto(maxp1 + diff);
+            lshift(diff);
+            min = i, maxp1 += diff;
+            bits[0] |= 1;
+            return;
+        }
+        u32 adj = i - min;
+        if (adj >= capacity)
+            growto(adj);
+        bits[adj / 64] |= 1ull << adj % 64;
+        if (i >= maxp1)
+            maxp1 = i + 1;
+    }
+
+    inline maybe<u32> smallest() const {
+        for (u32 i = 0; i < capacity / 64; i ++) {
+            if (bits[i])
+                return some<u32>(min + i * 64 + ctz64(bits[i]));
+        }
+        return none<u32>();
+    }
+
+    inline maybe<u32> largest() const {
+        for (i32 i = i32(maxp1 - min + 63) / 64 - 1; i >= 0; i --) {
+            if (bits[i])
+                return some<u32>(min + i * 64 + 63 - clz64(bits[i]));
+        }
+        return none<u32>();
+    }
+
+    inline void off(u32 i) {
+        if (i - min >= maxp1)
+            return; // Underflow-based bounds check.
+        u32 adj = i - min;
+        bits[adj / 64] &= ~(1ull << adj % 64);
+        if (i + 1 == maxp1) {
+            auto newmax = largest();
+            if (!newmax) {
+                min = maxp1 = 0;
+                return;
+            }
+            maxp1 = *newmax + 1;
+        }
+        if (i == min) {
+            auto newmin = smallest();
+            if (!newmin) {
+                min = maxp1 = 0;
+                return;
+            }
+            rshift(*newmin - min);
+            min = *newmin;
+        }
+    }
+
+    inline bool empty() const {
+        return min == maxp1;
+    }
+
+    inline bool operator[](u32 i) const {
+        if (i - min >= maxp1)
+            return false;
+        i -= min;
+        return bits[i / 64] & (1ull << i % 64);
+    }
+
+    struct iterator {
+        u64* bits;
+        u32 idx, min, maxp1, numWords;
+
+        inline bool operator==(const iterator& other) const {
+            return bits == other.bits && idx == other.idx && min == other.min;
+        }
+
+        inline bool operator!=(const iterator& other) const {
+            return bits != other.bits || idx != other.idx || min != other.min;
+        }
+
+        inline u32 operator*() const {
+            return min + idx;
+        }
+
+        inline iterator& operator++() {
+            u64 wordidx = idx / 64;
+            u64 word = bits[wordidx];
+            u64 mask = 0xffffffffffffffffull;
+            u64 masked = word & ~(mask >> (63 - idx) % 64);
+            if (masked) {
+                idx += ctz64(masked) - (idx % 64);
+                return *this;
+            }
+            wordidx ++;
+            while (wordidx < numWords) {
+                if (bits[wordidx]) {
+                    idx = wordidx * 64 + ctz64(bits[wordidx]);
+                    return *this;
+                }
+                wordidx ++;
+            }
+            idx = maxp1 - min;
+            return *this;
+        }
+    };
+
+    iterator begin() const {
+        return { bits, 0, min, maxp1, u32(capacity / 64) };
+    }
+
+    iterator end() const {
+        return { bits, maxp1 - min, min, maxp1, u32(capacity / 64) };
     }
 };
 

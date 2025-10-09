@@ -30,5 +30,6 @@ echo "
         results.finish(summary);
     }
     summary.summarize();
+    process::deinit();
     return 0;
 }" >> $SRC

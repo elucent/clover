@@ -146,5 +146,6 @@ i32 main(i32 argc, i8** argv, i8** envp) {
         file::remove(outputFile);
     }
 
+    process::deinit();
     return 0;
 }

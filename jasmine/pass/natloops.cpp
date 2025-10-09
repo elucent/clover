@@ -1,6 +1,16 @@
 #include "jasmine/mod.h"
 
 namespace jasmine {
+    void computeDepth(Loop* loop) {
+        if (!loop->parent) {
+            loop->depth = 0;
+            return;
+        }
+        if (loop->parent->depth < 0)
+            computeDepth(loop->parent);
+        loop->depth = loop->parent->depth + 1;
+    }
+
     void findNaturalLoops(PassContext& ctx, Function& fn) {
         JASMINE_PASS(NATURAL_LOOPS);
         ctx.require(DOMINATORS);
@@ -24,7 +34,7 @@ namespace jasmine {
         bitset<256> loopHeaders;
         for (EdgeIndex edge : backEdges)
             loopHeaders.on(fn.edge(edge).destIndex());
-        
+
         // Initialize the loop data structures, reiterating the back-edges to
         // track the list of them per-loop.
 
@@ -35,6 +45,8 @@ namespace jasmine {
             loops.push(new Loop());
             loops.back()->index = loops.size() - 1;
             loops.back()->headerIndex = block;
+            loops.back()->isLeaf = true;
+            loops.back()->depth = -1;
             for (EdgeIndex edge : backEdges) {
                 if (fn.edge(edge).destIndex() == block)
                     loops.back()->backEdges.push(edge);
@@ -68,21 +80,62 @@ namespace jasmine {
 
         auto& blockLoops = *ctx.blockLoops;
         blockLoops.expandTo(fn.blockList.size(), -1);
-        for (auto [i, l] : enumerate(loops))
+        for (auto [i, l] : enumerate(loops)) {
             blockLoops[l->headerIndex] = i;
-        for (Block block : fn.blocks()) {
-            BlockIndex idom = block.index();
-            bool lookingForParent = loopHeaders[idom]; // If we're already at a loop header, we're looking for the enclosing loop instead.
-            do {
-                idom = dominators[idom].immediateDominator();
-                if (loopHeaders[idom]) {
-                    if (lookingForParent && idom != block.index())
-                        loops[blockLoops[block.index()]]->parent = loops[blockLoops[idom]];
-                    else
-                        blockLoops[block.index()] = blockLoops[idom];
-                    break;
-                }
-            } while (idom != dominators[block].immediateDominator());
+        }
+
+        bitset<128> blockSet;
+        for (Loop* loop : loops) {
+            blockSet.clear();
+            blockSet.addAll(loop->blocks);
+            blockSet.off(loop->headerIndex);
+
+            for (BlockIndex bi : blockSet) if (blockLoops[bi] != -1) {
+                // We found a loop header in our own loop, so it must belong to
+                // one of our children.
+
+                Loop* child = loops[blockLoops[bi]];
+                blockSet.removeAll(child->blocks);
+            }
+
+            // We should have excluded all of the blocks belonging to our child
+            // loops. The remainder must belong to us.
+            for (BlockIndex bi : blockSet)
+                blockLoops[bi] = loop->index;
+        }
+
+        // Now that we've populated the loops for each block, finding the
+        // immediate parent loop of each loop is as simple as finding the loop
+        // of the immediate dominator of each loop header.
+
+        for (Loop* loop : loops) {
+            auto idom = dominators[loop->headerIndex].immediateDominator();
+            if (idom && blockLoops[*idom] != -1) {
+                loop->parent = loops[blockLoops[*idom]];
+                continue;
+            }
+
+            // Otherwise, the loop's parent should already have been
+            // initialized to nullptr.
+            assert(!loop->parent);
+        }
+
+        // We need one last cleanup: if two or more loops share a header, we
+        // require that the blockLoops for the header block is the innermost
+        // loop.
+
+        for (Loop* loop : loops) {
+            if (blockLoops[loop->headerIndex] != loop->index) {
+                Loop* parent = loop->parent;
+                while (parent && blockLoops[loop->headerIndex] != parent->index)
+                    parent = parent->parent;
+                if (parent) // The current owner of the block is our parent.
+                    blockLoops[loop->headerIndex] = loop->index;
+
+                // Otherwise, for us to share a header with them, they must be
+                // our child. We don't change the current assignment since they
+                // must be a more deeply nested loop than us.
+            }
         }
 
         if UNLIKELY(config::verboseNaturalLoops) {

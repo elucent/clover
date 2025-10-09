@@ -443,7 +443,6 @@ namespace jasmine {
                             unreachable("Unexpected rem type.");
                         break;
                     case Opcode::NEG:
-                        assert(!isUnsigned(n.type()));
                         Insns::neg(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
                         break;
                     case Opcode::AND:

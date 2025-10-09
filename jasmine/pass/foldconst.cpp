@@ -8,21 +8,29 @@ namespace jasmine {
         JASMINE_PASS(CONSTANT_FOLDING);
         ctx.require(SSA);
 
-        vec<vec<Operand*>> variableUses;
-        for (const auto v : fn.variableList)
-            variableUses.push({});
+        vec<biasedset<128>> userNodes, userEdges;
+        userNodes.expandTo(fn.variableList.size());
+        userEdges.expandTo(fn.variableList.size());
 
-        for (Node n : fn.nodes()) for (Operand& operand : n.uses()) if (operand.kind == Operand::Var)
-            variableUses[operand.var].push(&operand);
+        for (Node n : fn.nodes()) for (Operand operand : n.uses()) if (operand.kind == Operand::Var)
+            userNodes[operand.var].on(n.index());
 
         for (Edge e : fn.edges()) for (Move& move : e.moves()) if (move.src.kind == Operand::Var)
-            variableUses[move.src.var].push(&move.src);
+            userEdges[move.src.var].on(e.index());
 
         bool fixpoint = false;
         bitset<256> wasFoldedOut;
         auto replace = [&](Operand var, Operand val) {
-            for (Operand* operand : variableUses[var.var])
-                *operand = val;
+            for (i32 i : userNodes[var.var]) {
+                Node node = fn.node(i);
+                for (Operand& use : node.uses()) if (use == var)
+                    use = val;
+            }
+            for (i32 i : userEdges[var.var]) {
+                Edge edge = fn.edge(i);
+                for (Move& move : edge.moves()) if (move.src == var)
+                    move.src = val;
+            }
             fixpoint = false;
             wasFoldedOut.on(var.var);
         };
@@ -68,12 +76,12 @@ namespace jasmine {
         #define FOR_EACH_FLOAT(macro, ...) \
             case F32: macro(f32, __VA_ARGS__) break; \
             case F64: macro(f64, __VA_ARGS__) break;
-        
+
         const auto& pins = ctx.pins.get();
 
         while (!fixpoint) {
             fixpoint = true;
-            for (Block block : fn.blocks()) for (Node n : fn.nodes()) switch (n.opcode()) {
+            for (Block block : fn.blocks()) for (Node n : block.nodes()) switch (n.opcode()) {
                 case Opcode::MOV:
                     CHECK_FOLDABLE_UNARY;
                     replace(n.operand(0), n.operand(1));

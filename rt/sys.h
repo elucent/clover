@@ -290,6 +290,13 @@ namespace process {
     extern void init(i32 argc, i8** argv, i8** envp) ASMLABEL("process.init");
 
     /*
+     * process.deinit()
+     *
+     * Deinitializes the runtime for the process.
+     */
+    extern void deinit() ASMLABEL("process.deinit");
+
+    /*
      * process.exit(code)
      *
      * Exits the program with the given exit code.

@@ -56,21 +56,26 @@ namespace jasmine {
 
     struct MatchResult {
         Operand operand;
-        i32 newNode;
+        u32 hasInsertion : 1;
+        i32 newNode : 31;
 
         inline static MatchResult fail() {
-            return { Operand(), -2 };
+            return { Operand(), 0, -2 };
         }
 
-        inline static MatchResult success(Node node) {
-            return { Operand(), (i32)node.index() };
+        inline static MatchResult success(Node node, bool hasInsertion) {
+            return { Operand(), hasInsertion ? 1u : 0u, (i32)node.index() };
         }
 
         inline static MatchResult success(Operand operand) {
-            return { operand, -1 };
+            return { operand, 0, -1 };
         }
 
-        inline operator bool() {
+        inline bool addedInsertion() const {
+            return hasInsertion;
+        }
+
+        inline operator bool() const {
             return newNode >= -1;
         }
 

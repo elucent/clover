@@ -48,7 +48,7 @@ struct vec {
     NOINLINE void grow() {
         u8* old = _data;
         u32 oldsize = _size;
-        init(_capacity * 2);
+        init(_capacity ? _capacity * 2 : 8);
         copy((const T*)old, oldsize);
         if (old != fixed) free(old);
     }
