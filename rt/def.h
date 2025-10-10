@@ -17,6 +17,7 @@
 #define ASMLABEL(name) asm(name)
 #endif
 #define USED __attribute__((used))
+#define COLD __attribute__((cold))
 #define NOINLINE __attribute__((noinline))
 #define ALWAYSINLINE __attribute__((always_inline))
 #define LIKELY(...) (__builtin_expect((__VA_ARGS__), 1))
@@ -26,6 +27,8 @@
 #define fallthrough [[fallthrough]]
 #else // Non-GCC-compatible compiler
 #define ASMLABEL(name)
+#define USED
+#define COLD
 #define NOINLINE
 #define ALWAYSINLINE inline
 #define LIKELY(...) (__VA_ARGS__)
@@ -243,8 +246,29 @@ namespace types {
         using Type = B;
     };
 
+    struct TrueType { constexpr static bool value = true; };
+    struct FalseType { constexpr static bool value = false; };
+
     template<typename A, typename B, bool C>
     using choice = typename Choice<A, B, C>::Type;
+
+    template<typename T>
+    using IsTriviallyCopyable = choice<TrueType, FalseType, __is_trivially_copyable(T)>;
+
+    template<typename T>
+    constexpr bool isTriviallyCopyable = IsTriviallyCopyable<T>::value;
+
+    template<typename T>
+    using IsTriviallyConstructible = choice<TrueType, FalseType, __is_trivially_constructible(T)>;
+
+    template<typename T>
+    constexpr bool isTriviallyConstructible = IsTriviallyConstructible<T>::value;
+
+    template<typename T>
+    using IsTriviallyDestructible = choice<TrueType, FalseType, __is_trivially_destructible(T)>;
+
+    template<typename T>
+    constexpr bool isTriviallyDestructible = IsTriviallyDestructible<T>::value;
 
     template<typename T>
     struct RemoveReference { using Type = T; };
@@ -1089,7 +1113,7 @@ namespace utilities {
     }
 
     template<typename... Args>
-    inline void panicImpl(const i8* file, iword line, const Args&... args) {
+    inline ALWAYSINLINE void panicImpl(const i8* file, iword line, const Args&... args) {
         printString({ "[PANIC] ", 8 });
         printString({ file, findc(file, '\0') });
         printString({ ":", 1 });

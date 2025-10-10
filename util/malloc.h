@@ -28,7 +28,7 @@ namespace MallocLCG {
     }
 };
 
-inline ALWAYSINLINE void* malloc(uword bytes) {
+inline NOINLINE void* malloc(uword bytes) {
     uword pages = divideRoundingUp<uword>(bytes + 16, memory::pagesize()) + 2;
     auto alloc = memory::map(pages * memory::pagesize());
     if (!alloc.data())
@@ -49,7 +49,7 @@ inline ALWAYSINLINE void* malloc(uword bytes) {
     return base + 16;
 }
 
-inline ALWAYSINLINE void free(void* ptr) {
+inline NOINLINE void free(void* ptr) {
     memory::page* alloc_base = *((memory::page**)ptr - 2);
     iword size = *((iword*)ptr - 1);
     slice<memory::page> alloc = { alloc_base, size };
@@ -57,11 +57,11 @@ inline ALWAYSINLINE void free(void* ptr) {
 }
 #elif USE_ELUMALLOC
 #include "util/elumalloc.h"
-inline ALWAYSINLINE void* malloc(uword bytes) {
+inline NOINLINE void* malloc(uword bytes) {
     return elumalloc::allocate(bytes);
 }
 
-inline ALWAYSINLINE void free(void* ptr) {
+inline NOINLINE void free(void* ptr) {
     return elumalloc::free(ptr);
 }
 #endif

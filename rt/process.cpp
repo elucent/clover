@@ -106,7 +106,7 @@ namespace process {
         #endif
     }
 
-    thread_local i64 tls_array[65536 / sizeof(i64)];
+    thread_local i64 tls_array[4096 / sizeof(i64)];
 
     void* tls() ASMLABEL("process.tls");
     void* tls() {

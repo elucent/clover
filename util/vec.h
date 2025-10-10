@@ -4,6 +4,42 @@
 #include "rt/def.h"
 #include "util/malloc.h"
 
+template<typename T, typename U = IsTriviallyCopyable<T>>
+struct vec_copier;
+
+template<typename T>
+struct vec_copier<T, TrueType> {
+    static ALWAYSINLINE void copy(T* dst, const T* src, u32 n) {
+        memory::copy(dst, src, n * sizeof(T));
+    }
+};
+
+template<typename T>
+struct vec_copier<T, FalseType> {
+    static ALWAYSINLINE void copy(T* dst, const T* src, u32 n) {
+        for (u32 i = 0; i < n; i ++)
+            new (dst + i) T(src[i]);
+    }
+};
+
+template<typename T, typename U = IsTriviallyCopyable<T>>
+struct vec_deleter;
+
+template<typename T>
+struct vec_deleter<T, TrueType> {
+    static ALWAYSINLINE void free(T* src, u32 n) {
+        ::free(src);
+    }
+};
+
+template<typename T>
+struct vec_deleter<T, FalseType> {
+    static ALWAYSINLINE void free(T* src, u32 n) {
+        for (u32 i = 0; i < n; i ++)
+            src[i].~T();
+    }
+};
+
 template<typename T, u32 N = 8>
 struct vec {
     u8* _data;
@@ -12,8 +48,7 @@ struct vec {
 
     inline void free(u8* array) {
         if (array) {
-            T* tptr = (T*)array;
-            for (u32 i = 0; i < _size; i ++) tptr[i].~T();
+            vec_deleter<T>::free((T*)array, _size);
             if (array != fixed) ::free(array);
         }
     }
@@ -26,18 +61,7 @@ struct vec {
 
     inline void copy(const T* ts, u32 n) {
         _size = n;
-        T* tptr = (T*)_data;
-        for (u32 i = 0; i < n; i ++) {
-            new(tptr + i) T(ts[i]);
-        }
-    }
-
-    inline void assign(const T* ts, u32 n) {
-        _size = n;
-        T* tptr = (T*)_data;
-        for (u32 i = 0; i < n; i ++) {
-            new(tptr + i) T(ts[i]);
-        }
+        vec_copier<T>::copy((T*)_data, ts, n);
     }
 
     inline void destruct(u32 i) {
@@ -45,7 +69,7 @@ struct vec {
         tptr[i].~T();
     }
 
-    NOINLINE void grow() {
+    inline void grow() {
         u8* old = _data;
         u32 oldsize = _size;
         init(_capacity ? _capacity * 2 : 8);
@@ -83,7 +107,7 @@ struct vec {
         if (this != &other) {
             free(_data);
             init(other._capacity);
-            assign((const T*)other._data, other._size);
+            copy((const T*)other._data, other._size);
         }
         return *this;
     }
