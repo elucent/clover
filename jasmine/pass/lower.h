@@ -13,22 +13,10 @@ namespace jasmine {
             assert(type != VOID && type != UNDEFINED && type != INVALID && type != EXT);
             return some<TypeIndex>(type); // All primitive TypeKinds are either register types or invalid. We assume it's not invalid here.
         }
-        const auto& compound = fn.typeContext()[type];
-        if (compound.kind() == CompoundType::FUNCTION)
-            return some<TypeIndex>(type);
         auto repr = passes->repr(type);
-        if (repr.size() > 8) // Assuming 64-bit register size.
+        if (repr.size() > 8 || !isPowerOfTwo(repr.size())) // Assuming 64-bit register size.
             return none<TypeIndex>();
-        if (!isPowerOfTwo(repr.size()))
-            return none<TypeIndex>();
-        switch (repr.size()) {
-            case 1: return some<TypeIndex>(U8);
-            case 2: return some<TypeIndex>(U16);
-            case 4: return some<TypeIndex>(U32);
-            case 8: return some<TypeIndex>(U64);
-            default:
-                unreachable("We should already have exited.");
-        }
+        return some<TypeIndex>(-5 - intLog2(repr.size()));
     }
 
     void loadAggregateIntoRegisters(Function& fn, Block& b, Repr repr, Operand first, Operand second, Operand src, Operand scratch) {
