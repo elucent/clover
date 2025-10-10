@@ -336,13 +336,14 @@ namespace jasmine {
             Insns::pop(as, Repr::Scalar(Size::FLOAT64), r);
         };
 
+        vec<ASMVal, 8> loweredOperands;
         auto branchCompare = [&](Condition signedCondition, Condition unsignedCondition, FloatCondition floatCondition, Node n, Repr repr) {
             if (isSigned(n.type()))
-                Insns::brcmp(as, repr, signedCondition, LOWER(n.operand(2)), LOWER(n.operand(0)), LOWER(n.operand(1)));
+                Insns::brcmp(as, repr, signedCondition, loweredOperands[2], loweredOperands[0], loweredOperands[1]);
             else if (isGPType(fn, n.type()))
-                Insns::brcmp(as, repr, unsignedCondition, LOWER(n.operand(2)), LOWER(n.operand(0)), LOWER(n.operand(1)));
+                Insns::brcmp(as, repr, unsignedCondition, loweredOperands[2], loweredOperands[0], loweredOperands[1]);
             else if (isFloat(n.type()))
-                Insns::fbrcmp(as, repr, floatCondition, LOWER(n.operand(2)), LOWER(n.operand(0)), LOWER(n.operand(1)));
+                Insns::fbrcmp(as, repr, floatCondition, loweredOperands[2], loweredOperands[0], loweredOperands[1]);
         };
 
         for (u32 i : *ctx.schedule) {
@@ -350,230 +351,233 @@ namespace jasmine {
             Target::local(as, Label::fromSym(blockNames[b.index()]));
             for (Node n : b.nodes()) {
                 Repr repr = this->repr(n.type());
+                loweredOperands.clear();
+                for (Operand o : n.operands())
+                    loweredOperands.push(lowerOperand<Target>(ctx, fn, as, blockLabels, o));
                 switch (n.opcode()) {
                     case Opcode::ADDR:
-                        Target::la(as, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Target::la(as, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::LOAD:
                         if (isSigned(n.type()))
-                            Insns::lds(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                            Insns::lds(as, repr, loweredOperands[0], loweredOperands[1]);
                         else if (isGPType(fn, n.type()))
-                            Insns::ldz(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                            Insns::ldz(as, repr, loweredOperands[0], loweredOperands[1]);
                         else if (isFloat(n.type()))
-                            Insns::ld(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                            Insns::ld(as, repr, loweredOperands[0], loweredOperands[1]);
                         else
                             unreachable("Unexpected load type.");
                         break;
                     case Opcode::STORE:
-                        Insns::st(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::st(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::LOAD_INDEX:
                         if (isSigned(n.type()))
-                            Insns::ldis(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::ldis(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isGPType(fn, n.type()))
-                            Insns::ldiz(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::ldiz(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isFloat(n.type()))
-                            Insns::ldi(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::ldi(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected load type.");
                         break;
                     case Opcode::STORE_INDEX:
-                        Insns::sti(as, repr, LOWER(n.operand(0)), LOWER(n.operand(2)), LOWER(n.operand(1)));
+                        Insns::sti(as, repr, loweredOperands[0], loweredOperands[2], loweredOperands[1]);
                         break;
                     case Opcode::ADDR_INDEX:
                         switch (repr.kind()) {
                             case Size::BITS8:
-                                Target::lai8(as, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                                Target::lai8(as, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                                 break;
                             case Size::BITS16:
-                                Target::lai16(as, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                                Target::lai16(as, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                                 break;
                             case Size::BITS32:
                             case Size::FLOAT32:
-                                Target::lai32(as, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                                Target::lai32(as, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                                 break;
                             case Size::BITS64:
                             case Size::FLOAT64:
-                                Target::lai64(as, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                                Target::lai64(as, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                                 break;
                             default:
                                 unreachable("Unexpected type in addr_index.");
                         }
                         break;
                     case Opcode::PUSH:
-                        Insns::push(as, repr, LOWER(n.operand(0)));
+                        Insns::push(as, repr, loweredOperands[0]);
                         break;
                     case Opcode::POP:
-                        Insns::pop(as, repr, LOWER(n.operand(0)));
+                        Insns::pop(as, repr, loweredOperands[0]);
                         break;
                     case Opcode::MOV:
                         if (n.operand(1).kind == Operand::IntConst && !fits<TypeKind::I32>(fn.intValueOf(n.operand(1)))) {
                             assert(isGPType(fn, n.type()));
-                            Target::lc(as, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                            Target::lc(as, loweredOperands[0], loweredOperands[1]);
                         } else
-                            Insns::move(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                            Insns::move(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::ADD:
-                        Insns::add(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::add(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::SUB:
-                        Insns::sub(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::sub(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::MUL:
-                        Insns::mul(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::mul(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::DIV:
                         if (isUnsigned(n.type()))
-                            Insns::udiv(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::udiv(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isSigned(n.type()))
-                            Insns::sdiv(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::sdiv(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isFloat(n.type()))
-                            Insns::div(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::div(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected div type.");
                         break;
                     case Opcode::REM:
                         if (isUnsigned(n.type()))
-                            Insns::urem(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::urem(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isSigned(n.type()))
-                            Insns::srem(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::srem(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isFloat(n.type()))
-                            Insns::rem(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::rem(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected rem type.");
                         break;
                     case Opcode::NEG:
-                        Insns::neg(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::neg(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::AND:
-                        Insns::band(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::band(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::XOR:
-                        Insns::bxor(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::bxor(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::OR:
-                        Insns::bor(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::bor(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::NOT:
-                        Insns::bnot(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::bnot(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::SHL:
-                        Insns::shl(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::shl(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::SHR:
                         if (isUnsigned(n.type()))
-                            Insns::shr(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::shr(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isSigned(n.type()))
-                            Insns::sar(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::sar(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected shr type.");
                         break;
                     case Opcode::ROL:
-                        Insns::rol(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::rol(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::ROR:
-                        Insns::ror(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::ror(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::TZCNT:
-                        Insns::tzcnt(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::tzcnt(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::LZCNT:
-                        Insns::lzcnt(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::lzcnt(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::POPCNT:
-                        Insns::popcnt(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::popcnt(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::ABS:
-                        Insns::abs(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::abs(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::MIN:
-                        Insns::min(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::min(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::MAX:
-                        Insns::max(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                        Insns::max(as, repr, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         break;
                     case Opcode::SQRT:
-                        Insns::sqrt(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::sqrt(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::ROUND:
-                        Insns::round(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::round(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::FLOOR:
-                        Insns::floor(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::floor(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::CEIL:
-                        Insns::ceil(as, repr, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Insns::ceil(as, repr, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::IS_LT:
                         if (isSigned(n.type()))
-                            Insns::cmp(as, repr, COND_LT, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_LT, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isUnsigned(n.type()))
-                            Insns::cmp(as, repr, COND_BELOW, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_BELOW, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isFloat(n.type()))
-                            Insns::fcmp(as, repr, FCOND_LT, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::fcmp(as, repr, FCOND_LT, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected cmp type.");
                         break;
                     case Opcode::IS_LE:
                         if (isSigned(n.type()))
-                            Insns::cmp(as, repr, COND_LE, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_LE, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isUnsigned(n.type()))
-                            Insns::cmp(as, repr, COND_BE, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_BE, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isFloat(n.type()))
-                            Insns::fcmp(as, repr, FCOND_LE, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::fcmp(as, repr, FCOND_LE, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected cmp type.");
                         break;
                     case Opcode::IS_GT:
                         if (isSigned(n.type()))
-                            Insns::cmp(as, repr, COND_GT, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_GT, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isUnsigned(n.type()))
-                            Insns::cmp(as, repr, COND_ABOVE, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_ABOVE, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isFloat(n.type()))
-                            Insns::fcmp(as, repr, FCOND_GT, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::fcmp(as, repr, FCOND_GT, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected cmp type.");
                         break;
                     case Opcode::IS_GE:
                         if (isSigned(n.type()))
-                            Insns::cmp(as, repr, COND_GE, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_GE, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isUnsigned(n.type()))
-                            Insns::cmp(as, repr, COND_AE, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_AE, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isFloat(n.type()))
-                            Insns::fcmp(as, repr, FCOND_GE, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::fcmp(as, repr, FCOND_GE, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected cmp type.");
                         break;
                     case Opcode::IS_EQ:
                         if (isGPType(fn, n.type()))
-                            Insns::cmp(as, repr, COND_EQ, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_EQ, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isFloat(n.type()))
-                            Insns::fcmp(as, repr, FCOND_EQ, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::fcmp(as, repr, FCOND_EQ, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected cmp type.");
                         break;
                     case Opcode::IS_NE:
                         if (isGPType(fn, n.type()))
-                            Insns::cmp(as, repr, COND_NE, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::cmp(as, repr, COND_NE, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else if (isFloat(n.type()))
-                            Insns::fcmp(as, repr, FCOND_NE, LOWER(n.operand(0)), LOWER(n.operand(1)), LOWER(n.operand(2)));
+                            Insns::fcmp(as, repr, FCOND_NE, loweredOperands[0], loweredOperands[1], loweredOperands[2]);
                         else
                             unreachable("Unexpected cmp type.");
                         break;
                     case Opcode::BR:
-                        Target::br(as, LOWER(n.operand(0)));
+                        Target::br(as, loweredOperands[0]);
                         break;
                     case Opcode::BR_IF:
                         if (n.operand(0).kind == Operand::IntConst && fn.intValueOf(n.operand(0)))
-                            Target::br(as, LOWER(n.operand(1)));
+                            Target::br(as, loweredOperands[1]);
                         else
-                            Target::brcc8(as, COND_TEST_NONZERO, LOWER(n.operand(1)), LOWER(n.operand(0)), LOWER(n.operand(0)));
+                            Target::brcc8(as, COND_TEST_NONZERO, loweredOperands[1], loweredOperands[0], loweredOperands[0]);
                         break;
                     case Opcode::BR_IF_NOT:
                         if (n.operand(0).kind == Operand::IntConst && !fn.intValueOf(n.operand(0)))
-                            Target::br(as, LOWER(n.operand(1)));
+                            Target::br(as, loweredOperands[1]);
                         else
-                            Target::brcc8(as, COND_TEST_ZERO, LOWER(n.operand(1)), LOWER(n.operand(0)), LOWER(n.operand(0)));
+                            Target::brcc8(as, COND_TEST_ZERO, loweredOperands[1], loweredOperands[0], loweredOperands[0]);
                         break;
                     case Opcode::BR_LT:
                         branchCompare(COND_LT, COND_BELOW, FCOND_LT, n, repr);
@@ -594,7 +598,7 @@ namespace jasmine {
                         branchCompare(COND_NE, COND_NE, FCOND_NE, n, repr);
                         break;
                     case Opcode::CALL: {
-                        Target::call(as, LOWER(n.operand(0)));
+                        Target::call(as, loweredOperands[0]);
                         break;
                     }
                     case Opcode::RET: {
@@ -609,52 +613,52 @@ namespace jasmine {
                         Target::trap(as);
                         break;
                     case Opcode::ALLOCA:
-                        Target::alloca(as, LOWER(n.operand(0)), LOWER(n.operand(1)));
+                        Target::alloca(as, loweredOperands[0], loweredOperands[1]);
                         break;
                     case Opcode::BITCAST: {
                         TypeIndex srcType = n.operand(1).type, destType = n.type();
                         Repr srcRepr = this->repr(srcType), destRepr = this->repr(destType);
                         if (isFloat(srcType) && isInt(destType)) {
                             if (srcType == F32)
-                                Target::f32tobits(as, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Target::f32tobits(as, loweredOperands[0], loweredOperands[2]);
                             else
-                                Target::f64tobits(as, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Target::f64tobits(as, loweredOperands[0], loweredOperands[2]);
                         } else if (isInt(srcType) && isFloat(destType)) {
                             if (srcType == F32)
-                                Target::f32frombits(as, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Target::f32frombits(as, loweredOperands[0], loweredOperands[2]);
                             else
-                                Target::f64frombits(as, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Target::f64frombits(as, loweredOperands[0], loweredOperands[2]);
                         } else
-                            Insns::mov(as, destRepr, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                            Insns::mov(as, destRepr, loweredOperands[0], loweredOperands[2]);
                         break;
                     }
                     case Opcode::CONVERT: {
                         TypeIndex srcType = n.operand(1).type, destType = n.type();
                         Repr srcRepr = this->repr(srcType), destRepr = this->repr(destType);
                         if (srcType == destType)
-                            Insns::mov(as, destRepr, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                            Insns::mov(as, destRepr, loweredOperands[0], loweredOperands[2]);
                         if (isInt(destType) && isInt(srcType)) {
                             if (destRepr.size() <= srcRepr.size()) // Truncation or just changing signedness - in either case, it's just a move.
-                                Insns::mov(as, destRepr, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Insns::mov(as, destRepr, loweredOperands[0], loweredOperands[2]);
                             else if (isSigned(destType)) // Otherwise, we're doing some kind of extension.
-                                Insns::sxt(as, srcRepr, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Insns::sxt(as, srcRepr, loweredOperands[0], loweredOperands[2]);
                             else
-                                Insns::zxt(as, srcRepr, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Insns::zxt(as, srcRepr, loweredOperands[0], loweredOperands[2]);
                         } else if (isInt(destType) && isFloat(srcType)) {
                             if (srcType == F32)
-                                Insns::f32toi(as, destRepr, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Insns::f32toi(as, destRepr, loweredOperands[0], loweredOperands[2]);
                             else
-                                Insns::f64toi(as, destRepr, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Insns::f64toi(as, destRepr, loweredOperands[0], loweredOperands[2]);
                         } else if (isFloat(destType) && isInt(srcType)) {
                             if (destType == F32)
-                                Insns::itof32(as, srcRepr, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Insns::itof32(as, srcRepr, loweredOperands[0], loweredOperands[2]);
                             else
-                                Insns::itof64(as, srcRepr, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Insns::itof64(as, srcRepr, loweredOperands[0], loweredOperands[2]);
                         } else if (isFloat(destType) && isFloat(srcType)) {
                             if (destType == F32)
-                                Target::f64tof32(as, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Target::f64tof32(as, loweredOperands[0], loweredOperands[2]);
                             else
-                                Target::f32tof64(as, LOWER(n.operand(0)), LOWER(n.operand(2)));
+                                Target::f32tof64(as, loweredOperands[0], loweredOperands[2]);
                         } else
                             unreachable("Can't convert from ", TypeLogger { fn, srcType }, " to ", TypeLogger { fn, destType }, ".");
                         break;
