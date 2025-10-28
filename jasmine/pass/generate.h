@@ -258,7 +258,7 @@ namespace jasmine {
             case Operand::Invalid:
                 unreachable("Invalid operand.");
             case Operand::Type:
-                unreachable("Can't lower type operand.");
+                return ASMVal();
             case Operand::Sizeof:
                 unreachable("Should have already lowered to integer constant.");
             case Operand::String:
