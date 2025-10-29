@@ -7,7 +7,7 @@ namespace jasmine {
         JASMINE_PASS(VALIDATION);
         ctx.require(LOWER);
 
-        if UNLIKELY(config::printJasmineAfterOpts)
+        if UNLIKELY(config::printJasmineAfterOpts && shouldPrintFor(Pass::VALIDATION, fn))
             println("=== IR for function ", fn.name(), " after opts ===\n", ScheduleLogger { fn, *ctx.schedule });
 
         auto gpOrImm = [&](Node node) {

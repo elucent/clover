@@ -32,7 +32,8 @@ namespace jasmine {
         macro(STACK_ALLOCATION, stack_allocation, true) \
         macro(LOWERING, lowering, true) \
         macro(FINALIZE_CFG, finalize_cfg, false) \
-        macro(CODE_GENERATION, code_generation, true)
+        macro(CODE_GENERATION, code_generation, true) \
+        macro(NONPASS, nonpass, true) \
 
     enum class Pass {
         #define DEFINE_ENUM(upper, ...) upper,
@@ -69,6 +70,42 @@ namespace jasmine {
     };
 
     #define JASMINE_PASS(passName) PassTimer _timer(Pass:: passName, ctx, fn);
+
+    inline bool shouldPrintFor(Pass pass, Function& fn) {
+        auto passName = cstring(PASS_NAMES[(u32)pass]);
+        bool passMatches = pass == Pass::NONPASS;
+        if (pass != Pass::NONPASS) for (u32 i = 0; i < passName.size(); i ++) {
+            bool anyMismatch = false;
+            for (u32 j = 0; j < config::jasminePassFilter.size(); j ++) {
+                if (passName[i + j] != config::jasminePassFilter[j]) {
+                    anyMismatch = true;
+                    break;
+                }
+            }
+            if (anyMismatch)
+                continue;
+            passMatches = true;
+            break;
+        }
+
+        if (!passMatches)
+            return false;
+
+        auto name = fn.name();
+        for (u32 i = 0; i < name.size(); i ++) {
+            bool anyMismatch = false;
+            for (u32 j = 0; j < config::jasmineFunctionFilter.size(); j ++) {
+                if (name[i + j] != config::jasmineFunctionFilter[j]) {
+                    anyMismatch = true;
+                    break;
+                }
+            }
+            if (anyMismatch)
+                continue;
+            return true;
+        }
+        return false;
+    }
 
     enum IRTrait : u32 {
         TYPECHECK,      // Types of IR instructions have been validated.
@@ -1111,6 +1148,27 @@ namespace jasmine {
     void beginDOT(PassContext& ctx, Function& fn);
     void finishDOT(PassContext& ctx, Function& fn);
 
+    struct EscapedDOT {
+        const_slice<i8> str;
+
+        inline EscapedDOT(const_slice<i8> str_in): str(str_in) {}
+    };
+
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const EscapedDOT& escaped) {
+        auto str = escaped.str;
+        const i8* iter = str.data();
+        rune r;
+        while (iter != str.end()) {
+            iter = utf8_decode_forward(iter, &r);
+            if (!utf8_is_letter(r) && !utf8_is_digit(r) && r != '_')
+                io = format(io, '_');
+            else
+                io = format(io, r);
+        }
+        return io;
+    }
+
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const DOT<FunctionInPass>& dot) {
         const auto& fip = dot.value;
@@ -1121,9 +1179,9 @@ namespace jasmine {
         const_slice<i8> passName = cstring(PASS_NAMES[(u32)pass]);
         if (fip.isFirst) passName = cstring("before_opts");
         if (fip.isLast) passName = cstring("after_opts");
-        io = format(io, "    subgraph cluster_margin_", fn.name(), "_", ctx.passCount, "_", passName, " {\n");
+        io = format(io, "    subgraph cluster_margin_", EscapedDOT(fn.name()), "_", ctx.passCount, "_", passName, " {\n");
         io = format(io, "        graph [style=\"invis\", margin=10];\n");
-        io = format(io, "        subgraph cluster_", fn.name(), "_", ctx.passCount, "_", passName, " {\n");
+        io = format(io, "        subgraph cluster_", EscapedDOT(fn.name()), "_", ctx.passCount, "_", passName, " {\n");
         io = format(io, "            graph [fontname=\"Courier New\", group=\"", fn.name(), "\", style=\"dashed\", label=\"", fn.name(), "_", ctx.passCount, "_", passName, "\", margin=40];\n");
         io = format(io, "            node [fontname=\"Courier New\", shape=\"rect\"];\n");
         io = format(io, "            edge [fontname=\"Courier New\", overlap=false];\n");

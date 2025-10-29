@@ -13,14 +13,14 @@ namespace jasmine {
 
     PassTimer::PassTimer(Pass pass_in, PassContext& ctx, Function& fn):
         pass(pass_in), timeUnit(config::jasminePassTimingUnit) {
-        if UNLIKELY(config::printJasmineBeforeEachPass) {
+        if UNLIKELY(config::printJasmineBeforeEachPass && shouldPrintFor(pass, fn)) {
             println("\n=== IR for function ", fn.name(), " before ", PASS_NAMES[(u32)pass], " ===\n");
             if (ctx.has(FINALIZE))
                 println(ScheduledFunction { *ctx.schedule, fn });
             else
                 println(fn);
         }
-        if UNLIKELY(config::printJasmineDOTBeforeEachPass) {
+        if UNLIKELY(config::printJasmineDOTBeforeEachPass && shouldPrintFor(pass, fn)) {
             write(DOTFile, FunctionInPass {
                 .passContext = ctx,
                 .function = fn,
@@ -352,7 +352,7 @@ namespace jasmine {
             });
         }
 
-        if (config::printJasmineDOTBeforeOpts) {
+        if (config::printJasmineDOTBeforeOpts && shouldPrintFor(Pass::NONPASS, fn)) {
             write(DOTFile, FunctionInPass {
                 .passContext = ctx,
                 .function = fn,
@@ -365,7 +365,7 @@ namespace jasmine {
     }
 
     void finishDOT(PassContext& ctx, Function& fn) {
-        if (config::printJasmineDOTAfterOpts) {
+        if (config::printJasmineDOTAfterOpts && shouldPrintFor(Pass::NONPASS, fn)) {
             write(DOTFile, FunctionInPass {
                 .passContext = ctx,
                 .function = fn,

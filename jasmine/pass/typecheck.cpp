@@ -4,10 +4,10 @@
 
 namespace jasmine {
     void assignTypesUnchecked(PassContext& ctx, Function& fn) {
-        if UNLIKELY(config::printJasmineDOTBeforeOpts || config::printJasmineDOTBeforeEachPass || config::printJasmineDOTAfterOpts)
+        if UNLIKELY((config::printJasmineDOTBeforeOpts || config::printJasmineDOTBeforeEachPass || config::printJasmineDOTAfterOpts) && shouldPrintFor(Pass::NONPASS, fn))
             beginDOT(ctx, fn);
 
-        if UNLIKELY(config::printJasmineBeforeOpts)
+        if UNLIKELY(config::printJasmineBeforeOpts && shouldPrintFor(Pass::TYPECHECKING, fn))
             println("=== IR for function ", fn.name(), " before opts ===\n", fn);
 
         if UNLIKELY(config::printJasmineCompileStats) {
@@ -141,13 +141,13 @@ namespace jasmine {
     }
 
     void typecheck(PassContext& ctx, Function& fn) {
-        if UNLIKELY(config::printJasmineDOTBeforeOpts || config::printJasmineDOTBeforeEachPass || config::printJasmineDOTAfterOpts)
+        if UNLIKELY((config::printJasmineDOTBeforeOpts || config::printJasmineDOTBeforeEachPass || config::printJasmineDOTAfterOpts) && shouldPrintFor(Pass::NONPASS, fn))
             beginDOT(ctx, fn);
 
         JASMINE_PASS(TYPECHECKING);
         ctx.did(TYPECHECK);
 
-        if UNLIKELY(config::printJasmineBeforeOpts)
+        if UNLIKELY(config::printJasmineBeforeOpts && shouldPrintFor(Pass::TYPECHECKING, fn))
             println("=== IR for function ", fn.name(), " before opts ===\n", fn);
 
         if UNLIKELY(config::printJasmineCompileStats) {

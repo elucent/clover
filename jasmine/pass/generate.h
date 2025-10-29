@@ -272,7 +272,7 @@ namespace jasmine {
         ctx.require(LOWER);
         ctx.require(FINALIZE);
 
-        if UNLIKELY(config::printJasmineDOTAfterOpts || config::printJasmineDOTBeforeOpts || config::printJasmineDOTBeforeEachPass)
+        if UNLIKELY((config::printJasmineDOTAfterOpts || config::printJasmineDOTBeforeOpts || config::printJasmineDOTBeforeEachPass) && shouldPrintFor(Pass::NONPASS, fn))
             finishDOT(ctx, fn);
 
         #define LOWER(operand) lowerOperand<Target>(ctx, fn, as, blockLabels, operand)
