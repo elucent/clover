@@ -1,0 +1,5 @@
+double_not_elimination(not T:any (not T x:?)):
+    x:?
+
+inot_fold(not T:int x:i):
+    [~x]:i
