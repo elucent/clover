@@ -47,10 +47,8 @@ struct vec {
     u8 fixed[N * sizeof(T)];
 
     inline void free(u8* array) {
-        if (array) {
+        if (array && array != fixed)
             vec_deleter<T>::free((T*)array, _size);
-            if (array != fixed) ::free(array);
-        }
     }
 
     inline void init(u32 size) {
@@ -125,7 +123,7 @@ struct vec {
     }
 
     inline void push(const T& t) {
-        if UNLIKELY(_size + 1 >= _capacity)
+        if UNLIKELY(_size + 1 > _capacity)
             grow();
         new((T*)_data + _size ++) T(t);
     }
@@ -276,7 +274,7 @@ struct vec {
     }
 
     inline void insert(i32 index, const T& element) {
-        if (_size + 1 >= _capacity) grow();
+        if (_size + 1 > _capacity) grow();
         _size ++;
         for (i32 i = _size - 1; i > index; i --)
             ((T*)_data)[i] = ((T*)_data)[i - 1];

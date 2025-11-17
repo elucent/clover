@@ -208,14 +208,17 @@ namespace jasmine {
             if (optLevel > 1) {
                 findDominators(ctx, fn);
                 findNaturalLoops(ctx, fn);
-                // computePins(ctx, fn);
-                // scalarReplacement(ctx, fn);
                 enforceSSA(ctx, fn);
-                foldConstants(ctx, fn);
-                reduceStrength(ctx, fn);
+                if (!config::noConstantFolding)
+                    foldConstants(ctx, fn);
+                if (!config::noStrengthReduction)
+                    reduceStrength(ctx, fn);
+                if (!config::noCSE)
+                    eliminateCommonSubexpressions(ctx, fn);
                 cleanup(ctx, fn);
                 computeEffects(ctx, fn);
-                hoistLoopInvariantCode(ctx, fn);
+                if (!config::noLICM)
+                    hoistLoopInvariantCode(ctx, fn);
                 // enforceSSA(ctx, fn);
                 // foldConstants(ctx, fn);
                 // reduceStrength(ctx, fn);
@@ -264,7 +267,7 @@ namespace jasmine {
 
         ctx.targetSpecificPasses->lowerTypes(mod);
 
-        if (optLevel > 1 && false) {
+        if (optLevel > 1 && !config::noInlining) {
             // Inlining is special, it has to be done before other opts,
             // because jasmine architecturally doesn't share the pass context
             // between function compilations. Normally, this means once we

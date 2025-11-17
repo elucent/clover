@@ -4,28 +4,6 @@
 #include "jasmine/pass/reduce.h"
 
 namespace jasmine {
-    struct ValueNumbering {
-        vec<i32, 32> numbers; // Maps each defined variable to a value numbering.
-
-        struct LazyTable {
-            using Table = vec<NodeIndex, 8>;
-            Table* pointer;
-
-            inline LazyTable():
-                pointer(nullptr) {}
-
-            PREVENT_COPYING(LazyTable);
-            PREVENT_MOVING(LazyTable);
-
-            inline ~LazyTable() {
-                if (pointer)
-                    delete pointer;
-            }
-        };
-
-        LazyTable opcodeTables[NUM_OPCODES];
-    };
-
     void computeForNode(PassContext& ctx, PassContext::Defs& defs, Function& fn, Node node, deque<NodeIndex, 32>& frontier) {
         if (node.arity() == 0)
             return;

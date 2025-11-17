@@ -25,6 +25,7 @@ namespace jasmine {
         macro(COMPUTE_EFFECTS, compute_effects, false) \
         macro(CONSTANT_FOLDING, constant_folding, false) \
         macro(STRENGTH_REDUCTION, strength_reduction, false) \
+        macro(CSE, cse, false) \
         macro(LIVENESS, liveness, false) \
         macro(INTERFERENCE, interference, false) \
         macro(VALIDATION, validation, false) \
@@ -1070,6 +1071,11 @@ namespace jasmine {
      * tries to simplify common patterns to a cheaper or more canonical form.
      */
     void reduceStrength(PassContext& ctx, Function& fn);
+
+    /*
+     * Performs SSA-based, non-effect-aware common subexpression elimination.
+     */
+    void eliminateCommonSubexpressions(PassContext& ctx, Function& fn);
 
     /*
      * Computes liveness information for each variable in the function, which

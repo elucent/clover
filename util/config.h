@@ -40,6 +40,8 @@ enum class PassTimeUnit {
     macro(printJasmineDOTBeforeOpts, print-jasmine-dot-before-opts, bool, false, Jasmine, "Write jasmine IR graph as GraphViz output before it gets optimized.") \
     macro(printJasmineDOTAfterOpts, print-jasmine-dot-after-opts, bool, false, Jasmine, "Write jasmine IR graph as GraphViz output after the last optimization.") \
     macro(printJasmineDOTBeforeEachPass, print-jasmine-dot-before-each-pass, bool, false, Jasmine, "Write jasmine IR graph as GraphViz output before every optimization pass.") \
+    macro(jasmineFunctionFilter, jasmine-function-filter, const_slice<i8>, cstring(""), Jasmine, "Specify a filter (substring of function name) to limit which Jasmine functions log their IR.") \
+    macro(jasminePassFilter, jasmine-pass-filter, const_slice<i8>, cstring(""), Jasmine, "Specify a filter (substring of pass name) to limit which passes Jasmine functions log their IR for.") \
     macro(jasmineDOTFile, jasmine-dot-file, const_slice<i8>, cstring(""), Jasmine, "Path to write jasmine GraphViz output to.") \
     macro(jasminePassTimingUnit, jasmine-pass-timing-unit, PassTimeUnit, PassTimeUnit::Milliseconds, Jasmine, "Time unit to use when reporting compilation time (valid units are s, ms, us, ns, and ticks).") \
     macro(maxInlinableSize, max-inlinable-size, i32, 100, Jasmine, "Maximum nodes that a function can have and still be able to be inlined.") \
@@ -50,6 +52,7 @@ enum class PassTimeUnit {
     macro(verboseNaturalLoops, verbose-natural-loops, bool, false, Jasmine, "Enables verbose logging for natural loop analysis.") \
     macro(verboseEffects, verbose-effects, bool, false, Jasmine, "Enables verbose logging for effects analysis.") \
     macro(verboseLICM, verbose-licm, bool, false, Jasmine, "Enables verbose logging for loop-invariant code motion.") \
+    macro(verboseCSE, verbose-cse, bool, false, Jasmine, "Enables verbose logging for common subexpression elimination.") \
     macro(verboseSSA, verbose-ssa, bool, false, Jasmine, "Enables verbose logging for SSA conversion.") \
     macro(verboseInlining, verbose-inlining, bool, false, Jasmine, "Enables verbose logging for inlining.") \
     macro(verboseLiveness, verbose-liveness, bool, false, Jasmine, "Enables verbose logging for liveness analysis.") \
@@ -57,6 +60,11 @@ enum class PassTimeUnit {
     macro(verboseInterference, verbose-interference, bool, false, Jasmine, "Enables verbose logging for interference graph analysis.") \
     macro(verboseContainment, verbose-containment, bool, false, Jasmine, "Enables verbose logging for containment graph analysis.") \
     macro(verboseRegalloc, verbose-regalloc, bool, false, Jasmine, "Enables verbose logging of register allocator assignments.") \
+    macro(noLICM, no-licm, bool, false, Jasmine, "Disables loop-invariant code motion.") \
+    macro(noInlining, no-inlining, bool, true, Jasmine, "Disables inlining.") \
+    macro(noStrengthReduction, no-strength-reduction, bool, false, Jasmine, "Disables strength reduction.") \
+    macro(noConstantFolding, no-constant-folding, bool, false, Jasmine, "Disables constant folding.") \
+    macro(noCSE, no-cse, bool, false, Jasmine, "Disables common subexpression elimination.") \
     macro(forceOptLevel, force-opt-level, i32, -1, Jasmine, "Universally override the optimization level of Jasmine compilation.") \
     \
     /* Basil options. */ \
