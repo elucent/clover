@@ -672,8 +672,6 @@ namespace jasmine {
             }
         }
 
-        fn.clear();
-
         if (config::printJasmineAssembly)
             println();
     }
