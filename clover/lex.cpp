@@ -445,6 +445,7 @@ namespace clover {
                             visitor.read();
                             visitor.readPossiblyUTF8();
                         }
+                        next = visitor.peek();
                         if (next == '"')
                             break;
                         visitor.read();
@@ -461,6 +462,7 @@ namespace clover {
                             if (visitor.peek() == '`')
                                 visitor.read();
                         }
+                        next = visitor.peek();
                         if (next == '`')
                             break;
                         visitor.read();
