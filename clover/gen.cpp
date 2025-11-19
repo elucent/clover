@@ -2667,7 +2667,8 @@ namespace clover {
         AssemblyArtifact(JasmineAssembly assembly_in): assembly(assembly_in) {}
 
         ~AssemblyArtifact() {
-            jasmine_destroy_assembly(assembly);
+            if (assembly.handle)
+                jasmine_destroy_assembly(assembly);
         }
 
         maybe<const_slice<i8>> getSource() override {
@@ -2741,8 +2742,10 @@ namespace clover {
         jasmine_write_relocatable_elf_object(assembly, path.data(), path.size());
     }
 
-    JasmineAssembly getAssembly(Artifact* artifact) {
-        return artifact->as<AssemblyArtifact>()->assembly;
+    JasmineAssembly takeAssembly(Artifact* artifact) {
+        auto as = artifact->as<AssemblyArtifact>()->assembly;
+        artifact->as<AssemblyArtifact>()->assembly.handle = nullptr;
+        return as;
     }
 
     JasmineAssembly createEntrypoint(Compilation* compilation) {

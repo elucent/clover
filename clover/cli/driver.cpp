@@ -96,10 +96,11 @@ i32 main(i32 argc, i8** argv, i8** envp) {
         vec<JasmineAssembly> assemblies;
         compilation.forEachArtifact([&](Artifact* artifact) {
             assert(artifact->kind == ArtifactKind::Assembly);
-            assemblies.push(getAssembly(artifact));
+            assemblies.push(takeAssembly(artifact));
         });
         JasmineAssembly combined = jasmine_join_assemblies_in_place(assemblies.data(), assemblies.size());
         jasmine_write_relocatable_elf_object(combined, outputFile.data(), outputFile.size());
+        jasmine_destroy_assembly(combined);
     } else {
         if (outputFile.size() == 0) { // Implicitly use modified name of first source as object.
             i32 lastDot = -1;
@@ -124,10 +125,11 @@ i32 main(i32 argc, i8** argv, i8** envp) {
         assemblies.push(createEntrypoint(&compilation));
         compilation.forEachArtifact([&](Artifact* artifact) {
             assert(artifact->kind == ArtifactKind::Assembly);
-            assemblies.push(getAssembly(artifact));
+            assemblies.push(takeAssembly(artifact));
         });
         JasmineAssembly combined = jasmine_join_assemblies_in_place(assemblies.data(), assemblies.size());
         jasmine_write_relocatable_elf_object(combined, outputFile.data(), outputFile.size());
+
 
         vec<const_slice<i8>> args;
         args.push(cstring("ld"));
@@ -144,6 +146,8 @@ i32 main(i32 argc, i8** argv, i8** envp) {
         args.append(linkerArgs);
         process::exec(cstring("/usr/bin/env"), args);
         file::remove(outputFile);
+
+        jasmine_destroy_assembly(combined);
     }
 
     process::deinit();

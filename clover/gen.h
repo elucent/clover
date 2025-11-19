@@ -8,7 +8,7 @@ namespace clover {
     NOINLINE Artifact* generateJasmine(Artifact* artifact, u32 optimizationLevel);
     NOINLINE Artifact* emitAssembly(Artifact* artifact, u32 optimizationLevel);
     JasmineExecutable load(Artifact* artifact);
-    JasmineAssembly getAssembly(Artifact* artifact);
+    JasmineAssembly takeAssembly(Artifact* artifact);
     JasmineAssembly createEntrypoint(Compilation* compilation);
     void writeELF(Artifact* artifact, const_slice<i8> path);
 }
