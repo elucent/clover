@@ -6,6 +6,8 @@ alias FdBuffer: i8[65536]
 
 FdBuffer*[65536] fdTable
 
+const fd stdin: CLRTFileStdin, stdout: CLRTFileStdout
+
 i8[] bufferFor(fd io):
     var fd(i): io
     fdTable[i]
