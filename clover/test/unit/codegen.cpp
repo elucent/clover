@@ -1719,7 +1719,6 @@ void histogram(i32[] nums, i32[] buckets):
 }
 
 TEST(codegen_count_subtrees) {
-    return;
     // Adapted from an impromptu OCaml benchmark written by blueberrywren
     auto instance = COMPILE(R"(
 type Tree:
