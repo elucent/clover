@@ -2166,6 +2166,8 @@ namespace clover {
         AST oldDecl = module->node(generic->decl);
         AST newDecl = module->add(ASTKind::FunDecl, oldDecl.pos(), InvalidScope, InvalidType, module->clone(oldDecl.child(0)), module->add(ASTKind::Missing), module->clone(oldDecl.child(2)), module->clone(oldDecl.child(3)), module->clone(oldDecl.child(4)));
         Function* newFunction = module->addFunction(newDecl, generic->parent, generic->name);
+        newFunction->isInstantiation = true;
+        newFunction->generic = generic;
         newDecl.setChild(1, module->add(ASTKind::ResolvedFunction, newFunction));
         Scope* oldScope = oldDecl.scope();
         Scope* newScope = module->addScope(ScopeKind::Function, newDecl.node, oldDecl.scope()->parent, newFunction);

@@ -44,6 +44,54 @@ namespace clover {
         return clone;
     }
 
+    u64 computeSloppyHash(AST ast) {
+        auto kh = intHash(ast.kind());
+        switch (ast.kind()) {
+            case ASTKind::Local:
+            case ASTKind::Global:
+            case ASTKind::Typename:
+            case ASTKind::GlobalTypename:
+                return mixHash(kh, intHash(ast.variable()));
+            case ASTKind::Const:
+            case ASTKind::GlobalConst:
+                return mixHash(kh, intHash(ast.constId()));
+            case ASTKind::Field:
+                return mixHash(kh, intHash(ast.fieldId()));
+            case ASTKind::Int:
+                return mixHash(kh, intHash(ast.intConst()));
+            case ASTKind::Unsigned:
+                return mixHash(kh, intHash(ast.uintConst()));
+            case ASTKind::Float:
+                return mixHash(kh, intHash(bitcast<u64>(ast.floatConst())));
+            case ASTKind::String:
+                return mixHash(kh, ::hash(ast.module->str(ast.stringConst())));
+            case ASTKind::Bool:
+                return mixHash(kh, intHash(!!ast.boolConst()));
+            case ASTKind::Char:
+                return mixHash(kh, intHash(ast.charConst()));
+            case ASTKind::Uninit:
+            case ASTKind::ResolvedFunction:
+            case ASTKind::Missing:
+            case ASTKind::AnyType:
+            case ASTKind::Wildcard:
+                return kh;
+            default:
+                for (u32 i = 0; i < ast.arity(); i ++)
+                    kh = mixHash(kh, computeSloppyHash(ast.child(i)));
+                return kh;
+        }
+    }
+
+    u64 Function::computeHash() {
+        if (genericHash)
+            return genericHash;
+        assert(decl != InvalidNode);
+        genericHash = computeSloppyHash(module->node(decl));
+        if (!genericHash)
+            genericHash = 1;
+        return genericHash;
+    }
+
     Module::~Module() {
         if (source.data())
             delete[] source.data();

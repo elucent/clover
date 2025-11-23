@@ -469,9 +469,19 @@ namespace clover {
                 case TypeKind::Bottom:
                     return format(target, type);
                 case TypeKind::Pointer:
-                    return format(mangleType(target, type.as<TypeKind::Pointer>().elementType()), "*");
+                    target = format(mangleType(target, type.as<TypeKind::Pointer>().elementType()), "*");
+                    if (type.as<TypeKind::Pointer>().traits() & Own)
+                        target = format(target, "own");
+                    if (type.as<TypeKind::Pointer>().traits() & Uninit)
+                        target = format(target, "uninit");
+                    return target;
                 case TypeKind::Slice:
-                    return format(mangleType(target, type.as<TypeKind::Slice>().elementType()), "[]");
+                    target = format(mangleType(target, type.as<TypeKind::Slice>().elementType()), "[]");
+                    if (type.as<TypeKind::Slice>().traits() & Own)
+                        target = format(target, "own");
+                    if (type.as<TypeKind::Slice>().traits() & Uninit)
+                        target = format(target, "uninit");
+                    return target;
                 case TypeKind::Array:
                     return format(mangleType(target, type.as<TypeKind::Array>().elementType()), "[", type.as<TypeKind::Array>().length(), "]");
                 case TypeKind::Tuple:
@@ -507,8 +517,11 @@ namespace clover {
             auto name = module->str(function->name);
             i8 buffer[1024];
             slice<i8> target = { buffer, 1024 };
+
             target = format(target, name);
-            if (!module->noMangling) {
+
+            if (!module->noMangling && !function->noMangling) {
+                // Parameters first.
                 target = format(target, "(");
                 Type type = function->type();
                 assert(type.is<TypeKind::Function>());
@@ -517,6 +530,24 @@ namespace clover {
                     target = mangleType(target, type.as<TypeKind::Function>().parameterType(i));
                 }
                 target = format(target, ")");
+
+                // Next, and often finally, the return type.
+                target = mangleType(target, type.as<TypeKind::Function>().returnType());
+
+                if (function->isInstantiation) {
+                    // For generic functions, we append a hash of the initial
+                    // template's source structure. This is a mitigation against a
+                    // niche but potentially nasty linking issue, where if two
+                    // generic function instantiations in two different compilation
+                    // units happen to have the same name and type, their symbols
+                    // will overlap, and since they're weak, they can wind up
+                    // linking to each other and violating encapsulation. By using
+                    // a structural hash, we can continue to allow potential
+                    // deduplication of instantiations of the same function, while
+                    // not removing instantiations of distinct functions with the
+                    // same name.
+                    target = format(target, '-', hex(function->generic->computeHash(), 16));
+                }
             }
             return function->mangledName = module->sym(const_slice<i8>{ buffer, 1024 - target.size() });
         }

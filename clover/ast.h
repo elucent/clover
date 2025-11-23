@@ -485,8 +485,9 @@ namespace clover {
         map<ConstOriginKey, u32> importedConstants;
         vec<NodeIndex> constDeclOrder;
         u32 numTemps = 0;
-        bool isConst;
-        bool isGeneric = false, isInstantiation = false;
+        bool isConst = false, isGeneric = false, isInstantiation = false, noMangling = false;
+        Function* generic = nullptr; // Generic version of this function we were instantiated from, if applicable.
+        u64 genericHash = 0; // Hash of this function's body, used as a discriminator for the binary symbols of its instantiations.
 
         // The generic type is used a little strangely. We keep this as the
         // authoritative "base copy" of the type, basically whatever we know
@@ -584,6 +585,8 @@ namespace clover {
         Type cloneGenericType();
 
         inline Type type() const;
+
+        u64 computeHash();
     };
 
     struct Overloads {

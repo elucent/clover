@@ -1275,7 +1275,7 @@ i32 fibonacci(i32 n):
 )");
 
     auto exec = load(instance.artifact);
-    auto fibonacci = lookup<i32(i32)>("fibonacci(i32)", exec);
+    auto fibonacci = lookup<i32(i32)>("fibonacci(i32)i32", exec);
     ASSERT_EQUAL(fibonacci(0), 0);
     ASSERT_EQUAL(fibonacci(1), 1);
     ASSERT_EQUAL(fibonacci(10), 55);
@@ -1303,7 +1303,7 @@ i32 sum(List list):
 
     auto exec = load(instance.artifact);
     auto list = lookup<triple<u32, i32, void*>>("one", exec);
-    auto sum = lookup<i64(triple<u32, i32, void*>)>("sum(List)", exec);
+    auto sum = lookup<i64(triple<u32, i32, void*>)>("sum(List)i32", exec);
 
     ASSERT_EQUAL(sum(*list), 6);
 }
@@ -1343,10 +1343,10 @@ var nil: Nil
 
     auto exec = load(instance.artifact);
     auto nil = lookup<i32>("nil", exec);
-    auto cons = lookup<void*(i32, void*)>("cons(i32,List*)", exec);
-    auto car = lookup<i32(void*)>("car(List*)", exec);
-    auto cdr = lookup<void*(void*)>("cdr(List*)", exec);
-    auto append = lookup<void*(void*, void*)>("append(List*,List*)", exec);
+    auto cons = lookup<void*(i32, void*)>("cons(i32,List*)List*own", exec);
+    auto car = lookup<i32(void*)>("car(List*)i32", exec);
+    auto cdr = lookup<void*(void*)>("cdr(List*)List*", exec);
+    auto append = lookup<void*(void*, void*)>("append(List*,List*own)List*own", exec);
 
     void* a = nil;
     for (i32 i = 20; i > 10; i --)
@@ -1386,9 +1386,9 @@ i32 matchSplat(i32[] numbers) match numbers:
 )");
 
     auto exec = load(instance.artifact);
-    auto matchPrefix = lookup<i32(slice<i32>)>("matchPrefix(i32[])", exec);
-    auto matchSplat = lookup<i32(slice<i32>)>("matchSplat(i32[])", exec);
-    auto matchInternal = lookup<i32(slice<i32>)>("matchInternal(i32[])", exec);
+    auto matchPrefix = lookup<i32(slice<i32>)>("matchPrefix(i32[])i32", exec);
+    auto matchSplat = lookup<i32(slice<i32>)>("matchSplat(i32[])i32", exec);
+    auto matchInternal = lookup<i32(slice<i32>)>("matchInternal(i32[])i32", exec);
 
     array<i32, 5> arrayMatch;
     for (i32 i = 1; i <= 5; i ++)
@@ -1439,7 +1439,7 @@ var zAxis: Axis.Z
 )");
 
     auto exec = load(instance.artifact);
-    auto primaryAxis = lookup<i32(array<i32, 3>)>("primaryAxis(Vec3)", exec);
+    auto primaryAxis = lookup<i32(array<i32, 3>)>("primaryAxis(Vec3)Axis", exec);
     auto xAxis = *lookup<i32>("xAxis", exec);
     auto yAxis = *lookup<i32>("yAxis", exec);
     auto zAxis = *lookup<i32>("zAxis", exec);
@@ -1513,7 +1513,7 @@ void bf(char[] program, i8[] memory, i32* pointer):
     auto exec = load(instance.artifact);
     auto& input = *lookup<array<i8, 256>>("input", exec);
     auto& output = *lookup<array<i8, 256>>("output", exec);
-    auto bf = lookup<void(slice<rune>, slice<i8>, i32*)>("bf(char[],i8[],i32*)", exec);
+    auto bf = lookup<void(slice<rune>, slice<i8>, i32*)>("bf(char[],i8[],i32*)void", exec);
     memory::fill(&input[0], 0, 256);
     memory::fill(&output[0], 0, 256);
 
@@ -1542,7 +1542,7 @@ i32 bar():
 )");
 
     auto exec = load(instance.artifact);
-    auto bar = lookup<i64()>("bar()", exec);
+    auto bar = lookup<i64()>("bar()i32", exec);
     ASSERT_EQUAL(bar(), 4);
 }
 
@@ -1584,9 +1584,9 @@ i32 test():
 
     auto exec = load(instance.artifact);
     auto global = lookup<const_slice<i8>>("global", exec);
-    auto local = lookup<array<i8, 3>()>("local()", exec);
-    auto maxbyte = lookup<i8(const_slice<i8>)>("maxbyte(i8[])", exec);
-    auto test = lookup<i32()>("test()", exec);
+    auto local = lookup<array<i8, 3>()>("local()i8[3]", exec);
+    auto maxbyte = lookup<i8(const_slice<i8>)>("maxbyte(i8[])i8", exec);
+    auto test = lookup<i32()>("test()i32", exec);
 
     ASSERT_EQUAL(maxbyte(*global), 'o');
     ASSERT_EQUAL(maxbyte(local()), 'r');
@@ -1612,9 +1612,9 @@ own i8[] doStrcat():
 )");
 
     auto exec = load(instance.artifact);
-    auto strcat = lookup<const_slice<i8>(const_slice<i8>, const_slice<i8>)>("strcat(i8[],i8[])", exec);
-    auto strcatSetSlice = lookup<const_slice<i8>(const_slice<i8>, const_slice<i8>)>("strcatSetSlice(i8[],i8[])", exec);
-    auto doStrcat = lookup<const_slice<i8>()>("doStrcat()", exec);
+    auto strcat = lookup<const_slice<i8>(const_slice<i8>, const_slice<i8>)>("strcat(i8[],i8[])i8[]own", exec);
+    auto strcatSetSlice = lookup<const_slice<i8>(const_slice<i8>, const_slice<i8>)>("strcatSetSlice(i8[],i8[])i8[]own", exec);
+    auto doStrcat = lookup<const_slice<i8>()>("doStrcat()i8[]own", exec);
 
     // ASSERT_EQUAL(strcat(cstring("a"), cstring("b")), cstring("ab"));
     ASSERT_EQUAL(strcatSetSlice(cstring("abc"), cstring("def")), cstring("abcdef"));
@@ -1630,7 +1630,7 @@ own i8[] reverse(i8[] xs):
 )");
 
     auto exec = load(instance.artifact);
-    auto reverse = lookup<const_slice<i8>(const_slice<i8>)>("reverse(i8[])", exec);
+    auto reverse = lookup<const_slice<i8>(const_slice<i8>)>("reverse(i8[])i8[]own", exec);
 
     ASSERT_EQUAL(reverse(cstring("")), cstring(""));
     ASSERT_EQUAL(reverse(cstring("abc")), cstring("cba"));
@@ -1653,7 +1653,7 @@ i32 indexof(i8[] haystack, i8[] needle):
 )");
 
     auto exec = load(instance.artifact);
-    auto indexof = lookup<i32(const_slice<i8>, const_slice<i8>)>("indexof(i8[],i8[])", exec);
+    auto indexof = lookup<i32(const_slice<i8>, const_slice<i8>)>("indexof(i8[],i8[])i32", exec);
 
     ASSERT_EQUAL(indexof(cstring("abcdef"), cstring("abc")), 0);
     ASSERT_EQUAL(indexof(cstring("abcdef"), cstring("def")), 3);
@@ -1674,7 +1674,7 @@ bool palindrome?(i8[] str):
 )");
 
     auto exec = load(instance.artifact);
-    auto palindrome = lookup<bool(const_slice<i8>)>("palindrome?(i8[])", exec);
+    auto palindrome = lookup<bool(const_slice<i8>)>("palindrome?(i8[])bool", exec);
 
     ASSERT(!palindrome(cstring("abcdef")));
     ASSERT(palindrome(cstring("racecar")));
@@ -1702,7 +1702,7 @@ void histogram(i32[] nums, i32[] buckets):
 )");
 
     auto exec = load(instance.artifact);
-    auto histogram = lookup<void(const_slice<i32>, slice<i32>)>("histogram(i32[],i32[])", exec);
+    auto histogram = lookup<void(const_slice<i32>, slice<i32>)>("histogram(i32[],i32[])void", exec);
 
     array<i32, 90> numbers;
     for (i32 i = 0; i < 80; i ++)
@@ -1760,7 +1760,7 @@ i32 benchmark(i32 x):
 )");
 
     auto exec = load(instance.artifact);
-    auto benchmark = lookup<i32(i32)>("benchmark(i32)", exec);
+    auto benchmark = lookup<i32(i32)>("benchmark(i32)i32", exec);
     ASSERT_EQUAL(benchmark(11), 1848);
 }
 
@@ -1817,7 +1817,7 @@ u32 benchmark(u32 ticks):
 )");
 
     auto exec = load(instance.artifact);
-    auto benchmark = lookup<i64(u32)>("benchmark(u32)", exec);
+    auto benchmark = lookup<i64(u32)>("benchmark(u32)u32", exec);
 
     ASSERT_EQUAL(benchmark(100), 2659);
 }
@@ -1942,10 +1942,10 @@ i32* getD():
 )");
 
     auto exec = load(instance.artifact);
-    auto getA = lookup<i32*()>("getA()", exec);
-    auto getB = lookup<i32*()>("getB()", exec);
-    auto getC = lookup<i32*()>("getC()", exec);
-    auto getD = lookup<i32*()>("getD()", exec);
+    auto getA = lookup<i32*()>("getA()i32*", exec);
+    auto getB = lookup<i32*()>("getB()i32*", exec);
+    auto getC = lookup<i32*()>("getC()i32*", exec);
+    auto getD = lookup<i32*()>("getD()i32*", exec);
 
     *getA() = 1;
     *getB() = 2;
@@ -1978,10 +1978,10 @@ own Cases* makeC(i32 x): new C(x)
 )");
 
     auto exec = load(instance.artifact);
-    auto mystery = lookup<i32(void*)>("mystery(Cases*)", exec);
-    auto makeA = lookup<void*()>("makeA()", exec);
-    auto makeB = lookup<void*()>("makeB()", exec);
-    auto makeC = lookup<void*(i32)>("makeC(i32)", exec);
+    auto mystery = lookup<i32(void*)>("mystery(Cases*)i32", exec);
+    auto makeA = lookup<void*()>("makeA()Cases*own", exec);
+    auto makeB = lookup<void*()>("makeB()Cases*own", exec);
+    auto makeC = lookup<void*(i32)>("makeC(i32)Cases*own", exec);
 
     auto a = makeA();
     auto b = makeB();
@@ -2008,6 +2008,6 @@ i32 mystery():
 )");
 
     auto exec = load(instance.artifact);
-    auto mystery = lookup<i32()>("mystery()", exec);
+    auto mystery = lookup<i32()>("mystery()i32", exec);
     ASSERT_EQUAL(mystery(), 42);
 }
