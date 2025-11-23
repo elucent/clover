@@ -936,3 +936,12 @@ bar(42)
     auto b = topLevel.child(2);
     ASSERT_TYPE_EQUAL(b.type(), module->i32Type());
 }
+
+TEST(typecheck_function_duplicate_instantiation) {
+    auto instance = TYPECHECK(R"(
+fun id(x): x + 1
+
+var a: 1, b: 2, c: 3
+id(a) + id(b) + id(c)
+)");
+}

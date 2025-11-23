@@ -3428,6 +3428,22 @@ namespace clover {
         return lb;
     }
 
+    inline Type nonVariableLowerBound(Type type) {
+        if (!type.isVar() && !type.isRange())
+            return type;
+        if (type.isVar())
+            return nonVariableLowerBound(type.asVar().lowerBound());
+        return nonVariableLowerBound(type.asRange().lowerBound());
+    }
+
+    inline Type nonVariableUpperBound(Type type) {
+        if (!type.isVar() && !type.isRange())
+            return type;
+        if (type.isVar())
+            return nonVariableUpperBound(type.asVar().upperBound());
+        return nonVariableUpperBound(type.asRange().upperBound());
+    }
+
     inline void VarType::concretify() {
         // If this type is already equal to another type, we ensure that
         // type is concrete.
@@ -3696,8 +3712,8 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const VarType& type) {
-        if (type.isEqual())
-            return format(io, type.equalType());
+        // if (type.isEqual())
+        //     return format(io, type.equalType());
         if UNLIKELY(config::readableTypeVars) {
             io = format(io, '\'');
             u32 number = type.varNumber();

@@ -473,6 +473,235 @@ namespace clover {
         return mixHash(::hash(u64(key.function)), ::hash(key.index));
     }
 
+    struct PackedTypeBounds {
+        enum Kind : u32 {
+            TypeId, Unsigned, Signed, Float
+        };
+
+        union {
+            struct { Kind kind : 2; u32 prim : 6; TypeIndex type : 24; };
+            u32 bits;
+        };
+
+        inline PackedTypeBounds() {
+            bits = 0;
+        }
+
+        inline PackedTypeBounds(Type lowerBound, Type upperBound) {
+            bits = 0;
+            if (canResolveTypeFromLowerBound(lowerBound.types, lowerBound) || lowerBound == upperBound) {
+                kind = TypeId;
+                type = lowerBound.index;
+            } else switch (lowerBound.kind()) {
+                // If we can't resolve the type from the lower bound, then it
+                // must be either bottom, or a number with a bitcount less
+                // than 64. We pack it into the upper 6 bits carefully.
+
+                case TypeKind::Bottom:
+                    kind = TypeId;
+                    prim = lowerBound.index;
+                    type = upperBound.index;
+                    break;
+
+                case TypeKind::Numeric: {
+                    auto numType = lowerBound.as<TypeKind::Numeric>();
+                    if (numType.isFloat())
+                        kind = Float; // Actually redundant I think, because floats can be inferred from their lower bound. Meh.
+                    else if (numType.isSigned())
+                        kind = Signed;
+                    else
+                        kind = Unsigned;
+                    assert(numType.bitCount() < 64);
+                    prim = numType.bitCount();
+                    type = upperBound.index;
+                    break;
+                }
+
+                default:
+                    unreachable("Unexpected lower bound ", lowerBound);
+            }
+        }
+    };
+
+    inline PackedTypeBounds packedBoundsFor(Type type) {
+        type = expand(type);
+        if (!type.isVar() && !type.isRange())
+            return PackedTypeBounds(type, type);
+        return PackedTypeBounds(nonVariableLowerBound(type), nonVariableUpperBound(type));
+    }
+
+    struct SignatureKey {
+        union {
+            struct { u32 length : 12; u32 hash : 20; PackedTypeBounds ret; PackedTypeBounds args[2]; };
+            struct { u32 lengthAndHash; u32 : 32; PackedTypeBounds* buf; };
+        };
+
+        inline SignatureKey() {}
+
+        inline ~SignatureKey() {
+            if (length > 2)
+                delete[] buf;
+        }
+
+        inline SignatureKey(const SignatureKey& other) {
+            if (other.length <= 2)
+                memory::copy(this, &other, sizeof(SignatureKey));
+            else {
+                lengthAndHash = other.lengthAndHash;
+                ret = other.ret;
+                buf = new PackedTypeBounds[length];
+                memory::copy(buf, other.buf, sizeof(PackedTypeBounds) * length);
+            }
+        }
+
+        inline SignatureKey& operator=(const SignatureKey& other) {
+            if (this != &other) {
+                if (length > 2)
+                    delete[] buf;
+                if (other.length <= 2)
+                    memory::copy(this, &other, sizeof(SignatureKey));
+                else {
+                    lengthAndHash = other.lengthAndHash;
+                    ret = other.ret;
+                    buf = new PackedTypeBounds[length];
+                    memory::copy(buf, other.buf, sizeof(PackedTypeBounds) * length);
+                }
+            }
+            return *this;
+        }
+
+        inline SignatureKey(SignatureKey&& other) {
+            if (other.length <= 2)
+                memory::copy(this, &other, sizeof(SignatureKey));
+            else {
+                lengthAndHash = other.lengthAndHash;
+                ret = other.ret;
+                buf = other.buf;
+                other.length = 0;
+            }
+        }
+
+        inline SignatureKey& operator=(SignatureKey&& other) {
+            if (this != &other) {
+                if (length > 2)
+                    delete[] buf;
+                if (other.length <= 2)
+                    memory::copy(this, &other, sizeof(SignatureKey));
+                else {
+                    lengthAndHash = other.lengthAndHash;
+                    ret = other.ret;
+                    buf = other.buf;
+                    other.length = 0;
+                }
+            }
+            return *this;
+        }
+
+        inline static SignatureKey withLength(u32 length) {
+            SignatureKey key;
+            key.length = length;
+            key.hash = 0;
+            key.ret.bits = 0;
+            if (length <= 2) {
+                key.args[0].bits = key.args[1].bits = 0;
+                return key;
+            }
+            key.buf = new PackedTypeBounds[length];
+            return key;
+        }
+
+        inline void setReturnType(PackedTypeBounds bounds) {
+            ret = bounds;
+        }
+
+        inline void setParameterType(u32 i, PackedTypeBounds bounds) {
+            (length <= 2 ? args : buf)[i] = bounds;
+        }
+
+        inline void computeHash() {
+            u64 h = mixHash(10492018930511853907ull, intHash(ret.bits));
+            if (length <= 2)
+                h = mixHash(mixHash(h, intHash(args[0].bits)), intHash(args[1].bits));
+            else for (u32 i = 0; i < length; i ++)
+                h = mixHash(h, intHash(buf[i].bits));
+            hash = h;
+        }
+
+        inline bool operator==(const SignatureKey& other) const {
+            if (other.lengthAndHash != lengthAndHash)
+                return false;
+            if (ret.bits != other.ret.bits)
+                return false;
+            if (length <= 2)
+                return args[0].bits == other.args[0].bits && args[1].bits == other.args[1].bits;
+
+            for (u32 i = 0; i < length; i ++) if (buf[i].bits != other.buf[i].bits)
+                return false;
+            return true;
+        }
+
+        inline bool operator!=(const SignatureKey& other) const {
+            return !operator==(other);
+        }
+    };
+
+    struct PackedTypeBoundsLogger {
+        TypeSystem* sys;
+        PackedTypeBounds bounds;
+    };
+
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const PackedTypeBoundsLogger& ptbl) {
+        switch (ptbl.bounds.kind) {
+            case PackedTypeBounds::TypeId:
+                if (ptbl.bounds.prim == Bottom)
+                    return format(io, "[bottom, ", ptbl.sys->get(ptbl.bounds.type), "]");
+                return format(io, ptbl.sys->get(ptbl.bounds.type));
+            case PackedTypeBounds::Signed: {
+                Type lower = ptbl.sys->encode<TypeKind::Numeric>(true, false, ptbl.bounds.prim);
+                Type upper = ptbl.sys->get(ptbl.bounds.type);
+                if (lower != upper)
+                    return format(io, "[", lower, ", ", upper, "]");
+                return format(io, upper);
+            }
+            case PackedTypeBounds::Unsigned: {
+                Type lower = ptbl.sys->encode<TypeKind::Numeric>(false, false, ptbl.bounds.prim);
+                Type upper = ptbl.sys->get(ptbl.bounds.type);
+                if (lower != upper)
+                    return format(io, "[", lower, ", ", upper, "]");
+                return format(io, upper);
+            }
+            case PackedTypeBounds::Float: {
+                Type lower = ptbl.sys->encode<TypeKind::Numeric>(true, true, ptbl.bounds.prim);
+                Type upper = ptbl.sys->get(ptbl.bounds.type);
+                if (lower != upper)
+                    return format(io, "[", lower, ", ", upper, "]");
+                return format(io, upper);
+            }
+        }
+    }
+
+    struct SignatureKeyLogger {
+        TypeSystem* sys;
+        const SignatureKey& key;
+    };
+
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const SignatureKeyLogger& kl) {
+        io = format(io, PackedTypeBoundsLogger { kl.sys, kl.key.ret });
+        io = format(io, "(");
+        for (u32 i = 0; i < kl.key.length; i ++) {
+            if (i > 0)
+                io = format(io, ", ");
+            io = format(io, PackedTypeBoundsLogger { kl.sys, kl.key.length <= 2 ? kl.key.args[i] : kl.key.buf[i] });
+        }
+        return format(io, ")");
+    }
+
+    inline u64 hash(const SignatureKey& key) {
+        return key.hash;
+    }
+
     struct Function {
         Module* module;
         Function* parent;
@@ -488,6 +717,11 @@ namespace clover {
         bool isConst = false, isGeneric = false, isInstantiation = false, noMangling = false;
         Function* generic = nullptr; // Generic version of this function we were instantiated from, if applicable.
         u64 genericHash = 0; // Hash of this function's body, used as a discriminator for the binary symbols of its instantiations.
+
+        union {
+            map<SignatureKey, Function*>* instantiations = nullptr; // Cache of instantiations of this function.
+            Function* forward;
+        };
 
         // The generic type is used a little strangely. We keep this as the
         // authoritative "base copy" of the type, basically whatever we know

@@ -2160,8 +2160,33 @@ namespace clover {
         return module->funType(returnType, parameterTypes);
     }
 
-    Function* instantiate(InferenceContext& ctx, Function* generic, AST call) {
+    SignatureKey concreteKeyFor(Type funcType) {
+        auto concreteSignature = funcType.cloneExpand().as<TypeKind::Function>();
+        auto key = SignatureKey::withLength(concreteSignature.parameterCount());
+        key.setReturnType(packedBoundsFor(concreteSignature.returnType()));
+        for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
+            key.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
+        key.computeHash();
+        return key;
+    }
+
+    Function* instantiate(InferenceContext& ctx, Function* parent, Function* generic, AST call) {
         Module* module = generic->module;
+
+        SignatureKey key = SignatureKey::withLength(call.arity() - 1); // Number of arguments.
+        key.setReturnType(packedBoundsFor(inferredType(ctx, parent, call)));
+        for (u32 i = 0; i < call.arity() - 1; i ++)
+            key.setParameterType(i, packedBoundsFor(inferredType(ctx, parent, call.child(i + 1))));
+        key.computeHash();
+
+        if (generic->instantiations) {
+            auto it = generic->instantiations->find(key);
+            if (it != generic->instantiations->end()) {
+                if UNLIKELY(config::verboseInstantiation)
+                    println("[TYPE]\tTried to instantiate ", module->str(generic->name), " for signature ", SignatureKeyLogger { module->types, key }, ", using existing version with signature ", SignatureKeyLogger { module->types, concreteKeyFor(it->value->type()) });
+                return it->value;
+            }
+        }
 
         AST oldDecl = module->node(generic->decl);
         AST newDecl = module->add(ASTKind::FunDecl, oldDecl.pos(), InvalidScope, InvalidType, module->clone(oldDecl.child(0)), module->add(ASTKind::Missing), module->clone(oldDecl.child(2)), module->clone(oldDecl.child(3)), module->clone(oldDecl.child(4)));
@@ -2177,6 +2202,10 @@ namespace clover {
             newFunction->locals.push(generic->locals[e.value]);
         }
 
+        if (!generic->instantiations)
+            generic->instantiations = new map<SignatureKey, Function*>();
+        generic->instantiations->put(key, newFunction);
+
         // Ensure our new scope is associated with our parameters/return type.
         newDecl.setScope(newScope);
         setScopes(module, newScope, newDecl.child(0));
@@ -2188,8 +2217,6 @@ namespace clover {
         Type type = instantiateSignature(newDecl);
         newFunction->typeIndex = type.index;
         newDecl.setType(type);
-        if UNLIKELY(config::verboseInstantiation)
-            println("[TYPE]\tInstantiated signature ", generic->type(), " into ", type);
 
         assert(type.is<TypeKind::Function>());
         auto funcType = type.as<TypeKind::Function>();
@@ -2280,6 +2307,29 @@ namespace clover {
 
         instantiationCtx.constraints->clear();
 
+        SignatureKey concreteKey = concreteKeyFor(funcType);
+        auto it = generic->instantiations->find(concreteKey);
+        if (it != generic->instantiations->end()) {
+            // Not only is there an existing instantiation, but we need to fix
+            // the cache for our non-concrete parameters to point to the
+            // existing instantiation too.
+
+            if UNLIKELY(config::verboseInstantiation)
+                println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key }, " and concrete signature ", SignatureKeyLogger { module->types, concreteKey }, ", which matches existing version with signature ", SignatureKeyLogger { module->types, concreteKeyFor(it->value->type()) });
+
+            auto existing = it->value;
+            generic->instantiations->put(key, existing);
+            delete newFunction;
+            return existing;
+        }
+
+        // Otherwise, we are truly the first instantiation with this signature,
+        // so we become the canonical copy and insert ourselves into the map.
+        generic->instantiations->put(concreteKey, newFunction);
+
+        if UNLIKELY(config::verboseInstantiation)
+            println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key }, " and unique concrete signature ", SignatureKeyLogger { module->types, concreteKey });
+
         if (oldDecl.child(1).missing())
             oldDecl.setChild(1, newDecl);
         else
@@ -2361,7 +2411,7 @@ namespace clover {
         if (possibleFunctions.size() == 1) {
             Function* candidate = possibleFunctions[0].function;
             if (candidate->isGeneric) {
-                candidate = instantiate(ctx, candidate, ast);
+                candidate = instantiate(ctx, function, candidate, ast);
                 possibleFunctions[0].type = candidate->typeIndex;
             }
             ast.setChild(0, module->add(ASTKind::ResolvedFunction, candidate));
@@ -2390,7 +2440,7 @@ namespace clover {
             Function* callee = ast.child(0).resolvedFunction();
             type_assert(!callee->isConst); // Should have already dealt with such calls.
             if (callee->isGeneric) {
-                callee = instantiate(ctx, callee, ast);
+                callee = instantiate(ctx, function, callee, ast);
                 ast.setChild(0, ast.module->add(ASTKind::ResolvedFunction, callee));
                 return some<TypeIndex>(callee->typeIndex);
             }
