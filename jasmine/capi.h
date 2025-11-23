@@ -66,6 +66,12 @@ const JasmineFunction
 const JasmineModule
     JASMINE_INVALID_MODULE = { .handle = NULL };
 
+// These are flags for configuring the properties of a function.
+enum JasmineFunctionFlags {
+    JASMINE_FUNCTION_FLAGS_NONE = 0,
+    JASMINE_FUNCTION_FLAGS_WEAK = 1
+};
+
 /*
  * Modules
  */
@@ -102,7 +108,7 @@ JASMINE_EXPORT JasmineType jasmine_make_function_type(JasmineModule module, cons
 // should be added afterwards, using jasmine_add_parameter. Returns a
 // handle to the new function, or JASMINE_INVALID_FUNCTION if a function
 // with the same name already exists in the module.
-JASMINE_EXPORT JasmineFunction jasmine_create_function(JasmineModule module, const char* name, size_t name_length, JasmineType return_type);
+JASMINE_EXPORT JasmineFunction jasmine_create_function(JasmineModule module, const char* name, size_t name_length, JasmineType return_type, unsigned flags);
 
 /*
  * Blocks

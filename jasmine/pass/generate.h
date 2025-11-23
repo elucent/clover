@@ -257,12 +257,11 @@ namespace jasmine {
                 unreachable("Attempted to lower non-allocated variable operand.");
             case Operand::Invalid:
                 unreachable("Invalid operand.");
-            case Operand::Type:
-                return ASMVal();
             case Operand::Sizeof:
                 unreachable("Should have already lowered to integer constant.");
+            case Operand::Type:
             case Operand::String:
-                unreachable("Shouldn't try to lower string operand in comment.");
+                return ASMVal();
         }
     }
 
@@ -291,7 +290,10 @@ namespace jasmine {
 
         u32 totalStackWithCalleeSaves = allocations.stack + (allocations.stack ? 8 : 0) + allocations.calleeSaves.size() * 8;
 
-        Target::global(as, Label::fromSym(as.symtab[fn.name()]));
+        if (!!(fn.flags & FunctionFlags::Weak))
+            Target::weakglobal(as, Label::fromSym(as.symtab[fn.name()]));
+        else
+            Target::global(as, Label::fromSym(as.symtab[fn.name()]));
 
         if (totalStackWithCalleeSaves % 16 == 0 && fn.makesCalls) {
             // We need to make sure our callees have 16-byte aligned stack. So

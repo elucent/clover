@@ -2295,11 +2295,27 @@ namespace clover {
                 }
                 return JASMINE_INVALID_OPERAND;
 
+            case ASTKind::GenericFunDecl: {
+                if (!ast.child(1).missing()) {
+                    // The instantiations are strung along, as a bit of a hack,
+                    // as part of a linked list made up of Then nodes. We walk
+                    // that here.
+                    AST list = ast.child(1);
+                    while (list.kind() == ASTKind::Then) {
+                        generate(genCtx, builder, list.child(0), module->voidType());
+                        list = list.child(1);
+                    }
+                    generate(genCtx, builder, list, module->voidType());
+                }
+                return JASMINE_INVALID_OPERAND;
+            }
+
             case ASTKind::FunDecl: {
                 if (ast.child(4).kind() != ASTKind::Missing) {
                     auto name = module->str(genCtx.mangledName(module, ast.function()));
                     auto funType = typeOf(ast).as<TypeKind::Function>();
-                    JasmineFunction func = jasmine_create_function(genCtx.output, name.data(), name.size(), genCtx.lower(funType.returnType()));
+                    auto flags = ast.function()->isInstantiation ? JASMINE_FUNCTION_FLAGS_WEAK : JASMINE_FUNCTION_FLAGS_NONE;
+                    JasmineFunction func = jasmine_create_function(genCtx.output, name.data(), name.size(), genCtx.lower(funType.returnType()), flags);
                     genCtx.enter(ast.function(), func);
                     for (auto [i, param] : enumerate(ast.child(2))) {
                         assert(param.kind() == ASTKind::VarDecl);
@@ -2732,7 +2748,7 @@ namespace clover {
         slice<i8> name = prints({ buffer, 64 }, "<toplevel", toplevels.size(), ">");
         toplevels.push(module->sym(name));
 
-        JasmineFunction topLevel = jasmine_create_function(output, name.data(), name.size(), JASMINE_TYPE_VOID);
+        JasmineFunction topLevel = jasmine_create_function(output, name.data(), name.size(), JASMINE_TYPE_VOID, JASMINE_FUNCTION_FLAGS_NONE);
         JasmineBlock topLevelEntrypoint = jasmine_add_block(topLevel);
         jasmine_set_entrypoint(topLevel, topLevelEntrypoint);
 

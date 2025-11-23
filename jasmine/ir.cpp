@@ -28,8 +28,8 @@ namespace jasmine {
     };
     #undef DEFINE_NAME
 
-    Function::Function(Module& mod_in, Symbol sym_in, TypeIndex returnType_in):
-        mod(&mod_in), sym(sym_in), entrypoint(0), returnType(returnType_in), constants(&mod->constants) {
+    Function::Function(Module& mod_in, Symbol sym_in, TypeIndex returnType_in, FunctionFlags flags_in):
+        mod(&mod_in), sym(sym_in), entrypoint(0), returnType(returnType_in), constants(&mod->constants), flags(flags_in) {
         ensureInited();
     }
 

@@ -2106,6 +2106,10 @@ struct AMD64Assembler {
 
     // Labels
 
+    static inline void weakglobal(Assembly& as, Label label) {
+        as.def(CODE_SECTION, DEF_WEAK, label);
+    }
+
     static inline void global(Assembly& as, Label label) {
         as.def(CODE_SECTION, DEF_GLOBAL, label);
     }

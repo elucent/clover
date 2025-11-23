@@ -313,7 +313,7 @@ enum Section : u32 {
 };
 
 enum DefType : u32 {
-    DEF_GLOBAL, DEF_LOCAL
+    DEF_GLOBAL, DEF_LOCAL, DEF_WEAK
 };
 
 struct Label {
@@ -531,9 +531,9 @@ struct MaybePair {
 struct Def {
     i32 offset;
     Section section : 2;
-    DefType type : 1;
+    DefType type : 2;
     u32 hasSym : 1;
-    Symbol sym : 28;
+    Symbol sym : 27;
 
     inline Def() {}
 
@@ -1911,6 +1911,7 @@ struct Printer : public Assembler {
 
     // Labels
 
+    static void weakglobal(Assembly& as, Label label) { write_label(output, as, label); }
     static void global(Assembly& as, Label label) { write_label(output, as, label); }
     static void local(Assembly& as, Label label) { write_label(output, as, label); }
 };
@@ -2033,6 +2034,7 @@ struct Compose {
 
     // Labels
 
+    static void weakglobal(Assembly& as, Label label) { A::weakglobal(as, label); B::weakglobal(as, label); }
     static void global(Assembly& as, Label label) { A::global(as, label); B::global(as, label); }
     static void local(Assembly& as, Label label) { A::local(as, label); B::local(as, label); }
 
@@ -2168,6 +2170,7 @@ struct TargetInterface {
 
     // Labels
 
+    virtual void weakglobal(Assembly& as, Label label) const = 0;
     virtual void global(Assembly& as, Label label) const = 0;
     virtual void local(Assembly& as, Label label) const = 0;
 
@@ -2306,6 +2309,7 @@ struct TargetImplementation : public TargetInterface {
 
     // Labels
 
+    virtual void weakglobal(Assembly& as, Label label) const override { Target::weakglobal(as, label); }
     virtual void global(Assembly& as, Label label) const override { Target::global(as, label); }
     virtual void local(Assembly& as, Label label) const override { Target::local(as, label); }
 

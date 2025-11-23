@@ -378,6 +378,23 @@ namespace jasmine {
 
     struct Function;
 
+    enum class FunctionFlags : u32 {
+        None = 0,
+        Weak = 1
+    };
+
+    inline FunctionFlags operator|(FunctionFlags a, FunctionFlags b) {
+        return FunctionFlags(u32(a) | u32(b));
+    }
+
+    inline FunctionFlags operator&(FunctionFlags a, FunctionFlags b) {
+        return FunctionFlags(u32(a) & u32(b));
+    }
+
+    inline bool operator!(FunctionFlags a) {
+        return !u32(a);
+    }
+
     template<typename T>
     using IndexType = typename T::IndexType;
 
@@ -729,13 +746,14 @@ namespace jasmine {
         bool isLeaf = true;
         bool hasAlloca = false;
         bool makesCalls = false;
+        FunctionFlags flags;
         i64 nextTemp = 0;
         mutable u32 validatingCount = 0;
         vec<NodeIndex, 8> nodesToInsert;
         vec<Insertion, 8> insertions;
         vec<vec<u16, 12>, 4> blockInsertions;
 
-        Function(Module& mod_in, Symbol sym_in, TypeIndex returnType_in);
+        Function(Module& mod_in, Symbol sym_in, TypeIndex returnType_in, FunctionFlags flags_in);
 
         PREVENT_COPYING(Function);
         PREVENT_MOVING(Function);

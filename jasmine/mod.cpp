@@ -26,18 +26,18 @@ namespace jasmine {
             delete function;
     }
 
-    Function& Module::defineFunction(TypeIndex returnType, const i8* name) {
-        return defineFunction(returnType, const_slice<i8>{name, findc(name, 0)});
+    Function& Module::defineFunction(TypeIndex returnType, const i8* name, FunctionFlags flags) {
+        return defineFunction(returnType, cstring(name), flags);
     }
 
-    Function& Module::defineFunction(TypeIndex returnType, const_slice<i8> name) {
+    Function& Module::defineFunction(TypeIndex returnType, const_slice<i8> name, FunctionFlags flags) {
         Symbol sym = syms[name];
         functionMap.put(sym, functions.size());
-        functions.push(new Function(*this, sym, returnType));
+        functions.push(new Function(*this, sym, returnType, flags));
         functions.back()->indexInModule = functions.size() - 1;
         return *functions.back();
     }
-    
+
     void Module::releaseFunction(Function& fn) {
         u32 idx = functionMap[fn.sym];
         delete functions[idx];

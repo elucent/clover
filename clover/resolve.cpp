@@ -1112,9 +1112,9 @@ namespace clover {
                 entry.setType(funcType);
                 ast.setType(funcType);
                 function->typeIndex = funcType.index;
-                ast.setChild(1, module->add(ASTKind::ResolvedFunction, function));
 
                 if (!function->isGeneric) {
+                    ast.setChild(1, module->add(ASTKind::ResolvedFunction, function));
                     resolveChild(module, fixups, ast, 3, ExpectValue);
 
                     // We intentionally skipped resolving scopes earlier, since

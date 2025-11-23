@@ -83,7 +83,7 @@ namespace jasmine {
 
         if (opcode == MOV)
             return !isCompound(type) || isFunction(fn, type);
-        if (((u32)opcode < 64 && (1ull << u32(opcode) & lowMask)) || ((u32)opcode < 128 && (1ull << (u32(opcode) - 64) & highMask)))
+        if (((u32)opcode < 64 && (1ull << u32(opcode) & lowMask)) || ((u32)opcode >= 64 && (u32)opcode < 128 && (1ull << (u32(opcode) - 64) & highMask)))
             return false;
         return true;
     }

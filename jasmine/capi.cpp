@@ -55,8 +55,8 @@ JASMINE_EXPORT JasmineType jasmine_make_function_type(JasmineModule module, cons
  * Functions
  */
 
-JASMINE_EXPORT JasmineFunction jasmine_create_function(JasmineModule module, const char* name, size_t name_length, JasmineType return_type) {
-    return JasmineFunction { .handle = &M(module).defineFunction((TypeIndex)return_type.index, const_slice<i8>{ name, (iword)name_length }) };
+JASMINE_EXPORT JasmineFunction jasmine_create_function(JasmineModule module, const char* name, size_t name_length, JasmineType return_type, unsigned flags) {
+    return JasmineFunction { .handle = &M(module).defineFunction((TypeIndex)return_type.index, const_slice<i8>{ name, (iword)name_length }, FunctionFlags(flags)) };
 }
 
 /*

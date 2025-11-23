@@ -552,6 +552,17 @@ void Assembly::writeELFObject(fd file) {
         return binding << 4 | type;
     };
 
+    auto encodeDefType = [&](DefType type) -> u8 {
+        switch (type) {
+            case DEF_GLOBAL:
+                return STB_GLOBAL;
+            case DEF_LOCAL:
+                return STB_LOCAL;
+            case DEF_WEAK:
+                return STB_WEAK;
+        }
+    };
+
     symbolTable.writeLEUnchecked<u32>(0); // st_name : u32, for the first symbol this is undefined
     symbolTable.writeUnchecked<u8>(encodeSymbolInfo(STB_LOCAL, STT_NOTYPE)); // st_info : u8, doesn't matter since this is a placeholder symbol
     symbolTable.writeUnchecked<u8>(STV_DEFAULT); // st_other : u8, again doesn't matter since this is a placeholder symbol
@@ -572,7 +583,7 @@ void Assembly::writeELFObject(fd file) {
             shndx = SHN_UNDEF;
 
         symbolTable.writeLEUnchecked<u32>(info.nameOffset); // st_name : u32 (we generated strings in definition order, so st_name can just be the cumulative offset)
-        symbolTable.writeUnchecked<u8>(encodeSymbolInfo(info.type == DEF_GLOBAL ? STB_GLOBAL : STB_LOCAL, STT_NOTYPE)); // st_info : u8
+        symbolTable.writeUnchecked<u8>(encodeSymbolInfo(encodeDefType(info.type), STT_NOTYPE)); // st_info : u8
         symbolTable.writeUnchecked<u8>(STV_DEFAULT); // st_other : u8, we just use default visibility
         symbolTable.writeLEUnchecked<u16>(shndx);
         symbolTable.writeLEUnchecked<uptr>(info.offset == 0xffffffffu ? 0 : info.offset); // st_value : uptr (since it's relative to the start of the section, we can use the same offset)

@@ -29,8 +29,8 @@ namespace jasmine {
         Module(const_slice<i8> moduleName);
         ~Module();
 
-        Function& defineFunction(TypeIndex returnType, const i8* name);
-        Function& defineFunction(TypeIndex returnType, const_slice<i8> name);
+        Function& defineFunction(TypeIndex returnType, const i8* name, FunctionFlags flags);
+        Function& defineFunction(TypeIndex returnType, const_slice<i8> name, FunctionFlags flags);
         void releaseFunction(Function& fn);
 
         inline const TypeContext& typeContext() const {

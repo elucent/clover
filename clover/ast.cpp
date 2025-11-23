@@ -63,6 +63,8 @@ namespace clover {
                 return mixHash(kh, intHash(ast.uintConst()));
             case ASTKind::Float:
                 return mixHash(kh, intHash(bitcast<u64>(ast.floatConst())));
+            case ASTKind::Ident:
+                return mixHash(kh, ::hash(ast.module->str(ast.symbol())));
             case ASTKind::String:
                 return mixHash(kh, ::hash(ast.module->str(ast.stringConst())));
             case ASTKind::Bool:
