@@ -885,3 +885,54 @@ i32[] y: makeNum()
     auto y = topLevel.child(4);
     ASSERT_TYPE_EQUAL(y.child(2).type(), module->sliceType(I32));
 }
+
+TEST(typecheck_call_generic) {
+    auto instance = TYPECHECK(R"(
+fun id(type T, T x): x
+
+var i: id(42)
+var j: id(42.0)
+var k: i + j
+
+i8 l: id(42)
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto i = topLevel.child(1);
+    ASSERT_TYPE_EQUAL(i.type(), module->i64Type());
+
+    auto j = topLevel.child(2);
+    ASSERT_TYPE_EQUAL(j.type(), module->f32Type());
+}
+
+TEST(typecheck_function_affects_global) {
+    // Typechecking function bodies should influence the way global variables
+    // are inferred. This goes for lexical function definitions and for generic
+    // instantiations too.
+
+    auto instance = TYPECHECK(R"(
+var a: 1
+fun foo():
+    i32 x: a
+    return x
+
+var b: 2
+fun bar(x):
+    i32 y: x + b
+    return y
+
+foo()
+bar(42)
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto a = topLevel.child(0);
+    ASSERT_TYPE_EQUAL(a.type(), module->i32Type());
+
+    auto b = topLevel.child(2);
+    ASSERT_TYPE_EQUAL(b.type(), module->i32Type());
+}

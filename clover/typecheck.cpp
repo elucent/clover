@@ -728,6 +728,22 @@ namespace clover {
         return value;
     }
 
+    void evaluateConstantDecls(Module* module, Function* function, Value env) {
+        vec<NodeIndex>* defs;
+        if (function)
+            defs = &function->constDeclOrder;
+        else
+            defs = &module->constDeclOrder;
+        for (NodeIndex i : *defs) {
+            AST constDecl = module->node(i);
+            assert(constDecl.kind() == ASTKind::ConstVarDecl);
+
+            Value value = eval(env, constDecl.child(1));
+            assert(constDecl.child(0).kind() == ASTKind::Const || constDecl.child(0).kind() == ASTKind::GlobalConst);
+            set(env, boxUnsigned(constDecl.child(0).constId()), value);
+        }
+    }
+
     void finalizeConstants(Module* module, Function* function, Value env) {
         if (env.kind() == Value::Undefined)
             return;
@@ -737,6 +753,7 @@ namespace clover {
 
     Evaluation infer(InferenceContext& ctx, Function* function, AST ast);
     void refineGraph(Module* module, InferenceContext& ctx);
+    void check(InferenceContext& ctx, Function* function, AST ast);
 
     Evaluation inferChild(InferenceContext& ctx, Function* function, AST ast, u32 i) {
         auto eval = infer(ctx, function, ast.child(i));
@@ -1727,10 +1744,7 @@ namespace clover {
             // Declarations
 
             case ASTKind::ConstVarDecl: {
-                Value value = eval(ctx.env, ast.child(1));
-                assert(ast.child(0).kind() == ASTKind::Const || ast.child(0).kind() == ASTKind::GlobalConst);
-                set(ctx.env, boxUnsigned(ast.child(0).constId()), value);
-
+                // We evaluated constant variable declarations earlier.
                 ast.setType(module->voidType());
                 return fromType(module->voidType());
             }
@@ -1776,7 +1790,31 @@ namespace clover {
             }
 
             case ASTKind::FunDecl: {
-                ctx.discoveredFunctions->push(ast.node);
+                auto oldEnv = ctx.env;
+                ctx.env = createEnv(module, ast.function());
+
+                auto name = ast.child(1).variable();
+                for (AST param : ast.child(2)) {
+                    if (param.kind() != ASTKind::VarDecl)
+                        continue;
+                    if (!param.child(2).missing()) {
+                        auto paramValue = inferChild(ctx, ast.function(), param, 2);
+                        unify(paramValue, param.type(), ast, ctx);
+                    }
+                }
+                Type funType = ast.type();
+                if (!funType.isConcrete())
+                    ctx.ensureResolved(ast.type());
+                assert(funType.is<TypeKind::Function>());
+                Type returnType = funType.as<TypeKind::Function>().returnType();
+                if (!ast.child(4).missing()) { // If we're a stub function, we don't need to do anything.
+                    inferChild(ctx, ast.function(), ast, 4);
+                    addImplicitReturns(ctx, returnType, ast, ast.child(4), { ast, 4 });
+                }
+
+                finalizeConstants(module, ast.function(), ctx.env);
+                ctx.env = oldEnv;
+
                 return fromType(module->voidType());
             }
 
@@ -2085,21 +2123,50 @@ namespace clover {
         }
     }
 
-    Function* instantiate(InferenceContext& ctx, Function* generic, AST call) {
-        Module* module = generic->module;
-        auto type = generic->type();
-        type_assert(type.is<TypeKind::Function>());
-        auto funcType = type.as<TypeKind::Function>();
+    void clearTypes(AST ast) {
+        if (ast.isLeaf())
+            return;
+        ast.setType(InvalidType);
+        for (AST child : ast)
+            clearTypes(child);
+    }
 
-        for (u32 i = 1; i < call.arity(); i ++) {
-            auto arg = inferredType(ctx, generic, call.child(i));
-            auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
-            unifyInPlace(arg, parameterType, call);
+    Type instantiateSignature(AST newDecl) {
+        Module* module = newDecl.module;
+        AST returnExpr = newDecl.child(0);
+        AST parameters = newDecl.child(2);
+        Scope* newScope = newDecl.scope();
+        vec<Type> typeParameters;
+        clearTypes(parameters);
+        clearTypes(returnExpr);
+        for (AST child : parameters) if (child.kind() == ASTKind::AliasDecl) {
+            child.setType(module->varType());
+            child.child(0).varInfo(newScope->function).type = child.typeIndex();
         }
 
+        vec<Type> parameterTypes;
+        for (u32 i = 0; i < parameters.arity(); i ++) {
+            if (parameters.child(i).kind() == ASTKind::AliasDecl)
+                continue;
+            assert(parameters.child(i).kind() == ASTKind::VarDecl);
+            parameters.setChild(i, resolveNode(newScope, parameters, parameters.child(i)));
+            parameterTypes.push(parameters.child(i).type());
+            if (!parameters.child(i).child(1).missing())
+                parameters.child(i).child(1).varInfo(newScope->function).type = parameters.child(i).typeIndex();
+        }
+
+        newDecl.setChild(0, resolveNode(newScope, newDecl, newDecl.child(0)));
+        Type returnType = newDecl.child(0).missing() ? module->varType() : evaluateType(module, newScope->function, newDecl.child(0));
+        return module->funType(returnType, parameterTypes);
+    }
+
+    Function* instantiate(InferenceContext& ctx, Function* generic, AST call) {
+        Module* module = generic->module;
+
         AST oldDecl = module->node(generic->decl);
-        AST newDecl = module->clone(module->node(generic->decl));
-        Function* newFunction = module->addFunction(newDecl, generic->parent);
+        AST newDecl = module->add(ASTKind::FunDecl, oldDecl.pos(), InvalidScope, InvalidType, module->clone(oldDecl.child(0)), module->add(ASTKind::Missing), module->clone(oldDecl.child(2)), module->clone(oldDecl.child(3)), module->clone(oldDecl.child(4)));
+        Function* newFunction = module->addFunction(newDecl, generic->parent, generic->name);
+        newDecl.setChild(1, module->add(ASTKind::ResolvedFunction, newFunction));
         Scope* oldScope = oldDecl.scope();
         Scope* newScope = module->addScope(ScopeKind::Function, newDecl.node, oldDecl.scope()->parent, newFunction);
         for (auto e : oldScope->entries) {
@@ -2108,19 +2175,113 @@ namespace clover {
             newFunction->locals.push(generic->locals[e.value]);
         }
 
+        // Ensure our new scope is associated with our parameters/return type.
         newDecl.setScope(newScope);
-        newFunction->typeIndex = generic->cloneGenericType().index;
-        newDecl.setType(newFunction->type());
+        setScopes(module, newScope, newDecl.child(0));
+        setScopes(module, newScope, newDecl.child(2));
 
+        // Instantiate the signature, by clearing previously resolved types,
+        // redefining generic type variables, and re-resolving the parameter
+        // and return type definitions to get a fresh function type.
+        Type type = instantiateSignature(newDecl);
+        newFunction->typeIndex = type.index;
+        newDecl.setType(type);
+        if UNLIKELY(config::verboseInstantiation)
+            println("[TYPE]\tInstantiated signature ", generic->type(), " into ", type);
+
+        assert(type.is<TypeKind::Function>());
+        auto funcType = type.as<TypeKind::Function>();
+
+        // Refine the type variables from instantiating the signature based on
+        // our parameters and return type constraints.
+        auto returnType = inferredType(ctx, call.function(), call);
+        unifyInPlace(funcType.returnType(), returnType, call);
+        for (u32 i = 1; i < call.arity(); i ++) {
+            auto arg = inferredType(ctx, call.function(), call.child(i));
+            auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
+            unifyInPlace(arg, parameterType, call);
+        }
+
+        // Now we can finally explore the function body.
         computeScopes(module, newScope, newDecl.child(4));
         newDecl.setChild(4, resolveNode(newDecl.scope(), newDecl, newDecl.child(4)));
 
-        ctx.discoveredFunctions->push(newDecl.node);
+        // We need to typecheck this immediately if we want the caller to learn
+        // anything about this function's signature before it finishes type
+        // refinement. This means we need another constraint graph.
+
+        Constraints constraints(module, module->types, ctx.constraints->depth + 1);
+        vec<NodeIndex, 16> lateChecks;
+        vec<TypeIndex, 16> lateResolves;
+        vec<NodeIndex, 16> discoveredFunctions;
+
+        InferenceContext instantiationCtx;
+        instantiationCtx.constraints = &constraints;
+        instantiationCtx.lateChecks = &lateChecks;
+        instantiationCtx.lateResolves = &lateResolves;
+        instantiationCtx.discoveredFunctions = &discoveredFunctions;
+
+        // TODO: It's super icky that we have so much duplication between here,
+        // the global inference, and drainFunctions. I bet they can be unified.
+
+        instantiationCtx.env = createEnv(module, newFunction);
+
+        auto name = newDecl.child(1).variable();
+        for (AST param : newDecl.child(2)) {
+            if (param.kind() != ASTKind::VarDecl)
+                continue;
+            if (!param.child(2).missing()) {
+                auto paramValue = inferChild(instantiationCtx, newFunction, param, 2);
+                unify(paramValue, param.type(), newDecl, instantiationCtx);
+            }
+        }
+        if (!funcType.isConcrete())
+            instantiationCtx.ensureResolved(newDecl.type());
+        assert(funcType.is<TypeKind::Function>());
+        if (!newDecl.child(4).missing()) { // If we're a stub function, we don't need to do anything.
+            inferChild(instantiationCtx, newDecl.function(), newDecl, 4);
+            addImplicitReturns(instantiationCtx, funcType.returnType(), newDecl, newDecl.child(4), { newDecl, 4 });
+        }
+
+        if UNLIKELY(config::printTypeConstraints)
+            printTypeConstraints(module->types, instantiationCtx.constraints);
+        if UNLIKELY(config::printInferredTreeAfterEachPass) {
+            println("| Function ", ASTWithParent { newDecl, newDecl.child(1) }, " after type discovery pass: ");
+            println("*-----------------------------------");
+            println(Multiline(newDecl)); printTypeVariableState(module->types); println();
+        }
+
+        finalizeConstants(module, newDecl.function(), instantiationCtx.env);
+
+        refineGraph(module, instantiationCtx);
+        if UNLIKELY(config::printInferredTreeAfterEachPass) {
+            println("| Function ", ASTWithParent { newDecl, newDecl.child(1) }, " after type refinement pass: ");
+            println("*------------------------------------");
+            println(Multiline(newDecl)); printTypeVariableState(module->types); println();
+        }
+
+        for (NodeIndex node : *instantiationCtx.lateChecks) {
+            AST ast = module->node(node);
+            assert(!ast.isLeaf());
+            check(instantiationCtx, ast.function(), ast);
+        }
+        for (TypeIndex v : *instantiationCtx.lateResolves)
+            expand(module->types->get(v)).concretify();
+        instantiationCtx.lateChecks->clear();
+        instantiationCtx.lateResolves->clear();
+
+        if UNLIKELY(config::printInferredTreeAfterEachPass) {
+            println("| Function ", ASTWithParent { newDecl, newDecl.child(1) }, " after type checking pass: ");
+            println("*----------------------------------");
+            println(Multiline(newDecl)); printTypeVariableState(module->types); println();
+        }
+
+        instantiationCtx.constraints->clear();
 
         if (oldDecl.child(1).missing())
             oldDecl.setChild(1, newDecl);
         else
-            oldDecl.setChild(1, module->add(ASTKind::Then, oldDecl.child(1), newDecl));
+            oldDecl.setChild(1, module->add(ASTKind::Then, oldDecl.pos(), oldDecl.scope(), module->voidType(), oldDecl.child(1), newDecl));
 
         return newFunction;
     }
@@ -2197,8 +2358,10 @@ namespace clover {
         type_assert(possibleFunctions.size() <= 1);
         if (possibleFunctions.size() == 1) {
             Function* candidate = possibleFunctions[0].function;
-            if (candidate->isGeneric)
+            if (candidate->isGeneric) {
                 candidate = instantiate(ctx, candidate, ast);
+                possibleFunctions[0].type = candidate->typeIndex;
+            }
             ast.setChild(0, module->add(ASTKind::ResolvedFunction, candidate));
             return some<TypeIndex>(possibleFunctions[0].type);
         }
@@ -2227,6 +2390,7 @@ namespace clover {
             if (callee->isGeneric) {
                 callee = instantiate(ctx, callee, ast);
                 ast.setChild(0, ast.module->add(ASTKind::ResolvedFunction, callee));
+                return some<TypeIndex>(callee->typeIndex);
             }
         }
 
@@ -2494,9 +2658,9 @@ namespace clover {
 
     void resolveSubtypeCycle(Constraints& constraints, const_slice<ConstraintIndex> cycle) {
         TypeSystem* types = constraints.types;
-        bitset<128> group;
+        ::set<ConstraintIndex> group;
         for (ConstraintIndex i : cycle)
-            group.on(constraints.expand(i));
+            group.insert(constraints.expand(i));
 
         // When we find a subtype cycle, we know that due to the transitivity
         // of subtyping, all types in the cycle must be strictly equal. To
@@ -2533,7 +2697,7 @@ namespace clover {
             if (!result) {
                 result = type;
                 resultIndex = index;
-                for (Constraint constraint : constraints.constraints[index]) if (!group[constraint.index])
+                for (Constraint constraint : constraints.constraints[index]) if (!group.contains(constraint.index))
                     newConstraints.push(constraint);
             } else if (!type.isVar()) {
                 if (result.isVar()) {
@@ -2548,7 +2712,7 @@ namespace clover {
                 } else if (result != type)
                     type_error("[TYPE]\tFailed to satisfy equality requirement between types ", type, " and ", result, " which share a cycle.");
             } else {
-                for (Constraint constraint : constraints.constraints[index]) if (!group[constraint.index])
+                for (Constraint constraint : constraints.constraints[index]) if (!group.contains(constraint.index))
                     newConstraints.push(constraint);
                 foundAnyOrderedBesidesResult = constraints.constraints[index].doesNeedRefinement() || foundAnyOrderedBesidesResult;
                 if (result.isVar()) {
@@ -2583,7 +2747,7 @@ namespace clover {
                 // its elements to the group.
                 auto& list = constraints.constraints[resultIndex].refinementList(constraints);
                 for (ConstraintIndex i : list)
-                    group.on(i);
+                    group.insert(i);
 
                 if UNLIKELY(config::verboseUnify >= 3) {
                     print("[TYPE]\tMaintaining existing refinement list [");
@@ -2604,7 +2768,7 @@ namespace clover {
                 auto& list = constraints.constraints[i].refinementList(constraints);
                 for (ConstraintIndex j : list) {
                     assert(!constraints.constraints[j].hasRefinementList);
-                    group.on(j);
+                    group.insert(j);
                 }
 
                 if UNLIKELY(config::verboseUnify >= 3) {
@@ -2644,9 +2808,9 @@ namespace clover {
 
     void resolveOrderingCycle(Constraints& constraints, const_slice<ConstraintIndex> cycle) {
         TypeSystem* types = constraints.types;
-        bitset<128> group;
+        ::set<ConstraintIndex> group;
         for (ConstraintIndex i : cycle)
-            group.on(constraints.expand(i));
+            group.insert(constraints.expand(i));
 
         // Ordering cycles are kinda weird, because we basically have no good
         // way to handle them. We're going to have to pick some node from the
@@ -2660,7 +2824,7 @@ namespace clover {
         // to parent nodes.
 
         for (ConstraintIndex node : cycle)
-            constraints.constraints[node].removeIf([&](Constraint constraint) -> bool { return constraint.kind == Constraint::Order && group[constraint.index]; });
+            constraints.constraints[node].removeIf([&](Constraint constraint) -> bool { return constraint.kind == Constraint::Order && group.contains(constraint.index); });
     }
 
     void strongconnect(Constraints& constraints, ConstraintIndex node, vec<SCCNode, 31>& nodes, vec<ConstraintIndex>& stack, u32& index, StrongConnectFunc func) {
@@ -3004,73 +3168,15 @@ namespace clover {
         }
     }
 
-    void drainFunctions(InferenceContext& ctx, const_slice<NodeIndex> functions, Module* module) {
-        for (u32 i = 0; i < functions.size(); i ++) {
-            assert(ctx.lateChecks->size() == 0);
-            assert(ctx.lateResolves->size() == 0);
-            ctx.constraints->clear();
+    void evaluateConstants(Module* module, Function* function) {
+        Value env = createEnv(module, function);
+        evaluateConstantDecls(module, function, env);
+        finalizeConstants(module, function, env);
 
-            u32 previouslyDiscoveredFunctions = ctx.discoveredFunctions->size();
-
-            AST ast = module->node(functions[i]);
-            ctx.env = createEnv(module, ast.function());
-
-            auto name = ast.child(1).variable();
-            for (AST param : ast.child(2)) {
-                if (param.kind() != ASTKind::VarDecl)
-                    continue;
-                if (!param.child(2).missing()) {
-                    auto paramValue = inferChild(ctx, ast.function(), param, 2);
-                    unify(paramValue, param.type(), ast, ctx);
-                }
-            }
-            Type funType = ast.type();
-            if (!funType.isConcrete())
-                ctx.ensureResolved(ast.type());
-            assert(funType.is<TypeKind::Function>());
-            Type returnType = funType.as<TypeKind::Function>().returnType();
-            if (!ast.child(4).missing()) { // If we're a stub function, we don't need to do anything.
-                inferChild(ctx, ast.function(), ast, 4);
-                addImplicitReturns(ctx, returnType, ast, ast.child(4), { ast, 4 });
-            }
-
-            if UNLIKELY(config::printTypeConstraints)
-                printTypeConstraints(module->types, ctx.constraints);
-            if UNLIKELY(config::printInferredTreeAfterEachPass) {
-                println("| Function ", ASTWithParent { ast, ast.child(1) }, " after type discovery pass: ");
-                println("*-----------------------------------");
-                println(Multiline(ast)); printTypeVariableState(module->types); println();
-            }
-
-            finalizeConstants(module, ast.function(), ctx.env);
-
-            refineGraph(module, ctx);
-            if UNLIKELY(config::printInferredTreeAfterEachPass) {
-                println("| Function ", ASTWithParent { ast, ast.child(1) }, " after type refinement pass: ");
-                println("*------------------------------------");
-                println(Multiline(ast)); printTypeVariableState(module->types); println();
-            }
-
-            for (NodeIndex node : *ctx.lateChecks) {
-                AST ast = module->node(node);
-                assert(!ast.isLeaf());
-                check(ctx, ast.function(), ast);
-            }
-            for (TypeIndex v : *ctx.lateResolves)
-                expand(module->types->get(v)).concretify();
-            ctx.lateChecks->clear();
-            ctx.lateResolves->clear();
-
-            if UNLIKELY(config::printInferredTreeAfterEachPass) {
-                println("| Function ", ASTWithParent { ast, ast.child(1) }, " after type checking pass: ");
-                println("*----------------------------------");
-                println(Multiline(ast)); printTypeVariableState(module->types); println();
-            }
-
-            if (ctx.discoveredFunctions->size() != previouslyDiscoveredFunctions) {
-                // DFS traversal of nested functions.
-                drainFunctions(ctx, (*ctx.discoveredFunctions)[{previouslyDiscoveredFunctions, ctx.discoveredFunctions->size()}], module);
-            }
+        const auto& defs = function ? function->locals : module->globals;
+        for (const auto& info : defs) if (info.kind == VariableKind::Function && !info.isImport) {
+            AST decl = module->node(info.decl);
+            evaluateConstants(module, decl.function());
         }
     }
 
@@ -3080,7 +3186,11 @@ namespace clover {
         Module* module = artifact->as<Module>();
         module->nodeTypes.expandTo(module->ast.size(), InvalidType);
 
-        // First, discover type and ordering constraints.
+        // First, initialize all constant variable declarations.
+
+        evaluateConstants(module, nullptr);
+
+        // Next, discover type and ordering constraints.
 
         Constraints constraints(module, module->types, 0);
         vec<NodeIndex, 16> lateChecks;
@@ -3135,10 +3245,6 @@ namespace clover {
             println("*----------------------------------");
             module->print(module->compilation), println();
         }
-
-        // We just finished checking the top-level. Now we traverse all the
-        // functions within the module.
-        drainFunctions(globalCtx, *globalCtx.discoveredFunctions, module);
 
         if UNLIKELY(config::printInferredTree)
             module->print(module->compilation), println();

@@ -205,6 +205,7 @@ namespace clover {
     Scope* getRootScope(Module* module);
     NOINLINE Artifact* computeScopes(Artifact* artifact);
     void computeScopes(Module* module, Scope* currentScope, AST ast);
+    void setScopes(Module* module, Scope* scope, AST ast);
 }
 
 #endif

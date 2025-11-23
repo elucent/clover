@@ -483,9 +483,10 @@ namespace clover {
         vec<VariableInfo, 8> locals;
         vec<ConstInfo, 8> constants;
         map<ConstOriginKey, u32> importedConstants;
+        vec<NodeIndex> constDeclOrder;
         u32 numTemps = 0;
         bool isConst;
-        bool isGeneric = false;
+        bool isGeneric = false, isInstantiation = false;
 
         // The generic type is used a little strangely. We keep this as the
         // authoritative "base copy" of the type, basically whatever we know
@@ -499,6 +500,7 @@ namespace clover {
         TypeIndex genericType = InvalidType;
 
         inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in);
+        inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in, Symbol name_in);
 
         inline Local addLocalOverload(u32 overloads, Symbol name) {
             VariableInfo info;
@@ -779,6 +781,7 @@ namespace clover {
         map<Function*, u32> importedFunctions;
         vec<Overloads*, 4> overloads;
         map<Overloads*, u32> importedOverloads;
+        vec<NodeIndex> constDeclOrder;
         const_slice<i8> source;
         vec<u32> lineOffsets;
         NodeIndex topLevel;
@@ -1355,9 +1358,8 @@ namespace clover {
             info.constantIndex = constants.size();
             globals.push(info);
 
-            ConstInfo constInfo;
-            constInfo.origin = scopes[scope]->function;
-            constInfo.value = boxUnsigned(constantIndex);
+            Scope* s = scopes[scope];
+            ConstInfo constInfo = (s->function ? s->function->constants : globalConstants)[constantIndex];
             globalConstants.push(constInfo);
             return Global(globals.size() - 1);
         }
@@ -1513,6 +1515,12 @@ namespace clover {
             return functions.back();
         }
 
+        inline Function* addFunction(AST owner, Function* parent, Symbol name) {
+            functions.push(new Function(this, parent, owner.node, name));
+            functions.back()->index = functions.size() - 1;
+            return functions.back();
+        }
+
         inline Overloads* addOverloads(Function* function) {
             overloads.push(new Overloads());
             overloads.back()->module = this;
@@ -1586,9 +1594,8 @@ namespace clover {
         info.constantIndex = constants.size();
         locals.push(info);
 
-        ConstInfo constInfo;
-        constInfo.origin = module->scopes[scope]->function;
-        constInfo.value = boxUnsigned(constantIndex);
+        Scope* s = module->scopes[scope];
+        ConstInfo constInfo = (s->function ? s->function->constants : module->globalConstants)[constantIndex];
         constants.push(constInfo);
         return Local(locals.size() - 1);
     }
@@ -1601,6 +1608,11 @@ namespace clover {
     inline Function::Function(Module* module_in, Function* parent_in, NodeIndex decl_in):
         module(module_in), parent(parent_in), decl(decl_in) {
         name = module->node(decl).child(1).symbol();
+        isConst = module->node(decl).kind() == ASTKind::ConstFunDecl;
+    }
+
+    inline Function::Function(Module* module_in, Function* parent_in, NodeIndex decl_in, Symbol name_in):
+        module(module_in), parent(parent_in), decl(decl_in), name(name_in) {
         isConst = module->node(decl).kind() == ASTKind::ConstFunDecl;
     }
 

@@ -901,8 +901,6 @@ namespace clover {
         inline Constraints(Module* module_in, TypeSystem* types_in, u32 depth_in):
             module(module_in), types(types_in), depth(depth_in) {}
 
-        inline ~Constraints();
-
         inline ConstraintIndex index(Type type);
         inline ConstraintList& list(Type type);
         inline bool constrainType(Type subType, Type superType);
@@ -3222,11 +3220,6 @@ namespace clover {
 
     // Constraints
 
-    inline Constraints::~Constraints() {
-        if (depth > 0) for (u32 i = 0; i < constrainedTypes.size(); i ++)
-            types->constraintNodes[constrainedTypes[i]] = outerIndices[i];
-    }
-
     inline ConstraintIndex Constraints::index(Type type) {
         type = clover::expand(type);
         auto packed = types->constraintNodes[type.index];
@@ -3703,6 +3696,8 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const VarType& type) {
+        if (type.isEqual())
+            return format(io, type.equalType());
         if UNLIKELY(config::readableTypeVars) {
             io = format(io, '\'');
             u32 number = type.varNumber();

@@ -220,6 +220,14 @@ namespace clover {
         defineFunctionOrOverloads(scope, name, pos, overloads, true);
     }
 
+    void setScopes(Module* module, Scope* scope, AST ast) {
+        if (ast.isLeaf())
+            return;
+        ast.setScope(scope);
+        for (AST child : ast)
+            setScopes(module, scope, child);
+    }
+
     void computeScopes(Module* module, Imports& imports, Scope* currentScope, AST ast) {
         switch (ast.kind()) {
             case ASTKind::Local:
@@ -434,6 +442,7 @@ namespace clover {
                 assert(name.kind() == ASTKind::Ident);
                 currentScope->addConstant(VariableKind::Constant, ast, name.symbol(), Value());
                 computeScopes(module, imports, currentScope, ast.child(1));
+                (currentScope->function ? currentScope->function->constDeclOrder : module->constDeclOrder).push(ast.node);
                 break;
             }
             case ASTKind::ConstFunDecl: {

@@ -65,7 +65,7 @@ namespace clover {
         switch (ast.kind()) {
             case ASTKind::Typename: {
                 Type type = expand(module->types->get(ast.varInfo(scope->function).type));
-                ast.varInfo().type = type.index;
+                ast.varInfo(scope->function).type = type.index;
                 return type;
             }
             case ASTKind::GlobalTypename: {
@@ -299,9 +299,7 @@ namespace clover {
                     if (it != scope->function->importedConstants.end())
                         return some<AST>(module->add(ASTKind::Const, ConstId(it->value)));
 
-                    ConstInfo constInfo;
-                    constInfo.origin = typeScope->function;
-                    constInfo.value = boxUnsigned(info.constantIndex);
+                    ConstInfo constInfo = (typeScope->function ? typeScope->function->constants : module->globalConstants)[info.constantIndex];
                     auto id = scope->function->constants.size();
                     scope->function->constants.push(constInfo);
                     scope->function->importedConstants.put({ typeScope->function, info.constantIndex }, id);
@@ -1032,6 +1030,9 @@ namespace clover {
                         AST arg = a;
                         function->isGeneric = true;
                         arg.setType(module->varType());
+                        auto entry = ast.scope()->findLocal(a.child(0).symbol());
+                        assert(entry);
+                        function->locals[entry.index].type = arg.typeIndex();
                         break;
                     }
                     case ASTKind::VarDecl:
@@ -1067,6 +1068,7 @@ namespace clover {
 
                 for (auto [i, a] : enumerate(ast.child(2))) switch (a.kind()) {
                     case ASTKind::AliasDecl:
+                        resolveChild(module, fixups, a, 0, ExpectType);
                         break;
                     case ASTKind::ConstVarDecl:
                         unreachable("TODO: Implement constant, type, and generic parameters.");
@@ -1104,10 +1106,9 @@ namespace clover {
                 auto entry = module->lookup(scope, function->name);
                 assert(entry);
                 Type funcType = module->funType(returnType, argumentTypes);
-                if (function->isGeneric) {
+                if (function->isGeneric)
                     function->genericType = funcType.index;
-                    funcType = function->cloneGenericType();
-                }
+
                 entry.setType(funcType);
                 ast.setType(funcType);
                 function->typeIndex = funcType.index;
@@ -1430,8 +1431,6 @@ namespace clover {
                 validateResolution(module, fn, some<AST>(ast), ast.child(ast.arity() - 1));
                 return;
             case ASTKind::GenericFunDecl:
-                for (u32 i = 0; i < 4; i ++)
-                    validateResolution(module, fn, some<AST>(ast), ast.child(i));
                 return;
             default:
                 break;
