@@ -1030,7 +1030,9 @@ namespace jasmine {
                         Operand output = operands[0].isReg() ? operands[0] : allocations.scratch0(n);
                         if (index.isConst()) {
                             i64 off = fn.intValueOf(index) * elementRepr.size();
-                            if (fits<I32>(off))
+                            if (!off)
+                                makeMove<Target>(this, fn, b, PTR, output, srcPtr, allocations.scratch0(n));
+                            else if (fits<I32>(off))
                                 b.addNode(Opcode::ADD, PTR, output, srcPtr, fn.intConst(off));
                             else {
                                 b.addNode(Opcode::MOV, PTR, allocations.scratch1(n), fn.intConst(off));
