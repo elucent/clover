@@ -800,7 +800,7 @@ i32 mystery(Foo a, Foo b):
     auto topLevel = module->getTopLevel();
 
     auto FooType = topLevel.child(0).type();
-    auto AType = topLevel.child(0).child(1).type();
+    auto AType = topLevel.child(0).child(2).type();
 
     auto firstCase = topLevel.child(1).child(4).child(0).child(1);
     ASSERT_EQUAL(firstCase.kind(), ASTKind::Case);
@@ -944,4 +944,47 @@ fun id(x): x + 1
 var a: 1, b: 2, c: 3
 id(a) + id(b) + id(c)
 )");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto expr = topLevel.child(2);
+    auto ida = expr.child(0).child(0);
+    auto idb = expr.child(0).child(1);
+    auto idc = expr.child(1);
+    ASSERT(ida.child(0).resolvedFunction() == idb.child(0).resolvedFunction());
+    ASSERT(idb.child(0).resolvedFunction() == idc.child(0).resolvedFunction());
+}
+
+TEST(typecheck_generic_function_same_parameter) {
+    auto instance = TYPECHECK(R"(
+fun add(type T, T x, T y):
+    return x + y
+
+1.add(0.5)
+
+add(1, 2)
+)");
+}
+
+TEST(typecheck_generic_type_explicit) {
+    auto instance = TYPECHECK(R"(
+type Box(type T):
+    T value
+
+Box(i32) a: Box(i32)(42)
+a.value
+
+var b: Box(i8)(42)
+b.value
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto aval = topLevel.child(2);
+    ASSERT_TYPE_EQUAL(aval.type(), module->i32Type());
+
+    auto bval = topLevel.child(4);
+    ASSERT_TYPE_EQUAL(bval.type(), module->i8Type());
 }

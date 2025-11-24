@@ -1776,7 +1776,7 @@ namespace clover {
                 // We skip the first child since it's just the name. Really,
                 // the only reason we are typechecking these constructs is to
                 // process any associated constant declarations they contain.
-                for (u32 i = 1; i < ast.arity(); i ++) if (ast.child(i).kind() != ASTKind::VarDecl)
+                for (u32 i = 2; i < ast.arity(); i ++) if (ast.child(i).kind() != ASTKind::VarDecl)
                     inferChild(ctx, function, ast, i);
                 return fromType(module->voidType());
             }

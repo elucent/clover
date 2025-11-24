@@ -478,7 +478,7 @@ type Foo:
     ASSERT(FooType.is<TypeKind::Union>());
     ASSERT_EQUAL(FooType.as<TypeKind::Union>().count(), 4);
 
-    auto Bar = Foo.child(1);
+    auto Bar = Foo.child(2);
     ASSERT(Bar.kind() == ASTKind::NamedCaseDecl);
     auto BarType = Bar.type();
     ASSERT(BarType.is<TypeKind::Named>());
@@ -486,7 +486,7 @@ type Foo:
     ASSERT_EQUAL(BarType.as<TypeKind::Named>().innerType(), Void);
     ASSERT_EQUAL(FooType.as<TypeKind::Union>().caseType(0), BarType);
 
-    auto Baz = Foo.child(2);
+    auto Baz = Foo.child(3);
     ASSERT(Baz.kind() == ASTKind::NamedCaseDecl);
     auto BazType = Baz.type();
     ASSERT(BazType.is<TypeKind::Named>());
@@ -494,7 +494,7 @@ type Foo:
     ASSERT_EQUAL(BazType.as<TypeKind::Named>().innerType(), I32);
     ASSERT_EQUAL(FooType.as<TypeKind::Union>().caseType(1), BazType);
 
-    auto Quux = Foo.child(3);
+    auto Quux = Foo.child(4);
     ASSERT(Quux.kind() == ASTKind::StructCaseDecl);
     auto QuuxType = Quux.type();
     ASSERT(QuuxType.is<TypeKind::Struct>());
@@ -503,20 +503,20 @@ type Foo:
     ASSERT_EQUAL(QuuxType.as<TypeKind::Struct>().fieldType(0), I32);
     ASSERT_EQUAL(FooType.as<TypeKind::Union>().caseType(2), QuuxType);
 
-    auto Xyzzy = Foo.child(4);
+    auto Xyzzy = Foo.child(5);
     ASSERT(Xyzzy.kind() == ASTKind::UnionCaseDecl);
     auto XyzzyType = Xyzzy.type();
     ASSERT(XyzzyType.is<TypeKind::Union>());
     ASSERT(XyzzyType.as<TypeKind::Union>().isCase());
     ASSERT_EQUAL(XyzzyType.as<TypeKind::Union>().count(), 2);
-    auto A = Xyzzy.child(1);
+    auto A = Xyzzy.child(2);
     ASSERT(A.kind() == ASTKind::NamedCaseDecl);
     auto AType = A.type();
     ASSERT(AType.is<TypeKind::Named>());
     ASSERT(AType.as<TypeKind::Named>().isCase());
     ASSERT_EQUAL(AType.as<TypeKind::Named>().innerType(), Void);
     ASSERT_EQUAL(XyzzyType.as<TypeKind::Union>().caseType(0), AType);
-    auto B = Xyzzy.child(2);
+    auto B = Xyzzy.child(3);
     ASSERT(B.kind() == ASTKind::NamedCaseDecl);
     auto BType = B.type();
     ASSERT(BType.is<TypeKind::Named>());
@@ -541,8 +541,8 @@ Baz.Quux y
     Module* module = artifact.as<Module>();
     auto topLevel = module->getTopLevel();
 
-    auto FooBar = topLevel.child(0).child(1).type();
-    auto BazQuux = topLevel.child(1).child(1).type();
+    auto FooBar = topLevel.child(0).child(2).type();
+    auto BazQuux = topLevel.child(1).child(2).type();
 
     auto x = topLevel.child(2);
     ASSERT(x.child(0).kind() == ASTKind::TypeField);

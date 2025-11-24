@@ -334,12 +334,12 @@ TEST(parse_fundecl_default_parameters) {
 }
 
 TEST(parse_named_typedecl) {
-    ASSERT_SAME_PARSE("type Foo", "(named Foo missing)");
-    ASSERT_SAME_PARSE("type Foo: int", "(named Foo int)");
+    ASSERT_SAME_PARSE("type Foo", "(named Foo missing missing)");
+    ASSERT_SAME_PARSE("type Foo: int", "(named Foo missing int)");
     ASSERT_SAME_PARSE(R"(
 type Foo:
     int
-)", "(named Foo int)");
+)", "(named Foo missing int)");
 }
 
 TEST(parse_ptr_type) {
@@ -493,7 +493,7 @@ type Foo:
     case Quux:
         case A
         case B
-)", "(union Foo (named_case Bar missing) (struct_case Baz (var i32 x missing)) (union_case Quux (named_case A missing) (named_case B missing)))");
+)", "(union Foo missing (named_case Bar missing missing) (struct_case Baz missing (var i32 x missing)) (union_case Quux missing (named_case A missing missing) (named_case B missing missing)))");
 }
 
 TEST(parse_match) {
@@ -531,15 +531,15 @@ TEST(parse_use) {
 
 TEST(parse_export) {
     ASSERT_SAME_PARSE("export var x: 1", "(export (var missing x 1))");
-    ASSERT_SAME_PARSE("export type Baz", "(export (named Baz missing))");
-    ASSERT_SAME_PARSE("export type Foo: i32 x", "(export (struct Foo (var i32 x missing)))");
-    ASSERT_SAME_PARSE("export alias Bar: Foo", "(export (alias Bar Foo))");
+    ASSERT_SAME_PARSE("export type Baz", "(export (named Baz missing missing))");
+    ASSERT_SAME_PARSE("export type Foo: i32 x", "(export (struct Foo missing (var i32 x missing)))");
+    ASSERT_SAME_PARSE("export alias Bar: Foo", "(export (alias Bar missing Foo))");
     ASSERT_SAME_PARSE("export i32 x", "(export (var i32 x missing))");
     ASSERT_SAME_PARSE("export i32 f(i32)", "(export (fun i32 f (tuple (var missing i32 missing)) missing missing))");
 }
 
 TEST(parse_generic_function) {
-    ASSERT_SAME_PARSE("fun id(type T, T x): x", "(fun missing id (tuple (alias T missing) (var T x missing)) missing x)");
+    ASSERT_SAME_PARSE("fun id(type T, T x): x", "(fun missing id (tuple (alias T missing missing) (var T x missing)) missing x)");
 }
 
 TEST(parse_binary_as) {

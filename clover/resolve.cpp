@@ -106,16 +106,16 @@ namespace clover {
             return ast.type();
         switch (ast.kind()) {
             case ASTKind::AliasDecl:
-                resolveChild(module, fixups, ast, 1, ExpectType);
-                assert(isTypeExpression(ast.child(1)));
-                ast.setType(evaluateType(module, fixups, ast.scope(), ast.child(1)));
+                resolveChild(module, fixups, ast, 2, ExpectType);
+                assert(isTypeExpression(ast.child(2)));
+                ast.setType(evaluateType(module, fixups, ast.scope(), ast.child(2)));
                 resolveChild(module, fixups, ast, 0, ExpectType);
                 return ast.type();
             case ASTKind::NamedDecl:
             case ASTKind::NamedCaseDecl: {
                 Type placeholder = module->varType();
                 ast.setType(placeholder);
-                AST child = resolveChild(module, fixups, ast, 1, ExpectType);
+                AST child = resolveChild(module, fixups, ast, 2, ExpectType);
                 if (child.kind() == ASTKind::VarDecl) {
                     // We discovered we're a struct after resolving a confusing
                     // pointer decl, i.e. type Foo: i32 * x
@@ -130,8 +130,8 @@ namespace clover {
                         ast.setType(module->structType(typeName, ast.scope(), Field(module->types, name, type)));
                     ast.setKind(ast.kind() == ASTKind::NamedCaseDecl ? ASTKind::StructCaseDecl : ASTKind::StructDecl);
                 } else {
-                    assert(isTypeExpression(ast.child(1)) || ast.child(1).missing());
-                    Type type = ast.child(1).missing() ? module->voidType() : evaluateType(module, fixups, ast.scope(), ast.child(1));
+                    assert(isTypeExpression(ast.child(2)) || ast.child(2).missing());
+                    Type type = ast.child(2).missing() ? module->voidType() : evaluateType(module, fixups, ast.scope(), ast.child(2));
                     if (ast.kind() == ASTKind::NamedCaseDecl)
                         ast.setType(module->namedType(ast.child(0).symbol(), ast.scope(), type, IsCase));
                     else
@@ -150,7 +150,7 @@ namespace clover {
                 ast.setType(placeholder);
                 auto builder = StructBuilder(module->types, sym);
                 builder.isCase = ast.kind() == ASTKind::StructCaseDecl;
-                for (u32 i = 1; i < ast.arity(); i ++) {
+                for (u32 i = 2; i < ast.arity(); i ++) {
                     AST member = resolveChild(module, fixups, ast, i, ExpectValue);
                     assert(member.kind() != ASTKind::NamedCaseDecl && member.kind() != ASTKind::StructCaseDecl && member.kind() != ASTKind::UnionCaseDecl);
                     if (member.kind() == ASTKind::VarDecl) {
@@ -175,7 +175,7 @@ namespace clover {
                 ast.setType(placeholder);
                 auto builder = UnionBuilder(sym);
                 builder.isCase = ast.kind() == ASTKind::UnionCaseDecl;
-                for (u32 i = 1; i < ast.arity(); i ++) {
+                for (u32 i = 2; i < ast.arity(); i ++) {
                     AST member = resolveChild(module, fixups, ast, i, ExpectValue);
                     assert(member.kind() == ASTKind::NamedCaseDecl || member.kind() == ASTKind::StructCaseDecl || member.kind() == ASTKind::UnionCaseDecl);
                     Type type = evaluateType(module, fixups, ast.scope(), ast.child(i));

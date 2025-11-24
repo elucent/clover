@@ -139,11 +139,11 @@ namespace clover {
         macro(GenericFunDecl, genericFunDecl, generic_fun, false, 5) /* Type? Link? ArgsTuple Raises? Body */ \
         macro(ConstVarDecl, constVarDecl, const_var, false, 2) \
         macro(ConstFunDecl, constFunDecl, const_fun, false, 3) \
-        macro(AliasDecl, aliasDecl, alias, false, 2) \
-        macro(NamedDecl, namedDecl, named, false, 2) /* Name Type? */ \
-        macro(StructDecl, structDecl, struct, false, -1) /* Name Fields? */ \
-        macro(UnionDecl, unionDecl, union, false, -1) /* Name Cases? */ \
-        macro(NamedCaseDecl, namedCaseDecl, named_case, false, 2) \
+        macro(AliasDecl, aliasDecl, alias, false, 3) /* Name Parameters? Type? */ \
+        macro(NamedDecl, namedDecl, named, false, 3) /* Name Parameters? Type? */ \
+        macro(StructDecl, structDecl, struct, false, -1) /* Name Parameters? Fields? */ \
+        macro(UnionDecl, unionDecl, union, false, -1) /* Name Parameters? Cases? */ \
+        macro(NamedCaseDecl, namedCaseDecl, named_case, false, 3) \
         macro(StructCaseDecl, structCaseDecl, struct_case, false, -1) \
         macro(UnionCaseDecl, unionCaseDecl, union_case, false, -1) \
         macro(KindDecl, kindDecl, kind, false, -1) \

@@ -646,12 +646,18 @@ namespace clover {
                             // Type parameter.
                             visitor.read();
                             AST ident = parseIdentifier(module, visitor);
+
+                            if (visitor.peek().token == PunctuatorLeftParen) {
+                                error(module, visitor.peek().pos, "Type parameter list not permitted in type parameter declaration.");
+                                visitor.readUpToAndIncluding(PunctuatorRightParen);
+                            }
+
                             AST init = module->add(ASTKind::Missing);
                             if (visitor.peek().token == PunctuatorColon) {
                                 visitor.read();
                                 init = parseExpression(module, visitor);
                             }
-                            argument = module->add(ASTKind::AliasDecl, token.pos, ident, init);
+                            argument = module->add(ASTKind::AliasDecl, token.pos, ident, module->add(ASTKind::Missing), init);
                         } else if (token.token == KeywordConst) {
                             // Const parameter.
                             visitor.read();
@@ -1255,15 +1261,28 @@ namespace clover {
                 Token token = visitor.read();
                 Pos namePos = visitor.peek().pos;
                 AST name = parseIdentifier(module, visitor);
+
+                if (visitor.peek().token == PunctuatorLeftParen) {
+                    error(module, visitor.peek().pos, "Type parameter list not permitted in type parameter declaration.");
+                    visitor.readUpToAndIncluding(PunctuatorRightParen);
+                }
+
                 AST value = module->add(ASTKind::Missing);
                 if (visitor.peek().token == PunctuatorColon) {
                     visitor.read();
                     value = parseExpression(module, visitor);
                 }
-                parameters.push(module->add(ASTKind::AliasDecl, namePos, name, value));
+                parameters.push(module->add(ASTKind::AliasDecl, namePos, name, module->add(ASTKind::Missing), value));
             } else {
                 Token token = visitor.peek();
                 AST expr = parseExpression(module, visitor);
+
+                if (typeLevel) {
+                    error(module, token.pos, "Expected constant or type parameter in type-level parameter list, found '", TokenFormat(module, token), "'.");
+                    visitor.readUpTo(PunctuatorRightParen);
+                    break;
+                }
+
                 if (expr.kind() == ASTKind::Stars) {
                     // For this to be valid, it must be a declaration of pointer type.
 
@@ -1569,12 +1588,14 @@ namespace clover {
         AST parameters;
         if (visitor.peek().token == PunctuatorLeftParen) { // Generic type.
             parameters = parseParameterTuple(module, visitor, true);
-            unreachable("TODO: Implement generic types");
         } else
             parameters = module->add(ASTKind::Missing);
 
+        if (!parameters.missing() && isCase)
+            error(module, token.pos, "Type parameter list not permitted on case type declaration.");
+
         if (visitor.peek().token != PunctuatorColon) // Stub type, or maybe unit.
-            return module->add(isCase ? ASTKind::NamedCaseDecl : ASTKind::NamedDecl, token.pos, name, module->add(ASTKind::Missing));
+            return module->add(isCase ? ASTKind::NamedCaseDecl : ASTKind::NamedDecl, token.pos, name, parameters, module->add(ASTKind::Missing));
 
         visitor.read();
         AST body;
@@ -1600,7 +1621,7 @@ namespace clover {
             default:
                 // If it's just some kind of expression, assume it's a type and we're defining
                 // a struct with a single unnamed field.
-                return module->add(isCase ? ASTKind::NamedCaseDecl : ASTKind::NamedDecl, token.pos, name, contents[0]);
+                return module->add(isCase ? ASTKind::NamedCaseDecl : ASTKind::NamedDecl, token.pos, name, parameters, contents[0]);
         }
         bool sawField = false, sawCase = false;
         // TODO: Maybe this should be a tree-traversal? Not sure.
@@ -1619,7 +1640,8 @@ namespace clover {
         ASTKind kind = sawCase ? ASTKind::UnionDecl : ASTKind::StructDecl;
         if (isCase)
             kind = sawCase ? ASTKind::UnionCaseDecl : ASTKind::StructCaseDecl;
-        return module->add(kind, token.pos, name, contents);
+
+        return module->add(kind, token.pos, name, parameters, contents);
     }
 
     AST parseImportGroup(Module* module, TokenVisitor& visitor, Pos pos) {
@@ -1704,6 +1726,13 @@ namespace clover {
                 visitor.read();
                 vec<AST> decls;
                 AST name = parseIdentifier(module, visitor);
+
+                AST parameters;
+                if (visitor.peek().token == PunctuatorLeftParen) { // Generic type alias.
+                    parameters = parseParameterTuple(module, visitor, true);
+                } else
+                    parameters = module->add(ASTKind::Missing);
+
                 if (visitor.peek().token != PunctuatorColon) {
                     error(module, visitor.peek(), "Expected colon ':' in alias declaration, found '", TokenFormat(module, visitor.peek()));
                     visitor.readUpTo(WhitespaceNewline);
@@ -1711,10 +1740,17 @@ namespace clover {
                 } else
                     visitor.read();
                 AST init = parseExpression(module, visitor);
-                decls.push(module->add(ASTKind::AliasDecl, token.pos, name, init));
+
+                decls.push(module->add(ASTKind::AliasDecl, token.pos, name, parameters, init));
                 while (visitor.peek().token == PunctuatorComma) {
                     visitor.readIgnoringWhitespace();
                     name = parseIdentifier(module, visitor);
+
+                    if (visitor.peek().token == PunctuatorLeftParen) { // Generic type alias.
+                        parameters = parseParameterTuple(module, visitor, true);
+                    } else
+                        parameters = module->add(ASTKind::Missing);
+
                     if (visitor.peek().token != PunctuatorColon) {
                         error(module, visitor.peek(), "Expected colon ':' in alias declaration, found '", TokenFormat(module, visitor.peek()));
                         visitor.readUpTo(WhitespaceNewline);
@@ -1722,7 +1758,7 @@ namespace clover {
                     } else
                         visitor.read();
                     init = parseExpression(module, visitor);
-                    decls.push(module->add(ASTKind::AliasDecl, token.pos, name, init));
+                    decls.push(module->add(ASTKind::AliasDecl, token.pos, name, parameters, init));
                 }
                 return decls.size() == 1 ? decls[0] : module->add(ASTKind::Do, token.pos, decls);
             }

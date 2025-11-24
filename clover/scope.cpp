@@ -511,7 +511,7 @@ namespace clover {
                 ast.setScope(currentScope);
                 assert(ast.child(0).kind() == ASTKind::Ident);
                 currentScope->add(VariableKind::Type, ast, ast.child(0).symbol()); // Type name
-                computeScopes(module, imports, currentScope, ast.child(1));
+                computeScopes(module, imports, currentScope, ast.child(2));
                 break;
             }
             case ASTKind::NamedDecl:
@@ -520,7 +520,7 @@ namespace clover {
                 currentScope->add(VariableKind::Type, ast, ast.child(0).symbol()); // Type name
                 Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
                 ast.setScope(newScope);
-                computeScopes(module, imports, newScope, ast.child(1));
+                computeScopes(module, imports, newScope, ast.child(2));
                 break;
             }
             case ASTKind::StructDecl:
@@ -529,7 +529,7 @@ namespace clover {
                 currentScope->add(VariableKind::Type, ast, ast.child(0).symbol()); // Type name
                 Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
                 ast.setScope(newScope);
-                for (u32 i = 1; i < ast.arity(); i ++)
+                for (u32 i = 2; i < ast.arity(); i ++)
                     computeScopes(module, imports, newScope, ast.child(i));
                 break;
             }
@@ -539,7 +539,7 @@ namespace clover {
                 currentScope->add(VariableKind::Type, ast, ast.child(0).symbol()); // Type name
                 Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
                 ast.setScope(newScope);
-                for (u32 i = 1; i < ast.arity(); i ++)
+                for (u32 i = 2; i < ast.arity(); i ++)
                     computeScopes(module, imports, newScope, ast.child(i));
                 break;
             }
