@@ -1422,7 +1422,7 @@ namespace clover {
         Fixups fixups;
         AST resolvedNode = resolve(module, fixups, NoRefTraits, scope, some<AST>(parent), ast, ExpectValue);
         resolveLateUses(module, fixups);
-        resolveAccessChains(module, module->getTopLevel());
+        resolveAccessChains(module, ast);
         resolveAssignments(module, fixups);
         resolveAddressOfs(module, fixups);
         return resolvedNode;
