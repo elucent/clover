@@ -105,15 +105,19 @@ namespace clover {
         macro(CallMethod, callMethod, call_method, false, -1) \
         macro(GetIndex, getIndex, get_index, false, 2) \
         macro(AddrIndex, addrIndex, addr_index, false, 2) \
+        macro(EnsureAddrIndex, ensureAddrIndex, ensure_addr_index, false, 2) \
         macro(SetIndex, setIndex, set_index, false, 3) \
         macro(GetIndices, getIndices, get_indices, false, -1) \
         macro(AddrIndices, addrIndices, addr_indices, false, -1) \
+        macro(EnsureAddrIndices, ensureAddrIndices, ensure_addr_indices, false, -1) \
         macro(SetIndices, setIndices, set_indices, false, -1) \
         macro(GetField, getField, get_field, false, 2) \
         macro(AddrField, addrField, addr_field, false, 2) \
+        macro(EnsureAddrField, ensureAddrField, ensure_addr_field, false, 2) \
         macro(SetField, setField, set_field, false, 3) \
         macro(GetFields, getFields, get_fields, false, -1) \
         macro(AddrFields, addrFields, addr_fields, false, -1) \
+        macro(EnsureAddrFields, ensureAddrFields, ensure_addr_fields, false, -1) \
         macro(SetFields, setFields, set_fields, false, -1) \
         macro(GetSlice, getSlice, get_slice, false, 3) \
         macro(SetSlice, setSlice, set_slice, false, 4) \

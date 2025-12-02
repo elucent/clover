@@ -196,11 +196,12 @@ namespace clover {
     AST fixupAccessBase(Module* module, AST ast) {
         // This function recursively fixes up accessor chains to ensure mutable
         // access at the end refers back to the original object. In general, we
-        // promote GetField and GetIndex nodes to AddrField and AddrIndex in
-        // order to pass along the base address. The exception to this case is
-        // that any GetField to an AddrFields node, or any chain of GetFields
-        // nodes whose base is an AddrFields, remains as a GetField, since we
-        // already materialized the address in the intermediate tuple.
+        // promote GetField and GetIndex nodes to EnsureAddrField and
+        // EnsureAddrIndex in order to make sure we pass along the base
+        // address. The exception to this case is that any GetField to an
+        // AddrFields node, or any chain of GetFields nodes whose base is an
+        // AddrFields, remains as a GetField, since we already materialized the
+        // address in the intermediate tuple.
 
         // We do this for both mutable and immutable accesses, because even for
         // chained reads, it's better to avoid having intermediate products
@@ -212,12 +213,23 @@ namespace clover {
         // type. We handle this during the typechecking phase and are then
         // responsible for ensuring the path remains semantically correct.
 
+        // Notably, we use EnsureAddrField and EnsureAddrIndex, not the normal
+        // AddrField and AddrIndex forms. The semantics of these nodes are such
+        // that they behave like AddrField and AddrIndex, *unless* the value
+        // being accessed is itself a pointer, in which case they behave like
+        // GetField and GetIndex. This is because if we have a field access,
+        // and as an interstitial access in that chain we get a pointer value,
+        // we are going to be loading/storing through that pointer - we no
+        // longer want to point back to a subfield of the parent instance. So
+        // we don't need to propagate its address through.
+
         switch (ast.kind()) {
             case ASTKind::GetField:
             case ASTKind::GetFields: {
                 ast.setChild(0, fixupAccessBase(module, ast.child(0)));
                 AST base = ast.child(0);
-                if (base.kind() == ASTKind::AddrFields || base.kind() == ASTKind::AddrIndices || base.kind() == ASTKind::GetFields) {
+                if (base.kind() == ASTKind::AddrFields || base.kind() == ASTKind::AddrIndices || base.kind() == ASTKind::GetFields
+                    || base.kind() == ASTKind::EnsureAddrFields || base.kind() == ASTKind::EnsureAddrIndices) {
                     // Per the aforementioned exception, if we are getting a
                     // field from a tuple of computed addresses, it's okay if
                     // we remain a GetField. Likewise, if our parent - which
@@ -229,7 +241,7 @@ namespace clover {
                 }
 
                 // Otherwise, we become an address-of.
-                ast.setKind(ast.kind() == ASTKind::GetField ? ASTKind::AddrField : ASTKind::AddrFields);
+                ast.setKind(ast.kind() == ASTKind::GetField ? ASTKind::EnsureAddrField : ASTKind::EnsureAddrFields);
                 return ast;
             }
             case ASTKind::GetIndex:
@@ -240,7 +252,7 @@ namespace clover {
                 // only be accessed by field and not by index, index getters
                 // along the path have no exception and are always promoted to
                 // address-of operations.
-                ast.setKind(ast.kind() == ASTKind::GetIndex ? ASTKind::AddrIndex : ASTKind::AddrIndices);
+                ast.setKind(ast.kind() == ASTKind::GetIndex ? ASTKind::EnsureAddrIndex : ASTKind::EnsureAddrIndices);
                 return ast;
             }
             default:
@@ -1366,11 +1378,13 @@ namespace clover {
                 break;
             case ASTKind::GetField:
             case ASTKind::AddrField:
+            case ASTKind::EnsureAddrField:
                 validateResolution(module, fn, some<AST>(ast), ast.child(0));
                 assert(ast.child(1).kind() == ASTKind::Ident);
                 return;
             case ASTKind::GetFields:
             case ASTKind::AddrFields:
+            case ASTKind::EnsureAddrFields:
                 validateResolution(module, fn, some<AST>(ast), ast.child(0));
                 for (u32 i = 1; i < ast.arity(); i ++)
                     assert(ast.child(i).kind() == ASTKind::Ident);

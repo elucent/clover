@@ -598,7 +598,7 @@ bar.foo.x = 42
     auto setField = topLevel.child(3);
     ASSERT(setField.kind() == ASTKind::SetField);
     auto barFoo = setField.child(0);
-    ASSERT(barFoo.kind() == ASTKind::AddrField);
+    ASSERT(barFoo.kind() == ASTKind::EnsureAddrField);
     ASSERT(setField.child(1).kind() == ASTKind::Ident);
     ASSERT(setField.child(2).kind() == ASTKind::Unsigned);
     ASSERT(setField.child(2).uintConst() == 42);
@@ -619,7 +619,7 @@ var bar: Bar(Foo(42))
     auto addrField = topLevel.child(3);
     ASSERT(addrField.kind() == ASTKind::AddrField);
     auto barFoo = addrField.child(0);
-    ASSERT(barFoo.kind() == ASTKind::AddrField);
+    ASSERT(barFoo.kind() == ASTKind::EnsureAddrField);
     ASSERT(addrField.child(1).kind() == ASTKind::Ident);
 }
 
@@ -635,7 +635,7 @@ arr[0][1] = 2
     auto setIndex = topLevel.child(1);
     ASSERT(setIndex.kind() == ASTKind::SetIndex);
     auto base = setIndex.child(0);
-    ASSERT(base.kind() == ASTKind::AddrIndex);
+    ASSERT(base.kind() == ASTKind::EnsureAddrIndex);
     ASSERT(setIndex.child(1).kind() == ASTKind::Unsigned);
     ASSERT(setIndex.child(1).uintConst() == 1);
     ASSERT(setIndex.child(2).kind() == ASTKind::Unsigned);
@@ -654,7 +654,7 @@ var arr: [[1, 2], [3, 4]]
     auto addrIndex = topLevel.child(1);
     ASSERT(addrIndex.kind() == ASTKind::AddrIndex);
     auto base = addrIndex.child(0);
-    ASSERT(base.kind() == ASTKind::AddrIndex);
+    ASSERT(base.kind() == ASTKind::EnsureAddrIndex);
     ASSERT(addrIndex.child(1).kind() == ASTKind::Unsigned);
     ASSERT(addrIndex.child(1).uintConst() == 1);
 }

@@ -634,6 +634,23 @@ var ptr: &arr[0][0]
 )");
 }
 
+TEST(typecheck_addr_index_no_double_indirection) {
+    auto instance = TYPECHECK(R"(
+type Foo:
+    i32 x, y
+type Bar:
+    Foo* foo
+Bar*[16] bars
+
+bars[0].foo.x
+)");
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto access = topLevel.child(3);
+    ASSERT_TYPE_EQUAL(access.type(), module->i64Type());
+}
+
 TEST(typecheck_new_expression) {
     auto instance = TYPECHECK(R"(
 var p: new 42

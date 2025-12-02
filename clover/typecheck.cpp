@@ -1417,6 +1417,7 @@ namespace clover {
 
             case ASTKind::GetIndex:
             case ASTKind::AddrIndex:
+            case ASTKind::EnsureAddrIndex:
             case ASTKind::SetIndex: {
                 lhs = inferChild(ctx, function, ast, 0);
                 lhs = toType(module, lhs);
@@ -1441,6 +1442,7 @@ namespace clover {
                         ast.setType(module->voidType());
                         break;
                     case ASTKind::AddrIndex:
+                    case ASTKind::EnsureAddrIndex:
                         ast.setType(module->ptrType(varType));
                         break;
                     default:
@@ -1449,8 +1451,8 @@ namespace clover {
 
                 if (ast.kind() == ASTKind::SetIndex)
                     unify(value, varType, ast, ctx);
-                ctx.constraints->constrainOrder(lhsType, varType);
 
+                ctx.constraints->constrainOrder(lhsType, varType);
                 return ast.kind() == ASTKind::SetIndex ? fromType(module->voidType()) : fromNodeType(ast);
             }
 
@@ -1510,6 +1512,7 @@ namespace clover {
 
             case ASTKind::GetField:
             case ASTKind::AddrField:
+            case ASTKind::EnsureAddrField:
             case ASTKind::SetField: {
                 lhs = inferChild(ctx, function, ast, 0);
                 lhs = toType(module, lhs);
@@ -1525,7 +1528,7 @@ namespace clover {
                 ctx.ensureResolved(varType);
                 if (ast.kind() == ASTKind::SetField)
                     ast.setType(module->voidType());
-                else if (ast.kind() == ASTKind::AddrField)
+                else if (ast.kind() == ASTKind::AddrField || ast.kind() == ASTKind::EnsureAddrField)
                     ast.setType(module->ptrType(varType));
                 else if (ast.kind() == ASTKind::GetField)
                     ast.setType(varType);
@@ -1928,105 +1931,6 @@ namespace clover {
             default:
                 unreachable("Unimplemented type inference for node '", ast, "'.");
         }
-    }
-
-    maybe<AST> resolveSingleField(InferenceContext& ctx, Type baseType, AST ast) {
-        // Returns none if the fields couldn't yet be resolved, and the
-        // resulting AST if the fields could be resolved, including possible
-        // swizzling.
-
-        Module* module = ast.module;
-
-        assert(ast.kind() == ASTKind::GetField || ast.kind() == ASTKind::SetField || ast.kind() == ASTKind::AddrField);
-        assert(ast.child(1).kind() == ASTKind::Ident);
-
-        Symbol field = ast.child(1).symbol();
-        baseType = concreteType(module, baseType);
-
-        if (baseType.is<TypeKind::Struct>()) {
-            auto structType = baseType.as<TypeKind::Struct>();
-            vec<pair<rune, u32>> swizzleCandidates;
-            for (u32 i = 0; i < structType.count(); i ++) {
-                if (field == structType.fieldName(i)) {
-                    ast.setChild(1, module->add(ASTKind::Field, FieldId(i)));
-                    if (ast.kind() != ASTKind::SetField)
-                        unify(structType.fieldType(i), ast, ctx);
-                    return some<AST>(ast);
-                }
-                auto name = module->str(structType.fieldName(i));
-                if (name.size() == 1 || (name.size() < 4 && utf8_length(name.data(), name.size()) == 1)) {
-                    swizzleCandidates.push({ 0, i });
-                    if (name.size() == 1)
-                        swizzleCandidates.back().first = name[0];
-                    else
-                        utf8_decode(name.data(), name.size(), &swizzleCandidates.back().first, 1);
-                }
-            }
-
-            // Try swizzling if there were single-letter fields.
-            if (swizzleCandidates.size()) {
-                auto name = ast.module->str(field);
-                vec<FieldId> indices;
-                bool swizzleFailed = false;
-                const i8* ptr = name.data();
-                while (ptr != name.end()) {
-                    rune r;
-                    ptr = utf8_decode_forward(ptr, &r);
-                    u32 sizeBefore = indices.size();
-                    for (auto p : swizzleCandidates) if (p.first == r) {
-                        indices.push(FieldId(p.second));
-                        break;
-                    }
-                    if (indices.size() == sizeBefore) {
-                        // No match found, swizzle failed.
-                        swizzleFailed = true;
-                        break;
-                    }
-                }
-                assert(!swizzleFailed); // If swizzling failed, this is just a bad access.
-
-                vec<Type> fieldTypes;
-                for (FieldId i : indices)
-                    fieldTypes.push(structType.fieldType(i.id));
-                Type result = module->tupleType(fieldTypes);
-                AST newAST = module->add(ASTKind::GetFields, ast.pos(), ast.scope(), result, ast.child(0), indices);
-                return some<AST>(newAST);
-            }
-
-            type_error("Undefined field name '", module->str(field), "'");
-        }
-
-        return none<AST>();
-    }
-
-    bool resolveMultipleFields(InferenceContext& ctx, Type baseType, AST ast) {
-        // Returns whether the fields were resolved.
-
-        Module* module = ast.module;
-
-        assert(ast.kind() == ASTKind::GetFields || ast.kind() == ASTKind::SetFields || ast.kind() == ASTKind::AddrFields);
-        assert(ast.arity() >= (ast.kind() == ASTKind::SetFields ? 3 : 2));
-
-        baseType = concreteType(module, baseType);
-
-        if (baseType.is<TypeKind::Struct>()) {
-            auto structType = baseType.as<TypeKind::Struct>();
-            for (u32 i = 1; i < (ast.kind() == ASTKind::SetFields ? ast.arity() - 1 : ast.arity()); i ++) {
-                assert(ast.child(i).kind() == ASTKind::Ident);
-                Symbol field = ast.child(i).symbol();
-                for (u32 j = 0; j < structType.count(); j ++) {
-                    if (field == structType.fieldName(j)) {
-                        ast.setChild(1, module->add(ASTKind::Field, FieldId(j)));
-                        unify(structType.fieldType(j), ast, ctx);
-                        continue;
-                    }
-                }
-
-                type_error("Undefined field name '", module->str(field), "'");
-            }
-            return true;
-        }
-        return false;
     }
 
     bool refinePattern(InferenceContext& ctx, Function* function, Type input, AST pattern) {
@@ -2458,6 +2362,7 @@ namespace clover {
         switch (ast.kind()) {
             case ASTKind::GetField:
             case ASTKind::AddrField:
+            case ASTKind::EnsureAddrField:
             case ASTKind::SetField: {
                 Type baseType = inferredType(ctx, function, ast.child(0));
 
@@ -2486,6 +2391,19 @@ namespace clover {
                                 case ASTKind::SetField:
                                     unifyInPlace(inferredType(ctx, function, ast.child(2)), structType.fieldType(i), ast);
                                     break;
+                                case ASTKind::EnsureAddrField: {
+                                    refinedType = ast.type();
+                                    auto fieldType = expand(structType.fieldType(i));
+                                    if (fieldType.is<TypeKind::Pointer>()) {
+                                        unifyInPlaceSubstituting(fieldType, refinedType, ast);
+                                        ast.setKind(ASTKind::GetField);
+                                    } else {
+                                        assert(refinedType.is<TypeKind::Pointer>());
+                                        unifyInPlaceSubstituting(fieldType, refinedType.as<TypeKind::Pointer>().elementType(), ast);
+                                        ast.setKind(ASTKind::AddrField);
+                                    }
+                                    break;
+                                }
                                 default:
                                     unreachable("Expected a field access.");
                             }
@@ -2537,6 +2455,9 @@ namespace clover {
                             case ASTKind::AddrField:
                                 module->replace(ast, module->add(ASTKind::AddrFields, ast.pos(), ast.scope(), result, ast.child(0), indices));
                                 break;
+                            case ASTKind::EnsureAddrField:
+                                unreachable("TODO: Implement swizzling for ensured field.");
+                                break;
                             case ASTKind::SetField:
                                 module->replace(ast, module->add(ASTKind::SetFields, ast.pos(), ast.scope(), module->voidType(), ast.child(0), indices, ast.child(2)));
                                 unifyInPlace(inferredType(ctx, function, ast.child(2)), result, ast);
@@ -2550,7 +2471,8 @@ namespace clover {
                     type_error("Undefined field name '", module->str(field), "'");
                 } else if (baseType.is<TypeKind::Tuple>()) {
                     unreachable("TODO: Implement tuple access.");
-                }
+                } else
+                    type_error("Couldn't access field from base of type ", baseType);
 
                 return true;
             }
@@ -2600,6 +2522,7 @@ namespace clover {
 
             case ASTKind::GetIndex:
             case ASTKind::AddrIndex:
+            case ASTKind::EnsureAddrIndex:
             case ASTKind::SetIndex: {
                 Type baseType = inferredType(ctx, function, ast.child(0));
 
@@ -2607,13 +2530,32 @@ namespace clover {
                 if (baseType.is<TypeKind::Pointer>())
                     baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
                 Type elementType = baseType.is<TypeKind::Slice>() ? expand(baseType.as<TypeKind::Slice>().elementType()) : expand(baseType.as<TypeKind::Array>().elementType());
-                if (ast.kind() == ASTKind::SetIndex) {
-                    unifyInPlace(refinedType, elementType, ast);
-                    unifyInPlace(inferredType(ctx, function, ast.child(2)), refinedType, ast);
-                } else if (ast.kind() == ASTKind::GetIndex)
-                    unifyInPlace(elementType, refinedType, ast);
-                else
-                    unifyInPlaceSubstituting(elementType, refinedType, ast);
+
+                switch (ast.kind()) {
+                    case ASTKind::SetIndex:
+                        unifyInPlace(refinedType, elementType, ast);
+                        unifyInPlace(inferredType(ctx, function, ast.child(2)), refinedType, ast);
+                        break;
+                    case ASTKind::GetIndex:
+                        unifyInPlace(elementType, refinedType, ast);
+                        break;
+                    case ASTKind::AddrIndex:
+                        unifyInPlaceSubstituting(elementType, refinedType, ast);
+                        break;
+                    case ASTKind::EnsureAddrIndex:
+                        refinedType = ast.type();
+                        if (elementType.is<TypeKind::Pointer>()) {
+                            unifyInPlaceSubstituting(elementType, refinedType, ast);
+                            ast.setKind(ASTKind::GetIndex);
+                        } else {
+                            assert(refinedType.is<TypeKind::Pointer>());
+                            unifyInPlaceSubstituting(elementType, refinedType.as<TypeKind::Pointer>().elementType(), ast);
+                            ast.setKind(ASTKind::AddrIndex);
+                        }
+                        break;
+                    default:
+                        unreachable("Invalid AST kind.");
+                }
                 return true;
             }
 
