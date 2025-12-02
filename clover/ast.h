@@ -1510,7 +1510,7 @@ namespace clover {
         template<typename... Args>
         inline Type ptrType(const Args&... args) { return type<TypeKind::Pointer>(args...); }
         template<typename... Args>
-        inline Type arrayType(const Args&... args) { return type<TypeKind::Array>(args...); }
+        inline Type arrayType(const Args&... args) { return ArrayBuilder(args...).build(types); }
         template<typename... Args>
         inline Type sliceType(const Args&... args) { return type<TypeKind::Slice>(args...); }
         template<typename... Args>

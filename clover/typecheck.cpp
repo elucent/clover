@@ -927,7 +927,7 @@ namespace clover {
 
             default:
                 assert(!ast.isLeaf());
-                return ast.type();
+                return expand(ast.type());
         }
     }
 

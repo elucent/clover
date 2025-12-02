@@ -372,7 +372,10 @@ namespace clover {
     struct HandleTypeStruct<TypeKind::Numeric> { using Type = NumericType; };
 
     struct ArrayType : public Type {
+        inline bool isBottom() const;
+        inline bool isTop() const;
         inline u32 length() const;
+        inline u32 rawLength() const; // Unchecked access to the length, including if it's a magic bottom/top value.
         inline TypeIndex elementTypeIndex() const;
         inline Type elementType() const;
         inline bool operator==(ArrayType other) const;
@@ -386,6 +389,12 @@ namespace clover {
         inline void forEachVar(Func&& func) {
             elementType().forEachVar(func);
         }
+
+        // These lengths are used for the "bottom"/"top" arrays for a given
+        // element type, which are non-concrete types that can be used as type
+        // bounds.
+        enum class LengthTag { Bottom = 0, Top = 1 };
+        using enum LengthTag;
     };
 
     struct ArrayBuilder {
@@ -393,7 +402,10 @@ namespace clover {
         u32 length;
 
         inline ArrayBuilder(Type elementType_in, u32 length_in):
-            elementType(elementType_in), length(length_in) {}
+            elementType(elementType_in), length(length_in + 2) {}
+        inline ArrayBuilder(Type elementType_in, ArrayType::LengthTag length):
+            elementType(elementType_in), length((u32)length) {}
+
         inline Type build(TypeSystem* types);
     };
 
@@ -2568,12 +2580,23 @@ namespace clover {
 
     // ArrayType
 
-    inline u32 ArrayType::length() const {
+    inline bool ArrayType::isBottom() const {
+        return rawLength() == (u32)ArrayType::Bottom;
+    }
+
+    inline bool ArrayType::isTop() const {
+        return rawLength() == (u32)ArrayType::Top;
+    }
+
+    inline u32 ArrayType::rawLength() const {
         auto w = firstWord();
-        if LIKELY(w.isCompactArray)
-            return w.compactLength;
-        else
-            return nthWord(1).extLength;
+        return w.isCompactArray ? w.compactLength : nthWord(1).extLength;
+    }
+
+    inline u32 ArrayType::length() const {
+        auto l = rawLength();
+        assert(l >= 2); // It shouldn't be one of the magic bottom/top values.
+        return l - 2;
     }
 
     inline TypeIndex ArrayType::elementTypeIndex() const {
@@ -2589,7 +2612,7 @@ namespace clover {
     }
 
     inline bool ArrayType::operator==(ArrayType other) const {
-        return elementType() == other.elementType() && length() == other.length();
+        return elementType() == other.elementType() && rawLength() == other.rawLength();
     }
 
     inline bool ArrayType::contains(TypeIndex var) const {
@@ -2597,7 +2620,7 @@ namespace clover {
     }
 
     inline u64 ArrayType::hash() const {
-        return mixHash(kindHash(), mixHash(length(), clover::hash(elementType())));
+        return mixHash(kindHash(), mixHash(rawLength(), clover::hash(elementType())));
     }
 
     inline void ArrayType::concretify() {
@@ -2607,8 +2630,19 @@ namespace clover {
 
     inline UnifyResult ArrayType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         if (other.is<TypeKind::Array>()) {
-            if (length() != other.as<TypeKind::Array>().length())
+            if (isBottom())
+                goto pass;
+            if (other.as<TypeKind::Array>().isTop())
+                goto pass;
+            if (isTop())
                 return UnifyFailure;
+            if (other.as<TypeKind::Array>().isBottom())
+                return UnifyFailure;
+            if (length() == other.as<TypeKind::Array>().length())
+                goto pass;
+            return UnifyFailure;
+
+        pass:
             auto otherElement = other.as<TypeKind::Array>().elementType();
             return elementType().unifyOnto(otherElement, constraints, mode)
                 & otherElement.unifyOnto(elementType(), constraints, mode);
@@ -2751,13 +2785,17 @@ namespace clover {
 
         // Slices and pointers have different representations, so we can't take
         // this path if we are required to substitute.
-        if (other.is<TypeKind::Slice>() && elementType().is<TypeKind::Array>() && !(mode & MustSubstitute)) {
+        if (other.is<TypeKind::Slice>() && !(mode & MustSubstitute)) {
             if (!(traits() <= other.as<TypeKind::Slice>().traits()))
                 return UnifyFailure;
-            auto element = elementType().as<TypeKind::Array>().elementType();
+
+            // For this to work, we need to be a pointer to an array with the
+            // same element type as the slice. We use the special top/bottom
+            // array types to construct a range that allows any array type,
+            // but won't allow our pointee to promote to a slice.
             auto otherElement = other.as<TypeKind::Slice>().elementType();
-            return element.unifyOnto(otherElement, constraints, mode)
-                & otherElement.unifyOnto(element, constraints, mode);
+            return ArrayBuilder(otherElement, ArrayType::Bottom).build(types).unifyOnto(elementType(), constraints, mode)
+                & elementType().unifyOnto(ArrayBuilder(otherElement, ArrayType::Top).build(types), constraints, mode);
         }
         return UnifyFailure;
     }
@@ -3667,7 +3705,10 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const ArrayType& type) {
-        return format(io, type.elementType(), '[', type.length(), ']');
+        io = format(io, type.elementType(), '[');
+        if (type.isBottom()) return format(io, "bottom]");
+        else if (type.isTop()) return format(io, "top]");
+        else return format(io, type.length(), ']');
     }
 
     template<typename IO, typename Format = Formatter<IO>>
