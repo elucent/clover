@@ -7,6 +7,8 @@
 namespace clover {
     struct Function;
 
+    Type naturalSignedType(Module* module, i64 value);
+    Type naturalUnsignedType(Module* module, u64 value);
     Type evaluateType(Module* module, Function* function, AST ast);
     NOINLINE Artifact* inferAndCheckTypes(Artifact* artifact);
 }

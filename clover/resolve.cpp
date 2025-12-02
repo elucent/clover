@@ -294,7 +294,7 @@ namespace clover {
 
         VariableInfo info;
         if (result.isGlobal())
-            info = module->globals[result.index];
+            info = typeScope->module->globals[result.index];
         else
             info = typeScope->function->locals[result.index];
 

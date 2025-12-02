@@ -248,6 +248,16 @@ namespace clover {
         return evaluation.type(module->types);
     }
 
+    Type concreteType(Module* module, Type type);
+
+    Type naturalSignedType(Module* module, i64 value) {
+        return concreteType(module, naturalType(module, fromValue(module, boxInt(value))));
+    }
+
+    Type naturalUnsignedType(Module* module, u64 value) {
+        return concreteType(module, naturalType(module, fromValue(module, boxUnsigned(value))));
+    }
+
     // Here's where we do obligate constant folding, first for unary operators.
     // If an expression is safely foldable and creates no observable effects
     // (including both runtime effects like overflow, and compile-time effects
