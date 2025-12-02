@@ -19,7 +19,12 @@ alias CLRTFileFlags: u32
 alias CLRTFileKind: u8
 
 type CLRTFd:
-    u32 id
+    i32 id
+
+CLRTFd CLRTFileStdin, CLRTFileStdout
+
+type CLRTFilePerm:
+    const Read: 1, Write: 2, Append: 4
 
 CLRTFd CLRTFileOpen(i8[] path, CLRTFileFlags)
 u32 CLRTFileRead(CLRTFd, i8[] output)

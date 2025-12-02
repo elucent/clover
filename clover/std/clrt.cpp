@@ -88,6 +88,9 @@ void CLRTMemoryDecommit(slice<i8> pages) {
     memory::decommit(pages);
 }
 
+u32 CLRTFileStdin ASMLABEL("CLRTFileStdin") = file::stdin;
+u32 CLRTFileStdout ASMLABEL("CLRTFileStdout") = file::stdout;
+
 // alias CLRTFileFlags: u32
 u32 CLRT_FP_READ = 1, CLRT_FP_WRITE = 2, CLRT_FP_APPEND = 4;
 
