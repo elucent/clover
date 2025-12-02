@@ -31,7 +31,7 @@ namespace clover {
      */
 
     enum RefTraits : u32 {
-        Unowned = 0, Own = 1, Uninit = 2
+        NoRefTraits = 0, Unowned = 0, Own = 1, Uninit = 2
     };
 
     inline RefTraits operator|(RefTraits a, RefTraits b) {
