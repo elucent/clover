@@ -1929,7 +1929,7 @@ namespace clover {
 
             case ASTKind::Local: {
                 const auto& varInfo = ast.varInfo(genCtx.func());
-                if (genCtx.module->node(varInfo.decl).kind() == ASTKind::FunDecl) {
+                if (varInfo.decl != InvalidNode && genCtx.module->node(varInfo.decl).kind() == ASTKind::FunDecl) {
                     // Function with known def - we should reference its symbol directly.
                     auto name = genCtx.module->str(genCtx.mangledName(module, module->node(varInfo.decl).function()));
                     return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.funcref(name));
@@ -1948,7 +1948,7 @@ namespace clover {
                 auto name = genCtx.module->str(varInfo.name);
                 auto globalType = expand(ast.module->types->get(varInfo.type));
                 auto loweredType = genCtx.lower(globalType);
-                if (genCtx.module->node(varInfo.decl).kind() == ASTKind::FunDecl) {
+                if (varInfo.decl != InvalidNode && genCtx.module->node(varInfo.decl).kind() == ASTKind::FunDecl) {
                     // Function with known def - we should reference its symbol directly.
                     auto name = genCtx.module->str(genCtx.mangledName(module, module->node(varInfo.decl).function()));
                     return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.funcref(name));
