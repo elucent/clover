@@ -711,12 +711,12 @@ namespace clover {
                 return Value();
             value = makeArrayWithLength(function->constants.size());
             for (const auto& [i, info] : enumerate(function->constants)) {
-                if (info.origin == function)
+                if (info.origin.isFunction() && info.origin.function() == function)
                     set(value, boxUnsigned(i), info.value);
-                else if (!info.origin)
-                    set(value, boxUnsigned(i), module->globalConstants[info.value.u].value);
+                else if (info.origin.isModule())
+                    set(value, boxUnsigned(i), info.origin.module()->globalConstants[info.value.u].value);
                 else
-                    set(value, boxUnsigned(i), info.origin->constants[info.value.u].value);
+                    set(value, boxUnsigned(i), info.origin.function()->constants[info.value.u].value);
             }
         } else {
             if (!module->globalConstants.size())

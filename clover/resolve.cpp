@@ -302,19 +302,21 @@ namespace clover {
             case VariableKind::Type:
                 return some<AST>(module->add(ASTKind::TypeField, pos, scope, info.type, base, module->add(ASTKind::Field, FieldId(0))));
             case VariableKind::Constant: {
-                if (result.isGlobal() && !scope->function)
+                if (result.isGlobal() && typeScope->module == module)
                     return some<AST>(module->add(ASTKind::GlobalConst, ConstId(info.constantIndex)));
-                else if (scope->function == typeScope->function)
+                else if (scope->function && scope->function == typeScope->function)
                     return some<AST>(module->add(ASTKind::Const, ConstId(info.constantIndex)));
                 else {
-                    auto it = scope->function->importedConstants.find({ typeScope->function, info.constantIndex });
-                    if (it != scope->function->importedConstants.end())
+                    auto& importedConstants = scope->function ? scope->function->importedConstants : module->importedConstants;
+                    auto it = importedConstants.find({ typeScope, info.constantIndex });
+                    if (it != importedConstants.end())
                         return some<AST>(module->add(ASTKind::Const, ConstId(it->value)));
 
-                    ConstInfo constInfo = (typeScope->function ? typeScope->function->constants : module->globalConstants)[info.constantIndex];
-                    auto id = scope->function->constants.size();
-                    scope->function->constants.push(constInfo);
-                    scope->function->importedConstants.put({ typeScope->function, info.constantIndex }, id);
+                    ConstInfo constInfo = (typeScope->function ? typeScope->function->constants : typeScope->module->globalConstants)[info.constantIndex];
+                    auto& constants = scope->function ? scope->function->constants : module->globalConstants;
+                    auto id = constants.size();
+                    constants.push(constInfo);
+                    importedConstants.put({ typeScope, info.constantIndex }, id);
                     return some<AST>(module->add(ASTKind::Const, ConstId(id)));
                 }
             }

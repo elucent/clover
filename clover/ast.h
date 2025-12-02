@@ -454,17 +454,66 @@ namespace clover {
             name(symbol) {}
     };
 
+    struct ModuleOrFunction {
+        uptr bits;
+
+        inline ModuleOrFunction(): bits(0) {}
+
+        inline ModuleOrFunction(Scope* scope) {
+            if (scope->function) {
+                bits = uptr(scope->function);
+                assert(!(bits & 1));
+            } else {
+                bits = uptr(scope->module);
+                assert(!(bits & 1));
+                bits |= 1;
+            }
+        }
+
+        inline ModuleOrFunction(Function* function) {
+            bits = uptr(function);
+            assert(!(bits & 1));
+        }
+
+        inline ModuleOrFunction(Module* module) {
+            bits = uptr(module);
+            assert(!(bits & 1));
+            bits |= 1;
+        }
+
+        inline bool isModule() const {
+            return bits & 1;
+        }
+
+        inline bool isFunction() const {
+            return !isModule();
+        }
+
+        inline Function* function() const {
+            assert(isFunction());
+            return (Function*)bits;
+        }
+
+        inline Module* module() const {
+            assert(isModule());
+            return (Module*)(bits & ~1ull);
+        }
+    };
+
     struct ConstInfo {
-        Function* origin;
+        ModuleOrFunction origin;
         Value value;
     };
 
     struct ConstOriginKey {
-        Function* function;
+        ModuleOrFunction moduleOrFunction;
         u32 index;
 
+        inline ConstOriginKey(Scope* scope, u32 index_in):
+            moduleOrFunction(scope), index(index_in) {}
+
         inline bool operator==(const ConstOriginKey& other) const {
-            return function == other.function && index == other.index;
+            return moduleOrFunction.bits == other.moduleOrFunction.bits && index == other.index;
         }
 
         inline bool operator!=(const ConstOriginKey& other) const {
@@ -473,7 +522,7 @@ namespace clover {
     };
 
     inline u64 hash(const ConstOriginKey& key) {
-        return mixHash(::hash(u64(key.function)), ::hash(key.index));
+        return mixHash(::hash(key.moduleOrFunction.bits), ::hash(key.index));
     }
 
     struct PackedTypeBounds {
@@ -766,7 +815,7 @@ namespace clover {
             return Local(locals.size() - 1);
         }
 
-        inline Local addLocalConstant(VariableKind kind, AST decl, Symbol name, Value value) {
+        inline Local addLocalConstant(VariableKind kind, AST decl, Symbol name) {
             VariableInfo info;
             info.type = InvalidType;
             info.scope = VariableInfo::Local;
@@ -776,8 +825,8 @@ namespace clover {
             locals.push(info);
 
             ConstInfo constInfo;
-            constInfo.origin = this;
-            constInfo.value = value;
+            constInfo.origin = ModuleOrFunction(this);
+            constInfo.value = boxUnsigned(info.constantIndex);
             constants.push(constInfo);
 
             return Local(locals.size() - 1);
@@ -1034,6 +1083,7 @@ namespace clover {
         vec<Scope*> scopes;
         vec<VariableInfo, 8> globals;
         vec<ConstInfo, 8> globalConstants;
+        map<ConstOriginKey, u32> importedConstants;
         vec<Function*, 8> functions;
         map<Function*, u32> importedFunctions;
         vec<Overloads*, 4> overloads;
@@ -1590,7 +1640,7 @@ namespace clover {
             return Global(globals.size() - 1);
         }
 
-        inline Global addGlobalConstant(VariableKind kind, AST decl, Symbol name, Value value) {
+        inline Global addGlobalConstant(VariableKind kind, AST decl, Symbol name) {
             VariableInfo info;
             info.type = InvalidType;
             info.scope = VariableInfo::Global;
@@ -1600,8 +1650,8 @@ namespace clover {
             globals.push(info);
 
             ConstInfo constInfo;
-            constInfo.origin = nullptr;
-            constInfo.value = value;
+            constInfo.origin = ModuleOrFunction(this);
+            constInfo.value = boxUnsigned(info.constantIndex);
             globalConstants.push(constInfo);
 
             return Global(globals.size() - 1);

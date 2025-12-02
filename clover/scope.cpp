@@ -61,7 +61,7 @@ namespace clover {
         inTable.add(name.symbol);
     }
 
-    void Scope::addConstant(VariableKind kind, const AST& decl, Symbol name, Value value) {
+    void Scope::addConstant(VariableKind kind, const AST& decl, Symbol name) {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
@@ -72,9 +72,9 @@ namespace clover {
 
         u32 var;
         if (function)
-            var = function->addLocalConstant(kind, decl, name, value).index;
+            var = function->addLocalConstant(kind, decl, name).index;
         else
-            var = module->addGlobalConstant(kind, decl, name, value).index;
+            var = module->addGlobalConstant(kind, decl, name).index;
         entries.put(name, var);
         inTable.add(name.symbol);
     }
@@ -439,7 +439,7 @@ namespace clover {
                 ast.setScope(currentScope);
                 AST name = ast.child(0);
                 assert(name.kind() == ASTKind::Ident);
-                currentScope->addConstant(VariableKind::Constant, ast, name.symbol(), Value());
+                currentScope->addConstant(VariableKind::Constant, ast, name.symbol());
                 computeScopes(module, imports, currentScope, ast.child(1));
                 (currentScope->function ? currentScope->function->constDeclOrder : module->constDeclOrder).push(ast.node);
                 break;
