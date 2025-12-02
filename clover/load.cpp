@@ -60,11 +60,11 @@ namespace clover {
         assert(info.kind == file::FILE);
         slice<i8> text = { new i8[info.size], info.size };
 
-        auto f = file::open(os_path, file::READ);
+        auto f = file::openbuf(os_path, file::READ);
         assert(f != -1);
 
-        file::read(f, text);
-        file::close(f);
+        file::readbuf(f, text);
+        file::closebuf(f);
 
         Source* source = new Source(text);
         Artifact* newArtifact = new Artifact(directory, artifactName);

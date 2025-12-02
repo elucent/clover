@@ -15,20 +15,20 @@ namespace jasmine {
     };
 
     Source* load(const_slice<i8> path) {
-        auto file = file::open(path, file::READ);
+        auto file = file::openbuf(path, file::READ);
         if (file == -1) {
             println("Couldn't open file ", path);
             process::exit(1);
         }
         array<i8, file::FDBUF_SIZE> buffer;
         vec<i8, file::FDBUF_SIZE> bytes;
-        iword read = file::read(file, buffer);
+        iword read = file::readbuf(file, buffer);
         while (read > 0) {
             for (iword i = 0; i < read; i ++)
                 bytes.push(buffer[i]);
-            read = file::read(file, buffer);
+            read = file::readbuf(file, buffer);
         }
-        file::close(file);
+        file::closebuf(file);
         return new Source { bytes.take_slice() };
     }
 
@@ -483,7 +483,7 @@ namespace jasmine {
             if (path[0] == '-' && path[1] == 0)
                 out = file::stdout;
             else
-                out = file::open({ path, findc(path, 0) }, file::WRITE);
+                out = file::openbuf({ path, findc(path, 0) }, file::WRITE);
             if (out == -1)
                 unreachable("Can't write to output file ", path);
             #define PUT_OPCODE(upper, lower) opcodeMap.put(cstring(#lower), Opcode:: upper);
@@ -498,7 +498,7 @@ namespace jasmine {
         inline ~Compiler() {
             for (AST* ast : rules)
                 delete ast;
-            file::close(out);
+            file::closebuf(out);
         }
 
         struct RuleHandle {

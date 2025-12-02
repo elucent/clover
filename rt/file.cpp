@@ -99,19 +99,15 @@ namespace file {
 
         if (sysfd < 0)
             return -1;
-        return map_new_fd(file::FILE, sysfd, path);
+        return sysfd;
     }
 
     iword read(fd file, slice<i8> buf) ASMLABEL("file.read");
     iword read(fd file, slice<i8> buf) {
         if (file < 0 || file >= MAX_FDS)
             return 0;
-        FileStorage* info = fd_table[file];
-        if (!info || info->meta.kind == file::NONE)
-            return 0;
-
         #ifdef RT_LINUX
-            return ::read(info->meta.sysfd, buf.data(), buf.size());
+            return ::read(file, buf.data(), buf.size());
         #else
             #error "Unimplemented syscall for platform: read"
         #endif
@@ -121,15 +117,62 @@ namespace file {
     iword write(fd file, const_slice<i8> buf) {
         if (file < 0 || file >= MAX_FDS)
             return 0;
-        FileStorage* info = fd_table[file];
-        if (!info || info->meta.kind == file::NONE)
-            return 0;
-
         #ifdef RT_LINUX
-            return ::write(info->meta.sysfd, buf.data(), buf.size());
+            return ::write(file, buf.data(), buf.size());
         #else
             #error "Unimplemented syscall for platform: write"
         #endif
+    }
+
+    void close(fd file) ASMLABEL("file.close");
+    void close(fd file) {
+        if (file < 0 || file >= MAX_FDS) return;
+        #ifdef RT_LINUX
+            ::close(file);
+        #else
+            #error "Unimplemented syscall for platform: close"
+        #endif
+    }
+
+    fd openbuf(const_slice<i8> path, iword flags) ASMLABEL("file.openbuf");
+    fd openbuf(const_slice<i8> path, iword flags) {
+        i32 sysfd = file::open(path, flags);
+        if (sysfd < 0)
+            return -1;
+        return map_new_fd(file::FILE, sysfd, path);
+    }
+
+    iword readbuf(fd file, slice<i8> buf) ASMLABEL("file.readbuf");
+    iword readbuf(fd file, slice<i8> buf) {
+        if (file < 0 || file >= MAX_FDS)
+            return 0;
+        FileStorage* info = fd_table[file];
+        if (!info || info->meta.kind == file::NONE)
+            return 0;
+        return file::read(info->meta.sysfd, buf);
+    }
+
+    iword writebuf(fd file, const_slice<i8> buf) ASMLABEL("file.writebuf");
+    iword writebuf(fd file, const_slice<i8> buf) {
+        if (file < 0 || file >= MAX_FDS)
+            return 0;
+        FileStorage* info = fd_table[file];
+        if (!info || info->meta.kind == file::NONE)
+            return 0;
+        return file::write(info->meta.sysfd, buf);
+    }
+
+    void closebuf(fd file) ASMLABEL("file.closebuf");
+    void closebuf(fd file) {
+        if (file < 0 || file >= MAX_FDS) return;
+        FileStorage* info = fd_table[file];
+        if (!info || info->meta.kind == file::NONE) return;
+        if (info->meta.kind == file::FILE) {
+            // Flush file.
+            file::writebuf(file, {info->path + info->pathlen + info->meta.start, info->meta.end - info->meta.start});
+        }
+        file::close(info->meta.sysfd);
+        info->meta.kind = file::NONE;
     }
 
     void remove(const_slice<i8> path) ASMLABEL("file.remove");
@@ -145,25 +188,6 @@ namespace file {
         #else
             #error "Unimplemented syscall for platform: unlink"
         #endif
-    }
-
-    void close(fd file) ASMLABEL("file.close");
-    void close(fd file) {
-        if (file < 0 || file >= MAX_FDS) return;
-        FileStorage* info = fd_table[file];
-        if (!info || info->meta.kind == file::NONE) return;
-        if (info->meta.kind == file::FILE) {
-            // Flush file.
-            file::write(file, {info->path + info->pathlen + info->meta.start, info->meta.end - info->meta.start});
-        }
-
-        #ifdef RT_LINUX
-            ::close(info->meta.sysfd);
-        #else
-            #error "Unimplemented syscall for platform: close"
-        #endif
-
-        info->meta.kind = file::NONE;
     }
 
     FileInfo info(const_slice<i8> path) ASMLABEL("file.info");

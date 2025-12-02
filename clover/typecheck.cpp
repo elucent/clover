@@ -3202,10 +3202,10 @@ namespace clover {
         if UNLIKELY(config::printTypeConstraintsAsDOT) {
             fd dotfile = file::stdout;
             if (config::cloverDOTFile.size())
-                dotfile = file::open(config::cloverDOTFile, file::WRITE | file::APPEND);
+                dotfile = file::openbuf(config::cloverDOTFile, file::WRITE | file::APPEND);
             writeln(dotfile, DOT(constraints));
             if (dotfile != file::stdout)
-                file::close(dotfile);
+                file::closebuf(dotfile);
         }
         if UNLIKELY(config::printTypeConstraints)
             printTypeConstraints(module->types, &constraints);

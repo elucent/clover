@@ -79,6 +79,7 @@ namespace file {
     struct FileMeta {
         Kind kind;
         i8 mutex;
+        bool eof;
         i32 sysfd;
         union {
             struct { i32 start, end; };
@@ -152,13 +153,6 @@ namespace file {
     extern FileInfo info(const_slice<i8> path) ASMLABEL("file.info");
 
     /*
-     * file.kind(file)
-     *
-     * Returns the type of file represented by the given file descriptor.
-     */
-    extern Kind kind(fd file) ASMLABEL("file.kind");
-
-    /*
      * file.cwd()
      *
      * Writes the working directory path of the current program into the output
@@ -166,6 +160,52 @@ namespace file {
      * written.
      */
     extern slice<i8> cwd(slice<i8> output) ASMLABEL("file.cwd");
+
+    /*
+     * The below are currently deprecated. They require the runtime to do too
+     * much work, when it could be implemented at a higher level in the IO
+     * library.
+     *
+     * TODO: Implement replacements for these in the IO utility library.
+     */
+
+    /*
+     * file.kind(file)
+     *
+     * Returns the type of file represented by the given file descriptor.
+     */
+    extern Kind kind(fd file) ASMLABEL("file.kind");
+
+    /*
+     * file.openbuf(path, flags)
+     *
+     * Opens a file similar to file.open, but allocates an in-memory buffer for IO
+     * libraries to make use of.
+     */
+    extern fd openbuf(const_slice<i8> path, u32 flags) ASMLABEL("file.openbuf");
+
+    /*
+     * file.closebuf(file)
+     *
+     * Closes a file previously opened with file.openbuf.
+     */
+    extern void closebuf(fd file) ASMLABEL("file.closebuf");
+
+    /*
+     * file.readbuf(file, buf)
+     *
+     * Attempts to read bytes from the file up to the size of the provided buffer. Returns
+     * the number of bytes that were read.
+     */
+    extern iword readbuf(fd file, slice<i8> buf) ASMLABEL("file.readbuf");
+
+    /*
+     * file.writebuf(file, buf)
+     *
+     * Attempts to write the provided buffer's contents into the file. Returns the number
+     * of bytes that were written.
+     */
+    extern iword writebuf(fd file, const_slice<i8> buf) ASMLABEL("file.writebuf");
 }
 
 namespace dir {

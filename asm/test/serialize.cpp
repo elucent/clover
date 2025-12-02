@@ -18,13 +18,13 @@ TEST(assembly_round_trip_to_file) {
     as.data.writeLE<double>(2.0);
     as.data.writeLE<double>(3.0);
 
-    file::fd output = file::open(cstring("bin/test.as"), file::WRITE);
+    file::fd output = file::openbuf(cstring("bin/test.as"), file::WRITE);
     as.serialize(output);
-    file::close(output);
+    file::closebuf(output);
 
-    file::fd input = file::open(cstring("bin/test.as"), file::READ);
+    file::fd input = file::openbuf(cstring("bin/test.as"), file::READ);
     as.deserialize(input);
-    file::close(input);
+    file::closebuf(input);
 
     auto linked = as.link(Assembly::defaultRelocator);
     linked.load();
@@ -49,13 +49,13 @@ TEST(assembly_serialize_hello_world) {
     as.def(DATA_SECTION, DEF_GLOBAL, Label::fromSym(as.symtab["msg"]));
     as.data.write("hello world\n", 12);
 
-    file::fd output = file::open(cstring("bin/hello.as"), file::WRITE);
+    file::fd output = file::openbuf(cstring("bin/hello.as"), file::WRITE);
     as.serialize(output);
-    file::close(output);
+    file::closebuf(output);
 
-    file::fd input = file::open(cstring("bin/hello.as"), file::READ);
+    file::fd input = file::openbuf(cstring("bin/hello.as"), file::READ);
     as.deserialize(input);
-    file::close(input);
+    file::closebuf(input);
 
     auto linked = as.link(Assembly::defaultRelocator);
     linked.load();

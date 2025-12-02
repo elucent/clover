@@ -344,7 +344,7 @@ namespace jasmine {
     void beginDOT(PassContext& ctx, Function& fn) {
         if (!DOTFile) {
             if (config::jasmineDOTFile.size() > 0)
-                DOTFile = file::open(config::jasmineDOTFile, file::WRITE);
+                DOTFile = file::openbuf(config::jasmineDOTFile, file::WRITE);
             else
                 DOTFile = io_stdout;
             write(DOTFile, "digraph {\n");

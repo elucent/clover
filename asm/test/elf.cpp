@@ -19,7 +19,7 @@ TEST(assembly_serialize_hello_world_to_elf) {
     as.def(DATA_SECTION, DEF_GLOBAL, Label::fromSym(as.symtab["msg"]));
     as.data.write("hello world\n", 12);
 
-    file::fd output = file::open(cstring("bin/hello.o"), file::WRITE);
+    file::fd output = file::openbuf(cstring("bin/hello.o"), file::WRITE);
     as.writeELFObject(output);
-    file::close(output);
+    file::closebuf(output);
 }

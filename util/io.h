@@ -22,14 +22,14 @@ inline void flush_input(fd io) {
     i8* buf = info.path + info.pathlen;
     memory::copy(buf, buf + info.meta.start, info.meta.end - info.meta.start);
     info.meta.end -= info.meta.start, info.meta.start = 0;
-    i64 amt = file::read(io, { buf + info.meta.end, file::FDBUF_SIZE - (info.meta.end - info.meta.start) });
+    i64 amt = file::readbuf(io, { buf + info.meta.end, file::FDBUF_SIZE - (info.meta.end - info.meta.start) });
     info.meta.end += amt;
 }
 
 inline void flush_output(fd io) {
     file::FileStorage& info = *file::fd_table[io];
     i8* buf = info.path + info.pathlen;
-    file::write(io, { buf + info.meta.start, info.meta.end - info.meta.start });
+    file::writebuf(io, { buf + info.meta.start, info.meta.end - info.meta.start });
     info.meta.end = info.meta.start = 0;
 }
 
@@ -93,7 +93,7 @@ struct Formatter<fd> {
         if ((io == io_stdout || io == io_stderr)) {
             if (str.size() >= file::FDBUF_SIZE) {
                 flush_output(io);
-                file::write(io, str);
+                file::writebuf(io, str);
                 return io;
             }
             for (i8 c : str) put(io, c);
@@ -102,7 +102,7 @@ struct Formatter<fd> {
             u32 buflen = file::FDBUF_SIZE - (offsetof(file::FileStorage, path) + info.pathlen);
             if (str.size() >= buflen) {
                 flush_output(io);
-                file::write(io, str);
+                file::writebuf(io, str);
                 return io;
             }
             while (i < str.size()) {
