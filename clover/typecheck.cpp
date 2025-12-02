@@ -2241,6 +2241,9 @@ namespace clover {
         // so we become the canonical copy and insert ourselves into the map.
         generic->instantiations->put(concreteKey, newFunction);
 
+        if UNLIKELY(config::printInferredTree && generic->module != call.module)
+            println(newDecl, '\n');
+
         if UNLIKELY(config::verboseInstantiation)
             println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key }, " and unique concrete signature ", SignatureKeyLogger { module->types, concreteKey });
 
