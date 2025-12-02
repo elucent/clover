@@ -1157,6 +1157,8 @@ namespace jasmine {
                             break;
                         }
                         Operand src = materialize(b, operands[1].type, operands[2], allocations.scratch0(n));
+                        if UNLIKELY(src.isConst())
+                            makeMove<Target>(this, fn, b, operands[1].type, src = allocations.scratch0(n), operands[2], allocations.scratch0(n));
                         Operand output = operands[0].isReg() ? operands[0] : allocations.scratch0(n);
                         b.addNode(n.opcode(), n.type(), output, operands[1], src);
                         writeBack(b, n.type(), operands[0], output);
