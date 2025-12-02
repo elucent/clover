@@ -159,8 +159,11 @@ namespace clover {
                 case VariableKind::OverloadedFunction:
                     ::println(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
                     break;
-                default:
+                case VariableKind::Member:
+                    ::println(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
                     break;
+                default:
+                    unreachable("Tried to print unsupported variable kind ", VariableInfo::KindNamesUpper[(u32)info.kind]);
             }
         }
         for (Scope* child : childScopes[scope->index])
