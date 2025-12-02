@@ -238,7 +238,6 @@ namespace clover {
             case ASTKind::Global:
             case ASTKind::GlobalConst:
             case ASTKind::GlobalTypename:
-            case ASTKind::GlobalGenericTypename:
             case ASTKind::Exp:
             case ASTKind::ArrayType:
             case ASTKind::FunType:
@@ -525,7 +524,22 @@ namespace clover {
             }
             case ASTKind::StructDecl:
             case ASTKind::StructCaseDecl: {
-                assert(ast.child(0).kind() == ASTKind::Ident); // TODO: Generic types
+                assert(ast.child(0).kind() == ASTKind::Ident);
+
+                if (!ast.child(1).missing()) {
+                    // Generic struct with a parameter list.
+                    currentScope->add(VariableKind::GenericType, ast, ast.child(0).symbol()); // Type name
+
+                    // We don't set up a new scope or investigate the body,
+                    // instead we wait until the type is instantiated.
+                    ast.setScope(currentScope);
+
+                    // We do create a GenericType in the module to keep track
+                    // of this template for future reference.
+                    unreachable("TODO: Implement generic types.");
+                    // GenericType* genericType =
+                }
+
                 currentScope->add(VariableKind::Type, ast, ast.child(0).symbol()); // Type name
                 Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
                 ast.setScope(newScope);

@@ -34,7 +34,6 @@ bool sameAST(ArtifactKind kind, Function* function, AST a, AST b, ShouldCompareP
                 case ASTKind::GenericTypename:
                 case ASTKind::Global:
                 case ASTKind::GlobalTypename:
-                case ASTKind::GlobalGenericTypename:
                     result = a.module->str(a.varInfo(function).name) == b.module->str(b.varInfo(function).name) && result;
                     break;
                 case ASTKind::Field:

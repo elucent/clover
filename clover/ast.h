@@ -20,11 +20,9 @@ namespace clover {
         macro(Capture, capture, _, true, 0) \
         macro(Const, const, _, true, 0) \
         macro(Typename, typename, _, true, 0) \
-        macro(GenericTypename, genericTypename, _, true, 0) \
         macro(Global, global, _, true, 0) \
         macro(GlobalConst, globalConst, _, true, 0) \
         macro(GlobalTypename, globalTypename, _, true, 0) \
-        macro(GlobalGenericTypename, globalGenericTypename, _, true, 0) \
         macro(Ident, ident, _, true, 0) \
         macro(Field, field, _, true, 0) \
         macro(Uninit, uninit, _, true, 0) \
@@ -37,6 +35,7 @@ namespace clover {
         macro(AnyType, anyType, any, true, 0) \
         macro(Wildcard, wildcard, wildcard, true, 0) /* Used in paths to indicate a glob. */ \
         macro(ResolvedFunction, resolvedFunction, resolved_function, true, 0) /* Encodes function index in symbol. */ \
+        macro(GenericTypename, genericTypename, _, true, 0) /* Encodes generic type index in symbol. */ \
         macro(Missing, missing, missing, true, 0) /* Used to mark missing expressions in nodes where some children are optional. */ \
         \
         /* Expressions */ \
@@ -199,8 +198,8 @@ namespace clover {
         enum Kind : u32 {
             FOR_EACH_AST_KIND(DEFINE_ENUM)
             NumKinds,
-            LastLocal = GenericTypename,
-            LastGlobal = GlobalGenericTypename,
+            LastLocal = Typename,
+            LastGlobal = GlobalTypename,
             LastTerminal = Missing,
             FirstScoped = VarDecl,
             FirstDecl = VarDecl,
@@ -869,6 +868,23 @@ namespace clover {
         }
     };
 
+    struct GenericType {
+        Module* module;
+        u32 index;
+        Symbol name;
+        NodeIndex parameterList;
+        bool isInstantiation = false;
+        Scope* parentScope;
+
+        inline GenericType(Module* module_in, u32 index_in, Symbol name_in, NodeIndex parameterList_in, Scope* parentScope_in):
+            module(module_in), index(index_in), name(name_in), parameterList(parameterList_in), parentScope(parentScope_in) {}
+
+        union {
+            map<SignatureKey, GenericType*>* instantiations = nullptr; // Cache of instantiations of this generic type.
+            GenericType* forward;
+        };
+    };
+
     struct VariableHandle {
         Scope* scope;
         bool g;
@@ -1018,6 +1034,7 @@ namespace clover {
         map<Function*, u32> importedFunctions;
         vec<Overloads*, 4> overloads;
         map<Overloads*, u32> importedOverloads;
+        vec<GenericType*, 4> genericTypes;
         vec<NodeIndex> constDeclOrder;
         const_slice<i8> source;
         vec<u32> lineOffsets;
@@ -1142,8 +1159,7 @@ namespace clover {
         inline AST addLeaf(ASTKind kind, const Global& variable) {
             assert(kind == ASTKind::Global
                 || kind == ASTKind::GlobalConst
-                || kind == ASTKind::GlobalTypename
-                || kind == ASTKind::GlobalGenericTypename);
+                || kind == ASTKind::GlobalTypename);
             assert(nodeScopes.size() != 0); // Should only be producing these after scope resolution.
             ASTWord ast;
             ast.kind = kind;
@@ -1774,6 +1790,11 @@ namespace clover {
             return overloads.back();
         }
 
+        inline GenericType* addGenericType(Symbol name, NodeIndex parameterList, Scope* parentScope) {
+            genericTypes.push(new GenericType(this, genericTypes.size(), name, parameterList, parentScope));
+            return genericTypes.back();
+        }
+
         inline Scope* addScope(ScopeKind kind, NodeIndex owner, Scope* parent) {
             scopes.push(new Scope(kind, this, parent, owner, scopes.size()));
             return scopes.back();
@@ -2343,7 +2364,6 @@ namespace clover {
                 return io;
             case ASTKind::Global:
             case ASTKind::GlobalTypename:
-            case ASTKind::GlobalGenericTypename:
                 io = format(io, module->str(ast.varInfo().name));
                 if (ast.module->nodeTypes.size())
                     io = format(io, typeColor, ":", module->types->get(ast.varInfo().type), typeReset);

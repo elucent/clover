@@ -748,7 +748,6 @@ namespace clover {
             case ASTKind::Typename:
             case ASTKind::GlobalTypename:
             case ASTKind::GenericTypename:
-            case ASTKind::GlobalGenericTypename:
                 // Already resolved, somehow.
                 return ast;
             case ASTKind::Missing:
