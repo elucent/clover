@@ -109,7 +109,7 @@ namespace clover {
 
         root = new Directory(this, nullptr, sym(""));
         vec<u32> fakeOffsets;
-        rootModule = new Module(this, cstring(""), move(fakeOffsets));
+        rootModule = new Module(this, nullptr, cstring(""), move(fakeOffsets));
         rootScope = nullptr;
         types = new TypeSystem(this);
         slice<i8> buf = { new i8[256], 256 };
@@ -130,6 +130,32 @@ namespace clover {
             initializeJITRuntime(*shims);
         }
         return shims;
+    }
+
+    void toposortArtifacts(Artifact* artifact, vec<Artifact*>& order) {
+        if (artifact->mark & 1)
+            return;
+        if (artifact->mark & 2)
+            unreachable("Cyclic local import detected.");
+
+        artifact->mark |= 2; // Give temporary mark.
+        for (Artifact* import : artifact->imports) {
+            if (import->mark & 1)
+                continue; // Has permanent mark.
+            toposortArtifacts(import, order);
+        }
+        artifact->mark |= 1; // Give permanent mark.
+        order.push(artifact);
+    }
+
+    void Compilation::ensureTopologicalOrder() {
+        if (topologicalOrder.size())
+            return;
+        auto& topologicalOrder = this->topologicalOrder;
+        forEachArtifact([&](Artifact* artifact) {
+            if (!(artifact->mark & 1))
+                toposortArtifacts(artifact, topologicalOrder);
+        });
     }
 
     void printDirectoryName(Directory* directory) {

@@ -2743,10 +2743,10 @@ namespace clover {
         auto artifactName = module->str(artifact->name);
         JasmineModule output = jasmine_create_module(artifactName.data(), artifactName.size());
 
-        auto& toplevels = module->compilation->toplevels;
+        auto& topLevels = module->compilation->topLevels;
         i8 buffer[64];
-        slice<i8> name = prints({ buffer, 64 }, "<toplevel", toplevels.size(), ">");
-        toplevels.push(module->sym(name));
+        slice<i8> name = prints({ buffer, 64 }, "<toplevel", topLevels ++, ">");
+        artifact->topLevel = module->sym(name);
 
         JasmineFunction topLevel = jasmine_create_function(output, name.data(), name.size(), JASMINE_TYPE_VOID, JASMINE_FUNCTION_FLAGS_NONE);
         JasmineBlock topLevelEntrypoint = jasmine_add_block(topLevel);
@@ -2796,6 +2796,8 @@ namespace clover {
     }
 
     JasmineAssembly createEntrypoint(Compilation* compilation) {
+        compilation->ensureTopologicalOrder();
+
         Assembly* as = new Assembly(compilation->symbols);
         #ifdef RT_AMD64
             #ifdef RT_LINUX
@@ -2815,8 +2817,8 @@ namespace clover {
                 ASM::pop64(*as, GP(ASM::RSI));
                 ASM::pop64(*as, GP(ASM::RDX));
                 ASM::add64(*as, GP(ASM::RSP), GP(ASM::RSP), Imm(8));
-                for (Symbol sym : compilation->toplevels)
-                    ASM::call(*as, Func(as->symtab[compilation->str(sym)]));
+                for (Artifact* artifact : compilation->topologicalOrder)
+                    ASM::call(*as, Func(as->symtab[compilation->str(artifact->topLevel)]));
                 ASM::call(*as, Func(as->symtab[".clrt.deinit"]));
             #endif
         #else

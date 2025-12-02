@@ -103,12 +103,19 @@ namespace clover {
     struct JasmineArtifact;
     struct AssemblyArtifact;
 
+    inline u64 hash(Artifact* artifact) {
+        return ::hash(uptr(artifact));
+    }
+
     struct Artifact {
         Directory* parent;
         Symbol name;
         const_slice<i8> filename;
+        ::set<Artifact*> imports;
         ArtifactKind kind;
         ArtifactData* data;
+        Symbol topLevel;
+        u8 mark;
 
         inline Artifact(Directory* parent_in, Symbol name_in):
             parent(parent_in), name(name_in), filename({ nullptr, 0 }), kind(ArtifactKind::None), data(nullptr) {}
@@ -190,7 +197,8 @@ namespace clover {
         bool compilationErrored = false;
         bool filesChanged = false;
         u32 optimizationLevel = 0;
-        vec<Symbol> toplevels;
+        u32 topLevels = 0;
+        vec<Artifact*> topologicalOrder;
 
         Compilation();
         ~Compilation();
@@ -274,6 +282,7 @@ namespace clover {
         }
 
         JITRuntimeShims* ensureJITRuntimeShims();
+        void ensureTopologicalOrder();
     };
 
     #define FOR_EACH_RESERVED_SYMBOL(macro) \

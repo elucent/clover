@@ -667,6 +667,7 @@ namespace clover {
                 Artifact* artifact = addSourceFile(module->compilation, filepath);
                 artifact = compileUntil(module->compilation, ArtifactKind::CheckedAST, artifact);
                 Module* otherModule = artifact->as<Module>();
+                module->artifact->imports.insert(artifact);
 
                 Scope* topLevelScope = otherModule->getTopLevel().scope();
                 for (const auto& [k, v] : topLevelScope->entries) {

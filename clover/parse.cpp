@@ -2391,7 +2391,7 @@ namespace clover {
             precedences[KeywordAs - FirstOperator] = 150;
         }
 
-        Module* module = new Module(artifact->parent->compilation, artifact->as<Tokens>()->takeSource(), move(artifact->as<Tokens>()->lineOffsets));
+        Module* module = new Module(artifact->parent->compilation, artifact, artifact->as<Tokens>()->takeSource(), move(artifact->as<Tokens>()->lineOffsets));
         TokenVisitor visitor(module, artifact->as<Tokens>()->tokens);
         module->setTopLevel(parseTopLevel(module, visitor));
 
@@ -2492,7 +2492,7 @@ namespace clover {
     Artifact* parseAsSexp(Artifact* artifact) {
         assert(artifact->kind == ArtifactKind::Tokens);
 
-        Module* module = new Module(artifact->parent->compilation, artifact->as<Tokens>()->takeSource(), move(artifact->as<Tokens>()->lineOffsets));
+        Module* module = new Module(artifact->parent->compilation, artifact, artifact->as<Tokens>()->takeSource(), move(artifact->as<Tokens>()->lineOffsets));
         TokenVisitor visitor(module, artifact->as<Tokens>()->tokens);
         visitor.ignoreWhitespace(visitor.peek().pos); // Ignore whitespace in s-exp mode.
 

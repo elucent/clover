@@ -1092,12 +1092,14 @@ namespace clover {
         vec<NodeIndex> constDeclOrder;
         const_slice<i8> source;
         vec<u32> lineOffsets;
+        Artifact* artifact;
         NodeIndex topLevel;
         u32 numTemps = 0;
+        Symbol name;
         bool noMangling = false;
         bool isMain = true;
 
-        inline Module(Compilation* compilation_in, const_slice<i8> source, vec<u32>&& lineOffsets);
+        inline Module(Compilation* compilation_in, Artifact* artifact_in, const_slice<i8> source, vec<u32>&& lineOffsets);
         ~Module() override;
 
         inline u32 intern(Constant constant) {
@@ -1882,8 +1884,9 @@ namespace clover {
 
     // Function Methods
 
-    inline Module::Module(Compilation* compilation_in, const_slice<i8> source_in, vec<u32>&& lineOffsets_in):
-        compilation(compilation_in), types(compilation->types), source(source_in), lineOffsets(lineOffsets_in) {}
+    inline Module::Module(Compilation* compilation_in, Artifact* artifact_in, const_slice<i8> source_in, vec<u32>&& lineOffsets_in):
+        compilation(compilation_in), types(compilation->types), source(source_in), lineOffsets(lineOffsets_in),
+        artifact(artifact_in), name(artifact ? artifact->name : compilation->sym("<root>")) {}
 
     inline Local Function::addTemp(TypeIndex type) {
         array<i8, 64> buf;
