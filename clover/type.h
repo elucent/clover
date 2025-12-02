@@ -398,13 +398,17 @@ namespace clover {
     };
 
     struct ArrayBuilder {
-        Type elementType;
+        TypeIndex elementType;
         u32 length;
 
-        inline ArrayBuilder(Type elementType_in, u32 length_in):
+        inline ArrayBuilder(TypeIndex elementType_in, u32 length_in):
             elementType(elementType_in), length(length_in + 2) {}
-        inline ArrayBuilder(Type elementType_in, ArrayType::LengthTag length):
+        inline ArrayBuilder(TypeIndex elementType_in, ArrayType::LengthTag length):
             elementType(elementType_in), length((u32)length) {}
+        inline ArrayBuilder(Type elementType_in, u32 length_in):
+            elementType(elementType_in.index), length(length_in + 2) {}
+        inline ArrayBuilder(Type elementType_in, ArrayType::LengthTag length):
+            elementType(elementType_in.index), length((u32)length) {}
 
         inline Type build(TypeSystem* types);
     };
