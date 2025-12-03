@@ -393,7 +393,7 @@ namespace clover {
         macro(BuiltinString, "string") \
         macro(MethodIter, "iter") \
         macro(MethodDone, "done") \
-        macro(MethodPeek, "peek") \
+        macro(MethodRead, "read") \
         macro(MethodNext, "next") \
         macro(BuiltinMemoryAlloc, "memory.alloc") \
         macro(BuiltinMemoryFree, "memory.free") \

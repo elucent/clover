@@ -2096,7 +2096,7 @@ namespace clover {
                 break;
             case BindingKind::In:
                 bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.pattern),
-                    module->add(ASTKind::CallMethod, binding.pos, Identifier(MethodPeek), module->fromOperand(binding.items))));
+                    module->add(ASTKind::CallMethod, binding.pos, Identifier(MethodRead), module->fromOperand(binding.items))));
                 break;
             case BindingKind::RangeDecreasing:
                 bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.var), module->fromOperand(binding.high)));
@@ -2117,7 +2117,7 @@ namespace clover {
             case BindingKind::Error:
                 break;
             case BindingKind::In:
-                bodyStmts.push(module->add(ASTKind::Assign, binding.pos, module->fromOperand(binding.pattern),
+                bodyStmts.push(module->add(ASTKind::Assign, binding.pos, module->fromOperand(binding.items),
                     module->add(ASTKind::CallMethod, binding.pos, Identifier(MethodNext), module->fromOperand(binding.items))));
                 break;
             case BindingKind::RangeDecreasing:
