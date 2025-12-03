@@ -182,6 +182,9 @@ fun write(io, u64 number):
     io.advance(digits)
     return io
 
+fun write(io, bool b):
+    write(io, "true") if b else write(io, "false")
+
 void print(x):
     write(stdout, x)
 
