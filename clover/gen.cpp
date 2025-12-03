@@ -450,7 +450,7 @@ namespace clover {
                 return dataref(module->str(it->value));
             auto str = module->str(string);
             i8 buffer[64];
-            auto name = prints({ buffer, 64 }, ".str.", strings.size());
+            auto name = prints({ buffer, 64 }, ".str.", module->compilation->staticDataEntries ++);
             jasmine_define_data(output, jasmine_make_array_type(output, JASMINE_TYPE_I8, str.size()), name.data(), name.size(), jasmine_i8_array_value(output, (const int8_t*)str.data(), str.size()));
             strings.put(string, module->sym(name));
             return dataref(name);

@@ -198,6 +198,7 @@ namespace clover {
         bool filesChanged = false;
         u32 optimizationLevel = 0;
         u32 topLevels = 0;
+        u32 staticDataEntries = 0;
         vec<Artifact*> topologicalOrder;
 
         Compilation();
