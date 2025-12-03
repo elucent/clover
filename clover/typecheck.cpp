@@ -3065,9 +3065,12 @@ namespace clover {
                 Type bound = expand(type);
                 if (type.isVar())
                     bound = type.asVar().lowerBound();
-                type_assert(other.unifyOnto(type, nullptr, InPlace));
-                if (substituteFlag && !isCaseTypeKind(bound.kind()))
-                    type_assert(type.unifyOnto(other, nullptr, InPlace));
+                if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
+                    type_error("Failed to unify ", other, " onto ", type, " in-place.");
+                if (substituteFlag && !isCaseTypeKind(bound.kind())) {
+                    if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
+                        type_error("Failed to unify ", type, " onto ", other, " in-place.");
+                }
             }
 
             // Next, if we had any ordering constraints, we know we need to be
@@ -3078,7 +3081,8 @@ namespace clover {
                 assert(origType.asVar().hasOwner());
                 AST ast = origType.asVar().owner(module);
                 assert(!ast.isLeaf());
-                type_assert(refine(ctx, ast.function(), ast, type));
+                if (!refine(ctx, ast.function(), ast, type))
+                    type_error("Couldn't refine node ", ast, " after inferring type ", type);
             }
 
             // On a similar note, we need to handle the case where this type
@@ -3095,7 +3099,8 @@ namespace clover {
                     assert(origType.asVar().hasOwner());
                     AST ast = origType.asVar().owner(module);
                     assert(!ast.isLeaf());
-                    type_assert(refine(ctx, ast.function(), ast, type));
+                    if (!refine(ctx, ast.function(), ast, type))
+                        type_error("Couldn't refine node ", ast, " after inferring type ", type);
                 }
 
                 constraints.constraints[i].dropRefinementList(constraints);
