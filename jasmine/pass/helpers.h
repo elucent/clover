@@ -13,43 +13,72 @@ namespace jasmine {
     }
 
     template<typename Target>
-    MaybePair<ASMVal> TargetSpecificPasses<Target>::placeParameter(Function& fn, TypeIndex type, void* state) const {
-        if (isFunction(fn.typeContext(), type))
-            type = PTR; // Functions are passed as pointers.
+    void collectFields(const TargetSpecificPasses<Target>* passes, Function& fn, TypeIndex type, vec<Repr>& reprs) {
         if (isCompound(type)) {
-            vec<Repr> reprs;
             const auto& compound = fn.typeContext()[type];
-            if (compound.typeKind == CompoundType::ARRAY) {
-                Repr repr = this->repr(compound.elementType());
-                if (max(repr.size(), repr.alignment()) * compound.length() > 64)
-                    reprs.push(Repr::Memory(repr.alignment(), compound.length() * repr.size()));
-                else for (u32 i = 0; i < compound.length(); i ++)
-                    reprs.push(repr);
-            } else if (compound.typeKind == CompoundType::STRUCT) {
-                for (TypeIndex field : compound.fields())
-                    reprs.push(this->repr(field));
-            } else if (compound.typeKind == CompoundType::UNION) {
-                Repr r = this->repr(type);
-                u32 size = r.size();
-                if (size > 64)
-                    reprs.push(r);
-                else {
-                    u32 align = r.alignment();
-                    for (u32 i = 0; i < size; i += align) {
-                        switch (align) {
-                            case 1: reprs.push(Repr::Scalar(Size::BITS8)); break;
-                            case 2: reprs.push(Repr::Scalar(Size::BITS16)); break;
-                            case 4: reprs.push(Repr::Scalar(Size::BITS32)); break;
-                            case 8: reprs.push(Repr::Scalar(Size::BITS64)); break;
-                            default:
-                                unreachable("Unexpected alignment for union type: ", align);
+            switch (compound.kind()) {
+                case CompoundType::FUNCTION:
+                    reprs.push(passes->repr(PTR));
+                    break;
+                case CompoundType::ARRAY: {
+                    Repr repr = passes->repr(compound.elementType());
+                    if (max(repr.size(), repr.alignment()) * compound.length() > 64)
+                        reprs.push(Repr::Memory(repr.alignment(), compound.length() * repr.size()));
+                    else for (u32 i = 0; i < compound.length(); i ++)
+                        collectFields(passes, fn, compound.elementType(), reprs);
+                    break;
+                }
+                case CompoundType::STRUCT: {
+                    u32 size = 0;
+                    u32 nReprs = reprs.size();
+                    for (auto [i, field] : enumerate(compound.fields())) {
+                        auto repr = passes->repr(field);
+                        while (size % repr.alignment())
+                           size ++;
+                        size += repr.size();
+                        if (size > 64) {
+                            reprs.trim(reprs.size() - nReprs);
+                            reprs.push(passes->repr(type));
+                            break;
+                        }
+                        collectFields(passes, fn, field, reprs);
+                    }
+                    break;
+                }
+                case CompoundType::UNION: {
+                    Repr r = passes->repr(type);
+                    u32 size = r.size();
+                    if (size > 64)
+                        reprs.push(r);
+                    else {
+                        u32 align = r.alignment();
+                        for (u32 i = 0; i < size; i += align) {
+                            switch (align) {
+                                case 1: reprs.push(Repr::Scalar(Size::BITS8)); break;
+                                case 2: reprs.push(Repr::Scalar(Size::BITS16)); break;
+                                case 4: reprs.push(Repr::Scalar(Size::BITS32)); break;
+                                case 8: reprs.push(Repr::Scalar(Size::BITS64)); break;
+                                default:
+                                    unreachable("Unexpected alignment for union type: ", align);
+                            }
                         }
                     }
+                    break;
                 }
-            } else if (compound.typeKind == CompoundType::VECTOR)
-                unreachable("TODO: Handle passing vector types.");
-            else
-                unreachable("Unexpected compound type kind in parameter placement.");
+                case CompoundType::VECTOR:
+                    unreachable("TODO: Handle passing vector types.");
+                default:
+                    unreachable("Unexpected compound type in parameter passing.");
+            }
+        } else
+            reprs.push(passes->repr(type));
+    }
+
+    template<typename Target>
+    MaybePair<ASMVal> TargetSpecificPasses<Target>::placeParameter(Function& fn, TypeIndex type, void* state) const {
+        if (isCompound(type)) {
+            vec<Repr> reprs;
+            collectFields(this, fn, type, reprs);
             return Target::place_aggregate_parameter(state, reprs);
         } else
             return Target::place_scalar_parameter(state, this->repr(type));
@@ -62,36 +91,7 @@ namespace jasmine {
             type = PTR; // Functions are passed as pointers.
         if (isCompound(type)) {
             vec<Repr> reprs;
-            const auto& compound = fn.typeContext()[type];
-            if (compound.typeKind == CompoundType::ARRAY) {
-                Repr repr = this->repr(compound.elementType());
-                for (u32 i = 0; i < compound.length(); i ++)
-                    reprs.push(repr);
-            } else if (compound.typeKind == CompoundType::STRUCT) {
-                for (TypeIndex field : compound.fields())
-                    reprs.push(this->repr(field));
-            } else if (compound.typeKind == CompoundType::UNION) {
-                Repr r = this->repr(type);
-                u32 size = r.size();
-                if (size > 64)
-                    reprs.push(r);
-                else {
-                    u32 align = r.alignment();
-                    for (u32 i = 0; i < size; i += align) {
-                        switch (align) {
-                            case 1: reprs.push(Repr::Scalar(Size::BITS8)); break;
-                            case 2: reprs.push(Repr::Scalar(Size::BITS16)); break;
-                            case 4: reprs.push(Repr::Scalar(Size::BITS32)); break;
-                            case 8: reprs.push(Repr::Scalar(Size::BITS64)); break;
-                            default:
-                                unreachable("Unexpected alignment for union type: ", align);
-                        }
-                    }
-                }
-            } else if (compound.typeKind == CompoundType::VECTOR)
-                unreachable("TODO: Handle passing vector types.");
-            else
-                unreachable("Unexpected compound type kind in parameter placement.");
+            collectFields(this, fn, type, reprs);
             return Target::place_aggregate_return_value(state, reprs);
         } else {
             Repr repr = this->repr(type);
