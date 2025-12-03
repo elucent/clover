@@ -151,15 +151,19 @@ bool eof?(File file):
 
 # Generic formatting functions.
 
-fun format(io, i8 byte):
+fun parse(io, i8* byte):
+    *byte = io.get()
+    return io
+
+fun write(io, i8 byte):
     io.put(byte)
     return io
 
-fun format(io, i8[] string):
+fun write(io, i8[] string):
     io.put(string)
     return io
 
-fun format(io, u64 number):
+fun write(io, u64 number):
     i8[] buffer: io.reserveOutput(20)
     if number == 0:
         buffer[0] = '0' as i8
@@ -178,10 +182,43 @@ fun format(io, u64 number):
     io.advance(digits)
     return io
 
-fun print(x):
-    format(stdout, x)
+void print(x):
+    write(stdout, x)
 
-fun println(x):
+void println(x):
     print(x)
     print('\n' as i8)
+
+# Iteration by line or word.
+
+type LineIterator:
+    File file
+
+LineIterator lines(File file):
+    LineIterator(file)
+
+LineIterator iter(LineIterator iter):
+    iter
+
+LineIterator next(LineIterator iter):
+    iter
+
+own i8[] read(LineIterator iter):
+    var entry: IOTable[iter.file.id]
+    for entry.start <= i < entry.end:
+        if entry.buf[i] == '\n' as i8:
+            var result: new i8[i + 1 - entry.start]
+            result[:] = entry.buf[entry.start:i + 1]
+            entry.start = i + 1
+            return own i8[](result)
+    if entry.eof:
+        var result: new i8[entry.end - entry.start]
+        result[:] = entry.buf[entry.start:entry.end]
+        entry.start = entry.end
+        return own i8[](result)
+    iter.file.flushInput()
+    return iter.read()
+
+bool done(LineIterator iter):
+    return iter.file.eof?()
 
