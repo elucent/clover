@@ -72,15 +72,15 @@ namespace clover {
         };
 
         enum Kind : u32 {
-            Variable, Constant, ConstFunction, Function, OverloadedFunction, Type, Member, GenericFunction, GenericType, Temp, Forward, NumKinds
+            Variable, Constant, ConstFunction, Function, OverloadedFunction, Type, Member, GenericFunction, GenericType, Namespace, Temp, Forward, NumKinds
         };
 
         static constexpr const i8* KindNamesUpper[NumKinds] = {
-            "Variable", "Constant", "Const Function", "Function", "Overloaded Function", "Type", "Member", "Generic Function", "Generic Type"
+            "Variable", "Constant", "Const Function", "Function", "Overloaded Function", "Namespace", "Type", "Member", "Generic Function", "Generic Type"
         };
 
         static constexpr const i8* KindNamesLower[NumKinds] = {
-            "variable", "constant", "const function", "function", "overloaded function", "type", "member", "generic function", "generic type"
+            "variable", "constant", "const function", "function", "overloaded function", "namespace", "type", "member", "generic function", "generic type"
         };
 
         TypeIndex type : Limits::TypesPerCompilationBits;
@@ -90,6 +90,7 @@ namespace clover {
             struct { u32 isImport : 1; NodeIndex decl : 31; Symbol name; };
             struct { u32 : 1; u32 functionIndex : 31; u32 : 32; };
             struct { u32 : 1; u32 constantIndex : 31; u32 : 32; };
+            struct { u32 : 1; u32 namespaceIndex : 31; u32 : 32; };
             struct { u32 overloads; u32 : 32; };
             struct { ScopeIndex defScope; u32 index; };
         };

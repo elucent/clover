@@ -342,6 +342,16 @@ type Foo:
 )", "(named Foo missing int)");
 }
 
+TEST(parse_namespace_decl) {
+    ASSERT_SAME_PARSE(R"(
+in foo:
+    i32 bar
+
+in foo.bar:
+    i32 baz
+)", "(namespace foo (do (var i32 bar missing))) (namespace foo (namespace bar (do (var i32 baz missing))))");
+}
+
 TEST(parse_ptr_type) {
     ASSERT_SAME_PARSE("T*", "(ptr_type T)");
     ASSERT_SAME_PARSE("T**", "(ptr_type (ptr_type T))");

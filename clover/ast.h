@@ -36,6 +36,7 @@ namespace clover {
         macro(Wildcard, wildcard, wildcard, true, 0) /* Used in paths to indicate a glob. */ \
         macro(ResolvedFunction, resolvedFunction, resolved_function, true, 0) /* Encodes function index in symbol. */ \
         macro(GenericTypename, genericTypename, _, true, 0) /* Encodes generic type index in symbol. */ \
+        macro(ResolvedNamespace, resolvedNamespace, resolved_namespace, true, 0) /* Encodes namespace index in symbol. */ \
         macro(Missing, missing, missing, true, 0) /* Used to mark missing expressions in nodes where some children are optional. */ \
         \
         /* Expressions */ \
@@ -151,6 +152,7 @@ namespace clover {
         macro(UnionCaseDecl, unionCaseDecl, union_case, false, -1) \
         macro(KindDecl, kindDecl, kind, false, -1) \
         macro(GenericTypeDecl, genericTypeDecl, generic_type, false, -1) \
+        macro(Namespace, namespace, namespace, false, 2) /* Name Body */ \
         macro(UseModule, useModule, use_module, false, 1) \
         macro(UseType, useType, use_type, false, 1) \
         macro(As, as, as, false, 2) \
@@ -278,6 +280,7 @@ namespace clover {
 
     struct VariableInfo;
     struct Function;
+    struct Namespace;
 
     struct AST {
         static constexpr u32 HeaderSlots = 1;
@@ -312,6 +315,7 @@ namespace clover {
         inline u32 fieldId() const;
         inline u32 constId() const;
         inline Function* resolvedFunction() const;
+        inline Namespace* resolvedNamespace() const;
         inline f64 floatConst() const;
         inline Symbol stringConst() const;
         inline bool boolConst() const;
@@ -323,6 +327,7 @@ namespace clover {
         inline void setFieldId(u32 i);
         inline void setConstId(u32 i);
         inline void setResolvedFunction(Function* function);
+        inline void setResolvedNamespace(Namespace* ns);
         inline void setFloatConst(f64 f);
         inline void setStringConst(Symbol s);
         inline void setBoolConst(bool b);
@@ -350,6 +355,7 @@ namespace clover {
         inline TypeIndex typeIndex() const;
         inline TypeIndex typeIndex(Module* module) const;
         inline TypeIndex typeIndex(Function* function) const;
+
         inline explicit operator bool() const {
             return module;
         }
@@ -938,6 +944,43 @@ namespace clover {
         };
     };
 
+    struct Namespace {
+        Module* module;
+        u32 index;
+        Symbol name;
+        vec<Scope*, 4> constituentScopes;
+        vec<Namespace*, 4> importedParents;
+
+        inline Namespace(Module* module_in, u32 index_in, Symbol name_in, Scope* originalScope):
+            module(module_in), index(index_in), name(name_in) {
+            constituentScopes.push(originalScope);
+        }
+
+        inline Namespace(Module* module_in, u32 index_in, Symbol name_in, Namespace* parent) {
+            importedParents.push(parent);
+        }
+
+        inline void addScope(Scope* scope) {
+            constituentScopes.push(scope);
+        }
+
+        inline void addImportedParent(Namespace* parent) {
+            importedParents.push(parent);
+        }
+
+        Scope::FindResult lookup(Symbol name) {
+            for (Scope* scope : constituentScopes) {
+                if (auto result = scope->findLocal(name))
+                    return result;
+            }
+            for (Namespace* parent : importedParents) {
+                if (auto result = parent->lookup(name))
+                    return result;
+            }
+            return Scope::FindResult();
+        }
+    };
+
     struct VariableHandle {
         Scope* scope;
         bool g;
@@ -1089,6 +1132,7 @@ namespace clover {
         vec<Overloads*, 4> overloads;
         map<Overloads*, u32> importedOverloads;
         vec<GenericType*, 4> genericTypes;
+        vec<Namespace*, 4> namespaces;
         vec<NodeIndex> constDeclOrder;
         const_slice<i8> source;
         vec<u32> lineOffsets;
@@ -1851,6 +1895,16 @@ namespace clover {
             return genericTypes.back();
         }
 
+        inline Namespace* addNamespace(Symbol name, Scope* scope) {
+            namespaces.push(new Namespace(this, namespaces.size(), name, scope));
+            return namespaces.back();
+        }
+
+        inline Namespace* addNamespace(Symbol name, Namespace* parent) {
+            namespaces.push(new Namespace(this, namespaces.size(), name, parent));
+            return namespaces.back();
+        }
+
         inline Scope* addScope(ScopeKind kind, NodeIndex owner, Scope* parent) {
             scopes.push(new Scope(kind, this, parent, owner, scopes.size()));
             return scopes.back();
@@ -2054,10 +2108,18 @@ namespace clover {
 
     inline Function* AST::resolvedFunction() const {
         assert(kind() == ASTKind::ResolvedFunction);
-        if (firstWord().isInline)
+        if LIKELY(firstWord().isInline)
             return module->functions[firstWord().inlineUnsigned];
         else
             return module->functions[module->constantList[firstWord().constantIndex].uintConst];
+    }
+
+    inline Namespace* AST::resolvedNamespace() const {
+        assert(kind() == ASTKind::ResolvedNamespace);
+        if LIKELY(firstWord().isInline)
+            return module->namespaces[firstWord().inlineUnsigned];
+        else
+            return module->namespaces[module->constantList[firstWord().constantIndex].uintConst];
     }
 
     inline f64 AST::floatConst() const {
@@ -2114,6 +2176,15 @@ namespace clover {
 
     inline void AST::setResolvedFunction(Function* function) {
         auto intern = module->tryIntern(Constant::UnsignedConst(module->functionIndex(function)));
+        if (intern.canIntern)
+            firstWord().isInline = true, firstWord().inlineSigned = intern.payload;
+        else
+            firstWord().isInline = false, firstWord().constantIndex = intern.payload;
+    }
+
+    inline void AST::setResolvedNamespace(Namespace* ns) {
+        assert(ns->module == module);
+        auto intern = module->tryIntern(Constant::UnsignedConst(ns->index));
         if (intern.canIntern)
             firstWord().isInline = true, firstWord().inlineSigned = intern.payload;
         else

@@ -1388,7 +1388,7 @@ namespace clover {
         if (token.token != PunctuatorColon) {
             if (allowMissing)
                 return module->add(ASTKind::Missing);
-            error(module, token, "Expected colon ':' in ", statementKind, " statement, found '", TokenFormat(module, token), "'.");
+            error(module, token, "Expected colon ':' in ", statementKind, ", found '", TokenFormat(module, token), "'.");
             visitor.readUpToAndIncluding(WhitespaceNewline);
             return module->add(ASTKind::Missing);
         }
@@ -1443,7 +1443,7 @@ namespace clover {
                         raises = parseRaisesDeclaration(module, visitor);
                     else
                         raises = module->add(ASTKind::Missing);
-                    AST body = parseBlockOrChain(module, visitor, "function", true);
+                    AST body = parseBlockOrChain(module, visitor, "function declaration", true);
                     return module->add(ASTKind::FunDecl, possibleDecl.pos(), lhs, rhs.child(0), module->add(ASTKind::Tuple, ast.pos(), arguments), raises, body);
                 } else {
                     assert(token.token == PunctuatorColon || token.token == PunctuatorComma);
@@ -1535,7 +1535,7 @@ namespace clover {
                 raises = parseRaisesDeclaration(module, visitor);
             else
                 raises = module->add(ASTKind::Missing);
-            AST body = parseBlockOrChain(module, visitor, "function", true);
+            AST body = parseBlockOrChain(module, visitor, "function declaration", true);
             return module->add(ASTKind::FunDecl, namePos, ast, name, parameters, raises, body);
         }
 
@@ -1813,7 +1813,7 @@ namespace clover {
                     if (visitor.peek().token != PunctuatorColon)
                         error(module, visitor.peek(), "Expected colon ':' in const function definition, found '", TokenFormat(module, visitor.peek()), "'.");
                     else
-                        return module->add(kind, namePos, pattern, module->add(ASTKind::Tuple, parenPos, params), parseBlockOrChain(module, visitor, "const function", false));
+                        return module->add(kind, namePos, pattern, module->add(ASTKind::Tuple, parenPos, params), parseBlockOrChain(module, visitor, "const function definition", false));
                     return module->add(ASTKind::Missing);
                 }
 
@@ -1863,8 +1863,29 @@ namespace clover {
                 if (visitor.done() || visitor.peek().token == WhitespaceNewline)
                     body = module->add(ASTKind::Missing);
                 else
-                    body = parseBlockOrChain(module, visitor, "function", false);
+                    body = parseBlockOrChain(module, visitor, "function declaration", false);
                 return module->add(ASTKind::FunDecl, namePos, module->add(ASTKind::Missing), name, parameters, raises, body);
+            }
+            case KeywordIn: {
+                visitor.read();
+                vec<Pos, 4> namePositions;
+                vec<AST, 4> names;
+                namePositions.push(visitor.peek().pos);
+                names.push(parseIdentifier(module, visitor));
+                while (visitor.peek().token == PunctuatorDot) {
+                    visitor.read();
+                    namePositions.push(visitor.peek().pos);
+                    names.push(parseIdentifier(module, visitor));
+                }
+                AST body;
+                if (visitor.peek().token != PunctuatorColon)
+                    error(module, visitor.peek(), "Expected colon ':' in namespace declaration, found '", TokenFormat(module, visitor.peek()), "'.");
+                else
+                    body = parseBlockOrChain(module, visitor, "namespace declaration", false);
+
+                while (names.size())
+                    body = module->add(ASTKind::Namespace, namePositions.pop(), names.pop(), body);
+                return body;
             }
             case KeywordType:
                 return parseTypeDecl(module, visitor, KeywordType);
@@ -2234,11 +2255,11 @@ namespace clover {
             case KeywordIf: {
                 Pos pos = visitor.read().pos;
                 AST cond = parseExpression(module, visitor);
-                AST body = parseBlockOrChain(module, visitor, "if", false);
+                AST body = parseBlockOrChain(module, visitor, "if statement", false);
                 consumeNewlines(visitor);
                 if (visitor.peek().token == KeywordElse) {
                     visitor.read();
-                    AST elseBody = parseBlockOrChain(module, visitor, "else", false);
+                    AST elseBody = parseBlockOrChain(module, visitor, "if-else statement", false);
                     return module->add(ASTKind::IfElse, pos, cond, body, elseBody);
                 } else
                     return module->add(ASTKind::If, pos, cond, body);
@@ -2246,19 +2267,19 @@ namespace clover {
             case KeywordUnless: {
                 Pos pos = visitor.read().pos;
                 AST cond = parseExpression(module, visitor);
-                AST body = parseBlockOrChain(module, visitor, "unless", false);
+                AST body = parseBlockOrChain(module, visitor, "unless statement", false);
                 return module->add(ASTKind::If, pos, module->add(ASTKind::Not, cond), body);
             }
             case KeywordWhile: {
                 Pos pos = visitor.read().pos;
                 AST cond = parseExpression(module, visitor);
-                AST body = parseBlockOrChain(module, visitor, "while", false);
+                AST body = parseBlockOrChain(module, visitor, "while statement", false);
                 return module->add(ASTKind::While, pos, cond, body);
             }
             case KeywordUntil: {
                 Pos pos = visitor.read().pos;
                 AST cond = parseExpression(module, visitor);
-                AST body = parseBlockOrChain(module, visitor, "until", false);
+                AST body = parseBlockOrChain(module, visitor, "until statement", false);
                 return module->add(ASTKind::While, pos, module->add(ASTKind::Not, cond), body);
             }
             case KeywordFor:
