@@ -583,20 +583,18 @@ TEST(lex_operator_bitxor_assign) {
 TEST(lex_newlines_simple) {
     auto artifact = LEX(R"(
 abc
-def 
+def
 
-ghi  
+ghi
 )");
     const auto& tokens = artifact.as<Tokens>()->tokens;
-    ASSERT(tokens[0] == Token(WhitespaceNewline, Pos(0, 0)));
-    ASSERT(tokens[1] == Token(SYM("abc"), Pos(1, 0)));
-    ASSERT(tokens[2] == Token(WhitespaceNewline, Pos(1, 3)));
-    ASSERT(tokens[3] == Token(SYM("def"), Pos(2, 0)));
-    ASSERT(tokens[4] == Token(WhitespaceNewline, Pos(2, 4)));
-    ASSERT(tokens[5] == Token(WhitespaceNewline, Pos(3, 0)));
-    ASSERT(tokens[6] == Token(SYM("ghi"), Pos(4, 0)));
-    ASSERT(tokens[7] == Token(WhitespaceNewline, Pos(4, 5)));
-    ASSERT(tokens.size() == 8);
+    ASSERT(tokens[0] == Token(SYM("abc"), Pos(1, 0)));
+    ASSERT(tokens[1] == Token(WhitespaceNewline, Pos(1, 3)));
+    ASSERT(tokens[2] == Token(SYM("def"), Pos(2, 0)));
+    ASSERT(tokens[3] == Token(WhitespaceNewline, Pos(2, 3)));
+    ASSERT(tokens[4] == Token(SYM("ghi"), Pos(4, 0)));
+    ASSERT(tokens[5] == Token(WhitespaceNewline, Pos(4, 3)));
+    ASSERT(tokens.size() == 6);
 }
 
 TEST(lex_indentation_simple) {
@@ -606,16 +604,15 @@ abc
 ghi
 )");
     const auto& tokens = artifact.as<Tokens>()->tokens;
-    ASSERT(tokens[0] == Token(WhitespaceNewline, Pos(0, 0)));
-    ASSERT(tokens[1] == Token(SYM("abc"), Pos(1, 0)));
-    ASSERT(tokens[2] == Token(WhitespaceNewline, Pos(1, 3)));
-    ASSERT(tokens[3] == Token(WhitespaceIndent, Pos(2, 4)));
-    ASSERT(tokens[4] == Token(SYM("def"), Pos(2, 4)));
-    ASSERT(tokens[5] == Token(WhitespaceNewline, Pos(2, 7)));
-    ASSERT(tokens[6] == Token(WhitespaceDedent, Pos(3, 0)));
-    ASSERT(tokens[7] == Token(SYM("ghi"), Pos(3, 0)));
-    ASSERT(tokens[8] == Token(WhitespaceNewline, Pos(3, 3)));
-    ASSERT(tokens.size() == 9);
+    ASSERT(tokens[0] == Token(SYM("abc"), Pos(1, 0)));
+    ASSERT(tokens[1] == Token(WhitespaceNewline, Pos(1, 3)));
+    ASSERT(tokens[2] == Token(WhitespaceIndent, Pos(2, 4)));
+    ASSERT(tokens[3] == Token(SYM("def"), Pos(2, 4)));
+    ASSERT(tokens[4] == Token(WhitespaceNewline, Pos(2, 7)));
+    ASSERT(tokens[5] == Token(WhitespaceDedent, Pos(3, 0)));
+    ASSERT(tokens[6] == Token(SYM("ghi"), Pos(3, 0)));
+    ASSERT(tokens[7] == Token(WhitespaceNewline, Pos(3, 3)));
+    ASSERT(tokens.size() == 8);
 }
 
 TEST(lex_indentation_nested) {
@@ -629,28 +626,27 @@ a
 g
 )");
     const auto& tokens = artifact.as<Tokens>()->tokens;
-    ASSERT(tokens[0] == Token(WhitespaceNewline, Pos(0, 0)));
-    ASSERT(tokens[1] == Token(SYM("a"), Pos(1, 0)));
-    ASSERT(tokens[2] == Token(WhitespaceNewline, Pos(1, 1)));
-    ASSERT(tokens[3] == Token(WhitespaceIndent, Pos(2, 1)));
-    ASSERT(tokens[4] == Token(SYM("b"), Pos(2, 1)));
-    ASSERT(tokens[5] == Token(WhitespaceNewline, Pos(2, 2)));
-    ASSERT(tokens[6] == Token(WhitespaceIndent, Pos(3, 2)));
-    ASSERT(tokens[7] == Token(SYM("c"), Pos(3, 2)));
-    ASSERT(tokens[8] == Token(WhitespaceNewline, Pos(3, 3)));
-    ASSERT(tokens[9] == Token(WhitespaceDedent, Pos(4, 1)));
-    ASSERT(tokens[10] == Token(SYM("d"), Pos(4, 1)));
-    ASSERT(tokens[11] == Token(WhitespaceNewline, Pos(4, 2)));
-    ASSERT(tokens[12] == Token(WhitespaceIndent, Pos(5, 2)));
-    ASSERT(tokens[13] == Token(SYM("e"), Pos(5, 2)));
-    ASSERT(tokens[14] == Token(WhitespaceNewline, Pos(5, 3)));
-    ASSERT(tokens[15] == Token(WhitespaceDedent, Pos(6, 1)));
-    ASSERT(tokens[16] == Token(SYM("f"), Pos(6, 1)));
-    ASSERT(tokens[17] == Token(WhitespaceNewline, Pos(6, 2)));
-    ASSERT(tokens[18] == Token(WhitespaceDedent, Pos(7, 0)));
-    ASSERT(tokens[19] == Token(SYM("g"), Pos(7, 0)));
-    ASSERT(tokens[20] == Token(WhitespaceNewline, Pos(7, 1)));
-    ASSERT(tokens.size() == 21);
+    ASSERT(tokens[0] == Token(SYM("a"), Pos(1, 0)));
+    ASSERT(tokens[1] == Token(WhitespaceNewline, Pos(1, 1)));
+    ASSERT(tokens[2] == Token(WhitespaceIndent, Pos(2, 1)));
+    ASSERT(tokens[3] == Token(SYM("b"), Pos(2, 1)));
+    ASSERT(tokens[4] == Token(WhitespaceNewline, Pos(2, 2)));
+    ASSERT(tokens[5] == Token(WhitespaceIndent, Pos(3, 2)));
+    ASSERT(tokens[6] == Token(SYM("c"), Pos(3, 2)));
+    ASSERT(tokens[7] == Token(WhitespaceNewline, Pos(3, 3)));
+    ASSERT(tokens[8] == Token(WhitespaceDedent, Pos(4, 1)));
+    ASSERT(tokens[9] == Token(SYM("d"), Pos(4, 1)));
+    ASSERT(tokens[10] == Token(WhitespaceNewline, Pos(4, 2)));
+    ASSERT(tokens[11] == Token(WhitespaceIndent, Pos(5, 2)));
+    ASSERT(tokens[12] == Token(SYM("e"), Pos(5, 2)));
+    ASSERT(tokens[13] == Token(WhitespaceNewline, Pos(5, 3)));
+    ASSERT(tokens[14] == Token(WhitespaceDedent, Pos(6, 1)));
+    ASSERT(tokens[15] == Token(SYM("f"), Pos(6, 1)));
+    ASSERT(tokens[16] == Token(WhitespaceNewline, Pos(6, 2)));
+    ASSERT(tokens[17] == Token(WhitespaceDedent, Pos(7, 0)));
+    ASSERT(tokens[18] == Token(SYM("g"), Pos(7, 0)));
+    ASSERT(tokens[19] == Token(WhitespaceNewline, Pos(7, 1)));
+    ASSERT(tokens.size() == 20);
 }
 
 TEST(lex_starts_indented) {
@@ -659,14 +655,13 @@ TEST(lex_starts_indented) {
 def
 )");
     const auto& tokens = artifact.as<Tokens>()->tokens;
-    ASSERT(tokens[0] == Token(WhitespaceNewline, Pos(0, 0)));
-    ASSERT(tokens[1] == Token(WhitespaceIndent, Pos(1, 4)));
-    ASSERT(tokens[2] == Token(SYM("abc"), Pos(1, 4)));
-    ASSERT(tokens[3] == Token(WhitespaceNewline, Pos(1, 7)));
-    ASSERT(tokens[4] == Token(WhitespaceDedent, Pos(2, 0)));
-    ASSERT(tokens[5] == Token(SYM("def"), Pos(2, 0)));
-    ASSERT(tokens[6] == Token(WhitespaceNewline, Pos(2, 3)));
-    ASSERT(tokens.size() == 7);
+    ASSERT(tokens[0] == Token(WhitespaceIndent, Pos(1, 4)));
+    ASSERT(tokens[1] == Token(SYM("abc"), Pos(1, 4)));
+    ASSERT(tokens[2] == Token(WhitespaceNewline, Pos(1, 7)));
+    ASSERT(tokens[3] == Token(WhitespaceDedent, Pos(2, 0)));
+    ASSERT(tokens[4] == Token(SYM("def"), Pos(2, 0)));
+    ASSERT(tokens[5] == Token(WhitespaceNewline, Pos(2, 3)));
+    ASSERT(tokens.size() == 6);
 }
 
 TEST(lex_ends_indented) {
@@ -675,14 +670,13 @@ abc
     def
 )");
     const auto& tokens = artifact.as<Tokens>()->tokens;
-    ASSERT(tokens[0] == Token(WhitespaceNewline, Pos(0, 0)));
-    ASSERT(tokens[1] == Token(SYM("abc"), Pos(1, 0)));
-    ASSERT(tokens[2] == Token(WhitespaceNewline, Pos(1, 3)));
-    ASSERT(tokens[3] == Token(WhitespaceIndent, Pos(2, 4)));
-    ASSERT(tokens[4] == Token(SYM("def"), Pos(2, 4)));
-    ASSERT(tokens[5] == Token(WhitespaceNewline, Pos(2, 7)));
-    ASSERT(tokens[6] == Token(WhitespaceDedent, Pos(3, 0)));
-    ASSERT(tokens.size() == 7);
+    ASSERT(tokens[0] == Token(SYM("abc"), Pos(1, 0)));
+    ASSERT(tokens[1] == Token(WhitespaceNewline, Pos(1, 3)));
+    ASSERT(tokens[2] == Token(WhitespaceIndent, Pos(2, 4)));
+    ASSERT(tokens[3] == Token(SYM("def"), Pos(2, 4)));
+    ASSERT(tokens[4] == Token(WhitespaceNewline, Pos(2, 7)));
+    ASSERT(tokens[5] == Token(WhitespaceDedent, Pos(3, 0)));
+    ASSERT(tokens.size() == 6);
 }
 
 TEST(lex_multiple_simultaneous_dedent) {
@@ -693,18 +687,68 @@ abc
 jkl
 )");
     const auto& tokens = artifact.as<Tokens>()->tokens;
-    ASSERT(tokens[0] == Token(WhitespaceNewline, Pos(0, 0)));
-    ASSERT(tokens[1] == Token(SYM("abc"), Pos(1, 0)));
-    ASSERT(tokens[2] == Token(WhitespaceNewline, Pos(1, 3)));
-    ASSERT(tokens[3] == Token(WhitespaceIndent, Pos(2, 4)));
-    ASSERT(tokens[4] == Token(SYM("def"), Pos(2, 4)));
-    ASSERT(tokens[5] == Token(WhitespaceNewline, Pos(2, 7)));
-    ASSERT(tokens[6] == Token(WhitespaceIndent, Pos(3, 8)));
-    ASSERT(tokens[7] == Token(SYM("ghi"), Pos(3, 8)));
-    ASSERT(tokens[8] == Token(WhitespaceNewline, Pos(3, 11)));
+    ASSERT(tokens[0] == Token(SYM("abc"), Pos(1, 0)));
+    ASSERT(tokens[1] == Token(WhitespaceNewline, Pos(1, 3)));
+    ASSERT(tokens[2] == Token(WhitespaceIndent, Pos(2, 4)));
+    ASSERT(tokens[3] == Token(SYM("def"), Pos(2, 4)));
+    ASSERT(tokens[4] == Token(WhitespaceNewline, Pos(2, 7)));
+    ASSERT(tokens[5] == Token(WhitespaceIndent, Pos(3, 8)));
+    ASSERT(tokens[6] == Token(SYM("ghi"), Pos(3, 8)));
+    ASSERT(tokens[7] == Token(WhitespaceNewline, Pos(3, 11)));
+    ASSERT(tokens[8] == Token(WhitespaceDedent, Pos(4, 0)));
     ASSERT(tokens[9] == Token(WhitespaceDedent, Pos(4, 0)));
-    ASSERT(tokens[10] == Token(WhitespaceDedent, Pos(4, 0)));
-    ASSERT(tokens[11] == Token(SYM("jkl"), Pos(4, 0)));
-    ASSERT(tokens[12] == Token(WhitespaceNewline, Pos(4, 3)));
-    ASSERT(tokens.size() == 13);
+    ASSERT(tokens[10] == Token(SYM("jkl"), Pos(4, 0)));
+    ASSERT(tokens[11] == Token(WhitespaceNewline, Pos(4, 3)));
+    ASSERT(tokens.size() == 12);
+}
+
+TEST(lex_blank_line) {
+    auto artifact = LEX(R"(
+abc
+    def
+
+    ghi
+
+jkl
+)");
+    const auto& tokens = artifact.as<Tokens>()->tokens;
+    ASSERT(tokens[0] == Token(SYM("abc"), Pos(1, 0)));
+    ASSERT(tokens[1] == Token(WhitespaceNewline, Pos(1, 3)));
+    ASSERT(tokens[2] == Token(WhitespaceIndent, Pos(2, 4)));
+    ASSERT(tokens[3] == Token(SYM("def"), Pos(2, 4)));
+    ASSERT(tokens[4] == Token(WhitespaceNewline, Pos(2, 7)));
+    ASSERT(tokens[5] == Token(SYM("ghi"), Pos(4, 4)));
+    ASSERT(tokens[6] == Token(WhitespaceNewline, Pos(4, 7)));
+    ASSERT(tokens[7] == Token(WhitespaceDedent, Pos(6, 0)));
+    ASSERT(tokens[8] == Token(SYM("jkl"), Pos(6, 0)));
+    ASSERT(tokens[9] == Token(WhitespaceNewline, Pos(6, 3)));
+    ASSERT(tokens.size() == 10);
+}
+
+TEST(lex_blank_line_and_comment) {
+    auto artifact = LEX(R"(
+abc
+    # a comment
+
+    def
+
+    # another comment
+    ghi
+
+    # a third comment comment
+
+jkl
+)");
+    const auto& tokens = artifact.as<Tokens>()->tokens;
+    ASSERT(tokens[0] == Token(SYM("abc"), Pos(1, 0)));
+    ASSERT(tokens[1] == Token(WhitespaceNewline, Pos(1, 3)));
+    ASSERT(tokens[2] == Token(WhitespaceIndent, Pos(4, 4)));
+    ASSERT(tokens[3] == Token(SYM("def"), Pos(4, 4)));
+    ASSERT(tokens[4] == Token(WhitespaceNewline, Pos(4, 7)));
+    ASSERT(tokens[5] == Token(SYM("ghi"), Pos(7, 4)));
+    ASSERT(tokens[6] == Token(WhitespaceNewline, Pos(7, 7)));
+    ASSERT(tokens[7] == Token(WhitespaceDedent, Pos(11, 0)));
+    ASSERT(tokens[8] == Token(SYM("jkl"), Pos(11, 0)));
+    ASSERT(tokens[9] == Token(WhitespaceNewline, Pos(11, 3)));
+    ASSERT(tokens.size() == 10);
 }

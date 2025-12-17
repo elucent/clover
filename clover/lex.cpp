@@ -239,20 +239,40 @@ namespace clover {
     inline void processIndentsOnNewLine(vec<Token, 32>& tokens, vec<u32, 16>& indents, SourceVisitor& visitor) {
         assert(visitor.column == 0);
         u8 ch = visitor.peek();
-        while (!visitor.done() && ch < 64 && spaceMask & (1ull << ch))
-            visitor.read(), ch = visitor.peek();
-        if (visitor.column > indents.back()) {
-            tokens.push({ WhitespaceIndent, visitor.pos() });
-            indents.push(visitor.column);
-        } else if (visitor.column < indents.back()) {
-            if (visitor.column <= indents[indents.size() - 2]) {
-                tokens.push({ WhitespaceDedent, visitor.pos() });
-                indents.pop();
-                while (visitor.column < indents.back()) {
+        while (!visitor.done()) {
+            while (!visitor.done() && ch < 64 && spaceMask & (1ull << ch))
+                visitor.read(), ch = visitor.peek();
+
+            if (ch == '#') {
+                while (!visitor.done() && ch != '\n')
+                    visitor.read(), ch = visitor.peek();
+                if (visitor.done())
+                    break;
+                visitor.read();
+                ch = visitor.peek();
+                continue; // Skip this line and continue.
+            }
+
+            if (ch == '\n') {
+                visitor.read();
+                ch = visitor.peek();
+                continue; // Skip this line and continue.
+            }
+
+            if (visitor.column > indents.back()) {
+                tokens.push({ WhitespaceIndent, visitor.pos() });
+                indents.push(visitor.column);
+            } else if (visitor.column < indents.back()) {
+                if (visitor.column <= indents[indents.size() - 2]) {
                     tokens.push({ WhitespaceDedent, visitor.pos() });
                     indents.pop();
+                    while (visitor.column < indents.back()) {
+                        tokens.push({ WhitespaceDedent, visitor.pos() });
+                        indents.pop();
+                    }
                 }
             }
+            break;
         }
     }
 
