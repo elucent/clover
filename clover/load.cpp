@@ -56,7 +56,7 @@ namespace clover {
             return artifact;
 
         const_slice<i8> os_path = path.to_bytes();
-        auto info = file::info(os_path);
+        auto info = file::pathinfo(os_path);
         assert(info.kind == file::FILE);
         slice<i8> text = { new i8[info.size], info.size };
 

@@ -27,7 +27,7 @@ type CLRTFilePerm:
     const Read: 1, Write: 2, Append: 4
 
 CLRTFd CLRTFileOpen(i8[] path, CLRTFileFlags)
-u32 CLRTFileRead(CLRTFd, i8[] output)
+u32 CLRTFileRead(CLRTFd, uninit i8[] output)
 u32 CLRTFileWrite(CLRTFd, i8[] message)
 void CLRTFileClose(CLRTFd)
 
@@ -35,7 +35,8 @@ type CLRTFileData:
     u32 size
     CLRTFileKind kind
 
-CLRTFileData CLRTFileInfo(i8[] path)
+CLRTFileData CLRTFileInfo(CLRTFd)
+CLRTFileData CLRTFilePathInfo(i8[] path)
 
 void CLRTFileRemove(i8[] path)
 i8[] CLRTFileCwd(i8[] output)
@@ -59,6 +60,7 @@ u32 CLRTDirRead(CLRTFd, CLRTDirEntry[] output)
 #  Processes  #
 ###############
 
+void CLRTProcessTrap()
 void CLRTProcessExit(i32 exitCode)
 i32 CLRTProcessExec(i8[] path, i8[][] argv)
 

@@ -146,11 +146,18 @@ namespace file {
     };
 
     /*
-     * file.info(path)
+     * file.info(file)
+     *
+     * Returns information about the file with the provided file descriptor.
+     */
+    extern FileInfo info(fd file) ASMLABEL("file.info");
+
+    /*
+     * file.pathinfo(path)
      *
      * Returns information about the file at the specified path.
      */
-    extern FileInfo info(const_slice<i8> path) ASMLABEL("file.info");
+    extern FileInfo pathinfo(const_slice<i8> path) ASMLABEL("file.pathinfo");
 
     /*
      * file.cwd()

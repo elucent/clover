@@ -190,8 +190,8 @@ namespace file {
         #endif
     }
 
-    FileInfo info(const_slice<i8> path) ASMLABEL("file.info");
-    FileInfo info(const_slice<i8> path) {
+    FileInfo pathinfo(const_slice<i8> path) ASMLABEL("file.pathinfo");
+    FileInfo pathinfo(const_slice<i8> path) {
         FileInfo info = {
             0, Kind::NONE
         };
@@ -204,6 +204,30 @@ namespace file {
         #ifdef RT_LINUX
             struct stat os_stat;
             if (::stat(buf64k, &os_stat) == -1)
+                return info;
+
+            if ((os_stat.st_mode & S_IFMT) == S_IFREG) {
+                info.kind = Kind::FILE;
+                info.size = os_stat.st_size;
+            } else if ((os_stat.st_mode & S_IFMT) == S_IFDIR) {
+                info.kind = Kind::DIR;
+            }
+        #else
+            #error "Unimplemented syscall for platform: stat"
+        #endif
+
+        return info;
+    }
+
+    FileInfo info(fd file) ASMLABEL("file.info");
+    FileInfo info(fd file) {
+        FileInfo info = {
+            0, Kind::NONE
+        };
+
+        #ifdef RT_LINUX
+            struct stat os_stat;
+            if (::fstat(file, &os_stat) == -1)
                 return info;
 
             if ((os_stat.st_mode & S_IFMT) == S_IFREG) {
