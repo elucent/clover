@@ -2799,7 +2799,7 @@ namespace clover {
             // but won't allow our pointee to promote to a slice.
             auto otherElement = other.as<TypeKind::Slice>().elementType();
             return ArrayBuilder(otherElement, ArrayType::Bottom).build(types).unifyOnto(elementType(), constraints, mode)
-                & elementType().unifyOnto(ArrayBuilder(otherElement, ArrayType::Top).build(types), constraints, mode);
+                & elementType().unifyOnto(other, constraints, mode);
         }
         return UnifyFailure;
     }

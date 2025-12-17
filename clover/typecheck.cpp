@@ -2293,6 +2293,9 @@ namespace clover {
             if (ast.arity() - 1 != funcType.as<TypeKind::Function>().parameterCount())
                 return;
 
+            if UNLIKELY(config::verboseUnify >= 3)
+                println("[TYPE]\tConsidering overload with type ", funcType);
+
             u32 rank = 0;
             if (!canUnify(funcType.returnType(), returnType, ast))
                 return;
@@ -2303,16 +2306,24 @@ namespace clover {
             for (u32 i = 1; i < ast.arity(); i ++) {
                 auto arg = inferredType(ctx, function, ast.child(i));
                 auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
-                if (!canUnify(arg, parameterType, ast))
+                if (canUnify(arg, parameterType, ast)) {
+                    if (expand(arg) == expand(parameterType) && !overload->isGeneric)
+                        rank += arity; // Prioritize exact matches.
+                    else
+                        rank += 1;
+                } else if (i == 1 && ast.kind() == ASTKind::CallMethod && arg.is<TypeKind::Pointer>()) {
+                    arg = arg.as<TypeKind::Pointer>().elementType();
+                    if (!canUnify(arg, parameterType, ast))
+                        return;
+                    if (expand(arg) == expand(parameterType) && !overload->isGeneric)
+                        rank += arity; // Prioritize exact matches.
+                    else
+                        rank += 1;
+                } else
                     return;
-
-                if (expand(arg) == expand(parameterType) && !overload->isGeneric)
-                    rank += arity; // Prioritize exact matches.
-                else
-                    rank += 1;
             }
             if UNLIKELY(config::verboseUnify >= 3)
-                println("[TYPE]\t - Added matching overload ", type);
+                println("[TYPE]\t - Added matching overload ", type, " with rank ", rank);
             if (!overload->isGeneric)
                 rank *= arity; // Prioritize non-generic functions.
 
@@ -2324,7 +2335,8 @@ namespace clover {
             maxRank = max(func.rank, maxRank);
         possibleFunctions.removeIf([=](const Overload& overload) -> bool { return overload.rank != maxRank; });
 
-        type_assert(possibleFunctions.size() <= 1);
+        if (possibleFunctions.size() > 1)
+            type_error("Overloaded call ", ast, " is ambiguous.");
         if (possibleFunctions.size() == 1) {
             Function* candidate = possibleFunctions[0].function;
             if (candidate->isGeneric) {
@@ -2602,7 +2614,8 @@ namespace clover {
                     else
                         resolvedType = refineCall(ctx, function, ast);
                 }
-                type_assert(resolvedType);
+                if (!resolvedType)
+                    type_error("Failed to resolve call ", ast);
 
                 auto funcType = module->types->get(*resolvedType).as<TypeKind::Function>();
                 for (u32 i = 1; i < ast.arity(); i ++) {

@@ -678,7 +678,7 @@ namespace clover {
                     } else if (info.kind == VariableKind::OverloadedFunction) {
                         Overloads* overloads = otherModule->overloads[info.overloads];
                         defineOverloads(scope, k, ast.pos(), overloads);
-                    } else if (scope->findLocal(k)) {
+                    } else if (auto result = scope->findLocal(k)) {
                         error(module, ast.pos(), "Duplicate symbol definition ", module->str(k), " from module ", module->str(path.back()), ".");
                         break;
                     } else
