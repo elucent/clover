@@ -1565,14 +1565,14 @@ $T accessArray($T v):
 
 TEST(codegen_string_literal) {
     auto instance = COMPILE(R"(
-string global: "foo"
+i8[] global: "foo"
 i8[3] local():
     "bar"
 
-i32 strlen(string s):
+i32 strlen(i8[] s):
     |s|
 
-i8 maxbyte(string s):
+i8 maxbyte(i8[] s):
     var max: 0
     for i < |s|:
         max = s[i] if s[i] > max
