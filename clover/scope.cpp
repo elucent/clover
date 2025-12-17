@@ -587,7 +587,6 @@ namespace clover {
         root->addToRoot(VariableKind::Type, Void, BuiltinVoid);
         root->addToRoot(VariableKind::Type, Bool, BuiltinBool);
         root->addToRoot(VariableKind::Type, Char, BuiltinChar);
-        root->addToRoot(VariableKind::Type, module->sliceType(I8).index, BuiltinString);
         module->compilation->rootScope = root;
         return root;
     }

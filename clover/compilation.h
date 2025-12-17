@@ -391,7 +391,6 @@ namespace clover {
         macro(BuiltinU64, "u64") \
         macro(BuiltinF32, "f32") \
         macro(BuiltinF64, "f64") \
-        macro(BuiltinString, "string") \
         macro(MethodIter, "iter") \
         macro(MethodDone, "done") \
         macro(MethodRead, "read") \
