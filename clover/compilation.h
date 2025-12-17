@@ -425,6 +425,8 @@ namespace clover {
         return format(io, ArtifactKindNames[(u32)kind]);
     }
 
+    void reportErrors(Artifact* artifact);
+    void reportErrors(ArtifactData* data);
     void reportErrorsAndExit(Artifact* artifact);
     void reportErrorsAndExit(ArtifactData* data);
 }

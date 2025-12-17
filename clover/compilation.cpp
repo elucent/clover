@@ -230,21 +230,29 @@ namespace clover {
     }
 
     void reportErrorsAndExit(Artifact* artifact) {
+        reportErrors(artifact);
+        process::exit(1);
+    }
+
+    void reportErrorsAndExit(ArtifactData* data) {
+        reportErrors(data);
+        process::exit(1);
+    }
+
+    void reportErrors(Artifact* artifact) {
         vec<Error*> errors;
         artifact->takeErrors(errors);
 
         for (Error* error : reversed(errors))
             reportError(artifact, error);
-        process::exit(1);
     }
 
-    void reportErrorsAndExit(ArtifactData* data) {
+    void reportErrors(ArtifactData* data) {
         vec<Error*> errors;
         data->takeErrors(errors);
 
         for (Error* error : reversed(errors))
             reportError(data, error);
-        process::exit(1);
     }
 
     Artifact* compileUntil(Compilation* compilation, ArtifactKind target, Artifact* artifact) {
