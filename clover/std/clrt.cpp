@@ -104,7 +104,7 @@ u32 CLRTFileOpen(const_slice<i8> path, u32 flags) {
 }
 
 // u32 CLRTFileRead(CLRTFd, i8[] output)
-u32 CLRTFileRead(u32, slice<i8>) ASMLABEL("CLRTFileRead(CLRTFd,i8[])u32");
+u32 CLRTFileRead(u32, slice<i8>) ASMLABEL("CLRTFileRead(CLRTFd,i8[]uninit)u32");
 u32 CLRTFileRead(u32 fd, slice<i8> output) {
     return file::read(fd, output);
 }
@@ -121,10 +121,16 @@ void CLRTFileClose(u32 fd) {
     return file::close(fd);
 }
 
-// CLRTFileData CLRTFileInfo(i8[] path)
-file::FileInfo CLRTFileInfo(const_slice<i8>) ASMLABEL("CLRTFileInfo(i8[])CLRTFileData");
-file::FileInfo CLRTFileInfo(const_slice<i8> path) {
-    return file::info(path);
+// CLRTFileData CLRTFileInfo(CLRTFd)
+file::FileInfo CLRTFileInfo(u32) ASMLABEL("CLRTFileInfo(CLRTFd)CLRTFileData");
+file::FileInfo CLRTFileInfo(u32 fd) {
+    return file::info(fd);
+}
+
+// CLRTFileData CLRTFilePathInfo(i8[] path)
+file::FileInfo CLRTFilePathInfo(const_slice<i8>) ASMLABEL("CLRTFilePathInfo(i8[])CLRTFileData");
+file::FileInfo CLRTFilePathInfo(const_slice<i8> path) {
+    return file::pathinfo(path);
 }
 
 // void CLRTFileRemove(i8[] path)
@@ -161,6 +167,12 @@ void CLRTDirRemove(const_slice<i8> path) {
 u32 CLRTDirRead(u32, slice<dir::entry>) ASMLABEL("CLRTDirRead(CLRTFd,CLRTDirEntry[])u32");
 u32 CLRTDirRead(u32 fd, slice<dir::entry> entries) {
     return dir::read(fd, entries);
+}
+
+// void CLRTProcessTrap()
+void CLRTProcessTrap() ASMLABEL("CLRTProcessTrap()void");
+void CLRTProcessTrap() {
+    utilities::crash();
 }
 
 // void CLRTProcessExit(i32 exitCode)
