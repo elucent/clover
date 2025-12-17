@@ -193,7 +193,7 @@ namespace jasmine {
         } else {
             b.addNode(Opcode::MOV, PTR, ptrScratch, idx);
             b.addNode(Opcode::MUL, PTR, ptrScratch, ptrScratch, fn.intConst(elementRepr.size()));
-            b.addNode(Opcode::ADDR_INDEX, I8, ptrScratch, src, ptrScratch);
+            b.addNode(Opcode::ADDR_INDEX, I8, ptrScratch, dest, ptrScratch);
             makeMove<Target>(passes, fn, b, type, fn.memory(ptrScratch.gp, 0), src, moveScratch);
         }
     }
@@ -1017,7 +1017,7 @@ namespace jasmine {
                             // allows us to reuse specifically the index scratch register as the pointer scratch. So we
                             // do that. Any change to the pointer materialization logic though could potentially throw
                             // this out of whack though, so be careful.
-                            makeMoveSrcIndex<Target>(this, fn, b, elementType, operands[0], fn.memory(srcPtr.gp, 0), index, allocations.scratch1(n), allocations.scratch0(n));
+                            makeMoveSrcIndex<Target>(this, fn, b, elementType, operands[0], fn.memory(srcPtr.gp, 0), index, allocations.scratch1(n), allocations.scratch2(n));
                         }
                         break;
                     }
@@ -1070,7 +1070,6 @@ namespace jasmine {
                             if (fitsSigned<20>(off + elementRepr.size() - 1))
                                 makeMove<Target>(this, fn, b, elementType, fn.memory(dstPtr.gp, off), operands[3], allocations.scratch1(n));
                             else {
-                                b.addNode(Opcode::MOV, PTR, allocations.scratch1(n), fn.intConst(off));
                                 b.addNode(Opcode::ADD, PTR, allocations.scratch0(n), dstPtr, index);
                                 makeMove<Target>(this, fn, b, elementType, fn.memory(allocations.scratch0(n).gp, off), operands[3], allocations.scratch1(n));
                             }
@@ -1079,7 +1078,7 @@ namespace jasmine {
                             auto indexRepr = repr(operands[1].type);
                             if (indexRepr.size() < pointerRepr.size())
                                 b.addNode(Opcode::CONVERT, PTR, index, operands[1], index);
-                            makeMoveDestIndex<Target>(this, fn, b, elementType, fn.memory(dstPtr.gp, 0), index, operands[3], allocations.scratch1(n), allocations.scratch0(n));
+                            makeMoveDestIndex<Target>(this, fn, b, elementType, fn.memory(dstPtr.gp, 0), index, operands[3], allocations.scratch1(n), allocations.scratch2(n));
                         }
                         break;
                     }

@@ -321,7 +321,7 @@ namespace jasmine {
                 return 2; // One for the pointer, one for memory/memory moves.
             case Opcode::LOAD_INDEX:
             case Opcode::STORE_INDEX:
-                return 2; // One for the index/pointer, one for memory/memory moves.
+                return 3; // One for the index/pointer, one for memory/memory moves, one for the index arithmetic.
             case Opcode::CALL:
             case Opcode::CALL_VOID:
                 return 0; // We dynamically select a scratch during lowering based on the arguments.
