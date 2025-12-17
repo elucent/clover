@@ -84,20 +84,31 @@ void flushInput(File file):
         entry.eof = true
     entry.end += amount
 
-# Standard IO interface for input and output.
+# Standard IO interface for input and output, for Files.
 
-i8 get(File file):
+i8 peek(File file):
     var entry: IOTable[file.id]
     if entry.start == entry.end:
         return 0 if entry.eof
         file.flushInput()
-    return entry.buf[entry.start ++]
+    return entry.buf[entry.start]
 
-void put(File file, i8 byte):
+File get(File file, i8* byte):
+    var entry: IOTable[file.id]
+    if entry.start == entry.end:
+        if entry.eof:
+            *byte = 0
+            return file
+        file.flushInput()
+    *byte = entry.buf[entry.start ++]
+    return file
+
+File put(File file, i8 byte):
     var entry: IOTable[file.id]
     file.flushOutput() if entry.end == IOFileBufferSize
     entry.buf[entry.end ++] = byte
     file.flushOutput() if file.id == stdout.id and byte == '\n' as i8
+    return file
 
 i8[] reserveOutput(File file, u32 amount):
     var entry: IOTable[file.id]
@@ -105,43 +116,51 @@ i8[] reserveOutput(File file, u32 amount):
         file.flushOutput()
     return entry.buf[entry.end:IOFileBufferSize]
 
-void advance(File file, u32 amount):
+File advance(File file, u32 amount):
     IOTable[file.id].end += amount
+    return file
 
-void put(File file, i8[] string):
+File put(File file, i8[] string):
+    return file if |string| == 0
     var entry: IOTable[file.id]
-    if file.id == stdout.id:
-        var start: 0
-        for i < |string|:
-            if string[i] == '\n' as i8:
-                var segment: i + 1 - start
-                i8[] slice: file.reserveOutput(segment)
-                slice[j] = string[start + j] for j < segment
-                entry.end += segment
-                file.flushOutput()
-                start = i + 1
-            else if i - start >= IOFileBufferSize:
-                var segment: i - start
-                i8[] slice: file.reserveOutput(segment)
-                slice[j] = string[start + j] for j < segment
-                entry.end += segment
-                start = i
-        if start < |string|:
-            var remaining: |string| - start
-            i8[] slice: file.reserveOutput(remaining)
-            slice[i] = string[start + i] for i < remaining
-            file.flushOutput()
-            entry.end += remaining
-        return
-    var remaining: |string|
-    var ptr: 0
-    while remaining > 0:
-        i8[] slice: file.reserveOutput(remaining)
-        var amount: remaining if remaining < |slice| else |slice|
-        slice[i] = string[ptr + i] for i < amount
-        entry.end += amount
-        ptr += amount
-        remaining -= amount
+    i8[] buffer: entry.buf[entry.end:IOFileBufferSize]
+    if |string| <= |buffer|:
+        bool shouldFlush: false
+        if file.id == stdout.id for i < |string| if string[i] == '\n' as i8:
+            shouldFlush = true
+        buffer[i] = string[i] for i < |string|
+        entry.end += |string|
+        file.flushOutput() if shouldFlush
+        return file
+    file.flushOutput()
+    var sizeInBuffers: |string| / IOFileBufferSize
+    for i < sizeInBuffers:
+        file.put(string[i * IOFileBufferSize:i * IOFileBufferSize + IOFileBufferSize])
+    file.put(string[sizeInBuffers * IOFileBufferSize:|string|])
+    return file
+
+# Standard IO interface implemented for byte slices.
+
+i8 peek(i8[] string):
+    return string[0]
+
+i8[] get(i8[] string, i8* byte):
+    *byte = string[0]
+    return string[1:]
+
+i8[] put(i8[] string, i8 byte):
+    string[0] = byte
+    return string[1:]
+
+i8[] reserveOutput(i8[] string, u32 amount):
+    return string if |string| < amount else string[:amount]
+
+i8[] advance(i8[] string, u32 amount):
+    string[|string|:] if |string| < amount else string[amount:]
+
+i8[] put(i8[] string, i8[] input):
+    string[:|input|] = input
+    return string[|input|:]
 
 # Other File methods.
 
@@ -149,14 +168,33 @@ bool eof?(File file):
     var entry: IOTable[file.id]
     entry.eof and entry.start == entry.end
 
+own i8[] read(File file):
+    var entry: IOTable[file.id]
+    var info: CLRTFileInfo(entry.desc)
+    var output: new i8[info.size]
+    CLRTFileRead(entry.desc, output)
+    return output as own i8[]
+
 # Generic formatting functions.
 
-fun parse(io, i8* byte):
-    *byte = io.get()
+fun parse(io, u64* number):
+    var acc: 0, mul: 1
+    while io.peek() >= i8('0') and io.peek() <= i8('9'):
+        acc *= 10
+        var digit: (io.peek() - i8('0')) as u64
+        acc += digit
+        io = io.advance(1)
+    *number = acc
     return io
 
-fun write(io, i8 byte):
-    io.put(byte)
+fun parse(io, i64* number):
+    i64 mul: 1
+    if io.peek() == '-' as i8:
+        mul = -1
+        io = io.advance(1)
+    u64 num
+    io = parse(io, &num)
+    *number = num as i64 * mul
     return io
 
 fun write(io, i8[] string):
@@ -167,20 +205,24 @@ fun write(io, u64 number):
     i8[] buffer: io.reserveOutput(20)
     if number == 0:
         buffer[0] = '0' as i8
-        io.advance(1)
+        io = io.advance(1)
         return io
-    var p: 1, digits: 0
-    while p < number:
+    var p: 1, q: p, digits: 0
+    while p <= number and p >= q:
+        q = p
         p *= 10
         digits ++
-    p /= 10
     for i < digits:
-        var digit: number / p
-        buffer[i] = '0' as i8 + i8(digit)
-        number -= digit * p
-        p /= 10
-    io.advance(digits)
+        buffer[digits - i - 1] = '0' as i8 + i8(number % 10)
+        number /= 10
+    io = io.advance(digits)
     return io
+
+fun write(io, i64 number):
+    if number < 0:
+        io = io.put('-' as i8)
+        number = -number
+    io.write(number as u64)
 
 fun write(io, bool b):
     write(io, "true") if b else write(io, "false")
@@ -190,23 +232,27 @@ void print(x):
 
 void println(x):
     print(x)
-    print('\n' as i8)
+    stdout.put('\n' as i8)
+
+i8[] sprint(i8[] buffer, x):
+    var result: buffer.write(x)
+    return buffer[:|buffer|-|result|]
 
 # Iteration by line or word.
 
-type LineIterator:
+type FileLineIterator:
     File file
 
-LineIterator lines(File file):
-    LineIterator(file)
+FileLineIterator lines(File file):
+    FileLineIterator(file)
 
-LineIterator iter(LineIterator iter):
+FileLineIterator iter(FileLineIterator iter):
     iter
 
-LineIterator next(LineIterator iter):
+FileLineIterator next(FileLineIterator iter):
     iter
 
-own i8[] read(LineIterator iter):
+own i8[] read(FileLineIterator iter):
     var entry: IOTable[iter.file.id]
     for entry.start <= i < entry.end:
         if entry.buf[i] == '\n' as i8:
@@ -222,6 +268,6 @@ own i8[] read(LineIterator iter):
     iter.file.flushInput()
     return iter.read()
 
-bool done(LineIterator iter):
+bool done(FileLineIterator iter):
     return iter.file.eof?()
 
