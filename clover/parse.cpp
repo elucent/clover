@@ -1896,8 +1896,8 @@ namespace clover {
             struct { ASTWord pattern, items; };
             struct { ASTWord low, var, high; bool lowInclusive, highInclusive; };
         };
-        ASTWord breakUnless, continueIf;
-        bool hasBreakUnless, hasContinueIf;
+        ASTWord breakIf, continueUnless;
+        bool hasBreakIf, hasContinueUnless;
     };
 
     struct ForLoop {
@@ -1965,24 +1965,24 @@ namespace clover {
             binding.kind = BindingKind::Error;
         }
 
-        binding.hasBreakUnless = binding.hasContinueIf = false;
+        binding.hasBreakIf = binding.hasContinueUnless = false;
 
         next = visitor.peek();
         if (next.token == KeywordIf || next.token == KeywordUnless) {
             visitor.read();
             AST condition = parseExpression(module, visitor);
-            condition = next.token == KeywordIf ? module->add(ASTKind::Not, next.pos, condition) : condition;
-            binding.continueIf = condition.asOperand();
-            binding.hasContinueIf = true;
+            condition = next.token == KeywordUnless ? module->add(ASTKind::Not, next.pos, condition) : condition;
+            binding.continueUnless = condition.asOperand();
+            binding.hasContinueUnless = true;
         }
 
         next = visitor.peek();
         if (next.token == KeywordUntil || next.token == KeywordWhile) {
             visitor.read();
             AST condition = parseExpression(module, visitor);
-            condition = next.token == KeywordUntil ? module->add(ASTKind::Not, next.pos, condition) : condition;
-            binding.breakUnless = condition.asOperand();
-            binding.hasBreakUnless = true;
+            condition = next.token == KeywordWhile ? module->add(ASTKind::Not, next.pos, condition) : condition;
+            binding.breakIf = condition.asOperand();
+            binding.hasBreakIf = true;
         }
 
         return binding;
@@ -2053,10 +2053,7 @@ namespace clover {
             }
         }
 
-        // Next, we set up our top-level condition. It's a conjunction of every
-        // iteration condition, plus every while/until modifier on each binding
-        // group. We evaluate binding group conditions left to right, including
-        // each group's possible while/until case.
+        // Next, we set up our top-level condition.
 
         vec<AST> conditions;
         for (const auto& binding : bindings) {
@@ -2074,39 +2071,47 @@ namespace clover {
                     conditions.push(module->add(binding.highInclusive ? ASTKind::LessEq : ASTKind::Less, binding.pos, module->fromOperand(binding.low), module->fromOperand(binding.high)));
                     break;
             }
-            if (binding.hasBreakUnless)
-                conditions.push(module->fromOperand(binding.breakUnless));
         }
         assert(conditions.size() > 0);
         AST condition = conditions[0];
         for (u32 i = 1; i < conditions.size(); i ++)
             condition = module->add(ASTKind::And, pos, condition, conditions[i]);
 
-        // Next, we build the inside of the block. We start by adding continue
-        // statements for any bindings that have such a condition.
+        // Now we're going to build the actual body of the loop. We start by
+        // introducing declarations for any named bindings we have. If any of
+        // these bindings have an until or while clause, we break if that
+        // condition fails immediately after initializing the corresponding
+        // binding.
 
         vec<AST> bodyStmts;
-        for (const auto& binding : bindings) if (binding.hasContinueIf)
-            bodyStmts.push(module->add(ASTKind::If, binding.pos, module->fromOperand(binding.continueIf), module->add(ASTKind::Continue, binding.pos)));
 
-        // Now we set up the actual named bindings the user defined.
-
-        for (const auto& binding : bindings) switch (binding.kind) {
-            case BindingKind::Error:
-                break;
-            case BindingKind::In:
-                bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.pattern),
-                    module->add(ASTKind::CallMethod, binding.pos, Identifier(MethodRead), module->fromOperand(binding.items))));
-                break;
-            case BindingKind::RangeDecreasing:
-                bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.var), module->fromOperand(binding.high)));
-                break;
-            case BindingKind::RangeIncreasing:
-                bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.var), module->fromOperand(binding.low)));
-                break;
+        for (const auto& binding : bindings) {
+            switch (binding.kind) {
+                case BindingKind::Error:
+                    break;
+                case BindingKind::In:
+                    bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.pattern),
+                        module->add(ASTKind::CallMethod, binding.pos, Identifier(MethodRead), module->fromOperand(binding.items))));
+                    break;
+                case BindingKind::RangeDecreasing:
+                    bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.var), module->fromOperand(binding.high)));
+                    break;
+                case BindingKind::RangeIncreasing:
+                    bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.var), module->fromOperand(binding.low)));
+                    break;
+            }
+            if (binding.hasBreakIf)
+                bodyStmts.push(module->add(ASTKind::If, binding.pos, module->fromOperand(binding.breakIf), module->add(ASTKind::Break, binding.pos)));
         }
 
-        // Now we add the original body.
+
+
+        // Now we construct the body. This will be the original lexical body of
+        // the loop, plus if statements wrapping it for each if or unless
+        // clause in the binding groups, in reverse order.
+
+        for (const auto& binding : reversed(bindings)) if (binding.hasContinueUnless)
+            body = module->add(ASTKind::If, binding.pos, module->fromOperand(binding.continueUnless), body);
 
         bodyStmts.push(body);
 
