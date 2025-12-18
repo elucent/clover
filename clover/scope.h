@@ -12,6 +12,7 @@ namespace clover {
 
     struct Module;
     struct Function;
+    struct Namespace;
     struct AST;
 
     struct Variable {
@@ -72,15 +73,15 @@ namespace clover {
         };
 
         enum Kind : u32 {
-            Variable, Constant, ConstFunction, Function, OverloadedFunction, Type, Member, GenericFunction, GenericType, Namespace, Temp, Forward, NumKinds
+            Variable, Constant, ConstFunction, Function, OverloadedFunction, Namespace, Type, Member, GenericFunction, GenericType, Temp, Forward, NumKinds
         };
 
         static constexpr const i8* KindNamesUpper[NumKinds] = {
-            "Variable", "Constant", "Const Function", "Function", "Overloaded Function", "Namespace", "Type", "Member", "Generic Function", "Generic Type"
+            "Variable", "Constant", "Const Function", "Function", "Overloaded Function", "Namespace", "Type", "Member", "Generic Function", "Generic Type", "Temp", "Forward"
         };
 
         static constexpr const i8* KindNamesLower[NumKinds] = {
-            "variable", "constant", "const function", "function", "overloaded function", "namespace", "type", "member", "generic function", "generic type"
+            "variable", "constant", "const function", "function", "overloaded function", "namespace", "type", "member", "generic function", "generic type", "temp", "forward"
         };
 
         TypeIndex type : Limits::TypesPerCompilationBits;
@@ -103,7 +104,7 @@ namespace clover {
 
     struct Scope {
         enum class Kind : u8 {
-            Function, Type, Module, Block, TopLevel, Root
+            Function, Type, Namespace, Block, TopLevel, Root
         };
 
         Module* module;
@@ -150,6 +151,7 @@ namespace clover {
         void addOverloadedFunction(Overloads* overloads, Symbol name);
         void addIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
         void addConstantIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
+        void addNamespace(const AST& decl, Symbol name, Namespace* ns);
 
         struct FindResult {
             Scope* scope;
@@ -178,21 +180,12 @@ namespace clover {
             inline bool isGlobal() const {
                 return g;
             }
+
+            const VariableInfo& info() const;
+            VariableInfo& info();
         };
 
-        inline FindResult find(Symbol name, bool searchParent = true) {
-            // TODO: Re-enable in-chain computation in the presence of late definitions.
-            // if (hasInChain && !inChain.mayContain(name.symbol))
-            //     return {};
-            if (inTable.mayContain(name.symbol)) {
-                auto it = entries.find(name);
-                if (it != entries.end())
-                    return FindResult(this, it->value, !function);
-            }
-            if (parent && searchParent)
-                return parent->find(name);
-            return {};
-        }
+        FindResult find(Symbol name, bool searchParent = true);
 
         inline FindResult findLocal(Symbol name) {
             return find(name, false);

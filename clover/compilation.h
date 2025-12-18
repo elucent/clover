@@ -69,9 +69,14 @@ namespace clover {
 
     extern const i8* ArtifactKindNames[(u32)ArtifactKind::NumArtifactKinds];
 
+    struct Artifact;
+
     struct ArtifactData {
         Error* errors = nullptr;
+        Artifact* artifact = nullptr;
 
+        inline ArtifactData(Artifact* artifact_in):
+            artifact(artifact_in) {}
         virtual ~ArtifactData() = 0;
         virtual void print(Compilation* compilation) = 0;
         virtual u64 reportSize() = 0;
@@ -84,9 +89,8 @@ namespace clover {
 
         void addError(Error* error);
         void takeErrors(vec<Error*>& collector);
+        void clearErrors();
     };
-
-    struct Artifact;
 
     struct Package {
         Compilation* compilation;
@@ -186,6 +190,38 @@ namespace clover {
         Directory* ensureDirectoryByName(Symbol name);
     };
 
+    struct NamespaceTree {
+        // NamespaceTree nodes form the common structure of all namespaces in
+        // the whole compilation. Essentially, these are what ensure that the
+        // namespace foo.bar in one module is treated the same as the namespace
+        // foo.bar in another. NamespaceTree nodes store no data on their own,
+        // but are used as keys in Namespace instances (see ast.h) stored on
+        // each Module. The general invariant is that a module can have at most
+        // one Namespace per distinct NamespaceTree.
+
+        map<Symbol, NamespaceTree*>* children = nullptr;
+        NamespaceTree* parent;
+        Symbol name;
+
+        inline NamespaceTree(Symbol name_in):
+            parent(nullptr), name(name_in) {}
+
+        inline NamespaceTree(NamespaceTree* parent_in, Symbol name_in):
+            parent(parent_in), name(name_in) {}
+
+        inline NamespaceTree* ensureChild(Symbol childName) {
+            if (children) {
+                auto it = children->find(childName);
+                if (it != children->end())
+                    return it->value;
+            } else
+                children = new map<Symbol, NamespaceTree*>();
+            NamespaceTree* result = new NamespaceTree(this, childName);
+            children->put(childName, result);
+            return result;
+        }
+    };
+
     struct Compilation {
         SymbolTable symbols;
         Directory* root;
@@ -200,6 +236,7 @@ namespace clover {
         u32 topLevels = 0;
         u32 staticDataEntries = 0;
         vec<Artifact*> topologicalOrder;
+        map<Symbol, NamespaceTree*> topLevelNamespaces;
 
         Compilation();
         ~Compilation();
@@ -284,6 +321,15 @@ namespace clover {
 
         JITRuntimeShims* ensureJITRuntimeShims();
         void ensureTopologicalOrder();
+
+        inline NamespaceTree* ensureNamespace(Symbol name) {
+            auto it = topLevelNamespaces.find(name);
+            if (it != topLevelNamespaces.end())
+                return it->value;
+            NamespaceTree* result = new NamespaceTree(name);
+            topLevelNamespaces.put(name, result);
+            return result;
+        }
     };
 
     #define FOR_EACH_RESERVED_SYMBOL(macro) \

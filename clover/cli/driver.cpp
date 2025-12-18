@@ -69,7 +69,9 @@ i32 main(i32 argc, i8** argv, i8** envp) {
                 panic("Unrecognized command-line argument '", arg, "'.");
         } else {
             auto path = cstring(argv[i]);
-            addSourceFile(&compilation, path);
+            Artifact* artifact = addSourceFile(&compilation, path);
+            if (!artifact)
+                panic("Could not open file at path '", path, "'.");
             numSourceFiles ++;
             firstPath = path;
         }

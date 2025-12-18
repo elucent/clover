@@ -2,8 +2,8 @@
 #include "util/config.h"
 
 namespace clover {
-    Tokens::Tokens(const_slice<i8> source_in):
-        source(source_in) {
+    Tokens::Tokens(Artifact* artifact, const_slice<i8> source_in):
+        ArtifactData(artifact), source(source_in) {
         lineOffsets.push(0);
     }
 
@@ -568,7 +568,7 @@ namespace clover {
         assert(artifact->kind == ArtifactKind::Source);
         const_slice<i8> source = artifact->as<Source>()->takeSource();
 
-        Tokens* tokens = new Tokens(source);
+        Tokens* tokens = new Tokens(artifact, source);
         SourceVisitor visitor(source, tokens->lineOffsets);
         vec<u32, 16> indents;
         indents.push(0);

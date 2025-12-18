@@ -7,7 +7,7 @@ namespace clover {
     struct Source : public ArtifactData {
         const_slice<i8> text;
 
-        Source(const_slice<i8> source);
+        Source(Artifact* artifact, const_slice<i8> source);
         ~Source() override;
 
         maybe<const_slice<i8>> getSource() override;

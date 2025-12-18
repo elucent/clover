@@ -2,8 +2,8 @@
 #include "util/config.h"
 
 namespace clover {
-    Source::Source(const_slice<i8> source):
-        text(source) {}
+    Source::Source(Artifact* artifact, const_slice<i8> source):
+        ArtifactData(artifact), text(source) {}
 
     Source::~Source() {
         if (text.data())
@@ -57,6 +57,9 @@ namespace clover {
 
         const_slice<i8> os_path = path.to_bytes();
         auto info = file::pathinfo(os_path);
+        if (info.kind == file::NONE)
+            return nullptr;
+
         assert(info.kind == file::FILE);
         slice<i8> text = { new i8[info.size], info.size };
 
@@ -66,8 +69,8 @@ namespace clover {
         file::readbuf(f, text);
         file::closebuf(f);
 
-        Source* source = new Source(text);
         Artifact* newArtifact = new Artifact(directory, artifactName);
+        Source* source = new Source(newArtifact, text);
         newArtifact->filename = path.segments.back();
         newArtifact->update(source);
         directory->addArtifact(artifactName, newArtifact);
@@ -89,8 +92,8 @@ namespace clover {
         Symbol artifactName = compilation->sym(basename(path.segments.back()));
         assert(directory->artifactByName(artifactName) == nullptr);
 
-        Source* source = new Source(contents.dup());
         Artifact* newArtifact = new Artifact(directory, artifactName);
+        Source* source = new Source(newArtifact, contents.dup());
         newArtifact->update(source);
 
         if UNLIKELY(config::printSource)

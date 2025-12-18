@@ -72,6 +72,7 @@ namespace clover {
             case ASTKind::Char:
                 return mixHash(kh, intHash(ast.charConst()));
             case ASTKind::Uninit:
+            case ASTKind::ResolvedNamespace:
             case ASTKind::ResolvedFunction:
             case ASTKind::Missing:
             case ASTKind::AnyType:
@@ -157,11 +158,16 @@ namespace clover {
                     println();
                     break;
                 case VariableKind::OverloadedFunction:
-                    ::println(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
-                    break;
                 case VariableKind::Member:
+                case VariableKind::Namespace:
                     ::println(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
                     break;
+                case VariableKind::Forward: {
+                    Scope* scope = scopes[info.defScope];
+                    const auto& realInfo = scope->isGlobal() ? scope->module->globals[info.index]  : scope->function->locals[info.index];
+                    ::println(VariableInfo::KindNamesUpper[(u32)info.kind], " -> ", VariableInfo::KindNamesUpper[(u32)realInfo.kind], " ", compilation->str(realInfo.name));
+                    break;
+                }
                 default:
                     unreachable("Tried to print unsupported variable kind ", VariableInfo::KindNamesUpper[(u32)info.kind]);
             }

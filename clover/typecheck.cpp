@@ -1927,6 +1927,10 @@ namespace clover {
                 ast.setType(module->boolType());
                 return fromNodeType(ast);
 
+            case ASTKind::Namespace:
+                // Nothing to do, but we do need to explore the contents.
+                return infer(ctx, function, ast.child(1));
+
             case ASTKind::Do:
             case ASTKind::TopLevel: {
                 result = fromType(module->voidType());
@@ -3051,6 +3055,43 @@ namespace clover {
         // currently known lower bound is such that we will never pick the
         // upper bound when concretifying, we can substitute that lower bound
         // for the type variable and simplify the rest of the inference.
+
+        for (ConstraintIndex i : reversed(order)) {
+            // Do a pass in reverse to try and inform the upper bounds of our
+            // type variables. We don't refine any nodes here, but do as much
+            // unification as we can.
+
+            // It's important to remember the original type, since once we
+            // expand, we will potentially have lost any variable provenance.
+            Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+            Type type = expand(origType);
+
+            for (Constraint constraint : constraints.constraints[i]) {
+                constraint.index = constraints.expand(constraint.index);
+                if (constraint.kind == Constraint::Order)
+                    continue;
+
+                auto substituteFlag = constraint.kind == Constraint::Substitute ? MustSubstitute : NoUnifyFlags;
+
+                Type other = expand(constraints.types->get(constraints.constrainedTypes[constraint.index]));
+                if UNLIKELY(config::verboseUnify >= 3)
+                    println("[TYPE]\tTrying to apply subtype constraint against ", other, " to constrained type ", type);
+
+                if (type.index == other.index)
+                    continue;
+
+                bool isVar = type.isVar(), otherVar = other.isVar();
+                Type bound = expand(type);
+                if (type.isVar())
+                    bound = type.asVar().lowerBound();
+                if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
+                    type_error("Failed to unify ", other, " onto ", type, " in-place.");
+                if (substituteFlag && !isCaseTypeKind(bound.kind())) {
+                    if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
+                        type_error("Failed to unify ", type, " onto ", other, " in-place.");
+                }
+            }
+        }
 
         for (ConstraintIndex i : order) {
             // It's important to remember the original type, since once we

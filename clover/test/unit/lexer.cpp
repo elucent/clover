@@ -735,7 +735,7 @@ abc
     # another comment
     ghi
 
-    # a third comment comment
+    # a third comment
 
 jkl
 )");

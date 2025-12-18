@@ -74,3 +74,26 @@ i32 foo(i32 foo):
 
     ASSERT_NO_ERRORS(dupFuncAndParam);
 }
+
+TEST(scope_bad_file_import) {
+    EXPECT_ERRORS;
+
+    auto badFileImport = SCOPE(R"(
+use not/a/real/file
+)");
+    ASSERT_DID_ERROR(badFileImport);
+}
+
+TEST(scope_bad_type_import) {
+    EXPECT_ERRORS;
+
+    auto badTypeImport = SCOPE(R"(
+type Types:
+    type A
+    type B
+    type C
+
+use Types.D
+)");
+    ASSERT_DID_ERROR(badTypeImport);
+}

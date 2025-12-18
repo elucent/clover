@@ -6,6 +6,7 @@
 
 namespace clover {
     struct Note {
+        ArtifactData* module;
         Pos pos;
         const_slice<i8> message;
 
@@ -13,24 +14,24 @@ namespace clover {
             delete[] message.data();
         }
 
-        inline Note(Pos pos_in, const_slice<i8> message_in):
-            pos(pos_in), message(message_in) {}
+        inline Note(ArtifactData* module_in, Pos pos_in, const_slice<i8> message_in):
+            module(module_in), pos(pos_in), message(message_in) {}
 
         template<typename... Args>
-        inline Note(Pos pos_in, const Args&... args):
-            Note(pos_in, tostring(args...)) {}
+        inline Note(ArtifactData* module_in, Pos pos_in, const Args&... args):
+            Note(module_in, pos_in, tostring(args...)) {}
     };
 
     struct Error : public Note {
         Error* next;
         vec<Note*, 2> notes;
 
-        inline Error(Pos pos_in, const_slice<i8> message_in):
-            Note(pos_in, message_in), next(nullptr) {}
+        inline Error(ArtifactData* module_in, Pos pos_in, const_slice<i8> message_in):
+            Note(module_in, pos_in, message_in), next(nullptr) {}
 
         template<typename... Args>
-        inline Error(Pos pos_in, const Args&... args):
-            Error(pos_in, tostring(args...)) {}
+        inline Error(ArtifactData* module_in, Pos pos_in, const Args&... args):
+            Error(module_in, pos_in, tostring(args...)) {}
 
         PREVENT_COPYING(Error);
         PREVENT_MOVING(Error);
@@ -42,7 +43,7 @@ namespace clover {
         }
 
         template<typename PosLike, typename... Args>
-        inline Error& note(PosLike pos, const Args&... args);
+        inline Error& note(ArtifactData* module, PosLike pos, const Args&... args);
     };
 
     inline Pos getPos(AST ast) {
@@ -60,7 +61,7 @@ namespace clover {
 
     template<typename PosLike, typename... Args>
     inline Error& error(ArtifactData* module, PosLike pos, const Args&... args) {
-        Error* error = new Error(getPos(pos), args...);
+        Error* error = new Error(module, getPos(pos), args...);
         module->addError(error);
         if UNLIKELY(config::reportErrorsImmediately)
             reportErrorsAndExit(module);
@@ -68,8 +69,8 @@ namespace clover {
     }
 
     template<typename PosLike, typename... Args>
-    inline Error& Error::note(PosLike pos, const Args&... args) {
-        notes.push(new Note(pos, args...));
+    inline Error& Error::note(ArtifactData* module, PosLike pos, const Args&... args) {
+        notes.push(new Note(module, pos, args...));
         return *this;
     }
 }

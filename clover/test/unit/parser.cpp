@@ -532,10 +532,10 @@ TEST(parse_statement_chaining) {
 TEST(parse_use) {
     ASSERT_SAME_PARSE("use foo", "(use_module foo)");
     ASSERT_SAME_PARSE("use foo/bar", "(use_module (get_field foo bar))");
-    ASSERT_SAME_PARSE("use foo.bar", "(use_type (get_field foo bar))");
-    ASSERT_SAME_PARSE("use foo.bar as f", "(use_type (as (get_field foo bar) f))");
-    ASSERT_SAME_PARSE("use foo.bar, foo/bar, baz as b", "(do (use_type (get_field foo bar)) (use_module (get_field foo bar)) (use_module (as baz b)))");
-    ASSERT_SAME_PARSE("use foo.bar.*", "(use_type (get_field (get_field foo bar) wildcard))");
+    ASSERT_SAME_PARSE("use foo.bar", "(use_local (get_field foo bar))");
+    ASSERT_SAME_PARSE("use foo.bar as f", "(use_local (as (get_field foo bar) f))");
+    ASSERT_SAME_PARSE("use foo.bar, foo/bar, baz as b", "(do (use_local (get_field foo bar)) (use_module (get_field foo bar)) (use_module (as baz b)))");
+    ASSERT_SAME_PARSE("use foo.bar.*", "(use_local (get_field (get_field foo bar) wildcard))");
     ASSERT_SAME_PARSE("use foo/bar/*", "(use_module (get_field (get_field foo bar) wildcard))");
 }
 

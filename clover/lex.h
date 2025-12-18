@@ -69,7 +69,7 @@ namespace clover {
         vec<Token, 32> tokens;
         vec<u32> lineOffsets;
 
-        Tokens(const_slice<i8> source);
+        Tokens(Artifact* artifact, const_slice<i8> source);
         ~Tokens() override;
 
         maybe<const_slice<i8>> getSource() override;

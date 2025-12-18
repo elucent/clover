@@ -98,6 +98,14 @@ namespace clover {
         }
     }
 
+    void ArtifactData::clearErrors() {
+        while (errors) {
+            Error* node = errors;
+            errors = node->next;
+            delete node;
+        }
+    }
+
     Compilation::Compilation() {
         #define DEFINE_SYMBOL(name, value) sym(value);
         FOR_EACH_RESERVED_SYMBOL(DEFINE_SYMBOL)
@@ -201,21 +209,21 @@ namespace clover {
 
     void reportNote(Artifact* artifact, Note* note) {
         print("[");
-        printArtifactName(artifact);
+        printArtifactName(note->module->artifact);
         println(":", note->pos.line + 1, ":", note->pos.column + 1, "] " BOLDGRAY "note" RESET ": ", note->message);
-        printSourceLine(artifact->data, note->pos);
+        printSourceLine(note->module, note->pos);
     }
 
     void reportNote(ArtifactData* data, Note* note) {
         println("[<unknown>:", note->pos.line + 1, ":", note->pos.column + 1, "] " BOLDGRAY "note" RESET ": ", note->message);
-        printSourceLine(data, note->pos);
+        printSourceLine(note->module, note->pos);
     }
 
     void reportError(Artifact* artifact, Error* error) {
         print("[");
-        printArtifactName(artifact);
+        printArtifactName(error->module->artifact);
         println(":", error->pos.line + 1, ":", error->pos.column + 1, "] " BOLDRED "error" RESET ": ", error->message);
-        printSourceLine(artifact->data, error->pos);
+        printSourceLine(error->module, error->pos);
 
         for (Note* note : error->notes)
             reportNote(artifact, note);
@@ -223,7 +231,7 @@ namespace clover {
 
     void reportError(ArtifactData* data, Error* error) {
         println("[<unknown>:", error->pos.line + 1, ":", error->pos.column + 1, "] " BOLDRED "error" RESET ": ", error->message);
-        printSourceLine(data, error->pos);
+        printSourceLine(error->module, error->pos);
 
         for (Note* note : error->notes)
             reportNote(data, note);

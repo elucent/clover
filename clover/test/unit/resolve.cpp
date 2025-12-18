@@ -804,3 +804,74 @@ var f: x.own uninit i32*(uninit own i32*)(own i32[])*()
     auto f = topLevel.child(6).child(2);
     ASSERT_EQUAL(f.type(), module->ptrType(Own | Uninit, module->funType(module->funType(module->ptrType(I32), module->ptrType(Own | Uninit, I32)), module->sliceType(Own, I32))));
 }
+
+TEST(resolve_namespaced_variable) {
+    auto artifact = RESOLVE(R"(
+in foo:
+    var x: 42
+foo.x
+)");
+
+    auto module = artifact.as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto access = topLevel.child(1);
+    ASSERT_EQUAL(access.kind(), ASTKind::Global);
+    ASSERT(module->globals[access.variable()].name == module->sym("x"));
+}
+
+TEST(resolve_namespaced_function) {
+    auto artifact = RESOLVE(R"(
+in foo:
+    void bar(i32 x): x + 1
+
+in foo.baz:
+    void quux(i32 x, i32 y): x + bar(y)
+
+foo.bar(42)
+foo.baz.quux(1, 2)
+)");
+
+    auto module = artifact.as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto foobar = topLevel.child(2);
+    ASSERT_EQUAL(foobar.kind(), ASTKind::Call);
+
+    auto bar = foobar.child(0);
+    ASSERT_EQUAL(bar.kind(), ASTKind::ResolvedFunction);
+    ASSERT(bar.resolvedFunction()->name == module->sym("bar"));
+
+    auto foobazquux = topLevel.child(3);
+    ASSERT_EQUAL(foobazquux.kind(), ASTKind::Call);
+
+    auto quux = foobazquux.child(0);
+    ASSERT_EQUAL(quux.kind(), ASTKind::ResolvedFunction);
+    ASSERT(quux.resolvedFunction()->name == module->sym("quux"));
+}
+
+TEST(resolve_child_namespace) {
+    auto artifact = RESOLVE(R"(
+in foo:
+    var x: 42
+
+void bar():
+    in foo:
+        var y: 42
+    foo.x + foo.y
+)");
+}
+
+TEST(resolve_overlapping_namespaces) {
+    auto artifact = RESOLVE(R"(
+in foo.bar:
+    var x: 42
+
+in bar:
+    var y: 42
+
+void baz():
+    use foo.*
+    bar.x + bar.y
+)");
+}

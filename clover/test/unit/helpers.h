@@ -73,8 +73,8 @@ struct ExpectErrorsScope {
 #define EXPECT_ERRORS ExpectErrorsScope _errorsScope
 
 #define ASSERT_DID_ERROR(instance) ASSERT(instance.artifact->hasErrors())
-#define ASSERT_NO_ERRORS(instance) do { if (instance.artifact->hasErrors()) reportErrors(instance.artifact); ASSERT(!instance.artifact->hasErrors()); } while (false)
-#define ASSERT_NO_ERRORS_ARTIFACT(artifact) [&] { if (!inExpectErrorsScope) { if (artifact->hasErrors()) reportErrors(artifact); ASSERT(!artifact->hasErrors()); } }()
+#define ASSERT_NO_ERRORS(instance) do { if (instance.artifact->hasErrors()) { reportErrors(instance.artifact); ASSERT(false); } } while (false)
+#define ASSERT_NO_ERRORS_ARTIFACT(artifact) [&] { if (!inExpectErrorsScope) { if (artifact->hasErrors()) { reportErrors(artifact); ASSERT(false); } } }()
 
 #define LEX(str) \
     OwnedArtifact([&]() -> Artifact* { \

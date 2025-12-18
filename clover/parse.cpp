@@ -1202,7 +1202,7 @@ namespace clover {
         }
         if (visitor.isIgnoringWhitespace()) {
             error(module, pos, "Indented block not permitted within enclosed expression.")
-                .note(visitor.whitespaceStack.back(), "Enclosed expression started here.");
+                .note(module, visitor.whitespaceStack.back(), "Enclosed expression started here.");
         }
         visitor.read();
         while (!visitor.done() && visitor.peek().token != WhitespaceDedent) {
@@ -1606,6 +1606,12 @@ namespace clover {
 
         vec<AST> contents;
         exploreBody(contents, body);
+        for (AST ast : contents) {
+            if (ast.kind() == ASTKind::FunDecl)
+                error(module, contents[0].pos(), "Function declarations are not permitted in type definitions.");
+            else if (ast.kind() == ASTKind::Namespace)
+                error(module, contents[0].pos(), "Namespace declarations are not permitted in type definitions.");
+        }
         if (contents.size() == 1) switch (contents[0].kind()) {
             case ASTKind::VarDecl:
             case ASTKind::StructCaseDecl:
@@ -1614,7 +1620,6 @@ namespace clover {
             case ASTKind::StructDecl:
             case ASTKind::UnionDecl:
             case ASTKind::NamedDecl:
-            case ASTKind::FunDecl:
             case ASTKind::ConstVarDecl:
             case ASTKind::ConstFunDecl:
                 break;
@@ -1646,11 +1651,11 @@ namespace clover {
 
     AST parseImportGroup(Module* module, TokenVisitor& visitor, Pos pos) {
         AST main = parseIdentifier(module, visitor);
-        bool isType = false;
+        bool isLocal = false;
         while (visitor.peek().token == OperatorDiv || visitor.peek().token == PunctuatorDot) {
             Token link = visitor.read();
             if (link.token == PunctuatorDot)
-                isType = true;
+                isLocal = true;
             if (visitor.done())
                 error(module, link, "Unexpected end of file in import path.");
             else if (visitor.peek().token == WhitespaceNewline)
@@ -1677,7 +1682,7 @@ namespace clover {
             }
         }
 
-        return module->add(isType ? ASTKind::UseType : ASTKind::UseModule, pos, main);
+        return module->add(isLocal ? ASTKind::UseLocal : ASTKind::UseModule, pos, main);
     }
 
     AST parseUse(Module* module, TokenVisitor& visitor) {
@@ -2311,7 +2316,7 @@ namespace clover {
                 }
                 if (visitor.isIgnoringWhitespace()) {
                     error(module, pos, "Indented block not permitted within enclosed expression.")
-                        .note(visitor.whitespaceStack.back(), "Enclosed expression started here.");
+                        .note(module, visitor.whitespaceStack.back(), "Enclosed expression started here.");
                 }
                 visitor.read();
                 while (!visitor.done() && visitor.peek().token != WhitespaceDedent) {

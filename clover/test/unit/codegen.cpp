@@ -1616,9 +1616,9 @@ own i8[] doStrcat():
     auto strcatSetSlice = lookup<const_slice<i8>(const_slice<i8>, const_slice<i8>)>("strcatSetSlice(i8[],i8[])i8[]own", exec);
     auto doStrcat = lookup<const_slice<i8>()>("doStrcat()i8[]own", exec);
 
-    // ASSERT_EQUAL(strcat(cstring("a"), cstring("b")), cstring("ab"));
+    ASSERT_EQUAL(strcat(cstring("a"), cstring("b")), cstring("ab"));
     ASSERT_EQUAL(strcatSetSlice(cstring("abc"), cstring("def")), cstring("abcdef"));
-    // ASSERT_EQUAL(doStrcat(), cstring("cdefg"));
+    ASSERT_EQUAL(doStrcat(), cstring("cdefg"));
 }
 
 TEST(codegen_reverse_string) {
@@ -2010,4 +2010,21 @@ i32 mystery():
     auto exec = load(instance.artifact);
     auto mystery = lookup<i32()>("mystery()i32", exec);
     ASSERT_EQUAL(mystery(), 42);
+}
+
+TEST(codegen_namespaced_function) {
+    auto instance = COMPILE(R"(
+in A:
+    fun foo(): 14
+
+in A.B:
+    fun bar(): 14 + A.foo()
+
+in A.B.C:
+    i32 baz(): 14 + A.B.bar()
+)");
+
+    auto exec = load(instance.artifact);
+    auto baz = lookup<i32()>("A.B.C.baz()i32", exec);
+    ASSERT_EQUAL(baz(), 42);
 }

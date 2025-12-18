@@ -154,7 +154,7 @@ namespace clover {
         macro(GenericTypeDecl, genericTypeDecl, generic_type, false, -1) \
         macro(Namespace, namespace, namespace, false, 2) /* Name Body */ \
         macro(UseModule, useModule, use_module, false, 1) \
-        macro(UseType, useType, use_type, false, 1) \
+        macro(UseLocal, useLocal, use_local, false, 1) \
         macro(As, as, as, false, 2) \
         macro(Export, export, export, false, 1) \
         \
@@ -839,8 +839,8 @@ namespace clover {
         }
 
         inline Local addConstantIndirect(ScopeIndex scope, u32 constantIndex);
-
         inline Local addLocalFunction(VariableKind kind, Function* function);
+        inline Local addLocalNamespace(Namespace* ns);
 
         inline Local addLocalImport(VariableKind kind, TypeIndex type, Symbol name) {
             assert(kind != VariableKind::Function);
@@ -947,25 +947,24 @@ namespace clover {
     struct Namespace {
         Module* module;
         u32 index;
-        Symbol name;
+        NamespaceTree* node;
         vec<Scope*, 4> constituentScopes;
-        vec<Namespace*, 4> importedParents;
+        ::set<Namespace*, 4> parents;
 
-        inline Namespace(Module* module_in, u32 index_in, Symbol name_in, Scope* originalScope):
-            module(module_in), index(index_in), name(name_in) {
-            constituentScopes.push(originalScope);
-        }
-
-        inline Namespace(Module* module_in, u32 index_in, Symbol name_in, Namespace* parent) {
-            importedParents.push(parent);
-        }
+        inline Namespace(Module* module_in, u32 index_in, NamespaceTree* node_in):
+            module(module_in), index(index_in), node(node_in) {}
 
         inline void addScope(Scope* scope) {
             constituentScopes.push(scope);
         }
 
-        inline void addImportedParent(Namespace* parent) {
-            importedParents.push(parent);
+        inline void addParent(Namespace* parent) {
+            assert(parent->parents.find(this) == parent->parents.end());
+            parents.insert(parent);
+        }
+
+        inline Symbol name() const {
+            return node->name;
         }
 
         Scope::FindResult lookup(Symbol name) {
@@ -973,12 +972,15 @@ namespace clover {
                 if (auto result = scope->findLocal(name))
                     return result;
             }
-            for (Namespace* parent : importedParents) {
+            for (Namespace* parent : parents) {
                 if (auto result = parent->lookup(name))
                     return result;
             }
             return Scope::FindResult();
         }
+
+        template<typename Func>
+        void forEachDefinition(Func&& func);
     };
 
     struct VariableHandle {
@@ -1113,6 +1115,18 @@ namespace clover {
         return ::hash(u64(overloads));
     }
 
+    inline u64 hash(Namespace* ns) {
+        return ::hash(u64(ns));
+    }
+
+    inline u64 hash(NamespaceTree* node) {
+        return ::hash(u64(node));
+    }
+
+    inline u64 hash(Scope* scope) {
+        return ::hash(u64(scope));
+    }
+
     struct Module : public ArtifactData {
         vec<ASTWord, 24> astWords;
         vec<u32, 8> ast;
@@ -1134,9 +1148,9 @@ namespace clover {
         vec<GenericType*, 4> genericTypes;
         vec<Namespace*, 4> namespaces;
         vec<NodeIndex> constDeclOrder;
+        map<Scope*, ScopeIndex> importedScopes;
         const_slice<i8> source;
         vec<u32> lineOffsets;
-        Artifact* artifact;
         NodeIndex topLevel;
         u32 numTemps = 0;
         Symbol name;
@@ -1335,6 +1349,16 @@ namespace clover {
             return AST(this, ast);
         }
 
+        inline AST addLeaf(ASTKind kind, Namespace* const& ns) {
+            assert(kind == ASTKind::ResolvedNamespace);
+            ASTWord ast;
+            ast.kind = kind;
+            auto internResult = tryIntern(Constant::UnsignedConst(ns->index));
+            ast.isInline = internResult.canIntern;
+            ast.constantIndex = internResult.payload;
+            return AST(this, ast);
+        }
+
         template<typename... Args>
         AST addLeaf(ASTKind kind) {
             ASTWord ast;
@@ -1366,6 +1390,8 @@ namespace clover {
         template<typename... Args>
         inline u32 computeArity(Function* const&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
+        inline u32 computeArity(Namespace* const&, const Args&... args) { return 1 + computeArity(args...); }
+        template<typename... Args>
         inline u32 computeArity(const AST&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename T, u32 N, typename... Args>
         inline u32 computeArity(const vec<T, N>& vec, Args... args) {
@@ -1393,6 +1419,10 @@ namespace clover {
 
         inline void addChild(const ConstId& constant) {
             unreachable("Constant ids should not be included directly in AST constructors.");
+        }
+
+        inline void addChild(Namespace* const& ns) {
+            astWords.push(addLeaf(ASTKind::ResolvedNamespace, ns).firstWord());
         }
 
         inline void addChild(Function* const& function) {
@@ -1745,6 +1775,18 @@ namespace clover {
             return Global(globals.size() - 1);
         }
 
+        inline ScopeIndex scopeIndex(Scope* scope) {
+            if (scope->module == this)
+                return scope->index;
+            auto it = importedScopes.find(scope);
+            if (it == importedScopes.end()) {
+                importedScopes.put(scope, scopes.size());
+                scopes.push(scope);
+                return scopes.size() - 1;
+            }
+            return it->value;
+        }
+
         inline u32 functionIndex(Function* function) {
             if (function->module == this)
                 return function->index;
@@ -1809,6 +1851,20 @@ namespace clover {
             info.scope = VariableInfo::Global;
             info.defScope = scope;
             info.index = index;
+            globals.push(info);
+            return Global(globals.size() - 1);
+        }
+
+        inline Global addGlobalNamespace(Namespace* ns) {
+            assert(ns->module == this);
+
+            VariableInfo info;
+            info.kind = VariableKind::Namespace;
+            info.scope = VariableInfo::Global;
+            info.isImport = true;
+            info.namespaceIndex = ns->index;
+            info.type = InvalidType;
+            info.name = ns->name();
             globals.push(info);
             return Global(globals.size() - 1);
         }
@@ -1895,13 +1951,8 @@ namespace clover {
             return genericTypes.back();
         }
 
-        inline Namespace* addNamespace(Symbol name, Scope* scope) {
-            namespaces.push(new Namespace(this, namespaces.size(), name, scope));
-            return namespaces.back();
-        }
-
-        inline Namespace* addNamespace(Symbol name, Namespace* parent) {
-            namespaces.push(new Namespace(this, namespaces.size(), name, parent));
+        inline Namespace* addNamespace(NamespaceTree* node) {
+            namespaces.push(new Namespace(this, namespaces.size(), node));
             return namespaces.back();
         }
 
@@ -1927,6 +1978,22 @@ namespace clover {
         bool shouldValidate = false;
     };
 
+
+    template<typename Func>
+    void Namespace::forEachDefinition(Func&& func) {
+        for (Scope* scope : constituentScopes) for (const auto& [k, v] : scope->entries) {
+            const auto& info = scope->function ? scope->function->locals[v] : scope->module->globals[v];
+            if (info.kind == VariableInfo::Forward) {
+                Scope* realScope = scope->module->scopes[info.defScope];
+                const auto& actualInfo = realScope->function ? realScope->function->locals[info.index] : realScope->module->globals[info.index];
+                func(realScope->module, realScope->function, realScope, actualInfo, info.index);
+            } else
+                func(scope->module, scope->function, scope, info, v);
+        }
+        for (Namespace* parent : parents)
+            parent->forEachDefinition(func);
+    }
+
     template<typename StringLike>
     inline Symbol Module::sym(StringLike str) const {
         return compilation->sym(str);
@@ -1939,8 +2006,8 @@ namespace clover {
     // Function Methods
 
     inline Module::Module(Compilation* compilation_in, Artifact* artifact_in, const_slice<i8> source_in, vec<u32>&& lineOffsets_in):
-        compilation(compilation_in), types(compilation->types), source(source_in), lineOffsets(lineOffsets_in),
-        artifact(artifact_in), name(artifact ? artifact->name : compilation->sym("<root>")) {}
+        ArtifactData(artifact_in), compilation(compilation_in), types(compilation->types), source(source_in), lineOffsets(lineOffsets_in),
+        name(artifact ? artifact->name : compilation->sym("<root>")) {}
 
     inline Local Function::addTemp(TypeIndex type) {
         array<i8, 64> buf;
@@ -1999,6 +2066,20 @@ namespace clover {
         info.functionIndex = module->functionIndex(function);
         info.type = function->typeIndex;
         info.name = function->name;
+        locals.push(info);
+        return Local(locals.size() - 1);
+    }
+
+    inline Local Function::addLocalNamespace(Namespace* ns) {
+        assert(ns->module == module);
+
+        VariableInfo info;
+        info.kind = VariableKind::Namespace;
+        info.scope = VariableInfo::Local;
+        info.isImport = true;
+        info.namespaceIndex = ns->index;
+        info.type = InvalidType;
+        info.name = ns->name();
         locals.push(info);
         return Local(locals.size() - 1);
     }
@@ -2504,6 +2585,9 @@ namespace clover {
             case ASTKind::ResolvedFunction:
                 io = format(io, module->str(ast.resolvedFunction()->name));
                 io = format(io, "/", ast.module->functionIndex(ast.resolvedFunction()));
+                return io;
+            case ASTKind::ResolvedNamespace:
+                io = format(io, module->str(ast.resolvedNamespace()->name()));
                 return io;
             case ASTKind::Wildcard:
                 return format(io, "...");

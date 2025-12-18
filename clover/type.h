@@ -2029,20 +2029,23 @@ namespace clover {
         Type subl = expand(sub.isVar() ? sub.asVar().lowerBound() : sub), subu = expand(sub.isVar() ? sub.asVar().upperBound() : sub);
         Type superl = expand(super.isVar() ? super.asVar().lowerBound() : super), superu = expand(super.isVar() ? super.asVar().upperBound() : super);
 
-        if (sub.isVar() && subu.isConcrete() && super.isConcrete()) {
-            auto ub = greatestCommonSubtype(subu, super, substituteFlag);
+        if (sub.isVar() && subu.isConcrete() && superu.isConcrete()) {
+            auto ub = greatestCommonSubtype(subu, superu, substituteFlag);
             if (!ub)
                 return none<UnifyResult>();
             if (config::verboseUnify >= 2)
                 println("[TYPE]\tRefined upper bound of ", sub, " from ", subu, " to ", ub);
-            return some<UnifyResult>(sub.asVar().setUpperBound(ub));
-        } else if (super.isVar() && superl.isConcrete() && sub.isConcrete()) {
-            auto lb = leastCommonSupertype(sub, superl, substituteFlag);
+            sub.asVar().setUpperBound(ub);
+            return super.isConcrete() ? some<UnifyResult>(UnifySuccess) : none<UnifyResult>();
+        }
+        if (super.isVar() && superl.isConcrete() && subl.isConcrete()) {
+            auto lb = leastCommonSupertype(subl, superl, substituteFlag);
             if (!lb)
                 return none<UnifyResult>();
             if (config::verboseUnify >= 2)
                 println("[TYPE]\tRefined lower bound of ", super, " from ", superl, " to ", lb);
-            return some<UnifyResult>(super.asVar().setLowerBound(lb));
+            super.asVar().setLowerBound(lb);
+            return sub.isConcrete() ? some<UnifyResult>(UnifySuccess) : none<UnifyResult>();
         }
         return none<UnifyResult>();
     }

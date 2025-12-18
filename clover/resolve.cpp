@@ -193,6 +193,71 @@ namespace clover {
         }
     }
 
+    AST resolveIdentifier(Module* module, Fixups& fixups, Scope* scope, AST parent, AST ast, VariableHandle entry) {
+        if (!entry) {
+            assert(parent);
+            fixups.use(scope->index, parent.node);
+            return ast;
+        }
+        switch (entry.kind()) {
+            case VariableKind::Type:
+                if (entry.type() == InvalidType && entry.hasDecl())
+                    entry.setType(resolveTypeForDecl(module, fixups, NoRefTraits, entry.decl()));
+                if (entry.isGlobal())
+                    return module->add(ASTKind::GlobalTypename, Global(entry.index()));
+                else
+                    return module->add(ASTKind::Typename, Local(entry.index()));
+            case VariableKind::Variable:
+            case VariableKind::OverloadedFunction:
+            case VariableKind::Member:
+                if (entry.isGlobal())
+                    return module->add(ASTKind::Global, Global(entry.index()));
+                else
+                    return module->add(ASTKind::Local, Local(entry.index()));
+            case VariableKind::Constant: {
+                if (entry.isGlobal() && !scope->function)
+                    return module->add(ASTKind::GlobalConst, ConstId(module->globals[entry.index()].constantIndex));
+                if (entry.scope->function == scope->function)
+                    return module->add(ASTKind::Const, ConstId(scope->function->locals[entry.index()].constantIndex));
+
+                // It's an external constant, so we need to close over
+                // it.
+                VariableInfo info = entry.isGlobal() ? module->globals[entry.index()] : entry.scope->function->locals[entry.index()];
+                scope->addConstantIndirect(module, parent, entry.scope, info.constantIndex, ast.symbol());
+                auto reentry = scope->findLocal(ast.symbol());
+                assert(reentry);
+                return module->add(ASTKind::Const, ConstId(scope->function->locals[reentry.index].constantIndex));
+            }
+            case VariableKind::ConstFunction: {
+                const VariableInfo& info = entry.isGlobal()
+                    ? module->globals[entry.index()]
+                    : scope->function->locals[entry.index()];
+                Function* function = module->functions[info.functionIndex];
+                return module->add(ASTKind::ResolvedFunction, function);
+            }
+
+            case VariableKind::Function: {
+                const VariableInfo& info = entry.isGlobal()
+                    ? module->globals[entry.index()]
+                    : scope->function->locals[entry.index()];
+                Function* function = module->functions[info.functionIndex];
+                return module->add(ASTKind::ResolvedFunction, function);
+            }
+
+            case VariableKind::Namespace: {
+                const VariableInfo& info = entry.isGlobal()
+                    ? module->globals[entry.index()]
+                    : scope->function->locals[entry.index()];
+                Namespace* ns = module->namespaces[info.namespaceIndex];
+                return module->add(ASTKind::ResolvedNamespace, ns);
+            }
+
+            default:
+                return ast;
+        }
+        unreachable("Should have returned already.");
+    }
+
     AST fixupAccessBase(Module* module, AST ast) {
         // This function recursively fixes up accessor chains to ensure mutable
         // access at the end refers back to the original object. In general, we
@@ -333,6 +398,22 @@ namespace clover {
 
         if (call.kind() == ASTKind::CallMethod) {
             AST base = resolveChild(module, fixups, refTraits, call, 1, expectation);
+
+            if (base.kind() == ASTKind::ResolvedNamespace) {
+                // This handles the case that we mistook a namespace access for
+                // a method call, i.e. foo.bar(x). In this scenario, we resolve
+                // the access from the namespace, then treat the call like a
+                // non-method call and continue.
+                type_assert(call.child(0).kind() == ASTKind::Ident);
+                auto result = base.resolvedNamespace()->lookup(call.child(0).symbol());
+                type_assert(result);
+                call.setChild(0, base = resolveIdentifier(module, fixups, scope, call, call.child(0), { result.scope, result.index }));
+                for (u32 i = 2; i < call.arity(); i ++)
+                    call.setChild(i - 1, call.child(i));
+                call.setArity(call.arity() - 1);
+                call.setKind(ASTKind::Call);
+            }
+
             if (isTypeExpression(base) && call.kind() == ASTKind::CallMethod && call.child(0).kind() == ASTKind::Ident) {
                 // This handles the case that we mistook a nested type
                 // expression for a method call, i.e. Foo.Bar(x). In this
@@ -768,60 +849,7 @@ namespace clover {
                 return ast;
             case ASTKind::Ident: {
                 auto entry = module->naturalize(module->lookup(scope, ast.symbol()));
-                if (!entry) {
-                    assert(parent);
-                    fixups.use(scope->index, parent->node);
-                    return ast;
-                }
-                switch (entry.kind()) {
-                    case VariableKind::Type:
-                        if (entry.type() == InvalidType && entry.hasDecl())
-                            entry.setType(resolveTypeForDecl(module, fixups, NoRefTraits, entry.decl()));
-                        if (entry.isGlobal())
-                            return module->add(ASTKind::GlobalTypename, Global(entry.index()));
-                        else
-                            return module->add(ASTKind::Typename, Local(entry.index()));
-                    case VariableKind::Variable:
-                    case VariableKind::OverloadedFunction:
-                    case VariableKind::Member:
-                        if (entry.isGlobal())
-                            return module->add(ASTKind::Global, Global(entry.index()));
-                        else
-                            return module->add(ASTKind::Local, Local(entry.index()));
-                    case VariableKind::Constant: {
-                        if (entry.isGlobal() && !scope->function)
-                            return module->add(ASTKind::GlobalConst, ConstId(module->globals[entry.index()].constantIndex));
-                        if (entry.scope->function == scope->function)
-                            return module->add(ASTKind::Const, ConstId(scope->function->locals[entry.index()].constantIndex));
-
-                        // It's an external constant, so we need to close over
-                        // it.
-                        VariableInfo info = entry.isGlobal() ? module->globals[entry.index()] : entry.scope->function->locals[entry.index()];
-                        scope->addConstantIndirect(module, *parent, entry.scope, info.constantIndex, ast.symbol());
-                        auto reentry = scope->findLocal(ast.symbol());
-                        assert(reentry);
-                        return module->add(ASTKind::Const, ConstId(scope->function->locals[reentry.index].constantIndex));
-                    }
-                    case VariableKind::ConstFunction: {
-                        const VariableInfo& info = entry.isGlobal()
-                            ? module->globals[entry.index()]
-                            : scope->function->locals[entry.index()];
-                        Function* function = module->functions[info.functionIndex];
-                        return module->add(ASTKind::ResolvedFunction, function);
-                    }
-
-                    case VariableKind::Function: {
-                        const VariableInfo& info = entry.isGlobal()
-                            ? module->globals[entry.index()]
-                            : scope->function->locals[entry.index()];
-                        Function* function = module->functions[info.functionIndex];
-                        return module->add(ASTKind::ResolvedFunction, function);
-                    }
-
-                    default:
-                        return ast;
-                }
-                unreachable("Should have returned already.");
+                return resolveIdentifier(module, fixups, scope, *parent, ast, entry);
             }
             case ASTKind::GetIndex: {
                 AST lhs = resolveChild(module, fixups, refTraits, ast, 0, ExpectValue);
@@ -890,6 +918,13 @@ namespace clover {
                 return resolveNew(module, fixups, refTraits, ast);
             case ASTKind::GetField: {
                 resolveChild(module, fixups, refTraits, ast, 0, ExpectValue);
+                if (ast.child(0).kind() == ASTKind::ResolvedNamespace) {
+                    type_assert(ast.child(1).kind() == ASTKind::Ident);
+                    auto result = ast.child(0).resolvedNamespace()->lookup(ast.child(1).symbol());
+                    type_assert(result);
+                    return resolveIdentifier(module, fixups, scope, ast, ast.child(1), { result.scope, result.index });
+                }
+
                 if (ast.child(1).kind() == ASTKind::OwnType || ast.child(1).kind() == ASTKind::UninitType) {
                     AST resolvedField = resolveChild(module, fixups, refTraits, ast, 1, ExpectType);
                     assert(resolvedField.kind() == ASTKind::Construct); // Must be the case, for this to be valid.
@@ -962,7 +997,7 @@ namespace clover {
                 resolveTypeForDecl(module, fixups, NoRefTraits, ast);
                 return ast;
             case ASTKind::UseModule:
-            case ASTKind::UseType:
+            case ASTKind::UseLocal:
                 return module->add(ASTKind::Do, ast.pos(), ast.scope(), InvalidType);
             case ASTKind::VarDecl: {
                 if (ast.child(0).missing())

@@ -8,7 +8,8 @@
 namespace clover {
     struct JasmineArtifact : public ArtifactData {
         JasmineModule module;
-        JasmineArtifact(JasmineModule module_in): module(module_in) {}
+        JasmineArtifact(Artifact* artifact, JasmineModule module_in):
+            ArtifactData(artifact), module(module_in) {}
 
         ~JasmineArtifact() {}
 
@@ -517,6 +518,23 @@ namespace clover {
             auto name = module->str(function->name);
             i8 buffer[1024];
             slice<i8> target = { buffer, 1024 };
+
+            Scope* scope = function->module->node(function->decl).scope();
+            while (scope->parent) {
+                if (scope->kind == ScopeKind::Namespace) {
+                    Namespace* ns = scope->module->node(scope->owner).child(0).resolvedNamespace();
+                    NamespaceTree* node = ns->node;
+                    vec<Symbol, 8> nsPath;
+                    while (node) {
+                        nsPath.push(node->name);
+                        node = node->parent;
+                    }
+                    while (nsPath.size())
+                        target = format(target, module->str(nsPath.pop()), '.');
+                    break;
+                }
+                scope = scope->parent;
+            }
 
             target = format(target, name);
 
@@ -2727,6 +2745,10 @@ namespace clover {
                 unreachable("Non-atom typenames are not permitted in value position.");
             }
 
+            case ASTKind::Namespace: {
+                generate(genCtx, builder, ast.child(1), destType);
+                return JASMINE_INVALID_OPERAND;
+            }
 
             case ASTKind::Do:
             case ASTKind::TopLevel: {
@@ -2742,7 +2764,8 @@ namespace clover {
 
     struct AssemblyArtifact : public ArtifactData {
         JasmineAssembly assembly;
-        AssemblyArtifact(JasmineAssembly assembly_in): assembly(assembly_in) {}
+        AssemblyArtifact(Artifact* artifact, JasmineAssembly assembly_in):
+            ArtifactData(artifact), assembly(assembly_in) {}
 
         ~AssemblyArtifact() {
             if (assembly.handle)
@@ -2794,10 +2817,10 @@ namespace clover {
         genCtx.leave();
         if (optimizationLevel == 0) {
             jasmine_compile_module_only(*genCtx.assembly, output, optimizationLevel, true);
-            artifact->update(new AssemblyArtifact(*genCtx.assembly));
+            artifact->update(new AssemblyArtifact(artifact, *genCtx.assembly));
             return artifact;
         }
-        artifact->update(new JasmineArtifact(output));
+        artifact->update(new JasmineArtifact(artifact, output));
         return artifact;
     }
 
@@ -2809,7 +2832,7 @@ namespace clover {
         JasmineAssembly assembly = jasmine_create_assembly(module);
         jasmine_compile(assembly, module, optimizationLevel, true);
 
-        artifact->update(new AssemblyArtifact(assembly));
+        artifact->update(new AssemblyArtifact(artifact, assembly));
         return artifact;
     }
 

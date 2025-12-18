@@ -31,7 +31,7 @@ namespace clover {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
             error(decl.module, decl.pos(), "Duplicate definition of symbol '", decl.module->str(name), "'.")
-                .note(module->node(varInfo.decl).pos(), "Previous definition was here.");
+                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
             return;
         }
         u32 var;
@@ -43,13 +43,52 @@ namespace clover {
         inTable.add(name.symbol);
     }
 
+    const VariableInfo& Scope::FindResult::info() const {
+        const auto& info = scope->function ? scope->function->locals[index] : scope->module->globals[index];
+        if (info.kind == VariableKind::Forward) {
+            const Scope* defScope = scope->module->scopes[info.scope];
+            return defScope->isGlobal() ? defScope->module->globals[info.index] : defScope->function->locals[info.index];
+        }
+        return info;
+    }
+
+    VariableInfo& Scope::FindResult::info() {
+        auto& info = scope->function ? scope->function->locals[index] : scope->module->globals[index];
+        if (info.kind == VariableKind::Forward) {
+            Scope* defScope = scope->module->scopes[info.scope];
+            return defScope->isGlobal() ? defScope->module->globals[info.index] : defScope->function->locals[info.index];
+        }
+        return info;
+    }
+
+    Scope::FindResult Scope::find(Symbol name, bool searchParent) {
+        // TODO: Re-enable in-chain computation in the presence of late definitions.
+        // if (hasInChain && !inChain.mayContain(name.symbol))
+        //     return {};
+        if (inTable.mayContain(name.symbol)) {
+            auto it = entries.find(name);
+            if (it != entries.end())
+                return FindResult(this, it->value, !function);
+        }
+        if (searchParent) {
+            if (kind == ScopeKind::Namespace) {
+                auto result = module->namespaces[ns]->lookup(name);
+                if (result)
+                    return result;
+            }
+            if (parent && searchParent)
+                return parent->find(name);
+        }
+        return {};
+    }
+
     void Scope::add(VariableKind kind, const AST& decl, TypeIndex type, Symbol name) {
         assert(kind != VariableKind::Constant && kind != VariableKind::Function && kind != VariableKind::ConstFunction);
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
             error(decl.module, decl.pos(), "Duplicate definition of symbol '", decl.module->str(name), "'.")
-                .note(module->node(varInfo.decl).pos(), "Previous definition was here.");
+                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
             return;
         }
         u32 var;
@@ -66,7 +105,7 @@ namespace clover {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
             error(decl.module, decl.pos(), "Duplicate definition of symbol '", decl.module->str(name), "'.")
-                .note(module->node(varInfo.decl).pos(), "Previous definition was here.");
+                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
             return;
         }
 
@@ -127,15 +166,17 @@ namespace clover {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
             error(module, ast.pos(), "Duplicate definition of symbol '", module->str(name), "'.")
-                .note(module->node(varInfo.decl).pos(), "Previous definition was here.");
+                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
             return;
         }
 
+        ScopeIndex scopeIndex = module->scopeIndex(defScope);
+
         u32 var;
         if (function)
-            var = function->addConstantIndirect(defScope->index, constantIndex).index;
+            var = function->addConstantIndirect(scopeIndex, constantIndex).index;
         else
-            var = module->addConstantIndirect(defScope->index, constantIndex).index;
+            var = module->addConstantIndirect(scopeIndex, constantIndex).index;
         entries.put(name, var);
         inTable.add(name.symbol);
     }
@@ -145,15 +186,35 @@ namespace clover {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
             error(module, ast.pos(), "Duplicate definition of symbol '", module->str(name), "'.")
-                .note(module->node(varInfo.decl).pos(), "Previous definition was here.");
+                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
+            return;
+        }
+
+        ScopeIndex scopeIndex = module->scopeIndex(defScope);
+
+        u32 var;
+        if (function)
+            var = function->addLocalIndirect(scopeIndex, index).index;
+        else
+            var = module->addGlobalIndirect(scopeIndex, index).index;
+        entries.put(name, var);
+        inTable.add(name.symbol);
+    }
+
+    void Scope::addNamespace(const AST& ast, Symbol name, Namespace* ns) {
+        auto it = entries.find(name);
+        if (it != entries.end()) {
+            auto& varInfo = function ? function->locals[it->value] : module->globals[it->value];
+            error(module, ast.pos(), "Duplicate definition of symbol '", module->str(name), "'.")
+                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
             return;
         }
 
         u32 var;
         if (function)
-            var = function->addLocalIndirect(defScope->index, index).index;
+            var = function->addLocalNamespace(ns).index;
         else
-            var = module->addGlobalIndirect(defScope->index, index).index;
+            var = module->addGlobalNamespace(ns).index;
         entries.put(name, var);
         inTable.add(name.symbol);
     }
@@ -218,6 +279,129 @@ namespace clover {
 
     void defineOverloads(Scope* scope, Symbol name, Pos pos, Overloads* overloads) {
         defineFunctionOrOverloads(scope, name, pos, overloads, true);
+    }
+
+    void defineNamespace(Scope* scope, Namespace* relative, Namespace* ns, AST pos) {
+        Module* module = scope->module;
+
+        // First, we figure out what the new tree node of this namespace is.
+        // Since moving a namespace out from its previous parent may change its
+        // top-level symbol, we need to reconstruct its path from the root.
+        //
+        // For example, if we have a namespace foo.bar, and use foo.bar, then
+        // in that scope foo.bar will be renamed to bar. We want to treat it in
+        // that scope as if it was declared simply as bar from the start, so it
+        // can comingle with other definitions in that scope that are simply
+        // under the bar namespace.
+
+        NamespaceTree* newNode = ns->node;
+        if (relative) {
+            NamespaceTree* iter = ns->node;
+            vec<Symbol, 8> path;
+            while (iter != relative->node) {
+                assert(iter);
+                path.push(iter->name);
+                iter = iter->parent;
+            }
+            newNode = scope->module->compilation->ensureNamespace(path.pop());
+            while (path.size())
+                newNode = newNode->ensureChild(path.pop());
+        }
+
+        // We always construct a new namespace at the moment. In many cases, we
+        // need to do this because our node may have changed. But even if not,
+        // I think this probably helps prevent some kind of coupling issues -
+        // we ensure that the imported namespace can't affect its parent(s).
+
+        Namespace* newNs = scope->module->addNamespace(newNode);
+        newNs->addParent(ns);
+
+        auto existing = scope->find(ns->name());
+        if (existing) {
+            Module* otherModule = existing.scope->module;
+            const auto& info = existing.info();
+            NamespaceTree* oldNode = otherModule->namespaces[info.namespaceIndex]->node;
+            if (info.kind == VariableKind::Namespace && otherModule->namespaces[info.namespaceIndex]->node == newNode) {
+                // This is the same namespace, which already exists in our
+                // scope. We want to add this as a parent to our new namespace too.
+                if (otherModule->namespaces[info.namespaceIndex] != ns)
+                    newNs->addParent(otherModule->namespaces[info.namespaceIndex]);
+            } else {
+                auto& e = error(module, pos.pos(), "Duplicate definition of symbol '", module->str(info.name), "'.");
+                if (!info.isImport) {
+                    AST decl = otherModule->node(info.decl);
+                    if (!decl.isLeaf())
+                        e.note(otherModule, decl.pos(), "Previous definition was here.");
+                }
+            }
+        }
+
+        scope->addNamespace(pos, ns->name(), newNs);
+    }
+
+    void importNamespace(Scope* scope, Namespace* ns, AST use) {
+        Module* module = scope->module;
+
+        ns->forEachDefinition([&](Module* otherModule, Function* otherFunction, Scope* otherScope, const VariableInfo& info, u32 index) {
+            switch (info.kind) {
+                case VariableKind::Variable:
+                case VariableKind::Type: {
+                    auto existing = scope->findLocal(info.name);
+                    if (existing) {
+                        auto& e = error(module, use.pos(), "Duplicate definition of symbol '", module->str(info.name), "'.");
+                        if (!info.isImport) {
+                            AST decl = otherModule->node(info.decl);
+                            if (!decl.isLeaf())
+                                e.note(otherModule, decl.pos(), "Previous definition was here.");
+                        }
+                        break;
+                    }
+                    if (otherModule == module)
+                        scope->addIndirect(module, use, otherScope, index, info.name);
+                    else
+                        scope->addImport(info.kind, info.type, info.name);
+                    break;
+                }
+
+                case VariableKind::Constant: {
+                    auto existing = scope->findLocal(info.name);
+                    if (existing) {
+                        auto& e = error(module, use.pos(), "Duplicate definition of symbol '", module->str(info.name), "'.");
+                        if (!info.isImport) {
+                            AST decl = otherModule->node(info.decl);
+                            if (!decl.isLeaf())
+                                e.note(otherModule, decl.pos(), "Previous definition was here.");
+                        }
+                        break;
+                    }
+                    scope->addConstantIndirect(module, use, otherScope, index, info.name);
+                    break;
+                }
+
+                case VariableKind::Function: {
+                    assert(info.isImport);
+                    Function* function = otherModule->functions[info.functionIndex];
+                    defineFunction(scope, info.name, use.pos(), function);
+                    break;
+                }
+
+                case VariableKind::OverloadedFunction: {
+                    assert(info.isImport);
+                    Overloads* overloads = otherModule->overloads[info.overloads];
+                    defineOverloads(scope, info.name, use.pos(), overloads);
+                    break;
+                }
+
+                case VariableKind::Namespace: {
+                    Namespace* importedNs = otherModule->namespaces[info.namespaceIndex];
+                    defineNamespace(scope, ns, importedNs, use);
+                    break;
+                }
+
+                default:
+                    unreachable("Tried to import unknown variable kind ", VariableInfo::KindNamesUpper[(u32)info.kind], " from namespace ", module->str(ns->name()));
+            }
+        });
     }
 
     void setScopes(Module* module, Scope* scope, AST ast) {
@@ -350,7 +534,7 @@ namespace clover {
                     computeScopes(module, imports, currentScope, child);
                 break;
             }
-            case ASTKind::UseType:
+            case ASTKind::UseLocal:
             case ASTKind::UseModule:
                 ast.setScope(currentScope);
                 imports.add(ast);
@@ -557,6 +741,51 @@ namespace clover {
                     computeScopes(module, imports, newScope, ast.child(i));
                 break;
             }
+            case ASTKind::Namespace: {
+                assert(ast.child(0).kind() == ASTKind::Ident);
+                Symbol name = ast.child(0).symbol();
+
+                // We need to see if we are inside a namespace. Only our
+                // immediate parent counts when determining what namespace
+                // we're in.
+                Namespace* parentNamespace = nullptr;
+                if (currentScope && currentScope->kind == ScopeKind::Namespace)
+                    parentNamespace = module->node(currentScope->owner).child(0).resolvedNamespace();
+                NamespaceTree* node = parentNamespace
+                    ? parentNamespace->node->ensureChild(name)
+                    : module->compilation->ensureNamespace(name);
+
+                Namespace* ns = nullptr;
+                Namespace* parentNs = nullptr;
+
+                // See if there is already an instance of our namespace in
+                // this exact scope. If so, we can simply use that and move on.
+                auto entry = currentScope->find(name);
+                if (entry) {
+                    const auto& info = entry.isGlobal() ? module->globals[entry.index] : currentScope->function->locals[entry.index];
+                    if (info.kind == VariableKind::Namespace && module->namespaces[info.namespaceIndex]->node == node)
+                        (entry.scope == currentScope ? ns : parentNs) = entry.scope->module->namespaces[info.namespaceIndex];
+                    else {
+                        error(module, ast.pos(), "Duplicate definition of symbol '", module->str(name), "'.")
+                            .note(module, module->node(info.decl).pos(), "Previous definition was here.");
+                        break;
+                    }
+                }
+                if (!ns) {
+                    ns = module->addNamespace(node);
+                    if (parentNs)
+                        ns->addParent(parentNs);
+                    currentScope->addNamespace(ast, ast.child(0).symbol(), ns);
+                }
+                ast.setChild(0, module->add(ASTKind::ResolvedNamespace, ns));
+
+                Scope* newScope = module->addScope(ScopeKind::Namespace, ast.node, currentScope);
+                newScope->ns = ns->index;
+                ns->addScope(newScope);
+                ast.setScope(newScope);
+                computeScopes(module, imports, newScope, ast.child(1));
+                break;
+            }
             case ASTKind::TopLevel: {
                 assert(currentScope->kind == ScopeKind::Root);
                 Scope* topLevel = module->addScope(ScopeKind::TopLevel, module->getTopLevel().node, currentScope);
@@ -617,40 +846,57 @@ namespace clover {
             for (u32 i = 0; i < path.size() / 2; i ++)
                 swap(path[i], path[path.size() - i - 1]);
 
-            if (ast.kind() == ASTKind::UseType) {
+            if (ast.kind() == ASTKind::UseLocal) {
                 Scope* defScope = scope;
+                Namespace* defNs = nullptr;
                 for (u32 i = 0; i < path.size() - 1; i ++) {
-                    auto entry = defScope->find(path[i]);
+                    auto entry = defNs ? defNs->lookup(path[i]) : defScope->find(path[i]);
                     if (!entry) {
-                        error(module, ast.pos(), "Couldn't find symbol ", module->str(path[i]), " within type ", module->str(path[i]), ".");
+                        error(module, ast.pos(), "Couldn't find symbol ", module->str(path[i]), " within ", module->str(path[i]), ".");
                         return;
                     }
                     if (entry.isGlobal()) {
-                        auto global = module->globals[entry.index];
-                        defScope = module->node(global.decl).scope();
+                        const auto& global = module->globals[entry.index];
+                        if (global.kind == VariableKind::Namespace)
+                            defScope = nullptr, defNs = module->namespaces[global.namespaceIndex];
+                        else
+                            defScope = module->node(global.decl).scope(), defNs = nullptr;
                     } else {
-                        auto local = defScope->function->locals[entry.index];
-                        defScope = module->node(local.decl).scope();
+                        const auto& local = defScope->function->locals[entry.index];
+                        if (local.kind == VariableKind::Namespace)
+                            defScope = nullptr, defNs = module->namespaces[local.namespaceIndex];
+                        else
+                            defScope = module->node(local.decl).scope(), defNs = nullptr;
                     }
                 }
                 if (path.back() == InvalidSymbol) {
-                    for (const auto [k, v] : defScope->entries) {
+                    if (defNs)
+                        importNamespace(scope, defNs, ast);
+                    else for (const auto [k, v] : defScope->entries) {
                         VariableInfo info = defScope->function ? defScope->function->locals[v] : module->globals[v];
                         if (info.kind == VariableKind::Constant)
                             scope->addConstantIndirect(module, ast, defScope, info.constantIndex, k);
+                        else if (info.kind == VariableKind::Namespace)
+                            defineNamespace(scope, nullptr, module->namespaces[info.namespaceIndex], ast);
                         else
                             scope->addIndirect(module, ast, defScope, v, k);
                     }
                 } else {
-                    auto entry = defScope->findLocal(path.back());
+                    auto entry = defNs ? defNs->lookup(path.back()) : defScope->findLocal(path.back());
                     if (!entry) {
-                        error(module, ast.pos(), "Couldn't find symbol ", module->str(path.back()), " within type ", module->str(path[path.size() - 2]), ".");
+                        error(module, ast.pos(), "Couldn't find symbol ", module->str(path.back()), " within ", module->str(path[path.size() - 2]), ".");
                         return;
                     }
+                    defScope = entry.scope;
                     VariableInfo info = defScope->function ? defScope->function->locals[entry.index] : module->globals[entry.index];
                     if (info.kind == VariableKind::Constant)
                         scope->addConstantIndirect(module, ast, defScope, info.constantIndex, path.back());
-                    else
+                    else if (info.kind == VariableKind::Namespace) {
+                        Namespace* root = nullptr;
+                        if (defScope->kind == ScopeKind::Namespace)
+                            root = module->node(defScope->owner).child(0).resolvedNamespace();
+                        defineNamespace(scope, root, module->namespaces[info.namespaceIndex], ast);
+                    } else
                         scope->addIndirect(module, ast, defScope, entry.index, path.back());
                 }
             } else {
@@ -664,6 +910,12 @@ namespace clover {
                         filepath.append(module->str(path[i]));
                 }
                 Artifact* artifact = addSourceFile(module->compilation, filepath);
+                if (!artifact) {
+                    auto pathstr = filepath.to_bytes();
+                    error(module, ast.pos(), "Could not load module at path '", pathstr, "'.");
+                    delete[] pathstr.data();
+                    continue;
+                }
                 artifact = compileUntil(module->compilation, ArtifactKind::CheckedAST, artifact);
                 Module* otherModule = artifact->as<Module>();
                 module->artifact->imports.insert(artifact);
@@ -671,9 +923,11 @@ namespace clover {
                 Scope* topLevelScope = otherModule->getTopLevel().scope();
                 for (const auto& [k, v] : topLevelScope->entries) {
                     VariableInfo info = otherModule->globals[v];
-                    if (info.kind == VariableKind::Function) {
-                        Function* function;
-                        function = otherModule->functions[info.functionIndex];
+                    if (info.kind == VariableKind::Namespace) {
+                        Namespace* ns = otherModule->namespaces[info.functionIndex];
+                        defineNamespace(scope, nullptr, ns, ast);
+                    } else if (info.kind == VariableKind::Function) {
+                        Function* function = otherModule->functions[info.functionIndex];
                         defineFunction(scope, k, ast.pos(), function);
                     } else if (info.kind == VariableKind::OverloadedFunction) {
                         Overloads* overloads = otherModule->overloads[info.overloads];
