@@ -18,7 +18,7 @@ namespace jasmine {
             allocations.sharedGpScratches.push(r);
         for (mreg r : fpScratches) if (allocations.sharedFpScratches.count < 3)
             allocations.sharedFpScratches.push(r);
-        
+
         bitset<128> isVarUsed;
         for (Parameter parameter : fn.parameters)
             isVarUsed.on(parameter.operand.var);

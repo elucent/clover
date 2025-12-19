@@ -71,7 +71,7 @@ namespace jasmine {
             const NodeIndex* reader = &block.nodeIndices()[0] + oldSize;
             for (i32 i = i32(oldSize) - 1; i >= 0; i --) {
                 *--writer = *--reader;
-                while (i == insertions[inserts.back()].indexInBlock) {
+                while (i == insertions[inserts.back()].indexInBlock / 2) {
                     Insertion insertion = insertions[inserts.back()];
                     inserts.pop();
                     for (i32 j = i32(insertion.length) - 1; j >= 0; j --) {

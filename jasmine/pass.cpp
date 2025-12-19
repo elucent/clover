@@ -204,9 +204,14 @@ namespace jasmine {
         ctx.reset();
         ctx.did(TYPECHECK);
 
-        if (optLevel > 0) {
-            if (optLevel > 1) {
-                findDominators(ctx, fn);
+        if (optLevel > 0)
+            findDominators(ctx, fn);
+
+        if (optLevel == 1)
+            computePins(ctx, fn);
+
+        if (optLevel > 1) {
+            if (optLevel > 2) {
                 findNaturalLoops(ctx, fn);
                 enforceSSA(ctx, fn);
                 if (!config::noConstantFolding)
@@ -235,9 +240,9 @@ namespace jasmine {
         if (optLevel > 1) {
             containment(ctx, fn);
             ctx.targetSpecificPasses->allocateRegisters(ctx, fn, RegisterAllocationMode::ADVANCED);
-        // else if (optLevel > 0)
-        //     ctx.targetSpecificPasses->allocateRegistersQuick(ctx, fn);
-        } else
+        } else if (optLevel > 0)
+            ctx.targetSpecificPasses->allocateRegisters(ctx, fn, RegisterAllocationMode::SINGLE_PASS);
+        else
             ctx.targetSpecificPasses->allocateStackOnly(ctx, fn);
         ctx.targetSpecificPasses->lower(ctx, fn);
 

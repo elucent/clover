@@ -549,7 +549,24 @@ namespace jasmine {
 
         for (Edge edge : fn.edges()) {
             originalEdgeTypes.push({});
-            for (Move move : edge.moves()) {
+            if (allocations.allocationMode == AllocationResult::AllocateInPlace) {
+                // When allocating in place, we don't have access to the
+                // original variable for any moves we added. We assume there
+                // are no moves on any edge other than ones the register
+                // allocator created. Then, bit of a hack, we assume at least
+                // one operand will be a register - the in-place register
+                // allocator won't generate moves between stack slots. We use
+                // the .regType field of the first register operand to store
+                // the type of the variable.
+
+                for (Move move : edge.moves()) {
+                    assert(move.dest.isReg() || move.src.isReg());
+                    if (move.src.isReg())
+                        originalEdgeTypes.back().push(move.src.regType);
+                    else
+                        originalEdgeTypes.back().push(move.dest.regType);
+                }
+            } else for (Move move : edge.moves()) {
                 assert(move.dest.kind == Operand::Var);
                 originalEdgeTypes.back().push(fn.variableList[move.dest.var].type);
             }
@@ -601,6 +618,8 @@ namespace jasmine {
                     operand = allocations.allocationForPinned(operand.var);
                 }
             }
+        } else if (allocations.allocationMode == AllocationResult::AllocateInPlace) {
+            // Do nothing.
         } else
             unreachable("Unexpected allocation mode.");
 
@@ -753,7 +772,9 @@ namespace jasmine {
                                 }
                             }
                         }
-                    } else
+                    } else if (allocations.allocationMode == AllocationResult::AllocateInPlace)
+                        parameterOperand = p.operand;
+                    else
                         unreachable("Unknown allocation mode.");
                     if (isCompound(p.type) && !isFunction(fn, p.type) && (arg.isPair() || arg.first.is_reg())) {
                         Operand paramFirst = arg.first.kind == ASMVal::GP ? fn.gp(arg.first.gp) : fn.fp(arg.first.fp);
@@ -1087,6 +1108,18 @@ namespace jasmine {
                             makeMoveFromLabel<Target>(this, fn, b, n.type(), operands[0], operands[1], allocations.scratch0(n), allocations.scratch1(n));
                             break;
                         }
+
+                        // 3-arity LOAD can exist as a "pre-lowered"
+                        // instruction during single-pass register allocation.
+                        // We don't want to materialize a pointer in this case,
+                        // instead using the operands it already picked for us.
+                        // This is a total hack but probably better than
+                        // actually using up opcode or Operand::Kind space.
+                        if (n.arity() == 3) {
+                            makeMove<Target>(this, fn, b, n.type(), operands[0], operands[1], allocations.scratch0(n));
+                            break;
+                        }
+
                         Operand src = materialize(b, PTR, operands[1], allocations.scratch0(n));
                         src = fn.memory(src.gp, 0); // Load directly from the pointer.
                         makeMove<Target>(this, fn, b, n.type(), operands[0], src, allocations.scratch1(n));
@@ -1097,6 +1130,13 @@ namespace jasmine {
                             makeMoveToLabel<Target>(this, fn, b, n.type(), operands[0], operands[1], allocations.scratch0(n), allocations.scratch1(n));
                             break;
                         }
+
+                        // Same 3-arity case as LOAD happens for STORE.
+                        if (n.arity() == 3) {
+                            makeMove<Target>(this, fn, b, n.type(), operands[0], operands[1], allocations.scratch0(n));
+                            break;
+                        }
+
                         Operand dest = materialize(b, PTR, operands[0], allocations.scratch0(n));
                         makeMove<Target>(this, fn, b, n.type(), fn.memory(dest.gp, 0), operands[1], allocations.scratch1(n));
                         break;

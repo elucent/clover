@@ -175,7 +175,8 @@ namespace jasmine {
 
         enum VariableAllocationMode {
             AllocateVariables,
-            AllocateLiveRanges
+            AllocateLiveRanges,
+            AllocateInPlace
         };
 
         vec<Operand, 16> allocations;

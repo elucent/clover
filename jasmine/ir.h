@@ -278,7 +278,7 @@ namespace jasmine {
         union {
             struct { Kind kind : 4; u32 var : 28; };
             struct { Kind : 4; i32 isInline : 1; i32 constant : 27; };
-            struct { Kind : 4; u32 : 20; i32 gp : 8; };
+            struct { Kind : 4; TypeIndex regType : 20; i32 gp : 8; };
             struct { Kind : 4; u32 : 20; i32 fp : 8; };
             struct { Kind : 4; u32 : 12; i32 ra : 8, rb : 8; };
             struct { Kind : 4; u32 edge : 28; };
@@ -649,7 +649,7 @@ namespace jasmine {
         i32 version = -1;
         i32 original = -1;
         TypeIndex type;
-        bool isParameter = false;
+        i32 parameterIndex = -1;
     };
 
     struct VariableKey {
@@ -770,7 +770,7 @@ namespace jasmine {
         inline Operand addParameter(TypeLike type) {
             assert(!addedAnything);
             Operand var = variable(parameters.size());
-            variableList[var.var].isParameter = true;
+            variableList[var.var].parameterIndex = parameters.size();
             variableList[var.var].type = typeIndex(type);
             parameters.push({ typeIndex(type), var });
             assert(variableList.size() == parameters.size());
@@ -781,7 +781,7 @@ namespace jasmine {
         inline Operand addParameter(TypeLike type, const i8* name) {
             assert(!addedAnything);
             Operand var = variable(name);
-            variableList[var.var].isParameter = true;
+            variableList[var.var].parameterIndex = parameters.size();
             variableList[var.var].type = typeIndex(type);
             parameters.push({ typeIndex(type), var });
             assert(variableList.size() == parameters.size());
@@ -792,7 +792,7 @@ namespace jasmine {
         inline Operand addParameter(TypeLike type, const_slice<i8> name) {
             assert(!addedAnything);
             Operand var = variable(name);
-            variableList[var.var].isParameter = true;
+            variableList[var.var].parameterIndex = parameters.size();
             variableList[var.var].type = typeIndex(type);
             parameters.push({ typeIndex(type), var });
             assert(variableList.size() == parameters.size());
@@ -1058,7 +1058,7 @@ namespace jasmine {
 
             Variable variable;
             variable.name = { nullptr, nextTemp ++ };
-            variable.isParameter = false;
+            variable.parameterIndex = -1;
             variable.type = TypeKind::UNDEFINED;
             variable.version = -1;
             variable.original = -1;
@@ -1077,7 +1077,7 @@ namespace jasmine {
                     variable.name = { key.text, key.size };
                 else
                     variable.name = { nullptr, key.id };
-                variable.isParameter = false;
+                variable.parameterIndex = -1;
                 variable.type = TypeKind::UNDEFINED;
                 variable.version = -1;
                 variable.original = -1;
@@ -1140,7 +1140,7 @@ namespace jasmine {
             Variable& oldVar = variableList[base.var];
             newVar.name = oldVar.name;
             newVar.type = oldVar.type;
-            newVar.isParameter = false;
+            newVar.parameterIndex = -1;
             newVar.version = -(oldVar.version --);
             newVar.original = base.var;
             variableList.push(newVar);
@@ -1372,9 +1372,13 @@ namespace jasmine {
         void scheduleTopologically(vec<BlockIndex>& indices) const;
         void validateAggressively() const;
 
-        inline void addInsertion(Block block, u32 indexInBlock) {
+        enum InsertionPoint {
+            Early, Late
+        };
+
+        inline void addInsertion(Block block, u32 indexInBlock, InsertionPoint point = Early) {
             blockInsertions[block.index()].push(insertions.size());
-            insertions.push({ block.index(), indexInBlock, (i32)nodesToInsert.size(), 0 });
+            insertions.push({ block.index(), indexInBlock * 2 + (u32)point, (i32)nodesToInsert.size(), 0 });
         }
 
         inline void addNodeToInsertion(Node node) {
@@ -2007,6 +2011,8 @@ namespace jasmine {
                 return format(io, "sizeof ", TypeLogger { o.function, o.operand.type });
             case Operand::Invalid:
                 return format(io, "INVALID");
+            case Operand::String:
+                return format(io, '#', o.function.syms()[o.operand.sym]);
             default:
                 unreachable("Unexpected operand kind.");
         }

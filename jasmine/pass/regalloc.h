@@ -505,9 +505,637 @@ namespace jasmine {
     }
 
     template<typename Target>
+    struct SinglePassRegisterAllocator {
+        TargetSpecificPasses<Target>* passes;
+        PassContext& ctx;
+        Function& fn;
+        Pins& pins;
+        Operand returnOperand;
+        Operand magicTag;
+
+        // This represents the common state of the register allocator: which
+        // registers are we allowed to allocate, and what variable if any is
+        // currently occupying each register. We reset this after each block
+        // and repopulate it when we investigate the next one.
+        RegSet validGps, validFps;
+        RegSet reversedValidGps, reversedValidFps;
+        RegSet allClobbers;
+        RegSet freeRegs;
+        i32 regBindings[64];
+        biasedset<128> liveInSlot;
+        bitset<128> completedBlocks;
+
+        // To help free up registers whenever possible, we track the dominating
+        // defs of each variable.
+        vec<vec<pair<BlockIndex, NodeIndex>, 4>, 32> dominatingDefs;
+
+        void computeDominatingDefs() {
+            const auto& dominators = *ctx.dominators;
+
+            vec<BlockIndex> indices;
+            fn.scheduleInReversePostorder(indices);
+
+            const auto& clobbers = *ctx.clobberList;
+            for (BlockIndex b : indices) for (auto [i, n] : enumerate(fn.block(b).nodes())) {
+                allClobbers |= clobbers[n.index()];
+                if (hasDef(n.opcode())) {
+                    Operand def = n.def(0);
+                    if (dominatingDefs[def.var].size() == 0)
+                        dominatingDefs[def.var].pushUnchecked({ b, (u32)i });
+                    else {
+                        auto& defs = dominatingDefs[def.var];
+                        bool foundAnyDominator = false;
+                        for (auto e : defs) if (dominators[e.first].dominates(b)) {
+                            if (e.first == b && e.second > i)
+                                continue;
+                            foundAnyDominator = true;
+                            break;
+                        }
+                        if (!foundAnyDominator) {
+                            defs.removeIf([&](pair<BlockIndex, NodeIndex> e) -> bool {
+                                return dominators[b].dominates(e.first);
+                            });
+                            dominatingDefs[def.var].push({ b, (u32)i });
+                        }
+                    }
+                }
+            }
+
+            if UNLIKELY(config::verboseRegalloc) {
+                for (const auto& [i, defs] : enumerate(dominatingDefs)) {
+                    if (!defs.size())
+                        continue;
+                    println("[ALLOC]\tDominating defs of variable ", OperandLogger { fn, fn.variableById(i) }, " are: ");
+                    for (auto e : defs) println("[ALLOC]\t - ", fn.block(e.first).node(e.second), " in .bb", e.first);
+                }
+            }
+
+            #ifndef RELEASE
+                for (const auto& defs : dominatingDefs) {
+                    for (auto e : defs) for (auto o : defs)
+                        assert(e.first == o.first || !dominators[e.first].dominates(o.first));
+                }
+            #endif
+        }
+
+        bool isFirstDef(BlockIndex b, u32 indexInBlock, i32 var) {
+            const auto& defs = dominatingDefs[var];
+            switch (defs.size()) {
+                case 0:
+                    return false;
+                case 1:
+                    return defs[0].first == b && defs[0].second == indexInBlock;
+                default:
+                    for (auto e : defs) if (e.first == b && e.second == indexInBlock)
+                        return true;
+                    return false;
+            }
+        }
+
+        // This associates each variable with a specific operand, its location
+        // at the current point in the allocation process.
+        vec<Operand, 32> variableLocations;
+        vec<Operand, 32> variableSlots;
+
+        Operand slotFor(i32 var) {
+            if (variableSlots[var].kind == Operand::Invalid) {
+                auto& allocations = *ctx.allocations;
+                TypeIndex type = fn.variableList[var].type;
+                Repr repr = passes->repr(type);
+                while (allocations.stack % repr.alignment())
+                    allocations.stack ++;
+                allocations.stack += repr.size();
+                variableSlots[var] = fn.memory(Target::fp, -allocations.stack);
+                if UNLIKELY(config::verboseRegalloc)
+                    println("[ALLOC]\tReserved stack slot ", OperandLogger { fn, variableSlots[var] }, " for variable ", OperandLogger { fn, fn.variableById(var) });
+            }
+            return variableSlots[var];
+        }
+
+        void evict(Block block, u32 indexInBlock, i32 var) {
+            Operand loc = variableLocations[var];
+            assert(loc.isReg());
+            assert(regBindings[loc.gp] == var);
+            freeRegs.add(loc.gp);
+            regBindings[loc.gp] = -1;
+
+            // Since we allocate in reverse, evicting a variable means emitting
+            // a load, after the instruction that caused it to be evicted.
+
+            fn.addInsertion(block, indexInBlock + 1, Function::Late);
+            Operand slot = slotFor(var);
+            fn.addNodeToInsertion(fn.addNode(Opcode::LOAD, fn.variableList[var].type, variableLocations[var], slot, magicTag));
+            variableLocations[var] = slot;
+            liveInSlot.on(var);
+
+            if UNLIKELY(config::verboseRegalloc)
+                println("[ALLOC]\tEvicted variable ", OperandLogger { fn, fn.variableById(var) }, " from register ", OperandLogger { fn, loc }, " to its canonical slot ", OperandLogger { fn, variableLocations[var] });
+        }
+
+        void evictGp(Block block, u32 indexInBlock, RegSet exclude) {
+            for (mreg r : reversedValidGps) if (!exclude[63 - r]) {
+                assert(!freeRegs[63 - r]);
+                assert(regBindings[63 - r] != -1);
+                evict(block, indexInBlock, regBindings[63 - r]);
+                return;
+            }
+            unreachable("Could not find a valid register to evict.");
+        }
+
+        void evictFp(Block block, u32 indexInBlock, RegSet exclude) {
+            for (mreg r : reversedValidFps) if (!exclude[63 - r]) {
+                assert(!freeRegs[63 - r]);
+                assert(regBindings[63 - r] != -1);
+                evict(block, indexInBlock, regBindings[63 - r]);
+                return;
+            }
+            unreachable("Could not find a valid register to evict.");
+        }
+
+        mreg allocateGp(Block block, u32 indexInBlock, RegSet preferred, RegSet exclude) {
+            RegSet available = freeRegs & validGps & ~exclude;
+            if (available.empty()) {
+                evictGp(block, indexInBlock, exclude);
+                available = freeRegs & validGps & ~exclude;
+                assert(!available.empty());
+            }
+            mreg result;
+            if ((available & preferred).size())
+                result = (available & preferred).next();
+            else if ((available & Target::caller_saved_gps()).size())
+                result = (available & Target::caller_saved_gps()).next();
+            else
+                result = available.next();
+            if (Target::callee_saved_gps()[result])
+                ctx.allocations->calleeSaves.add(result);
+            assert(freeRegs[result]);
+            assert(regBindings[(u32)result] == -1);
+            return result;
+        }
+
+        mreg allocateFp(Block block, u32 indexInBlock, RegSet preferred, RegSet exclude) {
+            RegSet available = freeRegs & validFps & ~exclude;
+            if (available.empty()) {
+                evictFp(block, indexInBlock, exclude);
+                available = freeRegs & validFps & ~exclude;
+                assert(!available.empty());
+            }
+            mreg result;
+            if ((available & preferred).size())
+                result = (available & preferred).next();
+            else if ((available & Target::caller_saved_fps()).size())
+                result = (available & Target::caller_saved_fps()).next();
+            else
+                result = available.next();
+            if (Target::callee_saved_fps()[result])
+                ctx.allocations->calleeSaves.add(result);
+            assert(freeRegs[result]);
+            assert(regBindings[(u32)result] == -1);
+            return result;
+        }
+
+        void reallocate(Block block, u32 indexInBlock, i32 var, RegSet exclude, RegSet preferred = RegSet()) {
+            Operand previousLoc = variableLocations[var];
+            assert(previousLoc.isReg());
+            unbind(var);
+
+            Operand loc = allocate(block, indexInBlock, var, exclude, preferred);
+
+            // We rebound the variable, now we just need to figure out what
+            // kind of move to generate.
+            fn.addInsertion(block, indexInBlock + 1, Function::Late);
+
+            // Again, because we generate in reverse, the "previous" location
+            // is the location of the value after the current instruction. So
+            // we actually need to move from our new location to that.
+            TypeIndex type = fn.variableList[var].type;
+            if (loc.kind == Operand::Memory)
+                fn.addNodeToInsertion(fn.addNode(Opcode::STORE, type, previousLoc, loc, magicTag));
+            else
+                fn.addNodeToInsertion(fn.addNode(Opcode::MOV, type, previousLoc, loc));
+        }
+
+        void unbind(i32 var) {
+            if (variableLocations[var].isReg()) {
+                mreg reg = variableLocations[var].gp;
+                assert(regBindings[(u32)reg] == var);
+                assert(!freeRegs[reg]);
+
+                if UNLIKELY(config::verboseRegalloc)
+                    println("[ALLOC]\tUnbound variable ", OperandLogger { fn, fn.variableById(var) }, " from register ", OperandLogger { fn, Target::is_gp(reg) ? fn.gp(reg) : fn.fp(reg) });
+
+                regBindings[(u32)reg] = -1;
+                freeRegs.add(reg);
+            }
+            liveInSlot.off(var);
+            variableLocations[var] = fn.invalid();
+        }
+
+        Operand allocate(Block block, u32 indexInBlock, i32 var, RegSet exclude, RegSet preferred = RegSet()) {
+            auto& allocations = *ctx.allocations;
+
+            if (variableLocations[var].isReg())
+                return variableLocations[var];
+
+            TypeIndex type = fn.variableList[var].type;
+
+            if (variableLocations[var].kind == Operand::Memory && (pins.isPinned(var) || (!isFPType(type) && !isGPType(fn, type))))
+                return variableLocations[var];
+
+            if (fn.variableList[var].parameterIndex != -1) {
+                Operand existingBinding = fn.parameters[fn.variableList[var].parameterIndex].operand;
+                if (existingBinding.isReg())
+                    preferred.add(existingBinding.gp);
+            }
+
+            if (!pins.isPinned(var)) {
+                if (isFPType(type)) {
+                    auto reg = allocateFp(block, indexInBlock, preferred, exclude);
+
+                    if (variableLocations[var].kind == Operand::Memory) {
+                        // Variable was previously on the stack - we need to
+                        // make sure it gets there by the time this instruction
+                        // is over.
+                        fn.addInsertion(block, indexInBlock + 1, Function::Early);
+                        fn.addNodeToInsertion(fn.addNode(Opcode::STORE, type, variableLocations[var], fn.fp(reg), magicTag));
+                    }
+
+                    variableLocations[var] = fn.fp(reg);
+                    freeRegs.remove(reg);
+                    regBindings[(u32)reg] = var;
+
+                    if UNLIKELY(config::verboseRegalloc)
+                        println("[ALLOC]\tAllocated variable ", OperandLogger { fn, fn.variableById(var) }, " to register ", OperandLogger { fn, variableLocations[var] });
+
+                    return variableLocations[var];
+                } else if (isGPType(fn, type)) {
+                    auto reg = allocateGp(block, indexInBlock, preferred, exclude);
+
+                    if (variableLocations[var].kind == Operand::Memory) {
+                        // Ditto for gp types.
+                        fn.addInsertion(block, indexInBlock + 1, Function::Early);
+                        fn.addNodeToInsertion(fn.addNode(Opcode::STORE, type, variableLocations[var], fn.gp(reg), magicTag));
+                    }
+
+                    variableLocations[var] = fn.gp(reg);
+                    freeRegs.remove(reg);
+                    regBindings[(u32)reg] = var;
+
+                    if UNLIKELY(config::verboseRegalloc)
+                        println("[ALLOC]\tAllocated variable ", OperandLogger { fn, fn.variableById(var) }, " to register ", OperandLogger { fn, variableLocations[var] });
+
+                    return variableLocations[var];
+                }
+            }
+
+            // Must be a type that's too big to allocate, or a pinned variable.
+            // In either case, put them in a stack slot.
+            auto slot = slotFor(var);
+            variableLocations[var] = slot;
+            liveInSlot.on(var);
+            return variableLocations[var];
+        }
+
+        // This represents the per-block state of the register allocator, or
+        // more specifically the state in which we expect our variables at the
+        // moment we enter a block we've already allocated.
+
+        struct Binding {
+            i32 var;
+            Operand val;
+        };
+
+        struct Bindings {
+            u32 remainingEdges = 0;
+            vec<Binding, 8> bindings;
+
+            inline void reset() {
+                remainingEdges = 0;
+                bindings.clear();
+            }
+
+            void bind(i32 var, Operand val) {
+                bindings.push({ var, val });
+            }
+        };
+
+        vec<Bindings*> bindingsPool;
+
+        Bindings* acquireBindings() {
+            if (bindingsPool.size())
+                return bindingsPool.pop();
+            return new Bindings();
+        }
+
+        void returnBindings(Bindings* bindings) {
+            bindings->reset();
+            bindingsPool.push(bindings);
+        }
+
+        Bindings* currentBindings(Block block) {
+            Bindings* bindings = acquireBindings();
+            bindings->remainingEdges = block.predecessorIndices().size();
+
+            for (i32 i = 0; i < 64; i ++) if (regBindings[i] != -1)
+                bindings->bind(regBindings[i], Target::is_gp(i) ? fn.gp(i) : fn.fp(i));
+
+            for (i32 var : liveInSlot) {
+                assert(variableLocations[var].kind == Operand::Memory);
+                bindings->bind(var, variableLocations[var]);
+            }
+
+            for (Edge edge : block.predecessors())
+                edgeBindings[edge.index()] = bindings;
+
+            if UNLIKELY(config::verboseRegalloc) {
+                print("[ALLOC]\tBindings at head of block .bb", block.index(), ": ");
+                for (Binding& binding : bindings->bindings) {
+                    if (&binding != bindings->bindings.begin())
+                        print(", ");
+                    print(OperandLogger { fn, fn.variableById(binding.var) }, " = ", OperandLogger { fn, binding.val });
+                }
+                println();
+            }
+
+            return bindings;
+        }
+
+        void resetAtBlockHead() {
+            liveInSlot.clear();
+            for (i32 i = 0; i < 64; i ++) if (regBindings[i] != -1)
+                unbind(regBindings[i]);
+        }
+
+        // These are the bindings associated with each edge.
+        vec<Bindings*, 16> edgeBindings;
+
+        void initializeAtBlockTail(Block block) {
+            vec<pair<EdgeIndex, Binding>> rebinds;
+            for (Edge succ : block.successors()) {
+                Bindings* bindings = edgeBindings[succ.index()];
+                for (Binding binding : bindings->bindings) {
+                    if (binding.val.isReg() && regBindings[binding.val.gp] != -1)
+                        rebinds.push({ succ.index(), binding });
+                    else if (variableLocations[binding.var].kind == Operand::Invalid) {
+                        if UNLIKELY(config::verboseRegalloc)
+                            println("[ALLOC]\tSet location of variable ", OperandLogger { fn, fn.variableById(binding.var) }, " to incoming value ", OperandLogger { fn, binding.val }, " from block .bb", succ.index());
+                        variableLocations[binding.var] = binding.val;
+                        if (binding.val.isReg()) {
+                            assert(freeRegs[binding.val.gp]);
+                            assert(regBindings[(u32)binding.val.gp] == -1);
+                            freeRegs.remove(binding.val.gp);
+                            regBindings[(u32)binding.val.gp] = binding.var;
+                        } else if (binding.val.kind == Operand::Memory)
+                            liveInSlot.on(binding.var);
+                    } else if (variableLocations[binding.var] != binding.val) {
+                        Operand src = variableLocations[binding.var], dest = binding.val;
+                        TypeIndex type = fn.variableList[binding.var].type;
+                        if (isFunction(fn, type)) // Needed to avoid any compound types in the move.
+                            type = PTR;
+                        if (src.isReg())
+                            src.regType = type;
+                        if (dest.isReg())
+                            dest.regType = type;
+                        succ.addMove(src, dest);
+                    }
+                }
+
+                if (!-- bindings->remainingEdges)
+                    returnBindings(bindings);
+            }
+            for (auto p : rebinds) {
+                if (variableLocations[p.second.var].kind == Operand::Invalid)
+                    variableLocations[p.second.var] = allocate(block, 0, p.second.var, RegSet(), RegSet());
+                Operand src = variableLocations[p.second.var], dest = p.second.val;
+                if (src == dest)
+                    continue;
+                TypeIndex type = fn.variableList[p.second.var].type;
+                if (isFunction(fn, type)) // Needed to avoid any compound types in the move.
+                    type = PTR;
+                if (src.isReg())
+                    src.regType = type;
+                if (dest.isReg())
+                    dest.regType = type;
+                fn.edge(p.first).addMove(src, dest);
+            }
+        }
+
+        SinglePassRegisterAllocator(TargetSpecificPasses<Target>* passes_in, PassContext& ctx_in, Function& fn_in):
+            passes(passes_in), ctx(ctx_in), fn(fn_in), pins(*ctx.pins) {
+
+            validGps = Target::gps(), validFps = Target::fps();
+            freeRegs = validGps | validFps;
+            for (mreg r : validGps)
+                reversedValidGps.add(63 - r);
+            for (mreg r : validFps)
+                reversedValidFps.add(63 - r);
+
+            for (u32 i = 0; i < 64; i ++)
+                regBindings[i] = -1;
+
+            edgeBindings.expandTo(fn.edgeList.size(), nullptr);
+
+            dominatingDefs.expandTo(fn.variableList.size());
+            variableLocations.expandTo(fn.variableList.size(), fn.invalid());
+            variableSlots.expandTo(fn.variableList.size(), fn.invalid());
+
+            magicTag = fn.stringOperand(cstring("magic"));
+        }
+
+        ~SinglePassRegisterAllocator() {
+            for (auto bindings : bindingsPool)
+                delete bindings;
+        }
+
+        void allocateNode(Block block, u32 indexInBlock) {
+            Node node = block.node(indexInBlock);
+
+            // First, we need to reserve scratches for this instruction. This
+            // can be a pretty nasty situation. We start by trying to pick
+            // registers from the end of the available register set, rather
+            // than the start, to minimize overlap with any live variables. If
+            // there are live variables in those registers at this point, then
+            // we need to either momentarily spill them, or spill their whole
+            // live range. Our heuristic is that if a variable is spilled more
+            // than twice, or more times than it's used, then we spill its
+            // whole range. Otherwise, we allow it to remain in a register.
+
+            RegSet excludedRegs;
+            RegSet availableScratches = reversedValidGps;
+
+            auto& allocations = *ctx.allocations;
+
+            for (u32 k = 0; k < (*ctx.scratchesPerNode)[node.index()]; k ++) {
+                bool didAddScratch = false;
+                for (mreg r : availableScratches) if (freeRegs[63 - r]) {
+                    allocations.scratchesByInstruction[node.index()].push(63 - r);
+                    availableScratches.remove(r);
+                    excludedRegs.add(63 - r);
+                    if UNLIKELY(config::verboseRegalloc)
+                        println("[ALLOC]\tPicked free scratch register ", OperandLogger { fn, Target::is_gp(63 - r) ? fn.gp(63 - r) : fn.fp(63 - r) }, " for instruction ", node);
+                    didAddScratch = true;
+                    break;
+                }
+                if (didAddScratch)
+                    continue;
+
+                // If we reached here, then we didn't find any free scratch.
+                // In this case, we evict the first variable we find occupying
+                // a scratch register.
+                for (mreg r : availableScratches) if (!freeRegs[63 - r]) {
+                    allocations.scratchesByInstruction[node.index()].push(63 - r);
+                    availableScratches.remove(r);
+                    excludedRegs.add(63 - r);
+                    assert(regBindings[63 - r] != -1);
+                    evict(block, indexInBlock, regBindings[63 - r]);
+                    if UNLIKELY(config::verboseRegalloc)
+                        println("[ALLOC]\tPicked occupied scratch register ", OperandLogger { fn, Target::is_gp(63 - r) ? fn.gp(63 - r) : fn.fp(63 - r) }, " for instruction ", node);
+                    break;
+                }
+            }
+
+            // Next, we consider any clobbered registers. If this instruction
+            // has clobbers, and there are live variables occupying them, those
+            // variables unfortunately need to be globally spilled.
+
+            RegSet clobbers = (*ctx.clobberList)[node.index()];
+            excludedRegs = excludedRegs | clobbers;
+
+            for (mreg r : ~freeRegs & clobbers) {
+                assert(regBindings[(u32)r] != -1);
+                reallocate(block, indexInBlock, regBindings[(u32)r], excludedRegs);
+            }
+
+            RegSet preferred;
+
+            // Next, we consider the def, if the node has one. If the def is
+            // not currently in a register, we allocate one (TODO: should we?).
+            // If this is the first def of this variable along all possible
+            // paths we could have taken to reach here, then we can safely free
+            // up its register if it has one.
+
+            if (hasDef(node.opcode())) {
+                Operand def = node.def(0);
+                node.def(0) = allocate(block, indexInBlock, def.var, excludedRegs);
+                if (isFirstDef(block.index(), indexInBlock, def.var)) {
+                    if (variableLocations[def.var].isReg())
+                        preferred.add(variableLocations[def.var].gp);
+                    unbind(def.var);
+                }
+            }
+
+            if (node.opcode() == Opcode::RET && returnOperand.isReg())
+                preferred.add(returnOperand.gp);
+
+            // Finally, we allocate the uses.
+
+            for (Operand& use : node.uses()) {
+                if (use.kind == Operand::Var)
+                    use = allocate(block, indexInBlock, use.var, excludedRegs, preferred);
+            }
+
+            // If this node was a call, we need to record all caller-saved
+            // registers in flight across it.
+            if (node.opcode() == Opcode::CALL || node.opcode() == Opcode::CALL_VOID) {
+                CallSite& callSite = (*ctx.callSites)[(*ctx.callInsns)[node.index()]];
+                for (mreg r : (~freeRegs & Target::caller_saves())) {
+                    if (node.opcode() == Opcode::CALL_VOID || r != node.def(0).gp)
+                        callSite.liveAcross.add(r);
+                }
+            }
+        }
+
+        void allocate() {
+            ctx.require(PINS);
+            ctx.require(CLOBBERS);
+            ctx.require(DOMINATORS);
+            ctx.did(ALLOCATE);
+
+            auto& allocations = *ctx.allocations;
+            allocations.initialize(ctx, fn, AllocationResult::AllocateInPlace, AllocationResult::PerInstructionScratchRegisters);
+
+            computeDominatingDefs();
+            for (mreg clobber : allClobbers) {
+                reversedValidGps.remove(63 - clobber);
+                reversedValidFps.remove(63 - clobber);
+            }
+
+            assert(reversedValidGps.size() >= 3);
+            assert(reversedValidFps.size() >= 3);
+
+            void* parameterState = Target::start_placing_parameters();
+            if (fn.returnType != VOID) {
+                auto returnPlacement = passes->placeReturnValue(fn, fn.returnType, parameterState);
+                returnOperand = operandFromPlacement(fn, returnPlacement);
+            }
+            for (auto& param : fn.parameters) if (!isCompound(param.type) || isFunction(fn, param.type)) {
+                Repr repr = passes->repr(param.type);
+                auto placement = Target::place_scalar_parameter(parameterState, repr);
+                param.operand = operandFromPlacement(fn, placement);
+            }
+            Target::finish_placing_parameters(parameterState);
+
+            deque<BlockIndex> frontier;
+            for (Block block : fn.blocks()) if (block.successorIndices().size() == 0)
+                frontier.pushl(block.index());
+
+            while (frontier.size()) {
+                Block block = fn.block(frontier.popr());
+                if (completedBlocks[block.index()])
+                    continue;
+
+                bool allSuccessorsDone = true;
+                for (Edge succ : block.successors()) if (succ.destIndex() != block.index() && !completedBlocks[succ.destIndex()]) {
+                    allSuccessorsDone = false;
+                    break;
+                }
+                if (!allSuccessorsDone) {
+                    frontier.pushl(block.index());
+                    continue;
+                }
+
+                if UNLIKELY(config::verboseRegalloc)
+                    println("\n[ALLOC]\tBeginning register allocation for .bb", block.index());
+
+                initializeAtBlockTail(block);
+
+                for (i32 i = i32(block.nodeIndices().size()) - 1; i >= 0; i --)
+                    allocateNode(block, i);
+
+                Bindings* bindings = currentBindings(block);
+                if (block.predecessorIndices().size() > 0) {
+                    resetAtBlockHead();
+                    for (Edge pred : block.predecessors())
+                        frontier.pushl(pred.srcIndex());
+                } else for (Binding binding : bindings->bindings) if (fn.variableList[binding.var].parameterIndex != -1) {
+                    assert(block.index() == fn.entrypoint);
+                    fn.parameters[fn.variableList[binding.var].parameterIndex].operand = binding.val;
+                }
+
+                completedBlocks.on(block.index());
+            }
+
+            fn.executeInsertions();
+
+            for (u32 i = allocations.scratchesByInstruction.size(); i < fn.nodeList.size(); i ++) {
+                // We may have inserted some loads and stores in the process of
+                // register allocation. These are guaranteed to not need a
+                // scratch reg, but the lowering phase still expects a scratch
+                // to potentially be available. So we populate some here.
+                allocations.scratchesByInstruction.push({});
+                allocations.scratchesByInstruction.back().push(0);
+                allocations.scratchesByInstruction.back().push(0);
+            }
+        }
+    };
+
+    template<typename Target>
     void TargetSpecificPasses<Target>::allocateRegisters(PassContext& ctx, Function& fn, RegisterAllocationMode mode) {
         JASMINE_PASS(REGISTER_ALLOCATION);
         switch (mode) {
+            case RegisterAllocationMode::SINGLE_PASS:
+                SinglePassRegisterAllocator<Target>(this, ctx, fn).allocate();
+                break;
             case RegisterAllocationMode::ADVANCED:
                 allocateRegistersAdvanced(ctx, *this, fn, mode);
                 break;
