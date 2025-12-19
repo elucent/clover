@@ -18,11 +18,13 @@ namespace process {
 
     static i8* const* envp;
     static i8* const* argv;
+    static i32 argc;
 
     void init(i32 argc, i8** argv, i8** envp) ASMLABEL("process.init");
     void init(i32 argc, i8** argv, i8** envp) {
-        process::envp = (i8* const*)envp;
+        process::argc = argc;
         process::argv = (i8* const*)argv;
+        process::envp = (i8* const*)envp;
         lib_init();
     }
 

@@ -47,6 +47,9 @@ $(RELEASE_MANIFEST): $(BUILD_CONFIG)
 include $(DEBUG_DEPFILE_INCLUDE)
 include $(RELEASE_DEPFILE_INCLUDE)
 
+libclrt.a-debug: CXX_FLAGS += -fvisibility=hidden
+libclrt.a-release: CXX_FLAGS += -fvisibility=hidden
+
 # Products
 
 ### rt targets

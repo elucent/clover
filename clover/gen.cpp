@@ -459,6 +459,25 @@ namespace clover {
 
         map<Symbol, Symbol> strings;
 
+        slice<i8> mangleNamedType(slice<i8> target, Scope* scope, Symbol name) {
+            while (scope->parent) {
+                if (scope->kind == ScopeKind::Namespace) {
+                    Namespace* ns = scope->module->node(scope->owner).child(0).resolvedNamespace();
+                    NamespaceTree* node = ns->node;
+                    vec<Symbol, 8> nsPath;
+                    while (node) {
+                        nsPath.push(node->name);
+                        node = node->parent;
+                    }
+                    while (nsPath.size())
+                        target = format(target, scope->module->str(nsPath.pop()), '.');
+                    break;
+                }
+                scope = scope->parent;
+            }
+            return format(target, scope->module->str(name));
+        }
+
         slice<i8> mangleType(slice<i8> target, Type type) {
             type = expand(type);
             switch (type.kind()) {
@@ -501,11 +520,11 @@ namespace clover {
                     }
                     return format(target, ")");
                 case TypeKind::Struct:
-                    return format(target, type.types->symbols->get(type.as<TypeKind::Struct>().name().symbol));
+                    return mangleNamedType(target, type.as<TypeKind::Struct>().scope(), type.as<TypeKind::Struct>().name());
                 case TypeKind::Named:
-                    return format(target, type.types->symbols->get(type.as<TypeKind::Named>().name().symbol));
+                    return mangleNamedType(target, type.as<TypeKind::Named>().scope(), type.as<TypeKind::Named>().name());
                 case TypeKind::Union:
-                    return format(target, type.types->symbols->get(type.as<TypeKind::Union>().name().symbol));
+                    return mangleNamedType(target, type.as<TypeKind::Union>().scope(), type.as<TypeKind::Union>().name());
                 default:
                     unreachable("Should not be mangling type ", type);
             }
@@ -2866,14 +2885,14 @@ namespace clover {
                 ASM::push64(*as, GP(ASM::RDI));
                 ASM::push64(*as, GP(ASM::RSI));
                 ASM::push64(*as, GP(ASM::RDX));
-                ASM::call(*as, Func(as->symtab[".clrt.init"]));
+                ASM::call(*as, Func(as->symtab["clrt.init"]));
                 ASM::pop64(*as, GP(ASM::RDI));
                 ASM::pop64(*as, GP(ASM::RSI));
                 ASM::pop64(*as, GP(ASM::RDX));
                 ASM::add64(*as, GP(ASM::RSP), GP(ASM::RSP), Imm(8));
                 for (Artifact* artifact : compilation->topologicalOrder)
                     ASM::call(*as, Func(as->symtab[compilation->str(artifact->topLevel)]));
-                ASM::call(*as, Func(as->symtab[".clrt.deinit"]));
+                ASM::call(*as, Func(as->symtab["clrt.deinit"]));
             #endif
         #else
             #error "No assembler found for current platform."

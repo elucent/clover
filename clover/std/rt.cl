@@ -3,82 +3,93 @@
 #  Memory  #
 ############
 
-alias CLRTMemoryFlags: u32
+in memory:
+    alias Flags: u32
 
-u64 CLRTMemoryPagesize()
-i8[] CLRTMemoryMap(u64 bytes)
-void CLRTMemoryUnmap(i8[] pages)
-void CLRTMemoryTag(i8[] pages, CLRTMemoryFlags)
-void CLRTMemoryDecommit(i8[] pages)
+    const Read: 1, Write: 2, Exec: 4
+
+    u64 pagesize()
+    i8[] map(u64 bytes)
+    void unmap(i8[] pages)
+    void tag(i8[] pages, Flags)
+    void decommit(i8[] pages)
 
 ###########
 #  Files  #
 ###########
 
-alias CLRTFileFlags: u32
-alias CLRTFileKind: u8
+in file:
+    alias Flags: u32
+    alias Kind: u8
 
-type CLRTFd:
-    i32 id
-
-CLRTFd CLRTFileStdin, CLRTFileStdout
-
-type CLRTFilePerm:
     const Read: 1, Write: 2, Append: 4
 
-CLRTFd CLRTFileOpen(i8[] path, CLRTFileFlags)
-u32 CLRTFileRead(CLRTFd, uninit i8[] output)
-u32 CLRTFileWrite(CLRTFd, i8[] message)
-void CLRTFileClose(CLRTFd)
+    type fd:
+        i32 id
 
-type CLRTFileData:
-    u32 size
-    CLRTFileKind kind
+    fd stdin, stdout
 
-CLRTFileData CLRTFileInfo(CLRTFd)
-CLRTFileData CLRTFilePathInfo(i8[] path)
+    fd open(i8[] path, Flags)
+    u32 read(fd, uninit i8[] output)
+    u32 write(fd, i8[] message)
+    void close(fd)
 
-void CLRTFileRemove(i8[] path)
-i8[] CLRTFileCwd(i8[] output)
+    type Info:
+        u32 size
+        Kind kind
+
+    Info info(fd)
+    Info pathinfo(i8[] path)
+
+    void remove(i8[] path)
+    i8[] cwd(i8[] output)
 
 #################
 #  Directories  #
 #################
 
-CLRTFd CLRTDirOpen(i8[] path, CLRTFileFlags)
-void CLRTDirClose(CLRTFd)
-void CLRTDirRemove(i8[] path)
+in dir:
+    use file.fd, file.Flags, file.Kind
 
-type CLRTDirEntry:
-    i8* path
-    u32 pathlen
-    CLRTFileKind kind
+    fd open(i8[] path, Flags)
+    void close(fd)
+    void remove(i8[] path)
 
-u32 CLRTDirRead(CLRTFd, CLRTDirEntry[] output)
+    type Entry:
+        i8[] path
+        u32 pathlen
+        Kind kind
+
+    u32 read(fd, Entry[] output)
 
 ###############
 #  Processes  #
 ###############
 
-void CLRTProcessTrap()
-void CLRTProcessExit(i32 exitCode)
-i32 CLRTProcessExec(i8[] path, i8[][] argv)
+in process:
+    void trap()
+    void exit(i32 exitCode)
+    i32 exec(i8[] path, i8[][] argv)
+    u32 argc()
+    i8[] arg(u32 i)
 
 ##########
 #  Time  #
 ##########
 
-i64 CLRTTimeSeconds()
-i64 CLRTTimeMillis()
-i64 CLRTTimeNanos()
-i64 CLRTTimeTicks()
+in time:
+    i64 seconds()
+    i64 millis()
+    i64 nanos()
+    i64 ticks()
 
 #############
 #  Atomics  #
 #############
 
-void CLRTAtomicSetBit(u64* word, u64 bit)
-void CLRTAtomicClearBit(u64* word, u64 bit)
-void CLRTAtomicTestSetBit(u64* word, u64 bit)
-void CLRTAtomicTestClearBit(u64* word, u64 bit)
+in atomic:
+    void setBit(u64* word, u64 bit)
+    void clearBit(u64* word, u64 bit)
+    void testSetBit(u64* word, u64 bit)
+    void testClearBit(u64* word, u64 bit)
 

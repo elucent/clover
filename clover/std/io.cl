@@ -7,7 +7,7 @@ type File:
     const Read: 1, Write: 2, Append: 4
 
 type FileBuffer:
-    CLRTFd desc
+    file.fd desc
     u16 start, end
     i32 link
     bool eof
@@ -22,7 +22,7 @@ u32 IOTableLimit: 2
 # Initialize stdin
 
 IOTable[0] = own FileBuffer*(new FileBuffer)
-IOTable[0].desc = CLRTFileStdin
+IOTable[0].desc = file.stdin
 IOTable[0].start = 0
 IOTable[0].end = 0
 IOTable[0].link = -1
@@ -32,7 +32,7 @@ File stdin: File(0)
 # Initialize stdout
 
 IOTable[1] = own FileBuffer*(new FileBuffer)
-IOTable[1].desc = CLRTFileStdout
+IOTable[1].desc = file.stdout
 IOTable[1].start = 0
 IOTable[1].end = 0
 IOTable[1].link = -1
@@ -52,7 +52,7 @@ u32 IONextFreeFd():
     return result
 
 File open(i8[] path, u32 flags):
-    var desc: CLRTFileOpen(path, flags)
+    var desc: file.open(path, flags)
     var id: IONextFreeFd() as i32
     IOTable[id].desc = desc
     IOTable[id].start = 0
@@ -60,26 +60,26 @@ File open(i8[] path, u32 flags):
     IOTable[id].eof = false
     return File(id as u32)
 
-void close(File file):
-    CLRTFileClose(IOTable[file.id].desc)
-    IOTable[file.id].link = IOTableFreeList
-    IOTableFreeList = file.id
+void close(File f):
+    file.close(IOTable[f.id].desc)
+    IOTable[f.id].link = IOTableFreeList
+    IOTableFreeList = f.id
 
 # Flushing for both input and output.
 
-void flushOutput(File file):
-    var entry: IOTable[file.id]
-    CLRTFileWrite(entry.desc, entry.buf[entry.start:entry.end])
+void flushOutput(File f):
+    var entry: IOTable[f.id]
+    file.write(entry.desc, entry.buf[entry.start:entry.end])
     entry.start = 0
     entry.end = 0
 
-void flushInput(File file):
-    var entry: IOTable[file.id]
+void flushInput(File f):
+    var entry: IOTable[f.id]
     for entry.start <= i < entry.end:
         entry.buf[i - entry.start] = entry.buf[i]
     entry.end -= entry.start
     entry.start = 0
-    var amount: CLRTFileRead(entry.desc, entry.buf[entry.end:IOFileBufferSize])
+    var amount: file.read(entry.desc, entry.buf[entry.end:IOFileBufferSize])
     if amount < IOFileBufferSize - entry.end:
         entry.eof = true
     entry.end += amount
@@ -168,11 +168,11 @@ bool eof?(File file):
     var entry: IOTable[file.id]
     entry.eof and entry.start == entry.end
 
-own i8[] read(File file):
-    var entry: IOTable[file.id]
-    var info: CLRTFileInfo(entry.desc)
+own i8[] read(File f):
+    var entry: IOTable[f.id]
+    var info: file.info(entry.desc)
     var output: new i8[info.size]
-    CLRTFileRead(entry.desc, output)
+    file.read(entry.desc, output)
     return output as own i8[]
 
 # Generic formatting functions.

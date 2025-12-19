@@ -16,6 +16,7 @@
 #else
 #define ASMLABEL(name) asm(name)
 #endif
+#define EXPORTED __attribute__((visibility("default")))
 #define USED __attribute__((used))
 #define COLD __attribute__((cold))
 #define NOINLINE __attribute__((noinline))
