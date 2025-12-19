@@ -6,17 +6,6 @@
 #include "util/config.h"
 
 namespace clover {
-    void Scope::computeInChain() {
-        if (hasInChain)
-            return;
-        if (parent) {
-            parent->computeInChain();
-            inChain |= parent->inChain;
-        }
-        inChain |= inTable;
-        hasInChain = true;
-    }
-
     void Scope::addToRoot(VariableKind kind, TypeIndex type, Symbol name) {
         assert(entries.find(name) == entries.end());
         assert(!parent);
@@ -62,9 +51,6 @@ namespace clover {
     }
 
     Scope::FindResult Scope::find(Symbol name, bool searchParent) {
-        // TODO: Re-enable in-chain computation in the presence of late definitions.
-        // if (hasInChain && !inChain.mayContain(name.symbol))
-        //     return {};
         if (inTable.mayContain(name.symbol)) {
             auto it = entries.find(name);
             if (it != entries.end())
@@ -959,8 +945,6 @@ namespace clover {
         Imports imports;
         computeScopes(module, imports, root, module->getTopLevel());
         processImports(module, imports);
-        for (Scope* scope : module->scopes)
-            scope->computeInChain();
         artifact->update(ArtifactKind::ScopedAST, module);
         if UNLIKELY(config::printScopeTree)
             module->printScopes(module->compilation);

@@ -110,10 +110,11 @@ namespace clover {
         Module* module;
         Scope* parent;
         Function* function;
-        bloom<u32> inChain, inTable;
+        bloom<u32, 1> inTable;
         map<Symbol, u32> entries;
         NodeIndex owner;
         ScopeIndex index;
+        u32 ns = -1;
         Kind kind;
         bool hasInChain = false;
 
@@ -190,8 +191,6 @@ namespace clover {
         inline FindResult findLocal(Symbol name) {
             return find(name, false);
         }
-
-        void computeInChain();
     };
 
     using ScopeKind = Scope::Kind;
