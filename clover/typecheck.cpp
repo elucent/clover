@@ -765,7 +765,7 @@ namespace clover {
     void refineGraph(Module* module, InferenceContext& ctx);
     void check(InferenceContext& ctx, Function* function, AST ast);
 
-    Evaluation inferChild(InferenceContext& ctx, Function* function, AST ast, u32 i) {
+    ALWAYSINLINE Evaluation inferChild(InferenceContext& ctx, Function* function, AST ast, u32 i) {
         auto eval = infer(ctx, function, ast.child(i));
         if (eval.isKnownValue() || eval.isNode())
             ast.setChild(i, eval.node(ast.module));

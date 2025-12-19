@@ -1402,19 +1402,19 @@ namespace clover {
         }
 
         inline void addChild(const Local& local) {
-            astWords.push(addLeaf(ASTKind::Local, local).firstWord());
+            astWords.pushUnchecked(addLeaf(ASTKind::Local, local).firstWord());
         }
 
         inline void addChild(const Global& global) {
-            astWords.push(addLeaf(ASTKind::Global, global).firstWord());
+            astWords.pushUnchecked(addLeaf(ASTKind::Global, global).firstWord());
         }
 
         inline void addChild(const Identifier& ident) {
-            astWords.push(addLeaf(ASTKind::Ident, ident).firstWord());
+            astWords.pushUnchecked(addLeaf(ASTKind::Ident, ident).firstWord());
         }
 
         inline void addChild(const FieldId& field) {
-            astWords.push(addLeaf(ASTKind::Field, field).firstWord());
+            astWords.pushUnchecked(addLeaf(ASTKind::Field, field).firstWord());
         }
 
         inline void addChild(const ConstId& constant) {
@@ -1422,43 +1422,43 @@ namespace clover {
         }
 
         inline void addChild(Namespace* const& ns) {
-            astWords.push(addLeaf(ASTKind::ResolvedNamespace, ns).firstWord());
+            astWords.pushUnchecked(addLeaf(ASTKind::ResolvedNamespace, ns).firstWord());
         }
 
         inline void addChild(Function* const& function) {
-            astWords.push(addLeaf(ASTKind::ResolvedFunction, function).firstWord());
+            astWords.pushUnchecked(addLeaf(ASTKind::ResolvedFunction, function).firstWord());
         }
 
         inline void addChild(const Constant& constant) {
             switch (constant.kind) {
                 case Constant::Int:
-                    astWords.push(addLeaf(ASTKind::Int, constant).firstWord());
+                    astWords.pushUnchecked(addLeaf(ASTKind::Int, constant).firstWord());
                     break;
                 case Constant::Unsigned:
-                    astWords.push(addLeaf(ASTKind::Unsigned, constant).firstWord());
+                    astWords.pushUnchecked(addLeaf(ASTKind::Unsigned, constant).firstWord());
                     break;
                 case Constant::Float:
-                    astWords.push(addLeaf(ASTKind::Float, constant).firstWord());
+                    astWords.pushUnchecked(addLeaf(ASTKind::Float, constant).firstWord());
                     break;
                 case Constant::String:
-                    astWords.push(addLeaf(ASTKind::String, constant).firstWord());
+                    astWords.pushUnchecked(addLeaf(ASTKind::String, constant).firstWord());
                     break;
                 case Constant::Bool:
-                    astWords.push(addLeaf(ASTKind::Bool, constant).firstWord());
+                    astWords.pushUnchecked(addLeaf(ASTKind::Bool, constant).firstWord());
                     break;
                 case Constant::Char:
-                    astWords.push(addLeaf(ASTKind::Char, constant).firstWord());
+                    astWords.pushUnchecked(addLeaf(ASTKind::Char, constant).firstWord());
                     break;
             }
         }
 
         inline void addChild(const AST& ast) {
             if (ASTWord::isLeaf(ast.kind()))
-                astWords.push(ast.firstWord());
+                astWords.pushUnchecked(ast.firstWord());
             else {
                 ASTWord word;
                 word.makeRef(ast.node);
-                astWords.push(word);
+                astWords.pushUnchecked(word);
             }
         }
 
@@ -1483,8 +1483,9 @@ namespace clover {
             ASTWord ast;
             ast.kind = kind;
             ast.arity = computeArity(args...);
+            astWords.reserveBy(ast.arity + 1);
             u32 word = astWords.size();
-            astWords.push(ast);
+            astWords.pushUnchecked(ast);
             addChildren(args...);
 
             u32 node = this->ast.size();
@@ -1501,8 +1502,9 @@ namespace clover {
             ASTWord ast;
             ast.kind = kind;
             ast.arity = computeArity(args...);
+            astWords.reserveBy(ast.arity + 1);
             u32 word = astWords.size();
-            astWords.push(ast);
+            astWords.pushUnchecked(ast);
             addChildren(args...);
 
             u32 node = this->ast.size();
@@ -1520,8 +1522,9 @@ namespace clover {
             ASTWord ast;
             ast.kind = kind;
             ast.arity = computeArity(args...);
+            astWords.reserveBy(ast.arity + 1);
             u32 word = astWords.size();
-            astWords.push(ast);
+            astWords.pushUnchecked(ast);
             addChildren(args...);
 
             u32 node = this->ast.size();
@@ -1545,11 +1548,12 @@ namespace clover {
             ASTWord word;
             word.kind = kind;
             word.arity = computeArity(args...);
+            astWords.reserveBy(word.arity + 1);
             u32 end = astWords.size();
             u32 index = end;
             if (word.arity <= existing.arity())
                 index = ast[existing.node];
-            astWords.push(word);
+            astWords.pushUnchecked(word);
             addChildren(args...);
             if (index == ast[existing.node]) {
                 memory::copy(astWords.begin() + index, astWords.begin() + end, sizeof(ASTWord) * (word.arity + 1));

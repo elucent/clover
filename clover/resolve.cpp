@@ -54,7 +54,7 @@ namespace clover {
 
     AST resolve(Module* module, Fixups& fixups, RefTraits refTraits, Scope* scope, maybe<AST> parent, AST ast, Expectation expectation);
 
-    inline AST resolveChild(Module* module, Fixups& fixups, RefTraits refTraits, AST ast, u32 i, Expectation expectation) {
+    inline ALWAYSINLINE AST resolveChild(Module* module, Fixups& fixups, RefTraits refTraits, AST ast, u32 i, Expectation expectation) {
         ast.setChild(i, resolve(module, fixups, refTraits, ast.scope(), some<AST>(ast), ast.child(i), expectation));
         return ast.child(i);
     }

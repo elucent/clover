@@ -128,6 +128,20 @@ struct vec {
         new((T*)_data + _size ++) T(t);
     }
 
+    inline void pushUnchecked(const T& t) {
+        new((T*)_data + _size ++) T(t);
+    }
+
+    inline void reserveTo(i64 n) {
+        while (_capacity < n)
+            grow();
+    }
+
+    inline void reserveBy(i64 n) {
+        while (_capacity < _size + n)
+            grow();
+    }
+
     template<typename... Args>
     inline void expandTo(i64 n, Args&&... args) {
         if (n <= _size)
