@@ -1855,10 +1855,11 @@ namespace clover {
         inline Global naturalize(Module* other, Global global) {
             if (this == other)
                 return global;
-            auto existing = getTopLevel().scope()->entries.find(other->globals[global.index].name);
-            if (existing != getTopLevel().scope()->entries.end())
-                panic("Tried to pull in definition for already-defined variable ", str(globals[existing->value].name));
             auto otherEntry = other->globals[global.index];
+            if (otherEntry.kind == VariableKind::Function)
+                return addGlobalFunction(VariableKind::Function, other->functions[otherEntry.functionIndex]);
+            if (otherEntry.kind == VariableKind::Namespace)
+                return addGlobalNamespace(other->namespaces[otherEntry.namespaceIndex]);
             return addGlobal(otherEntry.kind, otherEntry.type, otherEntry.name);
         }
 

@@ -202,7 +202,7 @@ namespace clover {
         switch (entry.kind()) {
             case VariableKind::Type:
                 if (entry.type() == InvalidType && entry.hasDecl())
-                    entry.setType(resolveTypeForDecl(module, fixups, NoRefTraits, entry.decl()));
+                    entry.setType(resolveTypeForDecl(entry.scope->module, fixups, NoRefTraits, entry.decl()));
                 if (entry.isGlobal())
                     return module->add(ASTKind::GlobalTypename, Global(entry.index()));
                 else
@@ -215,14 +215,14 @@ namespace clover {
                 else
                     return module->add(ASTKind::Local, Local(entry.index()));
             case VariableKind::Constant: {
-                if (entry.isGlobal() && !scope->function)
+                if (entry.isGlobal() && !scope->function && entry.scope->module == module)
                     return module->add(ASTKind::GlobalConst, ConstId(module->globals[entry.index()].constantIndex));
                 if (entry.scope->function == scope->function)
                     return module->add(ASTKind::Const, ConstId(scope->function->locals[entry.index()].constantIndex));
 
                 // It's an external constant, so we need to close over
                 // it.
-                VariableInfo info = entry.isGlobal() ? module->globals[entry.index()] : entry.scope->function->locals[entry.index()];
+                VariableInfo info = entry.isGlobal() ? entry.scope->module->globals[entry.index()] : entry.scope->function->locals[entry.index()];
                 scope->addConstantIndirect(module, parent, entry.scope, info.constantIndex, ast.symbol());
                 auto reentry = scope->findLocal(ast.symbol());
                 assert(reentry);
@@ -230,25 +230,25 @@ namespace clover {
             }
             case VariableKind::ConstFunction: {
                 const VariableInfo& info = entry.isGlobal()
-                    ? module->globals[entry.index()]
-                    : scope->function->locals[entry.index()];
+                    ? entry.scope->module->globals[entry.index()]
+                    : entry.scope->function->locals[entry.index()];
                 Function* function = module->functions[info.functionIndex];
                 return module->add(ASTKind::ResolvedFunction, function);
             }
 
             case VariableKind::Function: {
                 const VariableInfo& info = entry.isGlobal()
-                    ? module->globals[entry.index()]
-                    : scope->function->locals[entry.index()];
-                Function* function = module->functions[info.functionIndex];
+                    ? entry.scope->module->globals[entry.index()]
+                    : entry.scope->function->locals[entry.index()];
+                Function* function = entry.scope->module->functions[info.functionIndex];
                 return module->add(ASTKind::ResolvedFunction, function);
             }
 
             case VariableKind::Namespace: {
                 const VariableInfo& info = entry.isGlobal()
-                    ? module->globals[entry.index()]
-                    : scope->function->locals[entry.index()];
-                Namespace* ns = module->namespaces[info.namespaceIndex];
+                    ? entry.scope->module->globals[entry.index()]
+                    : entry.scope->function->locals[entry.index()];
+                Namespace* ns = entry.scope->module->namespaces[info.namespaceIndex];
                 return module->add(ASTKind::ResolvedNamespace, ns);
             }
 
@@ -407,11 +407,12 @@ namespace clover {
                 type_assert(call.child(0).kind() == ASTKind::Ident);
                 auto result = base.resolvedNamespace()->lookup(call.child(0).symbol());
                 type_assert(result);
-                call.setChild(0, base = resolveIdentifier(module, fixups, scope, call, call.child(0), { result.scope, result.index }));
+                call.setChild(0, resolveIdentifier(module, fixups, scope, call, call.child(0), module->naturalize({ result.scope, result.index })));
                 for (u32 i = 2; i < call.arity(); i ++)
                     call.setChild(i - 1, call.child(i));
                 call.setArity(call.arity() - 1);
                 call.setKind(ASTKind::Call);
+                func = call.child(0);
             }
 
             if (isTypeExpression(base) && call.kind() == ASTKind::CallMethod && call.child(0).kind() == ASTKind::Ident) {
@@ -922,7 +923,8 @@ namespace clover {
                     type_assert(ast.child(1).kind() == ASTKind::Ident);
                     auto result = ast.child(0).resolvedNamespace()->lookup(ast.child(1).symbol());
                     type_assert(result);
-                    return resolveIdentifier(module, fixups, scope, ast, ast.child(1), { result.scope, result.index });
+                    AST resolved = resolveIdentifier(module, fixups, scope, ast, ast.child(1), module->naturalize({ result.scope, result.index }));
+                    return resolved;
                 }
 
                 if (ast.child(1).kind() == ASTKind::OwnType || ast.child(1).kind() == ASTKind::UninitType) {
