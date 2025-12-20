@@ -137,6 +137,11 @@ namespace jasmine {
 					if (!isScalar(fn, fn.typeContext()[node.type()].fields()[fn.intValueOf(node.operand(2))]))
 						pins.pin(node.def(0).var);
 					break;
+				case Opcode::OFFSET_FIELD:
+				case Opcode::OFFSET_INDEX:
+					// These are the only two instructions that have a
+					// non-scalar type but never result in a pin.
+					break;
 				default:
 					if (hasDef(node.opcode()) && !isScalar(fn, node.type()))
 						pins.pin(node.def(0).var);
