@@ -1768,9 +1768,9 @@ TEST(codegen_ball_bounce) {
     // Adapted from `bounce` Lua benchmark, viewed here: https://github.com/softdevteam/lua_benchmarking
 
     auto instance = COMPILE(R"(
-u32 x: 74755
+i32 x: 74755
 
-u32 rand():
+i32 rand():
     x = (x * 1309 + 13849) & 65535
     return x
 
