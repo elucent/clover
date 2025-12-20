@@ -532,52 +532,18 @@ namespace clover {
     }
 
     struct PackedTypeBounds {
-        enum Kind : u32 {
-            TypeId, Unsigned, Signed, Float
-        };
-
         union {
-            struct { Kind kind : 2; u32 prim : 6; TypeIndex type : 24; };
-            u32 bits;
+            struct { TypeIndex lower, upper; };
+            u64 bits;
         };
 
         inline PackedTypeBounds() {
-            bits = 0;
+            lower = upper = InvalidType;
         }
 
         inline PackedTypeBounds(Type lowerBound, Type upperBound) {
-            bits = 0;
-            if (canResolveTypeFromLowerBound(lowerBound.types, lowerBound) || lowerBound == upperBound) {
-                kind = TypeId;
-                type = lowerBound.index;
-            } else switch (lowerBound.kind()) {
-                // If we can't resolve the type from the lower bound, then it
-                // must be either bottom, or a number with a bitcount less
-                // than 64. We pack it into the upper 6 bits carefully.
-
-                case TypeKind::Bottom:
-                    kind = TypeId;
-                    prim = lowerBound.index;
-                    type = upperBound.index;
-                    break;
-
-                case TypeKind::Numeric: {
-                    auto numType = lowerBound.as<TypeKind::Numeric>();
-                    if (numType.isFloat())
-                        kind = Float; // Actually redundant I think, because floats can be inferred from their lower bound. Meh.
-                    else if (numType.isSigned())
-                        kind = Signed;
-                    else
-                        kind = Unsigned;
-                    assert(numType.bitCount() < 64);
-                    prim = numType.bitCount();
-                    type = upperBound.index;
-                    break;
-                }
-
-                default:
-                    unreachable("Unexpected lower bound ", lowerBound);
-            }
+            lower = lowerBound.index;
+            upper = upperBound.index;
         }
     };
 
@@ -588,10 +554,12 @@ namespace clover {
         return PackedTypeBounds(nonVariableLowerBound(type), nonVariableUpperBound(type));
     }
 
+    static_assert(sizeof(PackedTypeBounds) == sizeof(PackedTypeBounds*));
+
     struct SignatureKey {
         union {
-            struct { u32 length : 12; u32 hash : 20; PackedTypeBounds ret; PackedTypeBounds args[2]; };
-            struct { u32 lengthAndHash; u32 : 32; PackedTypeBounds* buf; };
+            struct { u32 length; u32 hash; PackedTypeBounds ret; PackedTypeBounds args[2]; };
+            struct { u32 : 32; u32 : 32; PackedTypeBounds _[2]; PackedTypeBounds* buf; };
         };
 
         inline SignatureKey() {}
@@ -605,7 +573,8 @@ namespace clover {
             if (other.length <= 2)
                 memory::copy(this, &other, sizeof(SignatureKey));
             else {
-                lengthAndHash = other.lengthAndHash;
+                length = other.length;
+                hash = other.hash;
                 ret = other.ret;
                 buf = new PackedTypeBounds[length];
                 memory::copy(buf, other.buf, sizeof(PackedTypeBounds) * length);
@@ -619,7 +588,8 @@ namespace clover {
                 if (other.length <= 2)
                     memory::copy(this, &other, sizeof(SignatureKey));
                 else {
-                    lengthAndHash = other.lengthAndHash;
+                    length = other.length;
+                    hash = other.hash;
                     ret = other.ret;
                     buf = new PackedTypeBounds[length];
                     memory::copy(buf, other.buf, sizeof(PackedTypeBounds) * length);
@@ -632,7 +602,8 @@ namespace clover {
             if (other.length <= 2)
                 memory::copy(this, &other, sizeof(SignatureKey));
             else {
-                lengthAndHash = other.lengthAndHash;
+                length = other.length;
+                hash = other.hash;
                 ret = other.ret;
                 buf = other.buf;
                 other.length = 0;
@@ -646,7 +617,8 @@ namespace clover {
                 if (other.length <= 2)
                     memory::copy(this, &other, sizeof(SignatureKey));
                 else {
-                    lengthAndHash = other.lengthAndHash;
+                    length = other.length;
+                    hash = other.hash;
                     ret = other.ret;
                     buf = other.buf;
                     other.length = 0;
@@ -659,9 +631,9 @@ namespace clover {
             SignatureKey key;
             key.length = length;
             key.hash = 0;
-            key.ret.bits = 0;
+            key.ret.lower = key.ret.upper = InvalidType;
             if (length <= 2) {
-                key.args[0].bits = key.args[1].bits = 0;
+                key.args[0].lower = key.args[0].upper = key.args[1].lower = key.args[1].upper = InvalidType;
                 return key;
             }
             key.buf = new PackedTypeBounds[length];
@@ -686,7 +658,9 @@ namespace clover {
         }
 
         inline bool operator==(const SignatureKey& other) const {
-            if (other.lengthAndHash != lengthAndHash)
+            if (other.length != length)
+                return false;
+            if (other.hash != hash)
                 return false;
             if (ret.bits != other.ret.bits)
                 return false;
@@ -710,33 +684,9 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const PackedTypeBoundsLogger& ptbl) {
-        switch (ptbl.bounds.kind) {
-            case PackedTypeBounds::TypeId:
-                if (ptbl.bounds.prim == Bottom)
-                    return format(io, "[bottom, ", ptbl.sys->get(ptbl.bounds.type), "]");
-                return format(io, ptbl.sys->get(ptbl.bounds.type));
-            case PackedTypeBounds::Signed: {
-                Type lower = ptbl.sys->encode<TypeKind::Numeric>(true, false, ptbl.bounds.prim);
-                Type upper = ptbl.sys->get(ptbl.bounds.type);
-                if (lower != upper)
-                    return format(io, "[", lower, ", ", upper, "]");
-                return format(io, upper);
-            }
-            case PackedTypeBounds::Unsigned: {
-                Type lower = ptbl.sys->encode<TypeKind::Numeric>(false, false, ptbl.bounds.prim);
-                Type upper = ptbl.sys->get(ptbl.bounds.type);
-                if (lower != upper)
-                    return format(io, "[", lower, ", ", upper, "]");
-                return format(io, upper);
-            }
-            case PackedTypeBounds::Float: {
-                Type lower = ptbl.sys->encode<TypeKind::Numeric>(true, true, ptbl.bounds.prim);
-                Type upper = ptbl.sys->get(ptbl.bounds.type);
-                if (lower != upper)
-                    return format(io, "[", lower, ", ", upper, "]");
-                return format(io, upper);
-            }
-        }
+        if (ptbl.bounds.lower == ptbl.bounds.upper)
+            return format(io, ptbl.sys->get(ptbl.bounds.lower));
+        return format(io, '[', ptbl.sys->get(ptbl.bounds.lower), ", ", ptbl.sys->get(ptbl.bounds.upper), ']');
     }
 
     struct SignatureKeyLogger {
