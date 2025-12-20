@@ -99,7 +99,7 @@ enum class PassTimeUnit {
     macro(printProducts, print-products, bool, false, Clover, "Print Clover build products at the end of compilation.") \
     macro(parseAsSexp, parse-as-sexp, bool, false, Clover, "Parse token stream as s-expressions.") \
     macro(readableTypeVars, readable-type-vars, bool, IS_DEBUG, Clover, "Give type variables human-readable names instead of just indices.") \
-    macro(validateResolution, validate-resolution, bool, true, Clover, "Do extra validation after name and type resolution.") \
+    macro(validateResolution, validate-resolution, bool, IS_DEBUG, Clover, "Do extra validation after name and type resolution.") \
     macro(verboseUnify, verbose-unify, i32, 0, Clover, "Enables verbose logging for type unification during Clover type inference and checking passes.") \
     macro(verboseInstantiation, verbose-instantiation, bool, false, Clover, "Enables verbose logging for generic type and function instantiation.") \
     macro(reportErrorsImmediately, report-errors-immediately, bool, false, Clover, "Report the first error immediately after it happens and exit.") \

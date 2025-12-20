@@ -645,7 +645,7 @@ namespace clover {
             return lhs;
         if (!rhsRange)
             return rhs;
-        return lhs.types->encode<TypeKind::Range>(leastCommonSupertype(lhs.asRange().lowerBound(), rhs.asRange().lowerBound(), NoUnifyFlags), greatestCommonSubtype(lhs.asRange().upperBound(), rhs.asRange().upperBound(), NoUnifyFlags));
+        return lhs.types->encode<TypeKind::Range>(leastCommonSupertype(lhs.asRange().lowerBound(), rhs.asRange().lowerBound(), nullptr, InPlace), greatestCommonSubtype(lhs.asRange().upperBound(), rhs.asRange().upperBound(), nullptr, InPlace));
     }
 
     Type concreteType(Module* module, Type type) {
@@ -2207,13 +2207,14 @@ namespace clover {
             println(Multiline(newDecl)); printTypeVariableState(module->types); println();
         }
 
+        for (TypeIndex v : *instantiationCtx.lateResolves)
+            expand(module->types->get(v)).concretify();
         for (NodeIndex node : *instantiationCtx.lateChecks) {
             AST ast = module->node(node);
             assert(!ast.isLeaf());
             check(instantiationCtx, ast.function(), ast);
         }
-        for (TypeIndex v : *instantiationCtx.lateResolves)
-            expand(module->types->get(v)).concretify();
+
         instantiationCtx.lateChecks->clear();
         instantiationCtx.lateResolves->clear();
 
@@ -2379,7 +2380,7 @@ namespace clover {
             }
         }
 
-        return some<TypeIndex>(funcType.index);
+        return some<TypeIndex>((TypeIndex)funcType.index);
     }
 
     bool refine(InferenceContext& ctx, Function* function, AST ast, Type refinedType) {
@@ -2395,10 +2396,16 @@ namespace clover {
             case ASTKind::SetField: {
                 Type baseType = inferredType(ctx, function, ast.child(0));
 
+                if (baseType.isVar())
+                    baseType = concreteType(module, baseType);
+
                 if (baseType.is<TypeKind::Pointer>()) {
                     // Implicit dereference is permitted on field access.
                     baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
                 }
+
+                if (baseType.isVar())
+                    baseType = concreteType(module, baseType);
 
                 if (baseType.is<TypeKind::Struct>()) {
                     assert(ast.child(1).kind() == ASTKind::Ident);
@@ -2509,10 +2516,16 @@ namespace clover {
             case ASTKind::GetFields: {
                 Type baseType = inferredType(ctx, function, ast.child(0));
 
+                if (baseType.isVar())
+                    baseType = concreteType(module, baseType);
+
                 if (baseType.is<TypeKind::Pointer>()) {
                     // Implicit dereference is permitted on field access.
                     baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
                 }
+
+                if (baseType.isVar())
+                    baseType = concreteType(module, baseType);
 
                 if (baseType.is<TypeKind::Struct>()) {
                     auto structType = baseType.as<TypeKind::Struct>();
@@ -2555,9 +2568,16 @@ namespace clover {
             case ASTKind::SetIndex: {
                 Type baseType = inferredType(ctx, function, ast.child(0));
 
+                if (baseType.isVar())
+                    baseType = concreteType(module, baseType);
+
                 // Indexing supports implicit dereference.
                 if (baseType.is<TypeKind::Pointer>())
                     baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
+
+                if (baseType.isVar())
+                    baseType = concreteType(module, baseType);
+
                 Type elementType = baseType.is<TypeKind::Slice>() ? expand(baseType.as<TypeKind::Slice>().elementType()) : expand(baseType.as<TypeKind::Array>().elementType());
 
                 switch (ast.kind()) {
@@ -2740,10 +2760,10 @@ namespace clover {
                     newConstraints.push(constraint);
                 foundAnyOrderedBesidesResult = constraints.constraints[index].doesNeedRefinement() || foundAnyOrderedBesidesResult;
                 if (result.isVar()) {
-                    Type lowerBound = leastCommonSupertype(result.asVar().lowerBound(), type.asVar().lowerBound(), NoUnifyFlags);
+                    Type lowerBound = leastCommonSupertype(result.asVar().lowerBound(), type.asVar().lowerBound(), nullptr, InPlace);
                     type_assert(lowerBound);
                     result.asVar().setLowerBound(lowerBound);
-                    Type upperBound = greatestCommonSubtype(result.asVar().upperBound(), type.asVar().upperBound(), NoUnifyFlags);
+                    Type upperBound = greatestCommonSubtype(result.asVar().upperBound(), type.asVar().upperBound(), nullptr, InPlace);
                     type_assert(upperBound);
                     result.asVar().setUpperBound(upperBound);
                 } else {
@@ -2921,7 +2941,7 @@ namespace clover {
         }
     }
 
-    void toposort(Constraints& constraints, bitset<128>& tempMarks, bitset<128>& permMarks, vec<ConstraintIndex, 32>& order, ConstraintIndex node) {
+    void toposort(Constraints& constraints, biasedset<128>& tempMarks, biasedset<128>& permMarks, vec<ConstraintIndex, 32>& order, ConstraintIndex node) {
         if (permMarks[node])
             return;
         if (tempMarks[node]) {
@@ -2956,7 +2976,7 @@ namespace clover {
         // This function removes duplicate nodes from the ordering, since we
         // may have duplicates in the order if there were cycles in the
         // combined ordering/subtyping graph.
-        bitset<128> visited;
+        biasedset<128> visited;
         ConstraintIndex* writer = order.begin();
         ConstraintIndex* reader = writer;
         while (reader < order.end()) {
@@ -3005,7 +3025,7 @@ namespace clover {
 
         scc(constraints, resolveSubtypeCycle);
         scc(constraints, resolveOrderingCycle);
-        bitset<128> nonForwarded;
+        biasedset<128> nonForwarded;
         for (ConstraintIndex i : indices(constraints.constraints)) if (!constraints.constraints[i].isForwarded())
             nonForwarded.on(i);
 
@@ -3023,8 +3043,9 @@ namespace clover {
         // make typing decisions based on incomplete information.
 
         vec<ConstraintIndex, 32> order;
-        bitset<128> tempMarks, permMarks;
+        biasedset<128> tempMarks, permMarks;
         for (ConstraintIndex i : nonForwarded) {
+            assert(!constraints.constraints[i].isForwarded());
             if (!permMarks[i])
                 toposort(constraints, tempMarks, permMarks, order, i);
         }
@@ -3164,7 +3185,7 @@ namespace clover {
             // its current lower bound.
 
             if (type.isVar() && !type.asVar().isEqual() && canResolveTypeFromLowerBound(constraints.types, type.asVar().lowerBound()))
-                type.asVar().concretify();
+                type.concretify();
         }
     }
 
@@ -3296,13 +3317,13 @@ namespace clover {
             module->print(module->compilation), println();
         }
 
+        for (TypeIndex v : *globalCtx.lateResolves)
+            expand(module->types->get(v)).concretify();
         for (NodeIndex node : *globalCtx.lateChecks) {
             AST ast = module->node(node);
             assert(!ast.isLeaf());
             check(globalCtx, ast.function(), ast);
         }
-        for (TypeIndex v : *globalCtx.lateResolves)
-            expand(module->types->get(v)).concretify();
         globalCtx.lateChecks->clear();
         globalCtx.lateResolves->clear();
 

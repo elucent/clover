@@ -1005,3 +1005,18 @@ b.value
     auto bval = topLevel.child(4);
     ASSERT_TYPE_EQUAL(bval.type(), module->i8Type());
 }
+
+TEST(typecheck_array_least_common_subtype) {
+    auto instance = TYPECHECK(R"(
+var arr: [1, 2, 3, 4]
+var arr2: [1, 2, 3, 4, 5, 6]
+var slice: arr
+slice = arr2
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto slice = topLevel.child(2);
+    ASSERT_TYPE_EQUAL(slice.type(), module->sliceType(I64));
+}
