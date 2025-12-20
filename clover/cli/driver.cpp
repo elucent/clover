@@ -14,6 +14,7 @@ i32 main(i32 argc, i8** argv, i8** envp) {
     Compilation compilation;
     const_slice<i8> firstPath, outputFile = cstring("");
     bool compileToObject = false; // Default to executable
+    bool isImmediatelyExecuted = false;
     u32 numSourceFiles = 0;
 
     vec<const_slice<i8>> linkerArgs;
@@ -37,15 +38,9 @@ i32 main(i32 argc, i8** argv, i8** envp) {
             case 'e': {
                 if (numSourceFiles > 0)
                     panic("Can't specify inline source with '-e' in same command as file sources.");
-                vec<i8> sourceVector;
-                for (i ++; i < argc; i ++) {
-                    auto cstr = cstring(argv[i]);
-                    auto oldSize = sourceVector.size();
-                    sourceVector.expandBy(cstr.size() + 1);
-                    memory::copy(sourceVector.data() + oldSize, cstr.data(), cstr.size());
-                    sourceVector.end()[-1] = ' ';
-                }
-                addSourceString(&compilation, cstring("<command-line>"), sourceVector.take_slice());
+                i ++;
+                addSourceString(&compilation, cstring("<command-line>"), cstring(argv[i]));
+                isImmediatelyExecuted = true;
                 break;
             }
             case 'o': {
@@ -83,6 +78,11 @@ i32 main(i32 argc, i8** argv, i8** envp) {
     compile(&compilation);
     if UNLIKELY(config::printProducts)
         compilation.forEachArtifact([](Artifact* artifact) { artifact->print(); });
+
+    if (isImmediatelyExecuted && outputFile.size() == 0)
+        outputFile = cstring("a.out");
+    else if (outputFile.size() > 0)
+        isImmediatelyExecuted = false;
 
     if (compileToObject) {
         if (outputFile.size() == 0) { // Implicitly use modified name of first source as object.
@@ -150,6 +150,12 @@ i32 main(i32 argc, i8** argv, i8** envp) {
         file::remove(outputFile);
 
         jasmine_destroy_assembly(combined);
+
+        if (isImmediatelyExecuted) {
+            array<i8, 256> buffer;
+            process::exec(prints(buffer, "./", outputFile.take(outputFile.size() - 2)), slice<const_slice<i8>>{ nullptr, 0 });
+            file::remove(outputFile.take(outputFile.size() - 2));
+        }
     }
 
     process::deinit();
