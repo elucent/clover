@@ -400,12 +400,16 @@ struct biasedset {
     }
 
     inline void on(u32 i) {
-        if (i < min) {
-            u32 diff = min - i;
-            if (maxp1 + diff > capacity)
-                growto(maxp1 + diff);
-            lshift(diff);
-            min = i, maxp1 += diff;
+        if (i < min || min == maxp1) {
+            if (min != maxp1) {
+                u32 diff = min - i;
+                if (maxp1 + diff > capacity)
+                    growto(maxp1 + diff);
+                lshift(diff);
+                maxp1 += diff;
+            } else
+                maxp1 = i + 1;
+            min = i,
             bits[0] |= 1;
             return;
         }
@@ -415,6 +419,16 @@ struct biasedset {
         bits[adj / 64] |= 1ull << adj % 64;
         if (i >= maxp1)
             maxp1 = i + 1;
+    }
+
+    inline biasedset& operator|=(const biasedset& other) {
+        if (other.min == other.maxp1)
+            return *this;
+        on(other.min);
+        on(other.maxp1 - 1);
+        for (u64 i = 0; i < other.capacity / 64; i ++)
+            bits[i] |= other.bits[i];
+        return *this;
     }
 
     inline maybe<u32> smallest() const {
@@ -512,6 +526,10 @@ struct biasedset {
 
     iterator end() const {
         return { bits, maxp1 - min, min, maxp1, u32(capacity / 64) };
+    }
+
+    inline void clear() {
+        memory::fill(bits, 0, capacity / 8);
     }
 };
 
