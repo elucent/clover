@@ -636,6 +636,18 @@ TEST(parse_multiline_ternary_expression) {
 )", "(ternary foo 1 2) (ternary foo 1 2)");
 }
 
+TEST(parse_relational_operator_chaining) {
+    ASSERT_SAME_PARSE("a < b < c", "(and (< a b) (< b c))");
+    ASSERT_SAME_PARSE("a > b > c", "(and (> a b) (> b c))");
+    ASSERT_SAME_PARSE("a <= b <= c", "(and (<= a b) (<= b c))");
+    ASSERT_SAME_PARSE("a >= b >= c", "(and (>= a b) (>= b c))");
+    ASSERT_SAME_PARSE("a == b == c", "(and (== a b) (== b c))");
+    ASSERT_SAME_PARSE("a != b != c", "(and (!= a b) (!= b c))");
+
+    ASSERT_SAME_PARSE("a < b <= c < d", "(and (and (< a b) (<= b c)) (< c d))");
+    ASSERT_SAME_PARSE("a == b == c == d", "(and (and (== a b) (== b c)) (== c d))");
+}
+
 TEST(parse_stub_method_decl) {
     return; // TODO: Revisit method-style function declarations.
 

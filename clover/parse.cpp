@@ -958,6 +958,19 @@ namespace clover {
         return parseExpressionOrJuxtaposition(module, visitor, false, false, false);
     }
 
+    AST chainRelationalOperators(Module* module, Pos pos, AST lhs, ASTKind op, AST rhs) {
+        AST left = lhs;
+        while (left.kind() == ASTKind::And)
+            left = left.child(1);
+
+        if ((u32)left.kind() < (u32)ASTKind::Less || (u32)left.kind() > (u32)ASTKind::NotEqual)
+            return module->add(op, pos, lhs, rhs);
+
+        left = module->clone(left.child(1));
+        AST compare = module->add(op, pos, left, rhs);
+        return module->add(ASTKind::And, pos, lhs, compare);
+    }
+
     AST makeBinary(Module* module, AST lhs, Token op, AST rhs, const AST& interior, const vec<AST>& extraChildren) {
         assert(isBinaryOperator(op.token));
         ASTKind kind;
@@ -987,16 +1000,15 @@ namespace clover {
             case OperatorLeftRotateAssign: kind = ASTKind::BitRolEq; break;
             case OperatorRightRotateAssign: kind = ASTKind::BitRorEq; break;
             case OperatorAssign: kind = ASTKind::Assign; break;
-            case OperatorLess: kind = ASTKind::Less; break;
-            case OperatorLessEqual: kind = ASTKind::LessEq; break;
-            case OperatorGreater: kind = ASTKind::Greater; break;
-            case OperatorGreaterEqual: kind = ASTKind::GreaterEq; break;
-            case OperatorEqual: kind = ASTKind::Equal; break;
-            case OperatorNotEqual: kind = ASTKind::NotEqual; break;
+            case OperatorLess: return chainRelationalOperators(module, op.pos, lhs, ASTKind::Less, rhs);
+            case OperatorLessEqual: return chainRelationalOperators(module, op.pos, lhs, ASTKind::LessEq, rhs);
+            case OperatorGreater: return chainRelationalOperators(module, op.pos, lhs, ASTKind::Greater, rhs);
+            case OperatorGreaterEqual: return chainRelationalOperators(module, op.pos, lhs, ASTKind::GreaterEq, rhs);
+            case OperatorEqual: return chainRelationalOperators(module, op.pos, lhs, ASTKind::Equal, rhs);
+            case OperatorNotEqual: return chainRelationalOperators(module, op.pos, lhs, ASTKind::NotEqual, rhs);
             case OperatorRange: kind = ASTKind::Range; break;
             case KeywordAs:
                 return module->add(ASTKind::Construct, op.pos, rhs, lhs);
-                break;
             case KeywordIs: kind = ASTKind::Is; break;
             case KeywordIn: kind = ASTKind::In; break;
             case KeywordAnd: kind = ASTKind::And; break;

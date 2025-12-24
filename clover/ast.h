@@ -1589,7 +1589,10 @@ namespace clover {
             vec<AST, 16> nodes;
             for (AST child : ast)
                 nodes.push(clone(child));
-            return add(ast.kind(), ast.pos(), InvalidScope, ast.typeIndex(), nodes);
+            if (nodeTypes.size())
+                return add(ast.kind(), ast.pos(), InvalidScope, ast.typeIndex(), nodes);
+            else
+                return add(ast.kind(), ast.pos(), nodes);
         }
 
         template<typename... Args>
