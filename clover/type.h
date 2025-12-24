@@ -2080,7 +2080,7 @@ namespace clover {
         return none<UnifyResult>();
     }
 
-    inline bool isCaseTypeKind(TypeKind kind) {
+    inline bool isNamed(TypeKind kind) {
         constexpr u32 CaseTypeKinds = 0
             | 1u << u32(TypeKind::Named)
             | 1u << u32(TypeKind::Struct)
@@ -2090,9 +2090,19 @@ namespace clover {
     }
 
     inline bool isCase(Type type) {
-        if (!isCaseTypeKind(type.kind()))
+        if (!isNamed(type.kind()))
             return false;
         return type.firstWord().isCase;
+    }
+
+    inline Scope* getScope(Type type) {
+        switch (type.kind()) {
+            case TypeKind::Named: return type.as<TypeKind::Named>().scope();
+            case TypeKind::Struct: return type.as<TypeKind::Struct>().scope();
+            case TypeKind::Union: return type.as<TypeKind::Union>().scope();
+            default:
+                unreachable("Not a named type.");
+        }
     }
 
     inline bool isAtom(Type type) {
@@ -2164,7 +2174,7 @@ namespace clover {
                     return UnifyFailure;
                 if UNLIKELY(config::verboseUnify >= 3)
                     println("[TYPE]\tUpdating upper bound of variable ", *this, " to ", upper, " in-place");
-                if (mode & MustSubstitute && !isCaseTypeKind(upper.kind())) {
+                if (mode & MustSubstitute && !isNamed(upper.kind())) {
                     Type lower = leastCommonSupertype(asVar().lowerBound(), other.isVar() ? other.asVar().lowerBound() : other, constraints, mode & ModeMask);
                     if (!lower)
                         return UnifyFailure;
@@ -2185,7 +2195,7 @@ namespace clover {
                     return UnifyFailure;
                 if UNLIKELY(config::verboseUnify >= 3)
                     println("[TYPE]\tUpdating lower bound of variable ", other, " to ", lower, " in-place");
-                if (mode & MustSubstitute && !isCaseTypeKind(lower.kind())) {
+                if (mode & MustSubstitute && !isNamed(lower.kind())) {
                     Type upper = greatestCommonSubtype(isVar() ? asVar().upperBound() : *this, other.asVar().upperBound(), constraints, mode & ModeMask);
                     if (!upper)
                         return UnifyFailure;

@@ -653,6 +653,8 @@ namespace clover {
             }
             case ASTKind::FunDecl: {
                 AST name = ast.child(1);
+                if (name.kind() == ASTKind::GetField) // Method-style function declaration. We don't worry about it in this pass.
+                    name = name.child(1);
                 assert(name.kind() == ASTKind::Ident);
                 computeScopes(module, imports, currentScope, ast.child(3)); // Raises decl (should be independent of function, and can't reference it)
                 Function* function = module->addFunction(ast, currentScope->function);

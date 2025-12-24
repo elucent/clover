@@ -73,15 +73,15 @@ namespace clover {
         };
 
         enum Kind : u32 {
-            Variable, Constant, ConstFunction, Function, OverloadedFunction, Namespace, Type, Member, GenericFunction, GenericType, Temp, Forward, NumKinds
+            Variable, Constant, ConstFunction, Function, OverloadedFunction, Namespace, Type, Member, GenericFunction, GenericType, Temp, Forward, ThisAccess, NumKinds
         };
 
         static constexpr const i8* KindNamesUpper[NumKinds] = {
-            "Variable", "Constant", "Const Function", "Function", "Overloaded Function", "Namespace", "Type", "Member", "Generic Function", "Generic Type", "Temp", "Forward"
+            "Variable", "Constant", "Const Function", "Function", "Overloaded Function", "Namespace", "Type", "Member", "Generic Function", "Generic Type", "Temp", "Forward", "ThisAccess"
         };
 
         static constexpr const i8* KindNamesLower[NumKinds] = {
-            "variable", "constant", "const function", "function", "overloaded function", "namespace", "type", "member", "generic function", "generic type", "temp", "forward"
+            "variable", "constant", "const function", "function", "overloaded function", "namespace", "type", "member", "generic function", "generic type", "temp", "forward", "this access"
         };
 
         TypeIndex type : Limits::TypesPerCompilationBits;

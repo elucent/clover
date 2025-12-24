@@ -143,6 +143,7 @@ namespace clover {
                     println();
                     break;
                 case VariableKind::Variable:
+                case VariableKind::ThisAccess:
                 case VariableKind::Function:
                 case VariableKind::ConstFunction:
                 case VariableKind::GenericFunction:

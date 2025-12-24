@@ -3107,7 +3107,7 @@ namespace clover {
                     bound = type.asVar().lowerBound();
                 if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
                     type_error("Failed to unify ", other, " onto ", type, " in-place.");
-                if (substituteFlag && !isCaseTypeKind(bound.kind())) {
+                if (substituteFlag && !isNamed(bound.kind())) {
                     if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
                         type_error("Failed to unify ", type, " onto ", other, " in-place.");
                 }
@@ -3142,7 +3142,7 @@ namespace clover {
                     bound = type.asVar().lowerBound();
                 if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
                     type_error("Failed to unify ", other, " onto ", type, " in-place.");
-                if (substituteFlag && !isCaseTypeKind(bound.kind())) {
+                if (substituteFlag && !isNamed(bound.kind())) {
                     if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
                         type_error("Failed to unify ", type, " onto ", other, " in-place.");
                 }

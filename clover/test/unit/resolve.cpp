@@ -875,3 +875,22 @@ void baz():
     bar.x + bar.y
 )");
 }
+
+TEST(resolve_method_decl) {
+    return; // TODO: Revisit method-style function declarations.
+
+    auto artifact = RESOLVE(R"(
+type Foo:
+    i32 x
+    type Bar
+
+i32 Foo.getX(): x
+i32 Foo*.getX(): x
+i32* i32.foo()
+i32* i32*[].bar()
+i32* i32*[4].baz()
+i32***(i32)*** i32***(i32***).mystery()
+i32* Foo.Bar*(i32).quux(type T, i32 x)
+i32*(i32)* i32*[].xyzzy()
+)");
+}

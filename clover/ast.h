@@ -725,6 +725,7 @@ namespace clover {
         bool isConst = false, isGeneric = false, isInstantiation = false, noMangling = false;
         Function* generic = nullptr; // Generic version of this function we were instantiated from, if applicable.
         u64 genericHash = 0; // Hash of this function's body, used as a discriminator for the binary symbols of its instantiations.
+        AST thisOperand;
 
         union {
             map<SignatureKey, Function*>* instantiations = nullptr; // Cache of instantiations of this function.
@@ -1998,7 +1999,11 @@ namespace clover {
 
     inline Function::Function(Module* module_in, Function* parent_in, NodeIndex decl_in):
         module(module_in), parent(parent_in), decl(decl_in) {
-        name = module->node(decl).child(1).symbol();
+        AST nameNode = module->node(decl).child(1);
+        if (nameNode.kind() == ASTKind::GetField)
+            nameNode = nameNode.child(1);
+        assert(nameNode.kind() == ASTKind::Ident);
+        name = nameNode.symbol();
         isConst = module->node(decl).kind() == ASTKind::ConstFunDecl;
     }
 

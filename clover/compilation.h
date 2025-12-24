@@ -422,6 +422,7 @@ namespace clover {
         macro(KeywordNew, "new") \
         macro(KeywordOwn, "own") \
         macro(KeywordUninit, "uninit") \
+        macro(KeywordThis, "this") \
         macro(IdentifierLoopItems, "__items") \
         macro(IdentifierLoopIterator, "__iter") \
         macro(BuiltinVoid, "void") \

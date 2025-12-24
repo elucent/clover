@@ -252,6 +252,9 @@ namespace clover {
                 return module->add(ASTKind::ResolvedNamespace, ns);
             }
 
+            case VariableKind::ThisAccess:
+                return resolve(module, fixups, NoRefTraits, scope, some<AST>(parent), module->add(ASTKind::GetField, parent.pos(), scope, InvalidType, module->add(ASTKind::Ident, Identifier(KeywordThis)), ast), ExpectValue);
+
             default:
                 return ast;
         }
@@ -1061,6 +1064,24 @@ namespace clover {
                         break;
                     default:
                         break;
+                }
+
+                // Get the receiver type if we're a method, before we clobber
+                // the function's name.
+                if (ast.child(1).kind() == ASTKind::GetField) {
+                    setScopes(module, scope, ast.child(1));
+                    AST receiver = resolve(module, fixups, NoRefTraits, scope, some<AST>(ast.child(1)), ast.child(1).child(0), ExpectType);
+                    Type receiverType = evaluateType(module, fixups, scope, receiver);
+                    ast.scope()->add(VariableKind::Variable, ast, receiverType.index, KeywordThis);
+                    argumentTypes.push(receiverType);
+
+                    if (receiverType.is<TypeKind::Pointer>())
+                        receiverType = receiverType.as<TypeKind::Pointer>().elementType();
+                    if (isNamed(receiverType.kind())) {
+                        Scope* scope = getScope(receiverType);
+                        for (const auto& e : scope->entries)
+                            ast.scope()->add(VariableKind::ThisAccess, ast, e.key);
+                    }
                 }
 
                 if (function->isGeneric) {

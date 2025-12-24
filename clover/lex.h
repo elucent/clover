@@ -46,6 +46,19 @@ namespace clover {
         }
     };
 
+    struct PosRange {
+        Pos start, end;
+
+        inline PosRange() {}
+
+        inline PosRange(Pos start_in, Pos end_in):
+            start(start_in), end(end_in) {}
+
+        inline PosRange(PosRange start, Pos end): PosRange(start.start, end) {}
+        inline PosRange(Pos start, PosRange end): PosRange(start, end.end) {}
+        inline PosRange(PosRange start, PosRange end): PosRange(start.start, end.end) {}
+    };
+
     struct Token {
         Symbol token;
         Pos pos;
@@ -59,6 +72,10 @@ namespace clover {
 
         inline bool operator!=(const Token& other) const {
             return token != other.token || pos != other.pos;
+        }
+
+        inline PosRange span(SymbolTable* syms) {
+            return { pos, pos.withOffset(syms->strings[token.symbol].size()) };
         }
     };
 

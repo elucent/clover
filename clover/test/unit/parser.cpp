@@ -636,6 +636,53 @@ TEST(parse_multiline_ternary_expression) {
 )", "(ternary foo 1 2) (ternary foo 1 2)");
 }
 
+TEST(parse_stub_method_decl) {
+    return; // TODO: Revisit method-style function declarations.
+
+    ASSERT_SAME_PARSE("i32 i32.foo()", "(fun i32 (get_field i32 foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("i32 i32*.foo()", "(fun i32 (get_field (ptr_type i32) foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("i32 i32*[].foo()", "(fun i32 (get_field (slice_type (ptr_type i32)) foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("i32 i32*[4].foo()", "(fun i32 (get_field (array_type (ptr_type i32) 4) foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("i32 Foo.Bar*(i32).baz(type T, i32 x)", "(fun i32 (get_field (fun_type (ptr_type (get_field Foo Bar)) i32) baz) (tuple (alias T missing missing) (var i32 x missing)) missing missing)");
+
+    // These in particular need name resolution, since they could all parse as a multiplication.
+    // ASSERT_SAME_PARSE("i32* i32.foo()", "(fun (ptr_type i32) (get_field i32 foo) (tuple) missing missing)");
+    // ASSERT_SAME_PARSE("i32* i32*[].foo()", "(fun (ptr_type i32) (get_field (slice_type (ptr_type i32)) foo) (tuple) missing missing)");
+    // ASSERT_SAME_PARSE("i32* i32*[4].foo()", "(fun (ptr_type i32) (get_field (array_type (ptr_type i32) 4) foo) (tuple) missing missing)");
+    // ASSERT_SAME_PARSE("i32* Foo.Bar*(i32).baz(type T, i32 x)", "(fun (ptr_type i32) (get_field (fun_type (ptr_type (get_field Foo Bar)) i32) baz) (tuple (alias T missing missing) (var i32 x missing)) missing missing)");
+    // ASSERT_SAME_PARSE("i32*(i32)* i32*[].foo()", "(fun (ptr_type (stars i32 (paren i32) 1)) (get_field (ptr_type i32) foo) (tuple) missing missing)");
+
+    ASSERT_SAME_PARSE("i32* i32*.foo()", "(fun (ptr_type i32) (get_field (ptr_type i32) foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("i32*(i32)* i32*.foo()", "(fun (ptr_type (stars i32 (paren i32) 1)) (get_field (ptr_type i32) foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("fun i32.foo()", "(fun missing (get_field i32 foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("fun i32*.foo()", "(fun missing (get_field (ptr_type i32) foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("fun i32*[].foo()", "(fun missing (get_field (slice_type (ptr_type i32)) foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("fun i32*[4].foo()", "(fun missing (get_field (array_type (ptr_type i32) 4) foo) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("fun Foo.Bar*(i32).baz(type T, i32 x)", "(fun missing (get_field (fun_type (ptr_type (get_field Foo Bar)) i32) baz) (tuple (alias T missing missing) (var i32 x missing)) missing missing)");
+}
+
+TEST(parse_method_decl) {
+    return; // TODO: Revisit method-style function declarations.
+
+    ASSERT_SAME_PARSE("i32 i32.foo(): x", "(fun i32 (get_field i32 foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32 i32*.foo(): x", "(fun i32 (get_field (ptr_type i32) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32 i32*[].foo(): x", "(fun i32 (get_field (slice_type (ptr_type i32)) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32 i32*[4].foo(): x", "(fun i32 (get_field (array_type (ptr_type i32) 4) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32 Foo.Bar*(i32).baz(type T, i32 x): x", "(fun i32 (get_field (fun_type (ptr_type (get_field Foo Bar)) i32) baz) (tuple (alias T missing missing) (var i32 x missing)) missing x)");
+    ASSERT_SAME_PARSE("i32* i32.foo(): x", "(fun (ptr_type i32) (get_field i32 foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32* i32*.foo(): x", "(fun (ptr_type i32) (get_field (ptr_type i32) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32*(i32)* i32*.foo(): x", "(fun (ptr_type (stars i32 (paren i32) 1)) (get_field (ptr_type i32) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32*(i32)* i32*[].foo(): x", "(fun (ptr_type (stars i32 (paren i32) 1)) (get_field (slice_type (ptr_type i32)) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32* i32*[].foo(): x", "(fun (ptr_type i32) (get_field (slice_type (ptr_type i32)) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32* i32*[4].foo(): x", "(fun (ptr_type i32) (get_field (array_type (ptr_type i32) 4) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("i32* Foo.Bar*(i32).baz(type T, i32 x): x", "(fun (ptr_type i32) (get_field (fun_type (ptr_type (get_field Foo Bar)) i32) baz) (tuple (alias T missing missing) (var i32 x missing)) missing x)");
+    ASSERT_SAME_PARSE("fun i32.foo(): x", "(fun missing (get_field i32 foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("fun i32*.foo(): x", "(fun missing (get_field (ptr_type i32) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("fun i32*[].foo(): x", "(fun missing (get_field (slice_type (ptr_type i32)) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("fun i32*[4].foo(): x", "(fun missing (get_field (array_type (ptr_type i32) 4) foo) (tuple) missing x)");
+    ASSERT_SAME_PARSE("fun Foo.Bar*(i32).baz(type T, i32 x): x", "(fun missing (get_field (fun_type (ptr_type (get_field Foo Bar)) i32) baz) (tuple (alias T missing missing) (var i32 x missing)) missing x)");
+}
+
 TEST(parse_bad_escape_sequence) {
     EXPECT_ERRORS;
 
