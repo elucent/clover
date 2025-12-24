@@ -906,6 +906,7 @@ namespace clover {
             | 1ull << (OperatorRange - FirstOperator)
             | 1ull << (KeywordAs - FirstOperator)
             | 1ull << (KeywordIs - FirstOperator)
+            | 1ull << (KeywordIsNot - FirstOperator)
             | 1ull << (KeywordIn - FirstOperator)
             | 1ull << (KeywordAnd - FirstOperator)
             | 1ull << (KeywordOr - FirstOperator)
@@ -1010,6 +1011,8 @@ namespace clover {
             case KeywordAs:
                 return module->add(ASTKind::Construct, op.pos, rhs, lhs);
             case KeywordIs: kind = ASTKind::Is; break;
+            case KeywordIsNot:
+                return module->add(ASTKind::Not, op.pos, module->add(ASTKind::Is, op.pos, lhs, rhs));
             case KeywordIn: kind = ASTKind::In; break;
             case KeywordAnd: kind = ASTKind::And; break;
             case KeywordOr: kind = ASTKind::Or; break;
@@ -1094,9 +1097,16 @@ namespace clover {
                 Token possibleOp = visitor.peekIgnoringWhitespace();
                 if (isBinaryOperator(possibleOp.token) || possibleOp.token == KeywordElse) {
                     visitor.readIgnoringWhitespace(); // Consume newline and any interstitial indentation.
+                    if (possibleOp.token == KeywordIs && visitor.peek2().token == KeywordNot) {
+                        visitor.read();
+                        return { { KeywordIsNot, possibleOp.pos }, false };
+                    }
                     return { possibleOp, true };
                 }
             }
+        }
+        if (visitor.peek().token == KeywordIs && visitor.peek2().token == KeywordNot) {
+            return { { KeywordIsNot, visitor.read().pos }, false };
         }
         return { visitor.peek(), false };
     }
@@ -2412,6 +2422,7 @@ namespace clover {
             precedences[OperatorEqual - FirstOperator] = 50;
             precedences[OperatorNotEqual - FirstOperator] = 50;
             precedences[KeywordIs - FirstOperator] = 50;
+            precedences[KeywordIsNot - FirstOperator] = 50;
             precedences[KeywordIn - FirstOperator] = 50;
             precedences[OperatorLess - FirstOperator] = 60;
             precedences[OperatorLessEqual - FirstOperator] = 60;

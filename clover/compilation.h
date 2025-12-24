@@ -392,6 +392,7 @@ namespace clover {
         macro(KeywordOr, "or") \
         macro(KeywordAs, "as") \
         macro(KeywordIs, "is") \
+        macro(KeywordIsNot, "is not") /* Technically not a keyword, but we reserve it anyway so it can act more similarly to KeywordIs. */ \
         macro(KeywordIn, "in") \
         macro(KeywordDo, "do") \
         macro(KeywordThen, "then") \
