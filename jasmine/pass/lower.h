@@ -304,9 +304,7 @@ namespace jasmine {
         status.expandTo(moves.size());
         for (u32 i = 0; i < moves.size(); i ++) {
             status[i] = moves[i].src == moves[i].dest ? Moved : Unmoved;
-            assert(moves[i].src != gpScratch);
             assert(moves[i].dest != gpScratch);
-            assert(moves[i].src != fpScratch);
             assert(moves[i].dest != fpScratch);
         }
         for (u32 i = 0; i < moves.size(); i ++) {
@@ -1304,34 +1302,59 @@ namespace jasmine {
 
                         vec<Operand> callerSaves;
                         const CallSite& callSite = callSites[callInsns[n.index()]];
+                        bool needsPadding = false;
                         for (mreg r : callSite.liveAcross) {
                             callerSaves.push(Target::is_gp(r) ? fn.gp(r) : fn.fp(r));
                             b.addNode(Opcode::PUSH, Target::is_gp(r) ? PTR : F64, callerSaves.back());
+                            needsPadding = !needsPadding;
                         }
+                        if (needsPadding)
+                            b.addNode(Opcode::SUB, PTR, fn.gp(Target::sp), fn.gp(Target::sp), fn.intConst(sizeof(void*)));
 
-                        RegSet nonArgumentScratches = Target::caller_saved_gps();
+                        RegSet nonArgumentScratches = Target::caller_saved_gps(), nonArgumentFPScratches = Target::caller_saved_fps();
                         for (Operand param : callSite.parameters) {
-                            if (param.isReg())
+                            if (param.kind == Operand::GP)
                                 nonArgumentScratches.remove(param.gp);
+                            else if (param.kind == Operand::FP)
+                                nonArgumentFPScratches.remove(param.fp);
                             else if (param.kind == Operand::RegPair)
-                                nonArgumentScratches.remove(param.ra), nonArgumentScratches.remove(param.rb);
+                                nonArgumentScratches.remove(param.ra), nonArgumentScratches.remove(param.rb),
+                                nonArgumentFPScratches.remove(param.ra), nonArgumentFPScratches.remove(param.rb);
                         }
                         if (n.opcode() == Opcode::CALL) {
                             auto rv = callSite.returnValue;
-                            if (rv.isReg())
+                            if (rv.kind == Operand::GP)
                                 nonArgumentScratches.remove(rv.gp);
+                            else if (rv.kind == Operand::FP)
+                                nonArgumentFPScratches.remove(rv.fp);
                             else if (rv.kind == Operand::RegPair)
-                                nonArgumentScratches.remove(rv.ra), nonArgumentScratches.remove(rv.rb);
-                            else
+                                nonArgumentScratches.remove(rv.ra), nonArgumentScratches.remove(rv.rb),
+                                nonArgumentFPScratches.remove(rv.ra), nonArgumentFPScratches.remove(rv.rb);
+                            else if (rv.kind == Operand::Memory)
                                 nonArgumentScratches.remove(rv.base), nonArgumentScratches.remove(rv.offset);
                         }
-                        Operand moveScratch = fn.gp(nonArgumentScratches.next());
+                        Operand moveScratch = fn.gp(nonArgumentScratches.next()), fpMoveScratch = fn.fp(nonArgumentFPScratches.next());
 
-                        if (n.opcode() == Opcode::CALL && callSite.returnValue.kind == Operand::Memory) {
-                            // Pass the address of our output to the callee.
-                            assert(operands[0].kind == Operand::Memory);
-                            b.addNode(Opcode::ADDR, PTR, fn.gp(callSite.returnValue.base), operands[0]);
+                        vec<Move> parallelMoves;
+                        vec<TypeIndex> moveTypes;
+                        for (auto [i, t] : enumerate(compound.arguments())) {
+                            auto arg = callSite.parameters[i];
+                            Operand argumentOperand = n.opcode() == Opcode::CALL_VOID ? operands[1 + i] : operands[2 + i];
+                            if (isCompound(t) && !isFunction(fn, t) && (arg.kind == Operand::RegPair || arg.isReg())) {
+                                // If we need to do some kind of complicated
+                                // register packing, save this until later.
+                            } else {
+                                parallelMoves.push({ argumentOperand, arg });
+                                moveTypes.push(t);
+                                if (arg.kind == Operand::Memory) {
+                                    assert(arg.base == Target::sp);
+                                    maxStackArguments = max(maxStackArguments, u32(arg.offset + repr(t).size()));
+                                }
+                            }
                         }
+
+                        parallelMove<Target>(passes, fn, b, moveScratch, fpMoveScratch, moveTypes, parallelMoves);
+
                         for (auto [i, t] : enumerate(compound.arguments())) {
                             auto arg = callSite.parameters[i];
                             Operand argumentOperand = n.opcode() == Opcode::CALL_VOID ? operands[1 + i] : operands[2 + i];
@@ -1344,13 +1367,13 @@ namespace jasmine {
                                     paramSecond = Target::is_gp(arg.rb) ? fn.gp(arg.rb) : fn.fp(arg.rb);
                                 }
                                 loadAggregateIntoRegisters(fn, b, this->repr(t), paramFirst, paramSecond, argumentOperand, moveScratch);
-                            } else {
-                                makeMove<Target>(this, fn, b, t, arg, argumentOperand, moveScratch);
-                                if (arg.kind == Operand::Memory) {
-                                    assert(arg.base == Target::sp);
-                                    maxStackArguments = max(maxStackArguments, u32(arg.offset + repr(t).size()));
-                                }
                             }
+                        }
+
+                        if (n.opcode() == Opcode::CALL && callSite.returnValue.kind == Operand::Memory) {
+                            // Pass the address of our output to the callee.
+                            assert(operands[0].kind == Operand::Memory);
+                            b.addNode(Opcode::ADDR, PTR, fn.gp(callSite.returnValue.base), operands[0]);
                         }
 
                         Operand callee = n.opcode() == Opcode::CALL_VOID ? operands[0] : operands[1];
@@ -1378,6 +1401,8 @@ namespace jasmine {
                             } else
                                 makeMove<Target>(this, fn, b, compound.returnType(), operands[0], rv, moveScratch);
                         }
+                        if (needsPadding)
+                            b.addNode(Opcode::ADD, PTR, fn.gp(Target::sp), fn.gp(Target::sp), fn.intConst(sizeof(void*)));
                         for (Operand o : reversed(callerSaves))
                             b.addNode(Opcode::POP, o.kind == Operand::GP ? PTR : F64, o);
                         break;

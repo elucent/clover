@@ -198,6 +198,11 @@ struct RegSet {
         return *this;
     }
 
+    inline constexpr RegSet& operator&=(const mreg& other) {
+        regs &= 1ull << other;
+        return *this;
+    }
+
     inline constexpr RegSet& operator^=(const RegSet& other) {
         regs ^= other.regs;
         return *this;
@@ -211,6 +216,12 @@ struct RegSet {
     inline constexpr RegSet operator|(const RegSet& other) const {
         RegSet set = *this;
         set |= other;
+        return set;
+    }
+
+    inline constexpr RegSet operator&(const mreg& other) const {
+        RegSet set = *this;
+        set &= other;
         return set;
     }
 
