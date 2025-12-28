@@ -362,7 +362,7 @@ struct biasedset {
         // TODO: these can probably be fused...idk if they should be.
         u32 size = (maxp1 - min + 63) / 64;
         assert((size + wordDiff) * 64 <= capacity);
-        memory::move(bits + wordDiff * 8, bits, size / 8);
+        memory::move(bits + wordDiff, bits, size * 8);
 
         if (bitDiff) {
             u64 overflow = 0;
@@ -386,7 +386,7 @@ struct biasedset {
         u32 size = (maxp1 - min + 63) / 64;
         assert(size * 64 <= capacity);
         assert(size >= wordDiff);
-        memory::move(bits, bits + wordDiff * 8, size / 8 - wordDiff * 8);
+        memory::move(bits, bits + wordDiff, size * 8 - wordDiff * 8);
 
         if (bitDiff) {
             u64 underflow = 0;
@@ -425,9 +425,20 @@ struct biasedset {
         if (other.min == other.maxp1)
             return *this;
         on(other.min);
-        on(other.maxp1 - 1);
-        for (u64 i = 0; i < other.capacity / 64; i ++)
+        if (other.maxp1 > capacity)
+            growto(other.maxp1);
+        u64 shift = other.min - min;
+        if (!shift) for (u64 i = 0; i < other.capacity / 64; i ++)
             bits[i] |= other.bits[i];
+        else {
+            u64 wordShift = shift / 64;
+            shift = shift % 64;
+            for (u64 i = 0; i < other.capacity / 64; i ++) {
+                if (i > 0)
+                    bits[i + wordShift] |= other.bits[i - 1] >> shift;
+                bits[i + wordShift] |= other.bits[i] << shift;
+            }
+        }
         return *this;
     }
 
@@ -530,6 +541,7 @@ struct biasedset {
 
     inline void clear() {
         memory::fill(bits, 0, capacity / 8);
+        min = maxp1 = 0;
     }
 };
 
