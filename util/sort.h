@@ -162,8 +162,8 @@ void quicksort(Iter begin, Iter end, const Func& func = LessThan<T>{}) {
 
     Iter a = begin, b = end - 1, pivot = a;
     while (true) {
-        while (func(*a, item)) ++ a;
-        while (!func(*b, item)) -- b;
+        while (!func(item, *a)) ++ a;
+        while (func(item, *b)) -- b;
         if (a >= b) {
             pivot = b;
             break;
