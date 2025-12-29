@@ -63,7 +63,7 @@ File open(i8[] path, u32 flags):
 void close(File f):
     file.close(IOTable[f.id].desc)
     IOTable[f.id].link = IOTableFreeList
-    IOTableFreeList = f.id
+    IOTableFreeList = f.id as i32
 
 # Flushing for both input and output.
 
@@ -202,11 +202,9 @@ fun write(io, i8[] string):
     return io
 
 fun write(io, u64 number):
-    i8[] buffer: io.reserveOutput(20)
     if number == 0:
-        buffer[0] = '0' as i8
-        io = io.advance(1)
-        return io
+        return io.put('0' as i8)
+    i8[] buffer: io.reserveOutput(20)
     var p: 1, q: p, digits: 0
     while p <= number and p >= q:
         q = p
