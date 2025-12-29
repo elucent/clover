@@ -6,6 +6,7 @@ using namespace file;
 
 namespace file {
     extern fd map_new_fd(file::Kind, i32, const_slice<i8>);
+    extern fd max_file_yet;
 }
 
 extern "C" void io_init() {
@@ -15,7 +16,7 @@ extern "C" void io_init() {
 }
 
 extern "C" void io_deinit() {
-    for (u32 i = 0; i < MAX_FDS; i ++) {
+    for (u32 i = 0; i <= max_file_yet; i ++) {
         if (fd_table[i] && fd_table[i]->meta.kind == file::FILE)
             flush(i);
         if (fd_table[i])

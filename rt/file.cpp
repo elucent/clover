@@ -10,6 +10,7 @@
 namespace file {
     using NativeFD = i32;
     FileStorage* fd_table[MAX_FDS] ASMLABEL("file.fd_table");
+    fd max_file_yet = 2;
 
     fd map_new_fd(file::Kind kind, NativeFD sysfd, const_slice<i8> path) {
         if (path.size() + 64 >= FDBUF_SIZE) return -1;
@@ -35,6 +36,7 @@ namespace file {
                 if (!nulled) info->path[path.size()] = '\0';
                 info->meta.start = info->meta.end = 0;
                 fd_table[next_file] = info;
+                if (next_file > max_file_yet) max_file_yet = next_file;
                 return next_file;
             }
             else next_file ++;
