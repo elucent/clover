@@ -168,16 +168,22 @@ void Assembly::linkInternally(RelocationFunction relocator) {
     vec<iptr, 16> defs;
     map<Symbol, u32> defmap;
 
-    for (const Def& def : this->defs) {
+    bitset<128> cantEliminateDef;
+
+    for (const auto& [i, def] : enumerate(this->defs)) {
         iptr base;
         switch (def.section) {
             case CODE_SECTION: base = (iptr)code._data; break;
             case DATA_SECTION: base = (iptr)data._data; break;
             case STATIC_SECTION: base = (iptr)stat._data; break;
+            case STATIC_UNINIT_SECTION: cantEliminateDef.on(i); continue; // Shouldn't link internally against uninitialized statics.
         }
         if (def.hasSym)
             defmap.put(def.sym, defs.size());
         defs.push(base + def.offset);
+
+        if (def.type != DEF_LOCAL)
+            cantEliminateDef.on(i);
     }
 
     vec<Reloc, 16> internalRelocs;
@@ -185,6 +191,15 @@ void Assembly::linkInternally(RelocationFunction relocator) {
         if (!reloc.hasSym && this->defs[reloc.sym].section == reloc.section) {
             internalRelocs.push(reloc);
             return true;
+        } else if (!reloc.hasSym)
+            cantEliminateDef.on(reloc.sym);
+        if (reloc.hasSym) {
+            auto it = defmap.find(reloc.sym);
+            if (it != defmap.end() && this->defs[it->value].section == reloc.section && this->defs[it->value].type == DEF_LOCAL) {
+                internalRelocs.push(reloc);
+                return true;
+            } else
+                cantEliminateDef.on(it->value);
         }
         return false;
     });
@@ -199,14 +214,32 @@ void Assembly::linkInternally(RelocationFunction relocator) {
     view.datasize = &datasize;
     view.statsize = &statsize;
 
-    code._end = codesize;
-    data._end = datasize;
-    stat._end = statsize;
-
     view.defs = &defs;
     view.defmap = &defmap;
     view.symtab = &symtab;
     relocator(view, internalRelocs);
+
+    code._end = codesize;
+    data._end = datasize;
+    stat._end = statsize;
+
+    for (u32 i = 0; i < this->defs.size(); i ++) {
+        Def& def = this->defs[i];
+        iptr base;
+        switch (def.section) {
+            case CODE_SECTION: base = (iptr)code._data; break;
+            case DATA_SECTION: base = (iptr)data._data; break;
+            case STATIC_SECTION: base = (iptr)stat._data; break;
+            case STATIC_UNINIT_SECTION: continue; // Shouldn't link internally against uninitialized statics.
+        }
+        iptr expected = base + def.offset;
+        iptr actual = defs[i];
+        def.offset -= expected - actual;
+    }
+
+    this->defs.removeIfIndexed([&](u32 i, const Def& def) -> bool {
+        return !cantEliminateDef[i];
+    });
 }
 
 void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
