@@ -320,7 +320,7 @@ struct CallBindings {
 };
 
 enum Section : u32 {
-    CODE_SECTION, DATA_SECTION, STATIC_SECTION
+    CODE_SECTION, DATA_SECTION, STATIC_SECTION, STATIC_UNINIT_SECTION
 };
 
 enum DefType : u32 {
@@ -704,6 +704,7 @@ using RelocationFunction = void(*)(AssemblyView&, vec<Reloc, 16>& relocs);
 // Collection of buffers for target-specific code.
 struct Assembly {
     bytebuf code, data, stat;
+    u64 uninitBytes = 0;
     vec<Def, 16> defs;
     vec<Reloc, 16> relocs;
     SymbolTable& symtab;
@@ -720,11 +721,14 @@ struct Assembly {
     }
 
     inline void def(Section section, DefType type, Label label) {
-        bytebuf* ptr;
+        bytebuf* ptr = nullptr;
         switch (section) {
             case CODE_SECTION: ptr = &code; break;
             case DATA_SECTION: ptr = &data; break;
             case STATIC_SECTION: ptr = &stat; break;
+            case STATIC_UNINIT_SECTION:
+                defs.push(Def(section, type, uninitBytes, label));
+                return;
         }
         defs.push(Def(section, type, ptr->size(), label));
     }
@@ -734,9 +738,20 @@ struct Assembly {
         switch (section) {
             case CODE_SECTION: ptr = &code; break;
             case DATA_SECTION: ptr = &data; break;
-            case STATIC_SECTION: ptr = &stat; break;
+
+            case STATIC_SECTION:
+            case STATIC_UNINIT_SECTION: ptr = &stat; break;
         }
         relocs.push(Reloc(section, type, kind, ptr->size(), label));
+    }
+
+    inline void alignUninit(u64 alignment) {
+        while (uninitBytes % alignment)
+            uninitBytes ++;
+    }
+
+    inline void reserveUninit(u64 bytes) {
+        uninitBytes += bytes;
     }
 
     static void defaultRelocator(AssemblyView& linked, vec<Reloc, 16>& relocs);
@@ -761,6 +776,7 @@ struct Assembly {
         io = format(io, uleb(codeSize), code);
         io = format(io, uleb(dataSize), data);
         io = format(io, uleb(staticSize), stat);
+        io = format(io, uleb(uninitBytes));
         io = format(io, uleb(symtab.strings.size()));
         for (const auto& [i, s] : enumerate(symtab.strings))
             io = format(io, uleb(s.size()), s);
@@ -789,6 +805,7 @@ struct Assembly {
         u32 staticSize = get<uleb>(io).value;
         for (u32 i = 0; i < staticSize; i ++)
             stat.write<i8>(get<i8>(io));
+        uninitBytes = get<uleb>(io).value;
 
         symtab.strings.clear();
         symtab.strtab.clear();
@@ -837,6 +854,7 @@ void compactingRelocator(AssemblyView& linked, vec<Reloc, 16>& relocs) {
                 case CODE_SECTION: base = (iptr)linked.code; break;
                 case DATA_SECTION: base = (iptr)linked.data; break;
                 case STATIC_SECTION: base = (iptr)linked.stat; break;
+                case STATIC_UNINIT_SECTION: unreachable("Shouldn't be compacting reloc against an uninitialized static.");
             }
             iptr reloc = base + ref.offset;
             iptr sym;
@@ -921,13 +939,14 @@ void compactingRelocator(AssemblyView& linked, vec<Reloc, 16>& relocs) {
 RelocationFunction relocatorFor(Arch arch, OS os);
 
 struct Offsets {
-    u32 code, data, stat;
+    u32 code, data, stat, uninit;
 
     inline u32& offset(Section s) {
         switch (s) {
             case CODE_SECTION: return code;
             case DATA_SECTION: return data;
             case STATIC_SECTION: return stat;
+            case STATIC_UNINIT_SECTION: return uninit;
         }
     }
 };
@@ -949,6 +968,7 @@ inline Offsets joinAssembly(Assembly& dest, Offsets offsets, const Assembly& src
     offsets.code += src.code.size();
     offsets.data += src.data.size();
     offsets.stat += src.stat.size();
+    offsets.uninit += src.uninitBytes;
     return offsets;
 }
 
@@ -973,7 +993,7 @@ inline void joinWithOffsets(Assembly& dest, Offsets offsets, const Assembly& src
 
 template<typename... Args>
 inline void join(Assembly& dest, const Args&... args) {
-    joinWithOffsets(dest, { (u32)dest.code.size(), (u32)dest.data.size(), (u32)dest.stat.size() }, args...);
+    joinWithOffsets(dest, { (u32)dest.code.size(), (u32)dest.data.size(), (u32)dest.stat.size(), (u32)dest.uninitBytes }, args...);
 }
 
 enum Condition {

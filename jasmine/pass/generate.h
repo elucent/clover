@@ -846,11 +846,9 @@ namespace jasmine {
             generateDataValue(mod, as, stat, v, some<DefInfo>(STATIC_SECTION, k));
         for (const auto& [k, v] : mod->values.staticUninitDefs) {
             auto r = repr(v);
-            while (stat.size() % r.alignment())
-                stat.write<i8>(0);
-            as.def(STATIC_SECTION, DEF_GLOBAL, Label::fromSym(k));
-            for (u32 i = 0; i < r.size(); i ++)
-                stat.write<i8>(0);
+            as.alignUninit(r.alignment());
+            as.def(STATIC_UNINIT_SECTION, DEF_GLOBAL, Label::fromSym(k));
+            as.reserveUninit(r.size());
         }
         for (const auto& [k, v] : mod->values.dataDefs)
             generateDataValue(mod, as, data, v, some<DefInfo>(DATA_SECTION, k));

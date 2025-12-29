@@ -654,6 +654,8 @@ JASMINE_EXPORT void jasmine_destroy_assembly(JasmineAssembly assembly) {
 JASMINE_EXPORT void jasmine_write_relocatable_elf_object(JasmineAssembly assembly, const char* path, size_t path_length) {
     auto f = file::openbuf({ path, (iword)path_length }, file::WRITE);
     auto as = (Assembly*)assembly.handle;
+    // TODO: Figure out what's breaking the compacting relocator here.
+    as->linkInternally(Assembly::defaultRelocator);
     as->writeELFObject(f);
     file::closebuf(f);
 }

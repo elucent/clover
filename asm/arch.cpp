@@ -3,6 +3,7 @@
 #include "util/io.h"
 #include "util/hash.h"
 #include "util/math.h"
+#include "util/bits.h"
 
 void LinkedAssembly::load() {
     auto pagesize = memory::pagesize();
@@ -144,6 +145,7 @@ void Assembly::defaultRelocator(AssemblyView& view, vec<Reloc, 16>& relocs) {
             case CODE_SECTION: base = (iptr)view.code; break;
             case DATA_SECTION: base = (iptr)view.data; break;
             case STATIC_SECTION: base = (iptr)view.stat; break;
+            case STATIC_UNINIT_SECTION: unreachable("Shouldn't be compacting reloc against an uninitialized static.");
         }
         iptr reloc = base + ref.offset;
         iptr sym;
@@ -212,7 +214,8 @@ void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
     u64 pagesize = memory::pagesize();
     u64 datastart = codestart + roundUpToNearest<u64>(code.size(), pagesize);
     u64 staticstart = datastart + roundUpToNearest<u64>(data.size(), pagesize);
-    u64 totalsize = staticstart + roundUpToNearest<u64>(stat.size(), pagesize);
+    u64 staticuninitstart = staticstart + roundUpToNearest<u64>(stat.size(), pagesize);
+    u64 totalsize = staticuninitstart + roundUpToNearest<u64>(uninitBytes, pagesize);
 
     linked.codesize = code.size();
     linked.datasize = data.size();
@@ -227,12 +230,13 @@ void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
     data.read(linked.data, data.size());
     stat.read(linked.stat, stat.size());
 
-    for (const Def& def : defs) {
+    for (Def& def : defs) {
         iptr base;
         switch (def.section) {
             case CODE_SECTION: base = (iptr)linked.code; break;
             case DATA_SECTION: base = (iptr)linked.data; break;
             case STATIC_SECTION: base = (iptr)linked.stat; break;
+            case STATIC_UNINIT_SECTION: def.section = STATIC_SECTION, def.offset += roundUpToNearest<u64>(stat.size(), pagesize), base = (iptr)linked.stat; break;
         }
         if (def.hasSym)
             linked.defmap.put(def.sym, linked.defs.size());
@@ -353,13 +357,13 @@ void Assembly::writeELFObject(fd file) {
     // onto it as we generate subsequent sections.
 
     bytebuf sectionHeaderTable;
-    sectionHeaderTable.reserve(640); // It should be 640 bytes exactly at this point.
+    sectionHeaderTable.reserve(704); // It should be 640 bytes exactly at this point.
 
-    constexpr u32 SHT_NULL = 0, SHT_PROGBITS = 1, SHT_SYMTAB = 2, SHT_STRTAB = 3, SHT_RELA = 4, SHT_REL = 9;
+    constexpr u32 SHT_NULL = 0, SHT_PROGBITS = 1, SHT_SYMTAB = 2, SHT_STRTAB = 3, SHT_RELA = 4, SHT_NOBITS = 8, SHT_REL = 9;
     constexpr u32 SHF_WRITE = 1, SHF_ALLOC = 2, SHF_EXECINSTR = 4, SHF_MERGE = 16, SHF_STRINGS = 32, SHF_INFO_LINK = 64, SHF_TLS = 1024;
     constexpr u32 SHN_UNDEF = 0;
 
-    constexpr u32 offsetOfFirstSection = 64 + 10 * 64; // e_ehsize + e_shnum * e_shentsize
+    constexpr u32 offsetOfFirstSection = 64 + 11 * 64; // e_ehsize + e_shnum * e_shentsize
 
     // Null section
 
@@ -390,6 +394,8 @@ void Assembly::writeELFObject(fd file) {
     sectionHeaderStringTable.write(".rodata", 8);
     u32 staticSectionNameOffset = sectionHeaderStringTable.size();
     sectionHeaderStringTable.write(".data", 6);
+    u32 bssSectionNameOffset = sectionHeaderStringTable.size();
+    sectionHeaderStringTable.write(".bss", 5);
     u32 stringTableNameOffset = sectionHeaderStringTable.size();
     sectionHeaderStringTable.write(".strtab", 8);
     u32 symbolTableNameOffset = sectionHeaderStringTable.size();
@@ -486,6 +492,23 @@ void Assembly::writeELFObject(fd file) {
     sectionHeaderTable.writeLEUnchecked<u64>(0); // sh_entsize : u64 = 0 (we don't have any entries with regular size)
     assert(sectionHeaderTable.size() == 320);
 
+    // BSS section
+    u32 bssSectionOffset = staticSectionOffset + staticSection.size();
+    assert(bssSectionOffset % 64 == 0);
+
+    // Note we don't actually emit any data for the .bss section.
+    sectionHeaderTable.writeLEUnchecked<u32>(bssSectionNameOffset); // sh_name : u32 (.data in the section header string table)
+    sectionHeaderTable.writeLEUnchecked<u32>(SHT_NOBITS); // sh_type : u32 = SHT_NOBITS (bss data is uninitialized data)
+    sectionHeaderTable.writeLEUnchecked<u64>(SHF_WRITE | SHF_ALLOC); // sh_flags : u64 (must be allocated and writable, but not executable)
+    sectionHeaderTable.writeLEUnchecked<uptr>(0); // sh_addr : uptr = 0 (we're relocatable; someone will fill this in later)
+    sectionHeaderTable.writeLEUnchecked<u64>(bssSectionOffset); // sh_offset : u64 (text comes after the section header table)
+    sectionHeaderTable.writeLEUnchecked<u64>(roundUpToNearest<u64>(uninitBytes, 16)); // sh_size : u64
+    sectionHeaderTable.writeLEUnchecked<u32>(SHN_UNDEF); // sh_link : u32 = 0
+    sectionHeaderTable.writeLEUnchecked<u32>(0); // sh_info : u32 = 0
+    sectionHeaderTable.writeLEUnchecked<u64>(16); // sh_addralign : u64 = 16 (minimal data alignment requirement)
+    sectionHeaderTable.writeLEUnchecked<u64>(0); // sh_entsize : u64 = 0 (we don't have any entries with regular size)
+    assert(sectionHeaderTable.size() == 384);
+
     // String table
 
     bytebuf stringTable;
@@ -535,7 +558,7 @@ void Assembly::writeELFObject(fd file) {
     sectionHeaderTable.writeLEUnchecked<u32>(0); // sh_info : u32 = 0
     sectionHeaderTable.writeLEUnchecked<u64>(0); // sh_addralign : u64 = 0 (we don't care about alignment)
     sectionHeaderTable.writeLEUnchecked<u64>(0); // sh_entsize : u64 = 0 (we don't have any entries with regular size)
-    assert(sectionHeaderTable.size() == 384);
+    assert(sectionHeaderTable.size() == 448);
 
     // Symbol table
 
@@ -576,6 +599,7 @@ void Assembly::writeELFObject(fd file) {
             case CODE_SECTION: shndx = 2; break; // .text
             case DATA_SECTION: shndx = 3; break; // .rodata
             case STATIC_SECTION: shndx = 4; break; // .data
+            case STATIC_UNINIT_SECTION: shndx = 5; break; // .bss
             default:
                 unreachable("Shouldn't be able to define a symbol in any other section.");
         }
@@ -605,11 +629,11 @@ void Assembly::writeELFObject(fd file) {
     sectionHeaderTable.writeLEUnchecked<uptr>(0); // sh_addr : uptr = 0 (we're relocatable; someone will fill this in later)
     sectionHeaderTable.writeLEUnchecked<u64>(symbolTableOffset); // sh_offset : u64 (text comes after the section header table)
     sectionHeaderTable.writeLEUnchecked<u64>(24 * (symbolInfo.size() + 1)); // sh_size : u64
-    sectionHeaderTable.writeLEUnchecked<u32>(5); // sh_link : u32 = 5 (.strtab)
+    sectionHeaderTable.writeLEUnchecked<u32>(6); // sh_link : u32 = 6 (.strtab)
     sectionHeaderTable.writeLEUnchecked<u32>(firstGlobalSymbol); // sh_info : u32 = 2 (currently all symbols but the first are global; in the future this should be used to delineate local symbols)
     sectionHeaderTable.writeLEUnchecked<u64>(0); // sh_addralign : u64 = 8 (minimum alignment for entry type)
     sectionHeaderTable.writeLEUnchecked<u64>(24); // sh_entsize : u64 = 24 (size of each symbol entry)
-    assert(sectionHeaderTable.size() == 448);
+    assert(sectionHeaderTable.size() == 512);
 
     // Relocation tables
 
@@ -669,11 +693,11 @@ void Assembly::writeELFObject(fd file) {
     sectionHeaderTable.writeLEUnchecked<uptr>(0); // sh_addr : uptr = 0 (we're relocatable; someone will fill this in later)
     sectionHeaderTable.writeLEUnchecked<u64>(textRelocationTableOffset); // sh_offset : u64
     sectionHeaderTable.writeLEUnchecked<u64>(24 * numTextRelocs); // sh_size : u64
-    sectionHeaderTable.writeLEUnchecked<u32>(6); // sh_link : u32 = 6 (.symtab)
+    sectionHeaderTable.writeLEUnchecked<u32>(7); // sh_link : u32 = 7 (.symtab)
     sectionHeaderTable.writeLEUnchecked<u32>(2); // sh_info : u32 = 2 (relocations apply to .text section)
     sectionHeaderTable.writeLEUnchecked<u64>(0); // sh_addralign : u64 = 8 (minimum alignment for relocation type)
     sectionHeaderTable.writeLEUnchecked<u64>(24); // sh_entsize : u64 = 24 (size of each relocation entry)
-    assert(sectionHeaderTable.size() == 512);
+    assert(sectionHeaderTable.size() == 576);
 
     sectionHeaderTable.writeLEUnchecked<u32>(dataRelocationTableNameOffset); // sh_name : u32 (.rela.rodata in the section header string table)
     sectionHeaderTable.writeLEUnchecked<u32>(SHT_RELA); // sh_type : u32 = SHT_RELA
@@ -681,11 +705,11 @@ void Assembly::writeELFObject(fd file) {
     sectionHeaderTable.writeLEUnchecked<uptr>(0); // sh_addr : uptr = 0 (we're relocatable; someone will fill this in later)
     sectionHeaderTable.writeLEUnchecked<u64>(dataRelocationTableOffset); // sh_offset : u64
     sectionHeaderTable.writeLEUnchecked<u64>(24 * numDataRelocs); // sh_size : u64
-    sectionHeaderTable.writeLEUnchecked<u32>(6); // sh_link : u32 = 6 (.symtab)
+    sectionHeaderTable.writeLEUnchecked<u32>(7); // sh_link : u32 = 7 (.symtab)
     sectionHeaderTable.writeLEUnchecked<u32>(3); // sh_info : u32 = 3 (relocations apply to .rodata section)
     sectionHeaderTable.writeLEUnchecked<u64>(0); // sh_addralign : u64 = 8 (minimum alignment for relocation type)
     sectionHeaderTable.writeLEUnchecked<u64>(24); // sh_entsize : u64 = 24 (size of each relocation entry)
-    assert(sectionHeaderTable.size() == 576);
+    assert(sectionHeaderTable.size() == 640);
 
     sectionHeaderTable.writeLEUnchecked<u32>(staticRelocationTableNameOffset); // sh_name : u32 (.rela.data in the section header string table)
     sectionHeaderTable.writeLEUnchecked<u32>(SHT_RELA); // sh_type : u32 = SHT_RELA
@@ -693,11 +717,11 @@ void Assembly::writeELFObject(fd file) {
     sectionHeaderTable.writeLEUnchecked<uptr>(0); // sh_addr : uptr = 0 (we're relocatable; someone will fill this in later)
     sectionHeaderTable.writeLEUnchecked<u64>(staticRelocationTableOffset); // sh_offset : u64
     sectionHeaderTable.writeLEUnchecked<u64>(24 * numStaticRelocs); // sh_size : u64
-    sectionHeaderTable.writeLEUnchecked<u32>(6); // sh_link : u32 = 6 (.symtab)
-    sectionHeaderTable.writeLEUnchecked<u32>(4); // sh_info : u32 = 2 (relocations apply to .data section)
+    sectionHeaderTable.writeLEUnchecked<u32>(7); // sh_link : u32 = 7 (.symtab)
+    sectionHeaderTable.writeLEUnchecked<u32>(4); // sh_info : u32 = 4 (relocations apply to .data section)
     sectionHeaderTable.writeLEUnchecked<u64>(0); // sh_addralign : u64 = 8 (minimum alignment for relocation type)
     sectionHeaderTable.writeLEUnchecked<u64>(24); // sh_entsize : u64 = 24 (size of each relocation entry)
-    assert(sectionHeaderTable.size() == 640);
+    assert(sectionHeaderTable.size() == 704);
 
     write(file, objectHeader);
     write(file, sectionHeaderTable);
