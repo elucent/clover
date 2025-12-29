@@ -842,6 +842,7 @@ namespace jasmine {
         using BlockFrequency = vec<u8>;
         PassBound<BlockFrequency, IRTrait::FREQUENCY> blockFrequency;
         u32 passCount = 0;
+        void* cachedRegalloc = nullptr;
         bool rulesInited = false;
 
         inline PassContext():

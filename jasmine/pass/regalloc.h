@@ -507,9 +507,9 @@ namespace jasmine {
     template<typename Target>
     struct SinglePassRegisterAllocator {
         TargetSpecificPasses<Target>* passes;
-        PassContext& ctx;
-        Function& fn;
-        Pins& pins;
+        PassContext* ctx;
+        Function* fn;
+        Pins* pins;
         Operand returnOperand;
         Operand magicTag;
 
@@ -532,17 +532,20 @@ namespace jasmine {
         vec<vec<pair<BlockIndex, NodeIndex>, 4>, 32> dominatingDefs;
 
         void computeDominatingDefs() {
-            const auto& dominators = *ctx.dominators;
+            const auto& dominators = *ctx->dominators;
 
-            fn.scheduleInPostorder(postorder);
+            postorder.clear();
+            fn->scheduleInPostorder(postorder);
 
-            for (const auto& param : fn.parameters) {
+            for (const auto& param : fn->parameters) {
                 assert(param.operand.kind == Operand::Var); // Later, we'll store regalloc hints here. But we shouldn't yet.
-                dominatingDefs[param.operand.var].push({ fn.entrypoint, 0 });
+                dominatingDefs[param.operand.var].push({ fn->entrypoint, 0 });
             }
 
-            const auto& clobbers = *ctx.clobberList;
-            for (BlockIndex b : reversed(postorder)) for (auto [i, n] : enumerate(fn.block(b).nodes())) {
+            allClobbers = {};
+
+            const auto& clobbers = *ctx->clobberList;
+            for (BlockIndex b : reversed(postorder)) for (auto [i, n] : enumerate(fn->block(b).nodes())) {
                 allClobbers |= clobbers[n.index()];
                 if (hasDef(n.opcode())) {
                     Operand def = n.def(0);
@@ -576,8 +579,8 @@ namespace jasmine {
                 for (const auto& [i, defs] : enumerate(dominatingDefs)) {
                     if (!defs.size())
                         continue;
-                    println("[ALLOC]\tDominating defs of variable ", OperandLogger { fn, fn.variableById(i) }, " are: ");
-                    for (auto e : defs) println("[ALLOC]\t - ", fn.block(e.first).node(e.second), " in .bb", e.first);
+                    println("[ALLOC]\tDominating defs of variable ", OperandLogger { *fn, fn->variableById(i) }, " are: ");
+                    for (auto e : defs) println("[ALLOC]\t - ", fn->block(e.first).node(e.second), " in .bb", e.first);
                 }
             }
 
@@ -587,15 +590,15 @@ namespace jasmine {
                         assert(e.first == o.first || !dominators[e.first].dominates(o.first));
                 }
 
-                for (const auto& param : fn.parameters) {
+                for (const auto& param : fn->parameters) {
                     assert(dominatingDefs[param.operand.var].size() == 1);
-                    assert(dominatingDefs[param.operand.var][0].first == fn.entrypoint);
+                    assert(dominatingDefs[param.operand.var][0].first == fn->entrypoint);
                     assert(dominatingDefs[param.operand.var][0].second == 0);
                 }
             #endif
 
             for (u32 k = 0; k < 2; k ++) for (BlockIndex bi : postorder) {
-                Block block = fn.block(bi);
+                Block block = fn->block(bi);
                 for (Edge pred : block.predecessors())
                     liveIn[bi] |= liveIn[pred.srcIndex()];
                 liveIn[bi] |= gen[bi];
@@ -623,30 +626,30 @@ namespace jasmine {
         vec<Operand, 32> variableSlots;
 
         Operand slotForEdge(i32 edge) {
-            auto& allocations = *ctx.allocations;
+            auto& allocations = *ctx->allocations;
             if (allocations.edgeAllocations[edge].kind == Operand::Invalid) {
                 Repr repr = passes->repr(U64);
                 while (allocations.stack % repr.alignment())
                     allocations.stack ++;
                 allocations.stack += repr.size();
-                allocations.edgeAllocations[edge] = fn.memory(Target::fp, -allocations.stack);
+                allocations.edgeAllocations[edge] = fn->memory(Target::fp, -allocations.stack);
                 if UNLIKELY(config::verboseRegalloc)
-                    println("[ALLOC]\tReserved stack slot ", OperandLogger { fn, allocations.edgeAllocations[edge] }, " for edge .bb", fn.edge(edge).srcIndex(), " -> .bb", fn.edge(edge).destIndex());
+                    println("[ALLOC]\tReserved stack slot ", OperandLogger { *fn, allocations.edgeAllocations[edge] }, " for edge .bb", fn->edge(edge).srcIndex(), " -> .bb", fn->edge(edge).destIndex());
             }
             return allocations.edgeAllocations[edge];
         }
 
         Operand slotFor(i32 var) {
             if (variableSlots[var].kind == Operand::Invalid) {
-                auto& allocations = *ctx.allocations;
-                TypeIndex type = fn.variableList[var].type;
+                auto& allocations = *ctx->allocations;
+                TypeIndex type = fn->variableList[var].type;
                 Repr repr = passes->repr(type);
                 while (allocations.stack % repr.alignment())
                     allocations.stack ++;
                 allocations.stack += repr.size();
-                variableSlots[var] = fn.memory(Target::fp, -allocations.stack);
+                variableSlots[var] = fn->memory(Target::fp, -allocations.stack);
                 if UNLIKELY(config::verboseRegalloc)
-                    println("[ALLOC]\tReserved stack slot ", OperandLogger { fn, variableSlots[var] }, " for variable ", OperandLogger { fn, fn.variableById(var) });
+                    println("[ALLOC]\tReserved stack slot ", OperandLogger { *fn, variableSlots[var] }, " for variable ", OperandLogger { *fn, fn->variableById(var) });
             }
             return variableSlots[var];
         }
@@ -661,14 +664,14 @@ namespace jasmine {
             // Since we allocate in reverse, evicting a variable means emitting
             // a load, after the instruction that caused it to be evicted.
 
-            fn.addInsertion(block, indexInBlock + 1, Function::Late);
+            fn->addInsertion(block, indexInBlock + 1, Function::Late);
             Operand slot = slotFor(var);
-            fn.addNodeToInsertion(fn.addNode(Opcode::LOAD, fn.variableList[var].type, variableLocations[var], slot, magicTag));
+            fn->addNodeToInsertion(fn->addNode(Opcode::LOAD, fn->variableList[var].type, variableLocations[var], slot, magicTag));
             variableLocations[var] = slot;
             liveInSlot.on(var);
 
             if UNLIKELY(config::verboseRegalloc)
-                println("[ALLOC]\tEvicted variable ", OperandLogger { fn, fn.variableById(var) }, " from register ", OperandLogger { fn, loc }, " to its canonical slot ", OperandLogger { fn, variableLocations[var] });
+                println("[ALLOC]\tEvicted variable ", OperandLogger { *fn, fn->variableById(var) }, " from register ", OperandLogger { *fn, loc }, " to its canonical slot ", OperandLogger { *fn, variableLocations[var] });
         }
 
         void evictGp(Block block, u32 indexInBlock, RegSet exclude) {
@@ -706,7 +709,7 @@ namespace jasmine {
             else
                 result = available.next();
             if (Target::callee_saved_gps()[result])
-                ctx.allocations->calleeSaves.add(result);
+                ctx->allocations->calleeSaves.add(result);
             assert(freeRegs[result]);
             assert(regBindings[(u32)result] == -1);
             return result;
@@ -727,7 +730,7 @@ namespace jasmine {
             else
                 result = available.next();
             if (Target::callee_saved_fps()[result])
-                ctx.allocations->calleeSaves.add(result);
+                ctx->allocations->calleeSaves.add(result);
             assert(freeRegs[result]);
             assert(regBindings[(u32)result] == -1);
             return result;
@@ -742,16 +745,16 @@ namespace jasmine {
 
             // We rebound the variable, now we just need to figure out what
             // kind of move to generate.
-            fn.addInsertion(block, indexInBlock + 1, Function::Late);
+            fn->addInsertion(block, indexInBlock + 1, Function::Late);
 
             // Again, because we generate in reverse, the "previous" location
             // is the location of the value after the current instruction. So
             // we actually need to move from our new location to that.
-            TypeIndex type = fn.variableList[var].type;
+            TypeIndex type = fn->variableList[var].type;
             if (loc.kind == Operand::Memory)
-                fn.addNodeToInsertion(fn.addNode(Opcode::STORE, type, previousLoc, loc, magicTag));
+                fn->addNodeToInsertion(fn->addNode(Opcode::STORE, type, previousLoc, loc, magicTag));
             else
-                fn.addNodeToInsertion(fn.addNode(Opcode::MOV, type, previousLoc, loc));
+                fn->addNodeToInsertion(fn->addNode(Opcode::MOV, type, previousLoc, loc));
         }
 
         void unbind(i32 var) {
@@ -761,16 +764,16 @@ namespace jasmine {
                 assert(!freeRegs[reg]);
 
                 if UNLIKELY(config::verboseRegalloc)
-                    println("[ALLOC]\tUnbound variable ", OperandLogger { fn, fn.variableById(var) }, " from register ", OperandLogger { fn, variableLocations[var] });
+                    println("[ALLOC]\tUnbound variable ", OperandLogger { *fn, fn->variableById(var) }, " from register ", OperandLogger { *fn, variableLocations[var] });
 
                 regBindings[(u32)reg] = -1;
                 freeRegs.add(reg);
             } else if (variableLocations[var].kind == Operand::Memory) {
                 liveInSlot.off(var);
                 if UNLIKELY(config::verboseRegalloc)
-                    println("[ALLOC]\tUnbound variable ", OperandLogger { fn, fn.variableById(var) }, " from stack slot ", OperandLogger { fn, variableLocations[var] });
+                    println("[ALLOC]\tUnbound variable ", OperandLogger { *fn, fn->variableById(var) }, " from stack slot ", OperandLogger { *fn, variableLocations[var] });
             }
-            variableLocations[var] = fn.invalid();
+            variableLocations[var] = fn->invalid();
         }
 
         Operand tryAllocate(Block block, u32 indexInBlock, i32 var, RegSet exclude, RegSet preferred = RegSet()) {
@@ -778,23 +781,23 @@ namespace jasmine {
         }
 
         Operand allocate(Block block, u32 indexInBlock, i32 var, RegSet exclude, RegSet preferred = RegSet(), bool mayFail = false) {
-            auto& allocations = *ctx.allocations;
+            auto& allocations = *ctx->allocations;
 
             if (variableLocations[var].isReg())
                 return variableLocations[var];
 
-            TypeIndex type = fn.variableList[var].type;
+            TypeIndex type = fn->variableList[var].type;
 
-            if (variableLocations[var].kind == Operand::Memory && (pins.isPinned(var) || (!isFPType(type) && !isGPType(fn, type))))
+            if (variableLocations[var].kind == Operand::Memory && (pins->isPinned(var) || (!isFPType(type) && !isGPType(*fn, type))))
                 return variableLocations[var];
 
-            if (!pins.isPinned(var)) {
+            if (!pins->isPinned(var)) {
                 if (isFPType(type)) {
                     if (mayFail && (freeRegs & validFps & ~exclude).empty()) {
                         liveInSlot.on(var);
                         variableLocations[var] = slotFor(var);
                         if UNLIKELY(config::verboseRegalloc)
-                            println("[ALLOC]\tAllocated variable ", OperandLogger { fn, fn.variableById(var) }, " to stack slot ", OperandLogger { fn, variableLocations[var] });
+                            println("[ALLOC]\tAllocated variable ", OperandLogger { *fn, fn->variableById(var) }, " to stack slot ", OperandLogger { *fn, variableLocations[var] });
                         return variableLocations[var];
                     }
 
@@ -808,24 +811,24 @@ namespace jasmine {
                         // it's live for any backedges. In either case, we need
                         // to ensure it ends up in its slot after this
                         // instruction.
-                        fn.addInsertion(block, indexInBlock + 1, Function::Early);
-                        fn.addNodeToInsertion(fn.addNode(Opcode::STORE, type, variableLocations[var], fn.fp(reg), magicTag));
+                        fn->addInsertion(block, indexInBlock + 1, Function::Early);
+                        fn->addNodeToInsertion(fn->addNode(Opcode::STORE, type, variableLocations[var], fn->fp(reg), magicTag));
                     }
 
-                    variableLocations[var] = fn.fp(reg);
+                    variableLocations[var] = fn->fp(reg);
                     freeRegs.remove(reg);
                     regBindings[(u32)reg] = var;
 
                     if UNLIKELY(config::verboseRegalloc)
-                        println("[ALLOC]\tAllocated variable ", OperandLogger { fn, fn.variableById(var) }, " to register ", OperandLogger { fn, variableLocations[var] });
+                        println("[ALLOC]\tAllocated variable ", OperandLogger { *fn, fn->variableById(var) }, " to register ", OperandLogger { *fn, variableLocations[var] });
 
                     return variableLocations[var];
-                } else if (isGPType(fn, type)) {
+                } else if (isGPType(*fn, type)) {
                     if (mayFail && (freeRegs & validGps & ~exclude).empty()) {
                         liveInSlot.on(var);
                         variableLocations[var] = slotFor(var);
                         if UNLIKELY(config::verboseRegalloc)
-                            println("[ALLOC]\tAllocated variable ", OperandLogger { fn, fn.variableById(var) }, " to stack slot ", OperandLogger { fn, variableLocations[var] });
+                            println("[ALLOC]\tAllocated variable ", OperandLogger { *fn, fn->variableById(var) }, " to stack slot ", OperandLogger { *fn, variableLocations[var] });
                         return variableLocations[var];
                     }
 
@@ -833,16 +836,16 @@ namespace jasmine {
 
                     if (variableLocations[var].kind == Operand::Memory) {
                         // Ditto for gp types.
-                        fn.addInsertion(block, indexInBlock + 1, Function::Early);
-                        fn.addNodeToInsertion(fn.addNode(Opcode::STORE, type, variableLocations[var], fn.gp(reg), magicTag));
+                        fn->addInsertion(block, indexInBlock + 1, Function::Early);
+                        fn->addNodeToInsertion(fn->addNode(Opcode::STORE, type, variableLocations[var], fn->gp(reg), magicTag));
                     }
 
-                    variableLocations[var] = fn.gp(reg);
+                    variableLocations[var] = fn->gp(reg);
                     freeRegs.remove(reg);
                     regBindings[(u32)reg] = var;
 
                     if UNLIKELY(config::verboseRegalloc)
-                        println("[ALLOC]\tAllocated variable ", OperandLogger { fn, fn.variableById(var) }, " to register ", OperandLogger { fn, variableLocations[var] });
+                        println("[ALLOC]\tAllocated variable ", OperandLogger { *fn, fn->variableById(var) }, " to register ", OperandLogger { *fn, variableLocations[var] });
 
                     return variableLocations[var];
                 }
@@ -854,7 +857,7 @@ namespace jasmine {
             variableLocations[var] = slot;
             liveInSlot.on(var);
             if UNLIKELY(config::verboseRegalloc)
-                println("[ALLOC]\tAllocated ", pins.isPinned(var) ? "pinned" : "aggregate", " variable ", OperandLogger { fn, fn.variableById(var) }, " to stack slot ", OperandLogger { fn, variableLocations[var] });
+                println("[ALLOC]\tAllocated ", pins->isPinned(var) ? "pinned" : "aggregate", " variable ", OperandLogger { *fn, fn->variableById(var) }, " to stack slot ", OperandLogger { *fn, variableLocations[var] });
             return variableLocations[var];
         }
 
@@ -903,7 +906,7 @@ namespace jasmine {
             bindings->remainingEdges = block.predecessorIndices().size();
 
             for (i32 i = 0; i < 64; i ++) if (regBindings[i] != -1)
-                bindings->bind(regBindings[i], Target::is_gp(i) ? fn.gp(i) : fn.fp(i));
+                bindings->bind(regBindings[i], Target::is_gp(i) ? fn->gp(i) : fn->fp(i));
 
             bindings->liveInSlot.clear();
             bindings->liveInSlot |= liveInSlot;
@@ -914,12 +917,12 @@ namespace jasmine {
                 for (Binding& binding : bindings->bindings) {
                     if (!first) print(", ");
                     first = false;
-                    print(OperandLogger { fn, fn.variableById(binding.var) }, " = ", OperandLogger { fn, binding.val });
+                    print(OperandLogger { *fn, fn->variableById(binding.var) }, " = ", OperandLogger { *fn, binding.val });
                 }
                 for (i32 var : liveInSlot) {
                     if (!first) print(", ");
                     first = false;
-                    print(OperandLogger { fn, fn.variableById(var) }, " = ", OperandLogger { fn, slotFor(var) });
+                    print(OperandLogger { *fn, fn->variableById(var) }, " = ", OperandLogger { *fn, slotFor(var) });
                 }
                 println();
             }
@@ -938,7 +941,7 @@ namespace jasmine {
         vec<Bindings*, 16> edgeBindings;
 
         void initializeAtBlockTail(Block block) {
-            auto& dominators = *ctx.dominators;
+            auto& dominators = *ctx->dominators;
             vec<pair<EdgeIndex, Binding>> rebinds;
             vec<EdgeIndex, 4> backEdges;
             for (Edge succ : block.successors()) {
@@ -975,7 +978,7 @@ namespace jasmine {
                         rebinds.push({ succ.index(), binding });
                     else if (variableLocations[binding.var].kind == Operand::Invalid) {
                         if UNLIKELY(config::verboseRegalloc)
-                            println("[ALLOC]\tSet location of variable ", OperandLogger { fn, fn.variableById(binding.var) }, " to incoming value ", OperandLogger { fn, binding.val }, " from block .bb", succ.destIndex());
+                            println("[ALLOC]\tSet location of variable ", OperandLogger { *fn, fn->variableById(binding.var) }, " to incoming value ", OperandLogger { *fn, binding.val }, " from block .bb", succ.destIndex());
                         variableLocations[binding.var] = binding.val;
                         assert(freeRegs[binding.val.gp]);
                         assert(regBindings[(u32)binding.val.gp] == -1);
@@ -983,8 +986,8 @@ namespace jasmine {
                         regBindings[(u32)binding.val.gp] = binding.var;
                     } else if (variableLocations[binding.var] != binding.val) {
                         Operand src = variableLocations[binding.var], dest = binding.val;
-                        TypeIndex type = fn.variableList[binding.var].type;
-                        if (isFunction(fn, type)) // Needed to avoid any compound types in the move.
+                        TypeIndex type = fn->variableList[binding.var].type;
+                        if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
                             type = PTR;
                         if (src.isReg())
                             src.regType = type;
@@ -996,15 +999,15 @@ namespace jasmine {
                 for (i32 var : bindings->liveInSlot) {
                     if (variableLocations[var].isReg()) {
                         Operand src = variableLocations[var], dest = slotFor(var);
-                        TypeIndex type = fn.variableList[var].type;
-                        if (isFunction(fn, type)) // Needed to avoid any compound types in the move.
+                        TypeIndex type = fn->variableList[var].type;
+                        if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
                             type = PTR;
                         src.regType = type;
                         succ.addMove(src, dest);
                     } else if (variableLocations[var].kind == Operand::Invalid) {
                         variableLocations[var] = slotFor(var), liveInSlot.on(var);
                         if UNLIKELY(config::verboseRegalloc)
-                            println("[ALLOC]\tSet location of variable ", OperandLogger { fn, fn.variableById(var) }, " to incoming value ", OperandLogger { fn, variableLocations[var] }, " from block .bb", succ.destIndex());
+                            println("[ALLOC]\tSet location of variable ", OperandLogger { *fn, fn->variableById(var) }, " to incoming value ", OperandLogger { *fn, variableLocations[var] }, " from block .bb", succ.destIndex());
                     }
                 }
 
@@ -1020,21 +1023,21 @@ namespace jasmine {
                 Operand src = variableLocations[p.second.var], dest = p.second.val;
                 if (src == dest)
                     continue;
-                TypeIndex type = fn.variableList[p.second.var].type;
-                if (isFunction(fn, type)) // Needed to avoid any compound types in the move.
+                TypeIndex type = fn->variableList[p.second.var].type;
+                if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
                     type = PTR;
                 if (src.isReg())
                     src.regType = type;
                 if (dest.isReg())
                     dest.regType = type;
-                fn.edge(p.first).addMove(src, dest);
+                fn->edge(p.first).addMove(src, dest);
             }
 
-            auto& allocations = *ctx.allocations;
+            auto& allocations = *ctx->allocations;
             for (Edge succ : block.successors()) {
                 if (allocations.edgeAllocations[succ.index()].isReg() && !freeRegs[allocations.edgeAllocations[succ.index()].gp]) {
                     if (!(freeRegs & validGps).empty())
-                        allocations.edgeAllocations[succ.index()] = fn.gp((freeRegs & validGps).next());
+                        allocations.edgeAllocations[succ.index()] = fn->gp((freeRegs & validGps).next());
                     else
                         allocations.edgeAllocations[succ.index()] = slotForEdge(succ.index());
                 }
@@ -1048,11 +1051,11 @@ namespace jasmine {
                 // might be live into this point. So we need to guarantee those
                 // variables are allocated to something.
                 for (EdgeIndex ei : backEdges) {
-                    Edge e = fn.edge(ei);
+                    Edge e = fn->edge(ei);
                     for (i32 var : liveIn[e.destIndex()]) {
                         Operand operand = tryAllocate(block, block.nodeIndices().size(), var, RegSet());
                         if UNLIKELY(config::verboseRegalloc)
-                            println("[ALLOC]\tAllocated variable ", OperandLogger { fn, fn.variableById(var) }, " to ", OperandLogger { fn, operand }, " at .bb", block.index(), " since it is live-in to the loop header .bb", e.destIndex());
+                            println("[ALLOC]\tAllocated variable ", OperandLogger { *fn, fn->variableById(var) }, " to ", OperandLogger { *fn, operand }, " at .bb", block.index(), " since it is live-in to the loop header .bb", e.destIndex());
                     }
                 }
 
@@ -1111,8 +1114,8 @@ namespace jasmine {
                     // the whole function.
                     assert(src.kind != Operand::Memory && dest.kind != Operand::Memory);
 
-                    TypeIndex type = fn.variableList[var].type;
-                    if (isFunction(fn, type)) // Needed to avoid any compound types in the move.
+                    TypeIndex type = fn->variableList[var].type;
+                    if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
                         type = PTR;
                     src.regType = type;
                     if (dest.isReg())
@@ -1128,7 +1131,7 @@ namespace jasmine {
         }
 
         SinglePassRegisterAllocator(TargetSpecificPasses<Target>* passes_in, PassContext& ctx_in, Function& fn_in):
-            passes(passes_in), ctx(ctx_in), fn(fn_in), pins(*ctx.pins) {
+            passes(passes_in), ctx(&ctx_in), fn(&fn_in), pins(&*ctx->pins) {
 
             validGps = Target::gps(), validFps = Target::fps();
             freeRegs = validGps | validFps;
@@ -1140,17 +1143,49 @@ namespace jasmine {
             for (u32 i = 0; i < 64; i ++)
                 regBindings[i] = -1;
 
-            edgeBindings.expandTo(fn.edgeList.size(), nullptr);
+            edgeBindings.expandTo(fn->edgeList.size(), nullptr);
 
-            dominatingDefs.expandTo(fn.variableList.size());
-            variableLocations.expandTo(fn.variableList.size(), fn.invalid());
-            variableSlots.expandTo(fn.variableList.size(), fn.invalid());
+            dominatingDefs.expandTo(fn->variableList.size());
+            variableLocations.expandTo(fn->variableList.size(), fn->invalid());
+            variableSlots.expandTo(fn->variableList.size(), fn->invalid());
 
-            gen.expandTo(fn.blockList.size());
-            kill.expandTo(fn.blockList.size());
-            liveIn.expandTo(fn.blockList.size());
+            gen.expandTo(fn->blockList.size());
+            kill.expandTo(fn->blockList.size());
+            liveIn.expandTo(fn->blockList.size());
 
-            magicTag = fn.stringOperand(cstring("magic"));
+            magicTag = fn->stringOperand(cstring("magic"));
+        }
+
+        void reset(Function& fn_in) {
+            fn = &fn_in;
+            pins = &*ctx->pins;
+            freeRegs = validGps | validFps;
+
+            for (u32 i = 0; i < 64; i ++)
+                regBindings[i] = -1;
+
+            edgeBindings.clear();
+            edgeBindings.expandTo(fn->edgeList.size(), nullptr);
+
+            dominatingDefs.clear();
+            dominatingDefs.expandTo(fn->variableList.size());
+
+            variableLocations.clear();
+            variableLocations.expandTo(fn->variableList.size(), fn->invalid());
+
+            variableSlots.clear();
+            variableSlots.expandTo(fn->variableList.size(), fn->invalid());
+
+            liveInSlot.clear();
+
+            gen.clear();
+            gen.expandTo(fn->blockList.size());
+
+            kill.clear();
+            kill.expandTo(fn->blockList.size());
+
+            liveIn.clear();
+            liveIn.expandTo(fn->blockList.size());
         }
 
         ~SinglePassRegisterAllocator() {
@@ -1174,16 +1209,16 @@ namespace jasmine {
             RegSet excludedRegs;
             RegSet availableScratches = reversedValidGps;
 
-            auto& allocations = *ctx.allocations;
+            auto& allocations = *ctx->allocations;
 
-            for (u32 k = 0; k < (*ctx.scratchesPerNode)[node.index()]; k ++) {
+            for (u32 k = 0; k < (*ctx->scratchesPerNode)[node.index()]; k ++) {
                 bool didAddScratch = false;
                 for (mreg r : availableScratches) if (freeRegs[63 - r]) {
                     allocations.scratchesByInstruction[node.index()].push(63 - r);
                     availableScratches.remove(r);
                     excludedRegs.add(63 - r);
                     if UNLIKELY(config::verboseRegalloc)
-                        println("[ALLOC]\tPicked free scratch register ", OperandLogger { fn, Target::is_gp(63 - r) ? fn.gp(63 - r) : fn.fp(63 - r) }, " for instruction ", node);
+                        println("[ALLOC]\tPicked free scratch register ", OperandLogger { *fn, Target::is_gp(63 - r) ? fn->gp(63 - r) : fn->fp(63 - r) }, " for instruction ", node);
                     didAddScratch = true;
                     break;
                 }
@@ -1200,7 +1235,7 @@ namespace jasmine {
                     assert(regBindings[63 - r] != -1);
                     evict(block, indexInBlock, regBindings[63 - r]);
                     if UNLIKELY(config::verboseRegalloc)
-                        println("[ALLOC]\tPicked occupied scratch register ", OperandLogger { fn, Target::is_gp(63 - r) ? fn.gp(63 - r) : fn.fp(63 - r) }, " for instruction ", node);
+                        println("[ALLOC]\tPicked occupied scratch register ", OperandLogger { *fn, Target::is_gp(63 - r) ? fn->gp(63 - r) : fn->fp(63 - r) }, " for instruction ", node);
                     break;
                 }
             }
@@ -1209,13 +1244,13 @@ namespace jasmine {
             // has clobbers, and there are live variables occupying them, those
             // variables unfortunately need to be globally spilled.
 
-            RegSet clobbers = (*ctx.clobberList)[node.index()];
+            RegSet clobbers = (*ctx->clobberList)[node.index()];
             excludedRegs = excludedRegs | clobbers;
 
             for (mreg r : ~freeRegs & clobbers) {
                 assert(regBindings[(u32)r] != -1);
                 if UNLIKELY(config::verboseRegalloc)
-                    println("[ALLOC]\tReallocating ", OperandLogger { fn, fn.variableById(regBindings[(u32)r]) }, " due to clobbered register ", OperandLogger { fn, fn.gp(r) }, " in instruction ", node);
+                    println("[ALLOC]\tReallocating ", OperandLogger { *fn, fn->variableById(regBindings[(u32)r]) }, " due to clobbered register ", OperandLogger { *fn, fn->gp(r) }, " in instruction ", node);
                 reallocate(block, indexInBlock, regBindings[(u32)r], excludedRegs);
             }
 
@@ -1242,18 +1277,18 @@ namespace jasmine {
 
             CallSite* callSite = nullptr;
             if (node.opcode() == Opcode::CALL || node.opcode() == Opcode::CALL_VOID)
-                callSite = &(*ctx.callSites)[(*ctx.callInsns)[node.index()]];
+                callSite = &(*ctx->callSites)[(*ctx->callInsns)[node.index()]];
 
             // Finally, we allocate the uses.
 
             for (auto [i, use] : enumerate(node.uses())) {
                 if (use.kind == Operand::Var) {
-                    if (fn.variableList[use.var].parameterIndex != -1) {
+                    if (fn->variableList[use.var].parameterIndex != -1) {
                         // If a variable is a parameter, try and hint it to
                         // that register.
-                        auto param = fn.variableList[use.var].parameterIndex;
-                        if (fn.parameters[param].operand.isReg())
-                            preferred.add(fn.parameters[param].operand.gp);
+                        auto param = fn->variableList[use.var].parameterIndex;
+                        if (fn->parameters[param].operand.isReg())
+                            preferred.add(fn->parameters[param].operand.gp);
                     }
                     if (callSite) {
                         u32 startOfArguments = node.opcode() == Opcode::CALL ? 2 : 1;
@@ -1280,15 +1315,15 @@ namespace jasmine {
         }
 
         void allocate() {
-            ctx.require(PINS);
-            ctx.require(CLOBBERS);
-            ctx.require(DOMINATORS);
-            ctx.did(ALLOCATE);
+            ctx->require(PINS);
+            ctx->require(CLOBBERS);
+            ctx->require(DOMINATORS);
+            ctx->did(ALLOCATE);
 
-            auto& allocations = *ctx.allocations;
-            allocations.initialize(ctx, fn, AllocationResult::AllocateInPlace, AllocationResult::PerInstructionScratchRegisters);
+            auto& allocations = *ctx->allocations;
+            allocations.initialize(*ctx, *fn, AllocationResult::AllocateInPlace, AllocationResult::PerInstructionScratchRegisters);
 
-            auto& dominators = *ctx.dominators;
+            auto& dominators = *ctx->dominators;
 
             computeDominatingDefs();
             for (mreg clobber : allClobbers) {
@@ -1300,19 +1335,22 @@ namespace jasmine {
             assert(reversedValidFps.size() >= 3);
 
             void* parameterState = Target::start_placing_parameters();
-            if (fn.returnType != VOID) {
-                auto returnPlacement = passes->placeReturnValue(fn, fn.returnType, parameterState);
-                returnOperand = operandFromPlacement(fn, returnPlacement);
+            returnOperand = fn->invalid();
+            if (fn->returnType != VOID) {
+                auto returnPlacement = passes->placeReturnValue(*fn, fn->returnType, parameterState);
+                returnOperand = operandFromPlacement(*fn, returnPlacement);
             }
-            for (auto& param : fn.parameters) if (!isCompound(param.type) || isFunction(fn, param.type)) {
+            for (auto& param : fn->parameters) if (!isCompound(param.type) || isFunction(*fn, param.type)) {
                 Repr repr = passes->repr(param.type);
                 auto placement = Target::place_scalar_parameter(parameterState, repr);
-                param.operand = operandFromPlacement(fn, placement);
+                param.operand = operandFromPlacement(*fn, placement);
             }
             Target::finish_placing_parameters(parameterState);
 
+            completedBlocks.clear();
+
             deque<BlockIndex> frontier;
-            for (Block block : fn.blocks()) {
+            for (Block block : fn->blocks()) {
                 if (block.successorIndices().size() == 0)
                     frontier.pushl(block.index());
 
@@ -1333,7 +1371,7 @@ namespace jasmine {
             }
 
             while (frontier.size()) {
-                Block block = fn.block(frontier.popr());
+                Block block = fn->block(frontier.popr());
                 if (completedBlocks[block.index()])
                     continue;
 
@@ -1373,27 +1411,27 @@ namespace jasmine {
                             frontier.pushl(pred.srcIndex());
                         }
                         if (!(freeRegs & validGps).empty())
-                            allocations.edgeAllocations[pred.index()] = fn.gp((freeRegs & validGps).next());
+                            allocations.edgeAllocations[pred.index()] = fn->gp((freeRegs & validGps).next());
                         else
                             allocations.edgeAllocations[pred.index()] = slotForEdge(pred.index());
                     }
                     resetAtBlockHead();
-                } else if (block.index() == fn.entrypoint) {
+                } else if (block.index() == fn->entrypoint) {
                     for (i32 i = 0; i < 64; i ++) if (regBindings[i] != -1) {
                         i32 var = regBindings[i];
-                        if (fn.variableList[var].parameterIndex != -1)
-                            fn.parameters[fn.variableList[var].parameterIndex].operand = variableLocations[var];
+                        if (fn->variableList[var].parameterIndex != -1)
+                            fn->parameters[fn->variableList[var].parameterIndex].operand = variableLocations[var];
                     }
-                    for (i32 var : liveInSlot) if (fn.variableList[var].parameterIndex != -1)
-                        fn.parameters[fn.variableList[var].parameterIndex].operand = variableLocations[var];
+                    for (i32 var : liveInSlot) if (fn->variableList[var].parameterIndex != -1)
+                        fn->parameters[fn->variableList[var].parameterIndex].operand = variableLocations[var];
                 }
 
                 completedBlocks.on(block.index());
             }
 
-            fn.executeInsertions();
+            fn->executeInsertions();
 
-            for (u32 i = allocations.scratchesByInstruction.size(); i < fn.nodeList.size(); i ++) {
+            for (u32 i = allocations.scratchesByInstruction.size(); i < fn->nodeList.size(); i ++) {
                 // We may have inserted some loads and stores in the process of
                 // register allocation. These are guaranteed to not need a
                 // scratch reg, but the lowering phase still expects a scratch
@@ -1410,7 +1448,13 @@ namespace jasmine {
         JASMINE_PASS(REGISTER_ALLOCATION);
         switch (mode) {
             case RegisterAllocationMode::SINGLE_PASS:
-                SinglePassRegisterAllocator<Target>(this, ctx, fn).allocate();
+                SinglePassRegisterAllocator<Target>* regalloc;
+                if (ctx.cachedRegalloc) {
+                    regalloc = (SinglePassRegisterAllocator<Target>*)ctx.cachedRegalloc;
+                    regalloc->reset(fn);
+                } else
+                    ctx.cachedRegalloc = regalloc = new SinglePassRegisterAllocator<Target>(this, ctx, fn);
+                regalloc->allocate();
                 break;
             case RegisterAllocationMode::ADVANCED:
                 allocateRegistersAdvanced(ctx, *this, fn, mode);
