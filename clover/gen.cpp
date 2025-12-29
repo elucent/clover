@@ -1003,7 +1003,7 @@ namespace clover {
 
     triple<Type, JasmineOperand, bool> materializeAggregateBase(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand base) {
         bool isPointer = baseType.is<TypeKind::Pointer>();
-        Type aggregateType = isPointer ? expand(baseType.as<TypeKind::Pointer>().elementType()) : baseType;
+        Type aggregateType = isPointer ? expand(baseType.as<TypeKind::Pointer>().elementType()) : expand(baseType);
         if (jasmine_is_static_ref(base)) { // Base is a global, implicitly a pointer.
             if (isPointer) { // Global pointer needs double dereference.
                 JasmineOperand ptr = genCtx.temp();
