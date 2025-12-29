@@ -2266,15 +2266,57 @@ namespace clover {
         u32 rank;
     };
 
+    i64 computeOverloadRank(Function* overload, AST ast, FunctionType funcType, const_slice<TypeIndex> argumentTypes, Type returnType) {
+        TypeSystem* types = returnType.types;
+        u32 rank = 0;
+        u32 arity = funcType.parameterCount();
+        if (!canUnify(funcType.returnType(), returnType, ast))
+            return -1;
+        if (expand(funcType.returnType()) == expand(returnType) && !overload->isGeneric)
+            rank += arity; // Prioritize exact matches.
+        else
+            rank += 1;
+        for (u32 i = 0; i < arity; i ++) {
+            auto argType = types->get(argumentTypes[i]);
+            auto parameterType = funcType.as<TypeKind::Function>().parameterType(i);
+            if (canUnify(argType, parameterType, ast)) {
+                if (expand(argType) == expand(parameterType) && !overload->isGeneric)
+                    rank += arity; // Prioritize exact matches.
+                else
+                    rank += 1;
+            } else if (i == 0 && ast.kind() == ASTKind::CallMethod && expand(argType).is<TypeKind::Pointer>()) {
+                argType = expand(argType).as<TypeKind::Pointer>().elementType();
+                if (!canUnify(argType, parameterType, ast))
+                    return -1;
+                if (expand(argType) == expand(parameterType) && !overload->isGeneric)
+                    rank += arity; // Prioritize exact matches.
+                else
+                    rank += 1;
+            } else
+                return -1;
+        }
+
+        if (!overload->isGeneric)
+            rank *= arity; // Prioritize non-generic functions.
+
+        return rank;
+    }
+
     maybe<TypeIndex> refineOverloadedCall(InferenceContext& ctx, Function* function, AST ast) {
         assert(isOverloadedFunction(function, ast.child(0)));
         Overloads* overloads = ast.module->overloads[ast.child(0).varInfo(function).overloads];
         auto returnType = ast.type();
+        TypeSystem* types = returnType.types;
 
         if UNLIKELY(config::verboseUnify >= 3)
             println("[TYPE]\tRefining overloaded call ", ast);
 
         vec<Overload> possibleFunctions;
+        vec<TypeIndex, 8> argumentTypes;
+        argumentTypes.reserveTo(ast.arity() - 1);
+        for (u32 i = 1; i < ast.arity(); i ++)
+            argumentTypes.pushUnchecked(inferredType(ctx, function, ast.child(i)).index);
+
         Module* module = ast.module;
         u32 arity = ast.arity();
         overloads->forEachFunction([&](Function* overload) {
@@ -2301,38 +2343,14 @@ namespace clover {
             if UNLIKELY(config::verboseUnify >= 3)
                 println("[TYPE]\tConsidering overload with type ", funcType);
 
-            u32 rank = 0;
-            if (!canUnify(funcType.returnType(), returnType, ast))
+            i64 rank = computeOverloadRank(overload, ast, funcType, argumentTypes, returnType);
+            if (rank < 0)
                 return;
-            if (expand(funcType.returnType()) == expand(returnType) && !overload->isGeneric)
-                rank += arity; // Prioritize exact matches.
-            else
-                rank += 1;
-            for (u32 i = 1; i < ast.arity(); i ++) {
-                auto arg = inferredType(ctx, function, ast.child(i));
-                auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
-                if (canUnify(arg, parameterType, ast)) {
-                    if (expand(arg) == expand(parameterType) && !overload->isGeneric)
-                        rank += arity; // Prioritize exact matches.
-                    else
-                        rank += 1;
-                } else if (i == 1 && ast.kind() == ASTKind::CallMethod && arg.is<TypeKind::Pointer>()) {
-                    arg = arg.as<TypeKind::Pointer>().elementType();
-                    if (!canUnify(arg, parameterType, ast))
-                        return;
-                    if (expand(arg) == expand(parameterType) && !overload->isGeneric)
-                        rank += arity; // Prioritize exact matches.
-                    else
-                        rank += 1;
-                } else
-                    return;
-            }
+
             if UNLIKELY(config::verboseUnify >= 3)
                 println("[TYPE]\t - Added matching overload ", type, " with rank ", rank);
-            if (!overload->isGeneric)
-                rank *= arity; // Prioritize non-generic functions.
 
-            possibleFunctions.push({ overload, type.index, rank });
+            possibleFunctions.push({ overload, type.index, (u32)rank });
         });
 
         u32 maxRank = 0;
@@ -2340,8 +2358,62 @@ namespace clover {
             maxRank = max(func.rank, maxRank);
         possibleFunctions.removeIf([=](const Overload& overload) -> bool { return overload.rank != maxRank; });
 
-        if (possibleFunctions.size() > 1)
-            type_error("Overloaded call ", ast, " is ambiguous.");
+        if (possibleFunctions.size() > 1) {
+            // This is getting messy...let's see if we can use some heuristic
+            // to disambiguate the call. We conjure up a concrete type for each
+            // parameter, and see if this changes our rank calculation.
+
+            Type newReturnType = returnType;
+            if (newReturnType.isVar()) {
+                Type newAssignment = expand(canonicalTypeInBounds(types, returnType.asVar().lowerBound(), returnType.asVar().upperBound()));
+                if (newAssignment != Bottom)
+                    newReturnType = newAssignment;
+            }
+
+            vec<TypeIndex, 8> newArgumentTypes;
+            newArgumentTypes.reserveTo(argumentTypes.size());
+            for (TypeIndex ti : argumentTypes) {
+                Type type = types->get(ti);
+                if (type.isVar()) {
+                    Type newAssignment = expand(canonicalTypeInBounds(types, type.asVar().lowerBound(), type.asVar().upperBound()));
+                    if (newAssignment != Bottom)
+                        type = newAssignment;
+                }
+                newArgumentTypes.pushUnchecked(type.index);
+            }
+
+            i64 newMaxRank = -1;
+
+            if UNLIKELY(config::verboseUnify >= 3) {
+                print("Trying second layer overload refinement with resolved function type ");
+                print(newReturnType, '(');
+                for (u32 i = 0; i < newArgumentTypes.size(); i ++) {
+                    if (i > 0)
+                        print(", ");
+                    print(types->get(newArgumentTypes[i]));
+                }
+                println(')');
+                print("Candidates are ");
+                for (const auto& func : possibleFunctions)
+                    print(types->get(func.type), ", ");
+                println();
+            }
+
+            for (auto& func : possibleFunctions) {
+                auto funcType = types->get(func.type).as<TypeKind::Function>();
+                i64 rank = computeOverloadRank(func.function, ast, funcType, newArgumentTypes, newReturnType);
+                if UNLIKELY(config::verboseUnify >= 3)
+                    println("Rank of candidate with type ", funcType, " is ", rank);
+                if (rank > newMaxRank)
+                    newMaxRank = rank;
+                func.rank = rank;
+            }
+            possibleFunctions.removeIf([=](const Overload& overload) -> bool { return overload.rank != maxRank; });
+
+            if (possibleFunctions.size() == 0 || possibleFunctions.size() > 1)
+                type_error("Overloaded call ", ast, " is ambiguous.");
+        }
+
         if (possibleFunctions.size() == 1) {
             Function* candidate = possibleFunctions[0].function;
             if (candidate->isGeneric) {
@@ -3336,6 +3408,7 @@ namespace clover {
         if UNLIKELY(config::printInferredTree)
             module->print(module->compilation), println();
 
+        globalCtx.constraints->clear();
         artifact->update(ArtifactKind::CheckedAST, module);
         return artifact;
     }
