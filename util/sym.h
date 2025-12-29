@@ -86,8 +86,7 @@ struct SymbolTable {
         static u32 nextAnonSym = 0;
 
         slice<i8> buf = { new i8[32], 32 };
-        prints(buf, ".L", nextAnonSym ++);
-        strings.push(buf);
+        strings.push(prints(buf, ".L", nextAnonSym ++));
         return strings.size() - 1;
     }
 
