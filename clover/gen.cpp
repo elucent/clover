@@ -286,7 +286,7 @@ namespace clover {
             Function* function = state.function;
             JasmineFunction outputFunc = state.output;
             if (assembly)
-                jasmine_compile_function_only(*assembly, outputFunc, 0, true);
+                jasmine_compile_function_only(*assembly, outputFunc, module->compilation->optimizationLevel, true);
             locals.shrinkBy(function ? function->locals.size() : 0);
             if (callStack.size() > 0) {
                 jasmine_builder_set_function(builder, callStack.back().output);
