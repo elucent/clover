@@ -2827,14 +2827,14 @@ namespace clover {
 
         JasmineBuilder builder = jasmine_create_builder(output);
         GenerationContext genCtx(builder, module, output);
-        if (optimizationLevel == 0)
+        if (optimizationLevel < 2)
             genCtx.setAssembly(jasmine_create_assembly(output));
         genCtx.enter(nullptr, topLevel);
         jasmine_builder_set_block(builder, topLevelEntrypoint);
         auto result = generate(genCtx, builder, module->getTopLevel(), module->getTopLevel().type());
         jasmine_append_ret_void(builder);
         genCtx.leave();
-        if (optimizationLevel == 0) {
+        if (optimizationLevel < 2) {
             jasmine_compile_module_only(*genCtx.assembly, output, optimizationLevel, true);
             artifact->update(new AssemblyArtifact(artifact, *genCtx.assembly));
             return artifact;
