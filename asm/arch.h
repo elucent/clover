@@ -955,6 +955,7 @@ inline Offsets joinAssembly(Assembly& dest, Offsets offsets, const Assembly& src
     dest.code.write(src.code);
     dest.data.write(src.data);
     dest.stat.write(src.stat);
+    dest.uninitBytes += src.uninitBytes;
     for (Def def : src.defs) {
         def.offset += offsets.offset(def.section);
         def.sym = &dest.symtab == &src.symtab ? def.sym : dest.symtab[src.symtab[def.sym]];

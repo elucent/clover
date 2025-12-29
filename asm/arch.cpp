@@ -252,7 +252,7 @@ void Assembly::linkInto(LinkedAssembly& linked, RelocationFunction relocator) {
 
     linked.codesize = code.size();
     linked.datasize = data.size();
-    linked.statsize = stat.size();
+    linked.statsize = roundUpToNearest<u64>(stat.size(), pagesize) + uninitBytes;
     linked.pages = memory::map(totalsize);
     linked.code = (i8*)linked.pages.data() + codestart;
     linked.data = (i8*)linked.pages.data() + datastart;
