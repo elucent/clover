@@ -323,6 +323,19 @@ struct vec {
         _size = writer - (T*)_data;
     }
 
+    template<typename Func>
+    inline void removeIfIndexed(Func&& func) {
+        T* writer = (T*)_data;
+        T* reader = writer;
+
+        for (u32 i = 0; i < _size; i ++) {
+            if (!func(i, *reader))
+                *writer ++ = *reader;
+            ++ reader;
+        }
+        _size = writer - (T*)_data;
+    }
+
     inline T remove(i32 index) {
         T element = ((T*)_data)[index];
         for (i32 i = index; i < _size + 1; i ++)
