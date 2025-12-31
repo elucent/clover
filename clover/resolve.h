@@ -5,8 +5,7 @@
 #include "clover/ast.h"
 
 namespace clover {
-    bool isTypeExpression(AST ast);
-    bool isTypeDecl(AST ast);
+    bool isTypeExpression(AST ast, MayInstantiateTag);
 
     AST resolveNode(Scope* scope, AST parent, AST ast);
     NOINLINE Artifact* resolveNamesAndTypes(Artifact* artifact);

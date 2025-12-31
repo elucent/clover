@@ -459,7 +459,7 @@ namespace clover {
 
         map<Symbol, Symbol> strings;
 
-        slice<i8> mangleNamedType(slice<i8> target, Scope* scope, Symbol name) {
+        slice<i8> mangleNamedType(slice<i8> target, Scope* scope, Symbol name, TypeSystem* types, const_slice<TypeIndex> typeParameters) {
             while (scope->parent) {
                 if (scope->kind == ScopeKind::Namespace) {
                     Namespace* ns = scope->module->node(scope->owner).child(0).resolvedNamespace();
@@ -475,7 +475,14 @@ namespace clover {
                 }
                 scope = scope->parent;
             }
-            return format(target, scope->module->str(name));
+            target = format(target, scope->module->str(name));
+            if (typeParameters.size()) {
+                target = format(target, '(');
+                for (u32 i = 0; i < typeParameters.size(); i ++)
+                    target = format(target, i > 0 ? ", " : "", types->get(typeParameters[i]));
+                target = format(target, ')');
+            }
+            return target;
         }
 
         slice<i8> mangleType(slice<i8> target, Type type) {
@@ -519,12 +526,21 @@ namespace clover {
                         target = mangleType(target, type.as<TypeKind::Function>().parameterType(i));
                     }
                     return format(target, ")");
-                case TypeKind::Struct:
-                    return mangleNamedType(target, type.as<TypeKind::Struct>().scope(), type.as<TypeKind::Struct>().name());
-                case TypeKind::Named:
-                    return mangleNamedType(target, type.as<TypeKind::Named>().scope(), type.as<TypeKind::Named>().name());
-                case TypeKind::Union:
-                    return mangleNamedType(target, type.as<TypeKind::Union>().scope(), type.as<TypeKind::Union>().name());
+                case TypeKind::Struct: {
+                    vec<TypeIndex> params;
+                    getTypeParameters(params, type);
+                    return mangleNamedType(target, type.as<TypeKind::Struct>().scope(), type.as<TypeKind::Struct>().name(), type.types, params);
+                }
+                case TypeKind::Named: {
+                    vec<TypeIndex> params;
+                    getTypeParameters(params, type);
+                    return mangleNamedType(target, type.as<TypeKind::Named>().scope(), type.as<TypeKind::Named>().name(), type.types, params);
+                }
+                case TypeKind::Union: {
+                    vec<TypeIndex> params;
+                    getTypeParameters(params, type);
+                    return mangleNamedType(target, type.as<TypeKind::Union>().scope(), type.as<TypeKind::Union>().name(), type.types, params);
+                }
                 default:
                     unreachable("Should not be mangling type ", type);
             }
@@ -2416,6 +2432,9 @@ namespace clover {
             case ASTKind::StructCaseDecl:
             case ASTKind::NamedCaseDecl:
             case ASTKind::UnionCaseDecl:
+            case ASTKind::GenericNamedDecl:
+            case ASTKind::GenericStructDecl:
+            case ASTKind::GenericUnionDecl:
                 return JASMINE_INVALID_OPERAND; // Nothing to be done...yet.
 
             case ASTKind::If: {

@@ -985,7 +985,6 @@ add(1, 2)
 }
 
 TEST(typecheck_generic_type_explicit) {
-    return;
     auto instance = TYPECHECK(R"(
 type Box(type T):
     T value
@@ -1000,11 +999,24 @@ b.value
     auto module = instance.artifact->as<Module>();
     auto topLevel = module->getTopLevel();
 
+    auto a = topLevel.child(1);
+    a.setType(expand(a.type()));
+    ASSERT(a.type().is<TypeKind::Struct>());
+    ASSERT(a.type().as<TypeKind::Struct>().isGeneric());
+    ASSERT_TYPE_EQUAL(a.type().as<TypeKind::Struct>().typeParameter(0), module->i32Type());
+
     auto aval = topLevel.child(2);
-    ASSERT_TYPE_EQUAL(aval.type(), module->i32Type());
+    ASSERT_TYPE_EQUAL(aval.type(), module->i64Type());
+
+    auto b = topLevel.child(3);
+    b.setType(expand(b.type()));
+    ASSERT(b.type().is<TypeKind::Struct>());
+    ASSERT(b.type().as<TypeKind::Struct>().isGeneric());
+    ASSERT_TYPE_EQUAL(b.type().as<TypeKind::Struct>().typeParameter(0), module->i8Type());
+    ASSERT_EQUAL(a.type().as<TypeKind::Struct>().genericOriginIndex(), b.type().as<TypeKind::Struct>().genericOriginIndex());
 
     auto bval = topLevel.child(4);
-    ASSERT_TYPE_EQUAL(bval.type(), module->i8Type());
+    ASSERT_TYPE_EQUAL(bval.type(), module->i64Type());
 }
 
 TEST(typecheck_array_least_common_subtype) {

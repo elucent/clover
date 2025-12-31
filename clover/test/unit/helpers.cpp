@@ -31,7 +31,6 @@ bool sameAST(ArtifactKind kind, Function* function, AST a, AST b, ShouldCompareP
                 case ASTKind::Capture:
                 case ASTKind::Const:
                 case ASTKind::Typename:
-                case ASTKind::GenericTypename:
                 case ASTKind::Global:
                 case ASTKind::GlobalTypename:
                     result = a.module->str(a.varInfo(function).name) == b.module->str(b.varInfo(function).name) && result;
@@ -44,6 +43,9 @@ bool sameAST(ArtifactKind kind, Function* function, AST a, AST b, ShouldCompareP
                     break;
                 case ASTKind::ResolvedNamespace:
                     result = a.resolvedNamespace() == b.resolvedNamespace() && result;
+                    break;
+                case ASTKind::ResolvedGenericType:
+                    result = a.genericType() == b.genericType() && result;
                     break;
                 case ASTKind::Wildcard:
                 case ASTKind::Missing:

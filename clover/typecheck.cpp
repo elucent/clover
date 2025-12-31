@@ -1794,6 +1794,15 @@ namespace clover {
                 return fromType(module->voidType());
             }
 
+            case ASTKind::GenericNamedDecl:
+            case ASTKind::GenericStructDecl:
+            case ASTKind::GenericUnionDecl: {
+                // For these, we just return void - currently we assume they
+                // don't have any associated constants.
+                // TODO: Relax this, it should be possible.
+                return fromType(module->voidType());
+            }
+
             case ASTKind::AliasDecl:
             case ASTKind::NamedDecl:
             case ASTKind::NamedCaseDecl:

@@ -35,7 +35,7 @@ namespace clover {
         macro(AnyType, anyType, any, true, 0) \
         macro(Wildcard, wildcard, wildcard, true, 0) /* Used in paths to indicate a glob. */ \
         macro(ResolvedFunction, resolvedFunction, resolved_function, true, 0) /* Encodes function index in symbol. */ \
-        macro(GenericTypename, genericTypename, _, true, 0) /* Encodes generic type index in symbol. */ \
+        macro(ResolvedGenericType, resolvedGenericType, _, true, 0) /* Encodes generic type index in symbol. */ \
         macro(ResolvedNamespace, resolvedNamespace, resolved_namespace, true, 0) /* Encodes namespace index in symbol. */ \
         macro(Missing, missing, missing, true, 0) /* Used to mark missing expressions in nodes where some children are optional. */ \
         \
@@ -151,7 +151,10 @@ namespace clover {
         macro(StructCaseDecl, structCaseDecl, struct_case, false, -1) \
         macro(UnionCaseDecl, unionCaseDecl, union_case, false, -1) \
         macro(KindDecl, kindDecl, kind, false, -1) \
-        macro(GenericTypeDecl, genericTypeDecl, generic_type, false, -1) \
+        macro(GenericStructDecl, genericStructDecl, generic_struct_decl, false, -1) \
+        macro(GenericUnionDecl, genericUnionDecl, generic_union_decl, false, -1) \
+        macro(GenericNamedDecl, genericNamedDecl, generic_named_decl, false, -1) \
+        macro(GenericAliasDecl, genericAliasDecl, generic_alias_decl, false, -1) \
         macro(Namespace, namespace, namespace, false, 2) /* Name Body */ \
         macro(UseModule, useModule, use_module, false, 1) \
         macro(UseLocal, useLocal, use_local, false, 1) \
@@ -281,6 +284,7 @@ namespace clover {
     struct VariableInfo;
     struct Function;
     struct Namespace;
+    struct GenericType;
 
     struct AST {
         static constexpr u32 HeaderSlots = 1;
@@ -316,6 +320,7 @@ namespace clover {
         inline u32 constId() const;
         inline Function* resolvedFunction() const;
         inline Namespace* resolvedNamespace() const;
+        inline GenericType* genericType() const;
         inline f64 floatConst() const;
         inline Symbol stringConst() const;
         inline bool boolConst() const;
@@ -328,6 +333,7 @@ namespace clover {
         inline void setConstId(u32 i);
         inline void setResolvedFunction(Function* function);
         inline void setResolvedNamespace(Namespace* ns);
+        inline void setGenericType(GenericType* genericType);
         inline void setFloatConst(f64 f);
         inline void setStringConst(Symbol s);
         inline void setBoolConst(bool b);
@@ -792,6 +798,7 @@ namespace clover {
         inline Local addConstantIndirect(ScopeIndex scope, u32 constantIndex);
         inline Local addLocalFunction(VariableKind kind, Function* function);
         inline Local addLocalNamespace(Namespace* ns);
+        inline Local addLocalGenericType(GenericType* genericType);
 
         inline Local addLocalImport(VariableKind kind, TypeIndex type, Symbol name) {
             assert(kind != VariableKind::Function);
@@ -882,12 +889,12 @@ namespace clover {
         Module* module;
         u32 index;
         Symbol name;
-        NodeIndex parameterList;
+        NodeIndex decl, parameterList;
         bool isInstantiation = false;
         Scope* parentScope;
 
-        inline GenericType(Module* module_in, u32 index_in, Symbol name_in, NodeIndex parameterList_in, Scope* parentScope_in):
-            module(module_in), index(index_in), name(name_in), parameterList(parameterList_in), parentScope(parentScope_in) {}
+        inline GenericType(Module* module_in, u32 index_in, Symbol name_in, AST decl_in, Scope* parentScope_in):
+            module(module_in), index(index_in), name(name_in), decl(decl_in.node), parameterList(decl_in.child(1).node), parentScope(parentScope_in) {}
 
         union {
             map<SignatureKey, GenericType*>* instantiations = nullptr; // Cache of instantiations of this generic type.
@@ -1074,10 +1081,6 @@ namespace clover {
         return ::hash(u64(node));
     }
 
-    inline u64 hash(Scope* scope) {
-        return ::hash(u64(scope));
-    }
-
     struct Module : public ArtifactData {
         vec<ASTWord, 24> astWords;
         vec<u32, 8> ast;
@@ -1097,6 +1100,7 @@ namespace clover {
         vec<Overloads*, 4> overloads;
         map<Overloads*, u32> importedOverloads;
         vec<GenericType*, 4> genericTypes;
+        map<GenericType*, u32> importedGenericTypes;
         vec<Namespace*, 4> namespaces;
         vec<NodeIndex> constDeclOrder;
         map<Scope*, ScopeIndex> importedScopes;
@@ -1212,8 +1216,7 @@ namespace clover {
         inline AST addLeaf(ASTKind kind, const Local& variable) {
             assert(kind == ASTKind::Local
                 || kind == ASTKind::Const
-                || kind == ASTKind::Typename
-                || kind == ASTKind::GenericTypename);
+                || kind == ASTKind::Typename);
             assert(nodeScopes.size() != 0); // Should only be producing these after scope resolution.
             ASTWord ast;
             ast.kind = kind;
@@ -1310,6 +1313,16 @@ namespace clover {
             return AST(this, ast);
         }
 
+        inline AST addLeaf(ASTKind kind, GenericType* const& genericType) {
+            assert(kind == ASTKind::ResolvedGenericType);
+            ASTWord ast;
+            ast.kind = kind;
+            auto internResult = tryIntern(Constant::UnsignedConst(genericType->index));
+            ast.isInline = internResult.canIntern;
+            ast.constantIndex = internResult.payload;
+            return AST(this, ast);
+        }
+
         template<typename... Args>
         AST addLeaf(ASTKind kind) {
             ASTWord ast;
@@ -1342,6 +1355,8 @@ namespace clover {
         inline u32 computeArity(Function* const&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
         inline u32 computeArity(Namespace* const&, const Args&... args) { return 1 + computeArity(args...); }
+        template<typename... Args>
+        inline u32 computeArity(GenericType* const&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
         inline u32 computeArity(const AST&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename T, u32 N, typename... Args>
@@ -1378,6 +1393,10 @@ namespace clover {
 
         inline void addChild(Function* const& function) {
             astWords.pushUnchecked(addLeaf(ASTKind::ResolvedFunction, function).firstWord());
+        }
+
+        inline void addChild(GenericType* const& genericType) {
+            astWords.pushUnchecked(addLeaf(ASTKind::ResolvedGenericType, genericType).firstWord());
         }
 
         inline void addChild(const Constant& constant) {
@@ -1769,6 +1788,18 @@ namespace clover {
             return it->value;
         }
 
+        inline u32 genericTypeIndex(GenericType* genericType) {
+            if (genericType->module == this)
+                return genericType->index;
+            auto it = importedGenericTypes.find(genericType);
+            if (it == importedGenericTypes.end()) {
+                importedGenericTypes.put(genericType, genericTypes.size());
+                genericTypes.push(genericType);
+                return genericTypes.size() - 1;
+            }
+            return it->value;
+        }
+
         inline Global addGlobalFunction(VariableKind kind, Function* function) {
             assert(kind == VariableKind::Function);
 
@@ -1783,6 +1814,18 @@ namespace clover {
             info.functionIndex = functionIndex(function);
             info.type = function->typeIndex;
             info.name = function->name;
+            globals.push(info);
+            return Global(globals.size() - 1);
+        }
+
+        inline Global addGlobalGenericType(GenericType* genericType) {
+            VariableInfo info;
+            info.kind = VariableKind::GenericType;
+            info.scope = VariableInfo::Global;
+            info.isImport = true;
+            info.genericTypeIndex = genericTypeIndex(genericType);
+            info.type = InvalidType;
+            info.name = genericType->name;
             globals.push(info);
             return Global(globals.size() - 1);
         }
@@ -1905,8 +1948,8 @@ namespace clover {
             return overloads.back();
         }
 
-        inline GenericType* addGenericType(Symbol name, NodeIndex parameterList, Scope* parentScope) {
-            genericTypes.push(new GenericType(this, genericTypes.size(), name, parameterList, parentScope));
+        inline GenericType* addGenericType(Symbol name, AST decl, Scope* parentScope) {
+            genericTypes.push(new GenericType(this, genericTypes.size(), name, decl, parentScope));
             return genericTypes.back();
         }
 
@@ -2047,6 +2090,20 @@ namespace clover {
         return Local(locals.size() - 1);
     }
 
+    inline Local Function::addLocalGenericType(GenericType* genericType) {
+        assert(genericType->module == module);
+
+        VariableInfo info;
+        info.kind = VariableKind::GenericType;
+        info.scope = VariableInfo::Local;
+        info.isImport = true;
+        info.genericTypeIndex = module->genericTypeIndex(genericType);
+        info.type = InvalidType;
+        info.name = genericType->name;
+        locals.push(info);
+        return Local(locals.size() - 1);
+    }
+
     // AST Methods
 
     inline AST AST::Iterator::operator*() const {
@@ -2166,6 +2223,14 @@ namespace clover {
             return module->namespaces[module->constantList[firstWord().constantIndex].uintConst];
     }
 
+    inline GenericType* AST::genericType() const {
+        assert(kind() == ASTKind::ResolvedGenericType);
+        if LIKELY(firstWord().isInline)
+            return module->genericTypes[firstWord().inlineUnsigned];
+        else
+            return module->genericTypes[module->constantList[firstWord().constantIndex].uintConst];
+    }
+
     inline f64 AST::floatConst() const {
         assert(kind() == ASTKind::Float);
         return module->valueOf(firstWord()).floatConst;
@@ -2229,6 +2294,14 @@ namespace clover {
     inline void AST::setResolvedNamespace(Namespace* ns) {
         assert(ns->module == module);
         auto intern = module->tryIntern(Constant::UnsignedConst(ns->index));
+        if (intern.canIntern)
+            firstWord().isInline = true, firstWord().inlineSigned = intern.payload;
+        else
+            firstWord().isInline = false, firstWord().constantIndex = intern.payload;
+    }
+
+    inline void AST::setGenericType(GenericType* genericType) {
+        auto intern = module->tryIntern(Constant::UnsignedConst(genericType->index));
         if (intern.canIntern)
             firstWord().isInline = true, firstWord().inlineSigned = intern.payload;
         else
@@ -2483,7 +2556,12 @@ namespace clover {
         return scope->module->node((isGlobal() ? scope->module->globals[i] : scope->function->locals[i]).decl);
     }
 
-    bool isTypeExpression(AST);
+    enum MayInstantiateTag {
+        ForbidInstantiation,
+        MayInstantiate
+    };
+
+    bool isTypeExpression(AST, MayInstantiateTag);
 
     inline AST VarType::owner(Module* module) const {
         return module->node(this->owner());
@@ -2495,7 +2573,7 @@ namespace clover {
             while (amount --)
                 io = format(io, ' ');
         };
-        auto typeColor = isTypeExpression(ast) ? CYAN : GREEN;
+        auto typeColor = ast.kind() == ASTKind::ResolvedGenericType ? BLUE : (isTypeExpression(ast, ForbidInstantiation) ? CYAN : GREEN);
         auto typeReset = RESET;
         bool isDOT = config::printTypeConstraintsAsDOT || config::jasmineASTComments;
         if (isDOT)
@@ -2529,7 +2607,6 @@ namespace clover {
             case ASTKind::Local:
             case ASTKind::Capture:
             case ASTKind::Typename:
-            case ASTKind::GenericTypename:
                 io = format(io, module->str(ast.varInfo(parent.scope()->function).name));
                 if (module->nodeTypes.size())
                     io = format(io, typeColor, ":", module->types->get(ast.varInfo(parent.scope()->function).type), typeReset);
@@ -2551,6 +2628,11 @@ namespace clover {
                 return io;
             case ASTKind::ResolvedNamespace:
                 io = format(io, module->str(ast.resolvedNamespace()->name()));
+                return io;
+            case ASTKind::ResolvedGenericType:
+                io = format(io, module->str(ast.genericType()->name));
+                if (ast.module->nodeTypes.size())
+                    io = format(io, typeColor, ":", module->str(ast.genericType()->name), typeReset);
                 return io;
             case ASTKind::Wildcard:
                 return format(io, "...");

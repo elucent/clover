@@ -13,6 +13,7 @@ namespace clover {
     struct Module;
     struct Function;
     struct Namespace;
+    struct GenericType;
     struct AST;
 
     struct Variable {
@@ -92,6 +93,7 @@ namespace clover {
             struct { u32 : 1; u32 functionIndex : 31; u32 : 32; };
             struct { u32 : 1; u32 constantIndex : 31; u32 : 32; };
             struct { u32 : 1; u32 namespaceIndex : 31; u32 : 32; };
+            struct { u32 : 1; u32 genericTypeIndex : 31; u32 : 32; };
             struct { u32 overloads; u32 : 32; };
             struct { ScopeIndex defScope; u32 index; };
         };
@@ -153,6 +155,7 @@ namespace clover {
         void addIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
         void addConstantIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
         void addNamespace(const AST& decl, Symbol name, Namespace* ns);
+        void addGenericType(const AST& decl, GenericType* type);
 
         struct FindResult {
             Scope* scope;
@@ -192,6 +195,10 @@ namespace clover {
             return find(name, false);
         }
     };
+
+    inline u64 hash(Scope* scope) {
+        return ::hash(u64(scope));
+    }
 
     using ScopeKind = Scope::Kind;
 

@@ -2028,3 +2028,19 @@ in A.B.C:
     auto baz = lookup<i32()>("A.B.C.baz()i32", exec);
     ASSERT_EQUAL(baz(), 42);
 }
+
+TEST(codegen_generic_type_basic) {
+    auto instance = COMPILE(R"(
+type Pair(type A, type B):
+    A first
+    B second
+
+i32 foo():
+    var pair: Pair(i32, i32)(14, 28)
+    return pair.first + pair.second
+)");
+
+    auto exec = load(instance.artifact);
+    auto foo = lookup<i32()>("foo()i32", exec);
+    ASSERT_EQUAL(foo(), 42);
+}
