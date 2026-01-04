@@ -515,9 +515,8 @@ namespace clover {
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
-            // Named types of all kinds shouldn't have real unification vars.
-            // If there is a var here, it means we have a recursive type, and
-            // forEachVar-ing it will just stack overflow.
+            if (isGeneric()) for (u32 i = 0; i < typeParameterCount(); i ++)
+                func(typeParameter(i));
         }
     };
 
@@ -1098,9 +1097,8 @@ namespace clover {
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
-            // Named types of all kinds shouldn't have real unification vars.
-            // If there is a var here, it means we have a recursive type, and
-            // forEachVar-ing it will just stack overflow.
+            if (isGeneric()) for (u32 i = 0; i < typeParameterCount(); i ++)
+                func(typeParameter(i));
         }
     };
 
@@ -1200,9 +1198,8 @@ namespace clover {
 
         template<typename Func>
         inline void forEachVar(Func&& func) {
-            // Named types of all kinds shouldn't have real unification vars.
-            // If there is a var here, it means we have a recursive type, and
-            // forEachVar-ing it will just stack overflow.
+            if (isGeneric()) for (u32 i = 0; i < typeParameterCount(); i ++)
+                func(typeParameter(i));
         }
     };
 

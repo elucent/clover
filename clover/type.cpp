@@ -39,6 +39,8 @@ namespace clover {
         auto it = generic->instantiations->find(key);
         if (it != generic->instantiations->end()) {
             Type other = sys->get(it->value.type = expand(sys, it->value.type));
+            if (other == t)
+                return;
             assert(type.isGeneric());
             assert(other.is<Kind>());
             assert(other.as<Kind>().isGeneric());
