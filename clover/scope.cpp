@@ -442,6 +442,7 @@ namespace clover {
             case ASTKind::Exp:
             case ASTKind::ArrayType:
             case ASTKind::FunType:
+            case ASTKind::ResolvedGenericType:
                 // We're revisiting an already-resolved node.
                 break;
             case ASTKind::Ident:
@@ -524,12 +525,18 @@ namespace clover {
             case ASTKind::In:
             case ASTKind::GetField:
             case ASTKind::GetIndex:
+            case ASTKind::AddrField:
+            case ASTKind::AddrIndex:
+            case ASTKind::EnsureAddrField:
+            case ASTKind::EnsureAddrIndex:
             case ASTKind::NamedParameter:
                 ast.setScope(currentScope);
                 computeScopes(module, imports, currentScope, ast.child(0));
                 computeScopes(module, imports, currentScope, ast.child(1));
                 break;
             case ASTKind::GetSlice:
+            case ASTKind::SetField:
+            case ASTKind::SetIndex:
                 ast.setScope(currentScope);
                 computeScopes(module, imports, currentScope, ast.child(0));
                 computeScopes(module, imports, currentScope, ast.child(1));
@@ -545,7 +552,8 @@ namespace clover {
                 break;
             case ASTKind::Call:
             case ASTKind::CallMethod:
-            case ASTKind::Construct: {
+            case ASTKind::Construct:
+            case ASTKind::GenericInst: {
                 ast.setScope(currentScope);
                 for (AST child : ast)
                     computeScopes(module, imports, currentScope, child);

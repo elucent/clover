@@ -42,6 +42,17 @@ namespace clover {
 
     struct InferenceContext;
 
+    inline bool isTypeParameter(Function* function, AST ast) {
+        if (!isTypeExpression(ast, MayInstantiate))
+            return false;
+
+        // Atom types are always interpreted as values, not type parameters,
+        // even though they are technically type expressions.
+        if (isAtom(evaluateType(ast.module, function, ast)))
+            return false;
+        return true;
+    }
+
     struct Evaluation {
         TypeIndex t : Limits::TypesPerCompilationBits;
         enum EvaluationKind {
@@ -1639,6 +1650,8 @@ namespace clover {
                     ctx.constraints->constrainOrder(funcType, ast.type());
                 }
                 for (u32 i = 1; i < ast.arity(); i ++) {
+                    if (isTypeParameter(function, ast.child(i)))
+                        continue; // It's a type parameter, skip it for now.
                     auto arg = inferChild(ctx, function, ast, i);
                     ctx.constraints->constrainOrder(toType(module, arg).type(module), ast.type());
                 }
@@ -1648,13 +1661,13 @@ namespace clover {
             // Casts and constructors
 
             case ASTKind::Construct: {
-                auto type = ast.type();
+                auto type = expand(ast.type());
 
                 // We should already have a concrete type from name resolution.
                 // Note: this will break if we ever add some kind of decltype()
                 // feature and allow it to return non-concrete types. Probably
                 // other stuff will break if this happens too.
-                assert(type.isConcrete());
+                assert(!type.isVar());
 
                 // Construction nodes are split between two main cases.
                 //
@@ -2063,6 +2076,7 @@ namespace clover {
         AST returnExpr = newDecl.child(0);
         AST parameters = newDecl.child(2);
         Scope* newScope = newDecl.scope();
+        Function* newFunction = newScope->function;
         vec<Type> typeParameters;
         clearTypes(parameters);
         clearTypes(returnExpr);
@@ -2073,8 +2087,10 @@ namespace clover {
 
         vec<Type> parameterTypes;
         for (u32 i = 0; i < parameters.arity(); i ++) {
-            if (parameters.child(i).kind() == ASTKind::AliasDecl)
+            if (parameters.child(i).kind() == ASTKind::AliasDecl) {
+                newFunction->typeParameterDecls.push(parameters.child(i).node);
                 continue;
+            }
             assert(parameters.child(i).kind() == ASTKind::VarDecl);
             parameters.setChild(i, resolveNode(newScope, parameters, parameters.child(i)));
             parameterTypes.push(parameters.child(i).type());
@@ -2088,6 +2104,7 @@ namespace clover {
     }
 
     SignatureKey concreteKeyFor(Type funcType) {
+        funcType.concretify();
         auto concreteSignature = funcType.cloneExpand().as<TypeKind::Function>();
         auto key = SignatureKey::withLength(concreteSignature.parameterCount());
         key.setReturnType(packedBoundsFor(concreteSignature.returnType()));
@@ -2101,9 +2118,18 @@ namespace clover {
         Module* module = generic->module;
 
         SignatureKey key = SignatureKey::withLength(call.arity() - 1); // Number of arguments.
+
+        // TODO: Add an alternate path for the case that we explicitly specify
+        // all type parameters. In that case, we would know all generic types
+        // in the function's signature will derive from those parameters, so we
+        // can more accurately cache.
         key.setReturnType(packedBoundsFor(inferredType(ctx, parent, call)));
-        for (u32 i = 0; i < call.arity() - 1; i ++)
-            key.setParameterType(i, packedBoundsFor(inferredType(ctx, parent, call.child(i + 1))));
+        u32 nonTypeParameterIndex = 0;
+        for (u32 i = 0; i < call.arity() - 1; i ++) {
+            if (isTypeParameter(parent, call.child(i + 1)))
+                continue;
+            key.setParameterType(nonTypeParameterIndex ++, packedBoundsFor(inferredType(ctx, parent, call.child(i + 1))));
+        }
         key.computeHash();
 
         if (generic->instantiations) {
@@ -2152,15 +2178,30 @@ namespace clover {
         // our parameters and return type constraints.
         auto returnType = inferredType(ctx, call.function(), call);
         unifyInPlace(funcType.returnType(), returnType, call);
+        u32 typeParameterIndex = 0;
+        nonTypeParameterIndex = 0;
         for (u32 i = 1; i < call.arity(); i ++) {
+            if (isTypeParameter(parent, call.child(i))) {
+                if (typeParameterIndex >= newFunction->typeParameterDecls.size())
+                    type_error("Too many type parameters passed to function ", module->str(newFunction->name));
+                Type param = newFunction->module->node(newFunction->typeParameterDecls[typeParameterIndex ++]).type();
+                Type passedParam = evaluateType(module, call.function(), call.child(i));
+                assert(param.isVar());
+                unifyInPlace(param, passedParam, call);
+                unifyInPlace(passedParam, param, call);
+                continue;
+            }
             auto arg = inferredType(ctx, call.function(), call.child(i));
-            auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
+            auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterIndex ++);
             unifyInPlace(arg, parameterType, call);
         }
 
         // Now we can finally explore the function body.
         computeScopes(module, newScope, newDecl.child(4));
         newDecl.setChild(4, resolveNode(newDecl.scope(), newDecl, newDecl.child(4)));
+
+        if UNLIKELY(config::printResolvedTree)
+            println(Multiline(newDecl));
 
         // We need to typecheck this immediately if we want the caller to learn
         // anything about this function's signature before it finishes type
@@ -2181,6 +2222,9 @@ namespace clover {
         // the global inference, and drainFunctions. I bet they can be unified.
 
         instantiationCtx.env = createEnv(module, newFunction);
+
+        lateResolves.append(module->genericTypesToResolve);
+        module->genericTypesToResolve.clear();
 
         auto name = newDecl.child(1).variable();
         for (AST param : newDecl.child(2)) {
@@ -2237,6 +2281,7 @@ namespace clover {
 
         SignatureKey concreteKey = concreteKeyFor(funcType);
         auto it = generic->instantiations->find(concreteKey);
+
         if (it != generic->instantiations->end()) {
             // Not only is there an existing instantiation, but we need to fix
             // the cache for our non-concrete parameters to point to the
@@ -2439,14 +2484,18 @@ namespace clover {
         auto type = inferredType(ctx, function, ast.child(0));
         type_assert(type.is<TypeKind::Function>());
         auto funcType = type.as<TypeKind::Function>();
-        type_assert(ast.arity() - 1 == funcType.as<TypeKind::Function>().parameterCount());
+        type_assert(ast.arity() - 1 >= funcType.as<TypeKind::Function>().parameterCount());
 
         auto returnType = ast.type();
         if (!canUnify(funcType.returnType(), returnType, ast))
             return none<TypeIndex>();
+        u32 nonTypeParameters = 0;
         for (u32 i = 1; i < ast.arity(); i ++) {
+            if (isTypeParameter(function, ast.child(i)))
+                continue;
             auto arg = inferredType(ctx, function, ast.child(i));
-            auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
+            type_assert(nonTypeParameters < funcType.as<TypeKind::Function>().parameterCount());
+            auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameters ++);
             if (!canUnify(arg, parameterType, ast))
                 return none<TypeIndex>();
         }
@@ -2723,11 +2772,20 @@ namespace clover {
                     type_error("Failed to resolve call ", ast);
 
                 auto funcType = module->types->get(*resolvedType).as<TypeKind::Function>();
+                // At this point, if our call passed type parameters, they've
+                // outlived their use. For convenience we eliminate these
+                // children from the node so later passes don't have to skip
+                // them.
+                u32 nonTypeParameterCount = 0;
                 for (u32 i = 1; i < ast.arity(); i ++) {
+                    if (isTypeParameter(function, ast.child(i)))
+                        continue; // At this point we're just doing the last unification to set our constraints in stone, we can skip over type parameters.
+                    ast.setChild(1 + nonTypeParameterCount, ast.child(i));
                     auto arg = inferredType(ctx, function, ast.child(i));
-                    auto parameterType = funcType.as<TypeKind::Function>().parameterType(i - 1);
+                    auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterCount ++);
                     unifyInPlace(arg, parameterType, ast);
                 }
+                ast.setArity(1 + nonTypeParameterCount);
                 unifyInPlace(funcType.as<TypeKind::Function>().returnType(), ast);
                 ast.setKind(ASTKind::Call); // These will be truly indistinguishable from this point forward.
                 return true;
@@ -3371,6 +3429,9 @@ namespace clover {
         globalCtx.lateResolves = &lateResolves;
         globalCtx.discoveredFunctions = &discoveredFunctions;
         globalCtx.env = createEnv(module, nullptr);
+
+        lateResolves.append(module->genericTypesToResolve);
+        module->genericTypesToResolve.clear();
 
         Evaluation inference = infer(globalCtx, nullptr, module->getTopLevel());
         if UNLIKELY(config::printTypeConstraintsAsDOT) {

@@ -488,7 +488,7 @@ namespace clover {
         inline bool operator==(NamedType other) const;
         inline bool contains(TypeIndex type) const;
         inline u64 hash() const;
-        inline void concretify();
+        void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
         inline Type cloneExpand();
 
@@ -504,6 +504,7 @@ namespace clover {
         inline GenericType* genericOrigin() const;
         inline u32 typeParameterCount() const;
         inline TypeIndex typeParameterIndex(u32 i) const;
+        inline void setTypeParameterIndex(u32 i, TypeIndex type);
         inline Type typeParameter(u32 i) const;
 
         inline Scope* scope() const;
@@ -1070,8 +1071,9 @@ namespace clover {
         inline bool operator==(StructType other) const;
         inline bool contains(TypeIndex type) const;
         inline u64 hash() const;
-        inline void concretify();
+        void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline Type cloneExpand();
 
         // These are used when a StructType is a member of a UnionType.
         inline bool isCase() const;
@@ -1085,6 +1087,7 @@ namespace clover {
         inline GenericType* genericOrigin() const;
         inline u32 typeParameterCount() const;
         inline TypeIndex typeParameterIndex(u32 i) const;
+        inline void setTypeParameterIndex(u32 i, TypeIndex type);
         inline Type typeParameter(u32 i) const;
 
         inline Scope* scope() const;
@@ -1153,6 +1156,7 @@ namespace clover {
 
         inline void addTypeParameters(GenericType* generic, const_slice<TypeIndex> params);
         inline void addTypeParameters(GenericType* generic, const_slice<Type> params);
+        inline void addTypeParametersFrom(Type type);
 
         inline void add() {}
 
@@ -1172,8 +1176,9 @@ namespace clover {
         inline bool operator==(UnionType other) const;
         inline bool contains(TypeIndex type) const;
         inline u64 hash() const;
-        inline void concretify();
+        void concretify();
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline Type cloneExpand();
 
         // These are used when a UnionType is a member of another UnionType.
         inline bool isCase() const;
@@ -1187,6 +1192,7 @@ namespace clover {
         inline GenericType* genericOrigin() const;
         inline u32 typeParameterCount() const;
         inline TypeIndex typeParameterIndex(u32 i) const;
+        inline void setTypeParameterIndex(u32 i, TypeIndex type);
         inline Type typeParameter(u32 i) const;
 
         inline Scope* scope() const;
@@ -1209,7 +1215,7 @@ namespace clover {
         Scope* scope;
         bool isCase = false;
 
-        inline UnionBuilder(Symbol name_in): name(name_in) {}
+        inline UnionBuilder(TypeSystem* types_in, Symbol name_in): types(types_in), name(name_in) {}
 
         void add(Scope* scope);
 
@@ -1223,6 +1229,7 @@ namespace clover {
 
         inline void addTypeParameters(GenericType* generic, const_slice<TypeIndex> params);
         inline void addTypeParameters(GenericType* generic, const_slice<Type> params);
+        inline void addTypeParametersFrom(Type type);
 
         inline Type build(TypeSystem* types);
     };
@@ -1600,6 +1607,8 @@ namespace clover {
             TypeWord word;
             word.bits = 0;
             word.isConcrete = true;
+            for (TypeIndex t : typeParameters) if (!sys.get(t).isConcrete())
+                word.isConcrete = false;
             word.isGenericInst = 1;
             word.kind = TypeKind::Named;
             word.extElement = inner;
@@ -1784,8 +1793,10 @@ namespace clover {
             word.bits = 0;
             word.kind = TypeKind::Struct;
             word.isConcrete = true;
-            word.isCase = builder.isCase;
             word.isGenericInst = builder.typeParameters.size() ? 1 : 0;
+            if (word.isGenericInst) for (TypeIndex t : builder.typeParameters) if (!sys.get(t).isConcrete())
+                word.isConcrete = false;
+            word.isCase = builder.isCase;
             word.fieldCount = builder.fields.size();
             sys.words.push(word);
             sys.words.push({ .name = builder.name.symbol });
@@ -1817,6 +1828,8 @@ namespace clover {
             word.isConcrete = true;
             word.isCase = builder.isCase;
             word.isGenericInst = builder.typeParameters.size() ? 1 : 0;
+            if (word.isGenericInst) for (TypeIndex t : builder.typeParameters) if (!sys.get(t).isConcrete())
+                word.isConcrete = false;
             word.fieldCount = builder.cases.size();
             sys.words.push(word);
             sys.words.push({ .name = builder.name.symbol });
@@ -1864,6 +1877,10 @@ namespace clover {
             return t;
 
         return t.asVar().equalType();
+    }
+
+    inline TypeIndex expand(TypeSystem* types, TypeIndex t) {
+        return expand(types->get(t)).index;
     }
 
     inline Type lowerBound(Type t) {
@@ -2503,11 +2520,8 @@ namespace clover {
     }
 
     inline Type Type::cloneExpand() const {
-        if (isConcrete())
-            return *this;
-
         if (isVar())
-            return expand(*this);
+            return expand(*this).cloneExpand();
 
         switch (kind()) {
             case TypeKind::Bottom:
@@ -2516,10 +2530,14 @@ namespace clover {
             case TypeKind::Bool:
             case TypeKind::Char:
             case TypeKind::Numeric:
+                return *this;
+
             case TypeKind::Named:
+                return as<TypeKind::Named>().cloneExpand();
             case TypeKind::Struct:
+                return as<TypeKind::Struct>().cloneExpand();
             case TypeKind::Union:
-                return *this; // None of these can ever be non-concrete.
+                return as<TypeKind::Union>().cloneExpand();
 
             case TypeKind::Pointer:
                 return as<TypeKind::Pointer>().cloneExpand();
@@ -2704,6 +2722,32 @@ namespace clover {
             // Return a signed integer type with an extra bit, i.e.
             // lcs(u3, i3) is i4.
             return types->encode<TypeKind::Numeric>(true, false, u32(max(an.bitCount(), bn.bitCount()) + 1));
+        }
+
+        if (ak == TypeKind::Slice && bk == TypeKind::Array) {
+            auto ae = a.as<TypeKind::Slice>().elementType(), be = b.as<TypeKind::Array>().elementType();
+            if (ae.unifyOnto(be, nullptr, Query | substituteFlag) && be.unifyOnto(be, nullptr, Query | substituteFlag)) {
+                if (mode != Query) {
+                    ae.unifyOnto(be, constraints, mode | substituteFlag);
+                    be.unifyOnto(ae, constraints, mode | substituteFlag);
+                }
+                // The result can't be Own, because arrays technically do not
+                // own their memory (at least not in the same way).
+                return types->encode<TypeKind::Slice>(a.as<TypeKind::Slice>().isUninit() ? Uninit : NoRefTraits, ae);
+            }
+        }
+
+        if (ak == TypeKind::Array && bk == TypeKind::Slice) {
+            auto ae = a.as<TypeKind::Array>().elementType(), be = b.as<TypeKind::Slice>().elementType();
+            if (ae.unifyOnto(be, nullptr, Query | substituteFlag) && be.unifyOnto(be, nullptr, Query | substituteFlag)) {
+                if (mode != Query) {
+                    ae.unifyOnto(be, constraints, mode | substituteFlag);
+                    be.unifyOnto(ae, constraints, mode | substituteFlag);
+                }
+                // The result can't be Own, because arrays technically do not
+                // own their memory (at least not in the same way).
+                return types->encode<TypeKind::Slice>(b.as<TypeKind::Slice>().isUninit() ? Uninit : NoRefTraits, ae);
+            }
         }
 
         if (ak == TypeKind::Array && bk == TypeKind::Array) {
@@ -3093,15 +3137,11 @@ namespace clover {
         return mixHash(kindHash(), intHash(index));
     }
 
-    inline void NamedType::concretify() {}
-
     template<typename InstType>
     inline UnifyResult unifyTypeParameters(InstType a, InstType b, Constraints* constraints, UnifyMode mode) {
         assert(a.typeParameterCount() == b.typeParameterCount());
         for (u32 i = 0; i < a.typeParameterCount(); i ++) {
-            if (a.typeParameter(i).unifyOnto(b.typeParameter(i), constraints, mode) == UnifyFailure)
-                return UnifyFailure;
-            if (b.typeParameter(i).unifyOnto(a.typeParameter(i), constraints, mode) == UnifyFailure)
+            if (a.typeParameter(i).unifyOnto(b.typeParameter(i), constraints, mode | MustSubstitute) == UnifyFailure)
                 return UnifyFailure;
         }
         return UnifySuccess;
@@ -3122,6 +3162,24 @@ namespace clover {
                 return unifyTypeParameters(*this, other.as<TypeKind::Named>(), constraints, mode);
         }
         return UnifyFailure;
+    }
+
+    inline Type NamedType::cloneExpand() {
+        if (!isGeneric())
+            return *this;
+
+        bool isNonTrivial = false;
+        for (u32 i = 0; i < typeParameterCount(); i ++) if (typeParameter(i).isVar()) {
+            isNonTrivial = true;
+            break;
+        }
+        if (!isNonTrivial)
+            return *this;
+
+        vec<TypeIndex, 8> typeParams;
+        for (u32 i = 0; i < typeParameterCount(); i ++)
+            typeParams.push(typeParameterIndex(i));
+        return types->encode<TypeKind::Named>(name(), scope(), innerType(), genericOrigin(), (const_slice<TypeIndex>)typeParams);
     }
 
     inline bool NamedType::isCase() const {
@@ -3181,6 +3239,11 @@ namespace clover {
     inline TypeIndex NamedType::typeParameterIndex(u32 i) const {
         assert(isGeneric());
         return nthWord(4 + i).typeBound;
+    }
+
+    inline void NamedType::setTypeParameterIndex(u32 i, TypeIndex type) {
+        assert(isGeneric());
+        nthWord(4 + i).typeBound = type;
     }
 
     inline Type NamedType::typeParameter(u32 i) const {
@@ -3483,8 +3546,6 @@ namespace clover {
         return mixHash(kindHash(), (index ^ 17402556438599366131ull) * 10595215790981386093ull);
     }
 
-    inline void StructType::concretify() {}
-
     inline UnifyResult StructType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         if (other == *this)
             return UnifySuccess;
@@ -3495,6 +3556,26 @@ namespace clover {
                 return unifyTypeParameters(*this, other.as<TypeKind::Struct>(), constraints, mode);
         }
         return UnifyFailure;
+    }
+
+    inline Type StructType::cloneExpand() {
+        if (!isGeneric())
+            return *this;
+
+        bool isNonTrivial = false;
+        for (u32 i = 0; i < typeParameterCount(); i ++) if (typeParameter(i).isVar()) {
+            isNonTrivial = true;
+            break;
+        }
+        if (!isNonTrivial)
+            return *this;
+
+        StructBuilder builder(types, name());
+        for (u32 i = 0; i < count(); i ++)
+            builder.add(field(i));
+        builder.addTypeParametersFrom(*this);
+        builder.add(scope());
+        return types->encode<TypeKind::Struct>(builder);
     }
 
     inline bool StructType::isCase() const {
@@ -3538,6 +3619,11 @@ namespace clover {
         return nthWord(4 + count() * 2 + i).typeBound;
     }
 
+    inline void StructType::setTypeParameterIndex(u32 i, TypeIndex type) {
+        assert(isGeneric());
+        nthWord(4 + count() * 2 + i).typeBound = type;
+    }
+
     inline Type StructType::typeParameter(u32 i) const {
         return types->get(typeParameterIndex(i));
     }
@@ -3577,6 +3663,35 @@ namespace clover {
         genericIndex = types->internGenericType(generic);
         for (Type t : params)
             typeParameters.push(t.index);
+    }
+
+    inline void StructBuilder::addTypeParametersFrom(Type type) {
+        assert(isGenericInst(type));
+        switch (type.kind()) {
+            case TypeKind::Named: {
+                const NamedType& named = type.as<TypeKind::Named>();
+                genericIndex = named.genericOriginIndex();
+                for (u32 i = 0; i < named.typeParameterCount(); i ++)
+                    typeParameters.push(named.typeParameterIndex(i));
+                break;
+            }
+            case TypeKind::Struct: {
+                const StructType& str = type.as<TypeKind::Struct>();
+                genericIndex = str.genericOriginIndex();
+                for (u32 i = 0; i < str.typeParameterCount(); i ++)
+                    typeParameters.push(str.typeParameterIndex(i));
+                break;
+            }
+            case TypeKind::Union: {
+                const UnionType& uni = type.as<TypeKind::Union>();
+                genericIndex = uni.genericOriginIndex();
+                for (u32 i = 0; i < uni.typeParameterCount(); i ++)
+                    typeParameters.push(uni.typeParameterIndex(i));
+                break;
+            }
+            default:
+                unreachable("Not a possible generic type.");
+        }
     }
 
     // ConstraintList
@@ -3981,8 +4096,6 @@ namespace clover {
         return false;
     }
 
-    inline void UnionType::concretify() {}
-
     inline UnifyResult UnionType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         if (other == *this)
             return UnifySuccess;
@@ -3993,6 +4106,26 @@ namespace clover {
                 return unifyTypeParameters(*this, other.as<TypeKind::Union>(), constraints, mode);
         }
         return UnifyFailure;
+    }
+
+    inline Type UnionType::cloneExpand() {
+        if (!isGeneric())
+            return *this;
+
+        bool isNonTrivial = false;
+        for (u32 i = 0; i < typeParameterCount(); i ++) if (typeParameter(i).isVar()) {
+            isNonTrivial = true;
+            break;
+        }
+        if (!isNonTrivial)
+            return *this;
+
+        UnionBuilder builder(types, name());
+        for (u32 i = 0; i < count(); i ++)
+            builder.add(caseType(i));
+        builder.addTypeParametersFrom(*this);
+        builder.add(scope());
+        return types->encode<TypeKind::Union>(builder);
     }
 
     inline bool UnionType::isCase() const {
@@ -4036,6 +4169,11 @@ namespace clover {
         return nthWord(4 + count() + i).typeBound;
     }
 
+    inline void UnionType::setTypeParameterIndex(u32 i, TypeIndex type) {
+        assert(isGeneric());
+        nthWord(4 + count() + i).typeBound = type;
+    }
+
     inline Type UnionType::typeParameter(u32 i) const {
         return types->get(typeParameterIndex(i));
     }
@@ -4063,6 +4201,35 @@ namespace clover {
         genericIndex = types->internGenericType(generic);
         for (Type t : params)
             typeParameters.push(t.index);
+    }
+
+    inline void UnionBuilder::addTypeParametersFrom(Type type) {
+        assert(isGenericInst(type));
+        switch (type.kind()) {
+            case TypeKind::Named: {
+                const NamedType& named = type.as<TypeKind::Named>();
+                genericIndex = named.genericOriginIndex();
+                for (u32 i = 0; i < named.typeParameterCount(); i ++)
+                    typeParameters.push(named.typeParameterIndex(i));
+                break;
+            }
+            case TypeKind::Struct: {
+                const StructType& str = type.as<TypeKind::Struct>();
+                genericIndex = str.genericOriginIndex();
+                for (u32 i = 0; i < str.typeParameterCount(); i ++)
+                    typeParameters.push(str.typeParameterIndex(i));
+                break;
+            }
+            case TypeKind::Union: {
+                const UnionType& uni = type.as<TypeKind::Union>();
+                genericIndex = uni.genericOriginIndex();
+                for (u32 i = 0; i < uni.typeParameterCount(); i ++)
+                    typeParameters.push(uni.typeParameterIndex(i));
+                break;
+            }
+            default:
+                unreachable("Not a possible generic type.");
+        }
     }
 
     // Type formatting
@@ -4183,6 +4350,8 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const NamedType& type) {
+        if (isCase(type))
+            io = format(io, type.parentType(), '.');
         io = format(io, type.types->symbols->get(type.name().symbol));
         if (type.isGeneric()) {
             io = format(io, '(');
@@ -4195,6 +4364,8 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const StructType& type) {
+        if (isCase(type))
+            io = format(io, type.parentType(), '.');
         io = format(io, type.types->symbols->get(type.name().symbol));
         if (type.isGeneric()) {
             io = format(io, '(');
@@ -4207,6 +4378,8 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const UnionType& type) {
+        if (isCase(type))
+            io = format(io, type.parentType(), '.');
         io = format(io, type.types->symbols->get(type.name().symbol));
         if (type.isGeneric()) {
             io = format(io, '(');

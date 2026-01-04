@@ -419,8 +419,11 @@ namespace clover {
             if (hasTag)
                 ensureTypeTag(atom);
 
-            i8 buffer[64];
-            auto name = prints({ buffer, 64 }, ".atom.", module->str(atom.as<TypeKind::Named>().name()));
+            array<i8, 256> buffer;
+            slice<i8> target = buffer;
+            target = format(target, ".atom.");
+            target = mangleType(target, atom);
+            auto name = buffer[{0, 256 - target.size()}];
             jasmine_define_static(output, tagType(), name.data(), name.size(), jasmine_integer_value(output, tagType(), hasTag ? atom.as<TypeKind::Named>().typeTag() : 0));
             auto sym = module->sym(name);
             atoms.put(atom.index, sym);
@@ -479,7 +482,7 @@ namespace clover {
             if (typeParameters.size()) {
                 target = format(target, '(');
                 for (u32 i = 0; i < typeParameters.size(); i ++)
-                    target = format(target, i > 0 ? ", " : "", types->get(typeParameters[i]));
+                    target = format(target, i > 0 ? ", " : "", expand(types->get(typeParameters[i])));
                 target = format(target, ')');
             }
             return target;
@@ -527,16 +530,37 @@ namespace clover {
                     }
                     return format(target, ")");
                 case TypeKind::Struct: {
+                    if (type.as<TypeKind::Struct>().isCase()) {
+                        target = mangleType(target, type.as<TypeKind::Struct>().parentType());
+                        // Case types can't have their own type parameters, so
+                        // we can safely assume they'll just mangle to their
+                        // own names.
+                        return format(target, '.', module->str(type.as<TypeKind::Struct>().name()));
+                    }
                     vec<TypeIndex> params;
                     getTypeParameters(params, type);
                     return mangleNamedType(target, type.as<TypeKind::Struct>().scope(), type.as<TypeKind::Struct>().name(), type.types, params);
                 }
                 case TypeKind::Named: {
+                    if (type.as<TypeKind::Named>().isCase()) {
+                        target = mangleType(target, type.as<TypeKind::Named>().parentType());
+                        // Case types can't have their own type parameters, so
+                        // we can safely assume they'll just mangle to their
+                        // own names.
+                        return format(target, '.', module->str(type.as<TypeKind::Named>().name()));
+                    }
                     vec<TypeIndex> params;
                     getTypeParameters(params, type);
                     return mangleNamedType(target, type.as<TypeKind::Named>().scope(), type.as<TypeKind::Named>().name(), type.types, params);
                 }
                 case TypeKind::Union: {
+                    if (type.as<TypeKind::Union>().isCase()) {
+                        target = mangleType(target, type.as<TypeKind::Union>().parentType());
+                        // Case types can't have their own type parameters, so
+                        // we can safely assume they'll just mangle to their
+                        // own names.
+                        return format(target, '.', module->str(type.as<TypeKind::Union>().name()));
+                    }
                     vec<TypeIndex> params;
                     getTypeParameters(params, type);
                     return mangleNamedType(target, type.as<TypeKind::Union>().scope(), type.as<TypeKind::Union>().name(), type.types, params);
@@ -901,6 +925,8 @@ namespace clover {
                 return ASTKind::And;
             case ASTKind::Not:
                 return ASTKind::Missing;
+            case ASTKind::Is:
+                return ASTKind::Is;
             default:
                 return ASTKind::Local;
         }
@@ -956,7 +982,7 @@ namespace clover {
                 // just want to generate a normal branch.
                 return generateConditionalBranch(genCtx, builder, cond.child(0), ifTrue, ifFalse, false);
             }
-            if (knownCondOp == ASTKind::Local || knownCondOp == ASTKind::Bool) {
+            if (knownCondOp == ASTKind::Local || knownCondOp == ASTKind::Bool || knownCondOp == ASTKind::Is) {
                 // We can't negate a boolean by swapping the condition, so we
                 // instead need to actually just swap the target blocks.
                 swap(ifTrue, ifFalse);
@@ -2402,6 +2428,8 @@ namespace clover {
                     JasmineFunction func = jasmine_create_function(genCtx.output, name.data(), name.size(), genCtx.lower(funType.returnType()), flags);
                     genCtx.enter(ast.function(), func);
                     for (auto [i, param] : enumerate(ast.child(2))) {
+                        if (param.kind() == ASTKind::AliasDecl || param.kind() == ASTKind::ConstVarDecl)
+                            continue; // Compile-time parameter, just skip it.
                         assert(param.kind() == ASTKind::VarDecl);
                         auto paramType = typeOf(ast.function(), param);
                         if (genCtx.isEmptyType(paramType))

@@ -1959,11 +1959,11 @@ namespace jasmine {
             case Operand::Var: {
                 const Variable& var = o.function.variableList[o.operand.var];
                 if (var.name.data())
-                    io = format(io, "%", const_slice<i8>(var.name));
+                    io = format(io, '%', const_slice<i8>(var.name));
                 else
-                    io = format(io, "%", var.name.size());
+                    io = format(io, '%', var.name.size());
                 if (var.version > 0)
-                    io = format(io, gray, "/", var.version, reset);
+                    io = format(io, gray, '/', var.version, reset);
                 return io;
             }
             case Operand::IntConst:

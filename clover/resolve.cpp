@@ -70,10 +70,23 @@ namespace clover {
         return ast.child(i);
     }
 
-    Type resolveTypeForDecl(Module* module, Fixups& fixups, RefTraits refTraits, AST ast, GenericType* genericType = nullptr, const_slice<TypeIndex> typeParameters = { nullptr, 0 });
+    Type resolveTypeForDecl(Module* module, Fixups& fixups, RefTraits refTraits, AST ast, GenericType* genericType = nullptr, const_slice<TypeIndex> typeParameters = { nullptr, 0 }, const TypesKey* typesKey = nullptr);
 
     Type instantiate(GenericType* genericType, const_slice<TypeIndex> parameters) {
         Module* module = genericType->module;
+
+        TypesKey key = TypesKey::withLength(parameters.size());
+        for (u32 i = 0; i < parameters.size(); i ++)
+            key.setParameterType(i, parameters[i]);
+        key.computeHash();
+        if (genericType->instantiations) {
+            auto it = genericType->instantiations->find(key);
+            if (it != genericType->instantiations->end())
+                return module->types->get(it->value.type);
+        }
+
+        if (!genericType->instantiations)
+            genericType->instantiations = new map<TypesKey, TypeInstantiation>();
 
         AST originalDecl = module->node(genericType->decl);
         AST inst = module->clone(originalDecl);
@@ -91,6 +104,7 @@ namespace clover {
                 unreachable("Expected a generic declaration, found ", inst);
         }
         inst.setChild(0, module->add(ASTKind::Ident, Identifier(genericType->name)));
+        genericType->instantiations->put(key, { InvalidType, inst.node });
 
         Scope* instScope = module->addScope(ScopeKind::Type, inst.node, originalDecl.scope());
         inst.setScope(instScope);
@@ -106,14 +120,19 @@ namespace clover {
             computeScopes(module, instScope, inst.child(i));
 
         Fixups fixups;
-        Type result = resolveTypeForDecl(module, fixups, NoRefTraits, inst, genericType, parameters);
+        Type result = resolveTypeForDecl(module, fixups, NoRefTraits, inst, genericType, parameters, &key);
+
+        if (!result.isConcrete())
+            genericType->module->genericTypesToResolve.push(result.index);
+
+        if UNLIKELY(config::printResolvedTree)
+            println(Multiline(inst));
 
         inst.setChild(0, module->add(ASTKind::Missing));
         if (originalDecl.child(0).missing())
             originalDecl.setChild(0, inst);
         else
             originalDecl.setChild(0, module->add(ASTKind::Then, originalDecl.pos(), InvalidScope, InvalidType, originalDecl.child(0), inst));
-
         return result;
     }
 
@@ -169,7 +188,7 @@ namespace clover {
         }
     }
 
-    Type resolveTypeForDecl(Module* module, Fixups& fixups, RefTraits refTraits, AST ast, GenericType* genericType, const_slice<TypeIndex> typeParameters) {
+    Type resolveTypeForDecl(Module* module, Fixups& fixups, RefTraits refTraits, AST ast, GenericType* genericType, const_slice<TypeIndex> typeParameters, const TypesKey* typesKey) {
         if (ast.type())
             return ast.type();
         switch (ast.kind()) {
@@ -183,6 +202,11 @@ namespace clover {
             case ASTKind::NamedCaseDecl: {
                 Type placeholder = module->varType();
                 ast.setType(placeholder);
+                if (genericType) {
+                    auto it = genericType->instantiations->find(*typesKey);
+                    assert(it != genericType->instantiations->end());
+                    it->value.type = placeholder.index;
+                }
                 AST child = resolveChild(module, fixups, refTraits, ast, 2, ExpectType);
                 if (child.kind() == ASTKind::VarDecl) {
                     // We discovered we're a struct after resolving a confusing
@@ -221,6 +245,11 @@ namespace clover {
                 assert(ast.child(0).kind() == ASTKind::Ident);
                 auto sym = ast.child(0).symbol();
                 Type placeholder = module->varType();
+                if (genericType) {
+                    auto it = genericType->instantiations->find(*typesKey);
+                    assert(it != genericType->instantiations->end());
+                    it->value.type = placeholder.index;
+                }
                 ast.setType(placeholder);
                 auto builder = StructBuilder(module->types, sym);
                 builder.isCase = ast.kind() == ASTKind::StructCaseDecl;
@@ -251,7 +280,12 @@ namespace clover {
                 auto sym = ast.child(0).symbol();
                 Type placeholder = module->varType();
                 ast.setType(placeholder);
-                auto builder = UnionBuilder(sym);
+                if (genericType) {
+                    auto it = genericType->instantiations->find(*typesKey);
+                    assert(it != genericType->instantiations->end());
+                    it->value.type = placeholder.index;
+                }
+                auto builder = UnionBuilder(module->types, sym);
                 builder.isCase = ast.kind() == ASTKind::UnionCaseDecl;
                 for (u32 i = 2; i < ast.arity(); i ++) {
                     AST member = resolveChild(module, fixups, refTraits, ast, i, ExpectValue);
@@ -419,7 +453,7 @@ namespace clover {
     }
 
     maybe<AST> resolveTypeField(Module* module, Fixups& fixups, Scope* scope, AST base, AST child, Pos pos) {
-        Type baseType = evaluateType(module, fixups, scope, base, ForbidInstantiation);
+        Type baseType = expand(evaluateType(module, fixups, scope, base, ForbidInstantiation));
 
         // If the base type is an atom, it's possible this is in fact a field
         // or method access, and the type should be interpreted as a value. We
@@ -579,10 +613,13 @@ namespace clover {
                 } else
                     hasAnyNonType = true;
             }
-            for (u32 i = 1; i < call.arity(); i ++)
-                call.setChild(i - 1, call.child(i));
-            call.setArity(call.arity() - 1);
-            call.setKind(hasAnyNonType ? ASTKind::Construct : ASTKind::GenericInst);
+            if (hasAnyNonType) {
+                for (u32 i = 1; i < call.arity(); i ++)
+                    call.setChild(i - 1, call.child(i));
+                call.setArity(call.arity() - 1);
+                call.setKind(ASTKind::Construct);
+            } else
+                call.setKind(ASTKind::GenericInst);
             call.setType(instantiate(func.genericType(), types));
             return call;
         } else if (isTypeExpression(func, ForbidInstantiation)) {
@@ -715,6 +752,10 @@ namespace clover {
                 ptrNode = module->add(ASTKind::PtrType, ast.pos(), ast.scope(), ptrType, ptrNode);
             }
         }
+        if (refTraits & Own)
+            ptrNode = module->add(ASTKind::OwnType, ast.pos(), ast.scope(), ptrType, ptrNode);
+        if (refTraits & Uninit)
+            ptrNode = module->add(ASTKind::UninitType, ast.pos(), ast.scope(), ptrType, ptrNode);
 
         // On the right, if our rhs is a call, we separate out the function.
         // This is needed to handle cases like i32*[4](x) - [4](x) parses as
@@ -1018,6 +1059,10 @@ namespace clover {
                 AST lhs = resolveChild(module, fixups, NoRefTraits, ast, 0, ExpectType);
                 if (isTypeExpression(lhs, MayInstantiate)) {
                     ast.setType(module->sliceType(refTraits, evaluateType(module, fixups, scope, lhs, MayInstantiate)));
+                    if (refTraits & Own)
+                        ast = module->add(ASTKind::OwnType, ast.pos(), ast.scope(), ast.type(), ast);
+                    if (refTraits & Uninit)
+                        ast = module->add(ASTKind::UninitType, ast.pos(), ast.scope(), ast.type(), ast);
                     return ast;
                 } else if (lhs.kind() == ASTKind::GetField && isTypeExpression(lhs.child(1), ForbidInstantiation)) {
                     Type fieldType = evaluateType(module, fixups, scope, lhs.child(1), ForbidInstantiation);
@@ -1032,6 +1077,10 @@ namespace clover {
                 resolveChild(module, fixups, NoRefTraits, ast, 0, ExpectType);
                 assert(isTypeExpression(ast.child(0), MayInstantiate));
                 ast.setType(module->ptrType(refTraits, evaluateType(module, fixups, scope, ast.child(0), MayInstantiate)));
+                if (refTraits & Own)
+                    ast = module->add(ASTKind::OwnType, ast.pos(), ast.scope(), ast.type(), ast);
+                if (refTraits & Uninit)
+                    ast = module->add(ASTKind::UninitType, ast.pos(), ast.scope(), ast.type(), ast);
                 return ast;
             }
             case ASTKind::OwnType:
@@ -1040,6 +1089,20 @@ namespace clover {
                     return ast;
                 RefTraits traits = ast.kind() == ASTKind::OwnType ? Own : Uninit;
                 return resolveChild(module, fixups, refTraits | traits, ast, 0, ExpectType);
+            }
+            case ASTKind::GenericInst: {
+                resolveChild(module, fixups, NoRefTraits, ast, 0, ExpectType);
+                assert(isGenericTypeExpression(ast.child(0)));
+
+                vec<TypeIndex> types;
+                for (u32 i = 1; i < ast.arity(); i ++) {
+                    resolveChild(module, fixups, NoRefTraits, ast, i, ExpectValue);
+                    assert(isTypeExpression(ast.child(i), ForbidInstantiation));
+                    Type type = evaluateType(module, fixups, scope, ast.child(i), ForbidInstantiation);
+                    types.push(type.index);
+                }
+                ast.setType(instantiate(ast.child(0).genericType(), types));
+                return ast;
             }
             case ASTKind::New:
                 return resolveNew(module, fixups, refTraits, ast);
@@ -1071,6 +1134,22 @@ namespace clover {
                     // the typechecker.
                 }
                 resolveFieldnameChild(module, fixups, ast, 1, ExpectValue);
+                return ast;
+            }
+            case ASTKind::AddrField:
+            case ASTKind::EnsureAddrField: {
+                // These must have arisen from a previous resolution - we can
+                // assume they are well-formed.
+                resolveChild(module, fixups, refTraits, ast, 0, ExpectValue);
+                // We don't resolve the other child.
+                return ast;
+            }
+            case ASTKind::SetField: {
+                // Likewise, must have originated from a previous resolution,
+                // we assume it's well-formed and don't resolve the first child
+                // since it's a field not a defined identifier.
+                resolveChild(module, fixups, refTraits, ast, 0, ExpectValue);
+                resolveChild(module, fixups, refTraits, ast, 2, ExpectValue);
                 return ast;
             }
             case ASTKind::GetFields: {
@@ -1172,6 +1251,7 @@ namespace clover {
                         arg.setType(module->varType());
                         auto entry = ast.scope()->findLocal(a.child(0).symbol());
                         assert(entry);
+                        function->typeParameterDecls.push(arg.node);
                         function->locals[entry.index].type = arg.typeIndex();
                         break;
                     }
@@ -1258,7 +1338,7 @@ namespace clover {
                 else {
                     AST ret = resolveChild(module, fixups, refTraits, ast, 0, ExpectType);
                     assert(isTypeExpression(ret, MayInstantiate));
-                    returnType = evaluateType(module, fixups, scope, ret, MayInstantiate);
+                    returnType = evaluateType(module, fixups, ast.scope(), ret, MayInstantiate);
                 }
 
                 auto entry = module->lookup(scope, function->name);
@@ -1374,7 +1454,7 @@ namespace clover {
                 // We do some validation to make sure if these constructs
                 // contain `is` expressions, that they only appear in
                 // conjunctions.
-                type_assert(validateCondition(ast.child(0), true));
+                // type_assert(validateCondition(ast.child(0), true));
                 for (u32 i : indices(ast))
                     resolveChild(module, fixups, refTraits, ast, i, ExpectValue);
                 return ast;

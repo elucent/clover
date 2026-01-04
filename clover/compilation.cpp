@@ -169,7 +169,7 @@ namespace clover {
     void printDirectoryName(Directory* directory) {
         if (directory->parent) {
             printDirectoryName(directory->parent);
-            print("/", directory->compilation->str(directory->name));
+            print('/', directory->compilation->str(directory->name));
         }
     }
 
@@ -177,7 +177,7 @@ namespace clover {
         Compilation* compilation = artifact->parent->compilation;
         printDirectoryName(artifact->parent);
         if (artifact->parent != compilation->root)
-            print("/");
+            print('/');
         if (artifact->filename.size())
             print(artifact->filename);
         else

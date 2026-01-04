@@ -716,6 +716,142 @@ namespace clover {
         return key.hash;
     }
 
+    struct TypesKey {
+        union {
+            struct { u32 length; u32 hash; TypeIndex args[2]; };
+            struct { u32 : 32; u32 : 32; TypeIndex* buf; };
+        };
+
+        inline TypesKey() {}
+
+        inline ~TypesKey() {
+            if (length > 2)
+                delete[] buf;
+        }
+
+        inline TypesKey(const TypesKey& other) {
+            if (other.length <= 2)
+                memory::copy(this, &other, sizeof(TypesKey));
+            else {
+                length = other.length;
+                hash = other.hash;
+                buf = new TypeIndex[length];
+                memory::copy(buf, other.buf, sizeof(TypeIndex) * length);
+            }
+        }
+
+        inline TypesKey& operator=(const TypesKey& other) {
+            if (this != &other) {
+                if (length > 2)
+                    delete[] buf;
+                if (other.length <= 2)
+                    memory::copy(this, &other, sizeof(TypesKey));
+                else {
+                    length = other.length;
+                    hash = other.hash;
+                    buf = new TypeIndex[length];
+                    memory::copy(buf, other.buf, sizeof(TypeIndex) * length);
+                }
+            }
+            return *this;
+        }
+
+        inline TypesKey(TypesKey&& other) {
+            if (other.length <= 2)
+                memory::copy(this, &other, sizeof(TypesKey));
+            else {
+                length = other.length;
+                hash = other.hash;
+                buf = other.buf;
+                other.length = 0;
+            }
+        }
+
+        inline TypesKey& operator=(TypesKey&& other) {
+            if (this != &other) {
+                if (length > 2)
+                    delete[] buf;
+                if (other.length <= 2)
+                    memory::copy(this, &other, sizeof(TypesKey));
+                else {
+                    length = other.length;
+                    hash = other.hash;
+                    buf = other.buf;
+                    other.length = 0;
+                }
+            }
+            return *this;
+        }
+
+        inline static TypesKey withLength(u32 length) {
+            TypesKey key;
+            key.length = length;
+            key.hash = 0;
+            if (length <= 2) {
+                key.args[0] = key.args[1] = InvalidType;
+                return key;
+            }
+            key.buf = new TypeIndex[length];
+            return key;
+        }
+
+        inline void setParameterType(u32 i, TypeIndex type) {
+            (length <= 2 ? args : buf)[i] = type;
+        }
+
+        inline void computeHash() {
+            u64 h = 10492018930511853907ull;
+            if (length <= 2)
+                h = mixHash(h, intHash(args[0]));
+            else for (u32 i = 0; i < length; i ++)
+                h = mixHash(h, intHash(buf[i]));
+            hash = h;
+        }
+
+        inline bool operator==(const TypesKey& other) const {
+            if (other.length != length)
+                return false;
+            if (other.hash != hash)
+                return false;
+            if (length <= 2)
+                return args[0] == other.args[0] && args[1] == other.args[1];
+
+            for (u32 i = 0; i < length; i ++) if (buf[i] != other.buf[i])
+                return false;
+            return true;
+        }
+
+        inline TypeIndex parameterType(u32 i) const {
+            assert(i < length);
+            return (length <= 2 ? args : buf)[i];
+        }
+
+        inline bool operator!=(const TypesKey& other) const {
+            return !operator==(other);
+        }
+    };
+
+    struct TypesKeyLogger {
+        TypeSystem* sys;
+        const TypesKey& key;
+    };
+
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const TypesKeyLogger& kl) {
+        io = format(io, "(");
+        for (u32 i = 0; i < kl.key.length; i ++) {
+            if (i > 0)
+                io = format(io, ", ");
+            TypeIndex t = kl.key.length <= 2 ? kl.key.args[i] : kl.key.buf[i];
+            io = format(io, kl.sys->get(t));
+        }
+        return format(io, ")");
+    }
+
+    inline u64 hash(const TypesKey& key) {
+        return key.hash;
+    }
+
     struct Function {
         Module* module;
         Function* parent;
@@ -727,6 +863,7 @@ namespace clover {
         vec<ConstInfo, 8> constants;
         map<ConstOriginKey, u32> importedConstants;
         vec<NodeIndex> constDeclOrder;
+        vec<NodeIndex, 4> typeParameterDecls;
         u32 numTemps = 0;
         bool isConst = false, isGeneric = false, isInstantiation = false, noMangling = false;
         Function* generic = nullptr; // Generic version of this function we were instantiated from, if applicable.
@@ -885,21 +1022,22 @@ namespace clover {
         }
     };
 
+    struct TypeInstantiation {
+        TypeIndex type;
+        NodeIndex node;
+    };
+
     struct GenericType {
         Module* module;
         u32 index;
         Symbol name;
         NodeIndex decl, parameterList;
-        bool isInstantiation = false;
         Scope* parentScope;
 
         inline GenericType(Module* module_in, u32 index_in, Symbol name_in, AST decl_in, Scope* parentScope_in):
             module(module_in), index(index_in), name(name_in), decl(decl_in.node), parameterList(decl_in.child(1).node), parentScope(parentScope_in) {}
 
-        union {
-            map<SignatureKey, GenericType*>* instantiations = nullptr; // Cache of instantiations of this generic type.
-            GenericType* forward;
-        };
+        map<TypesKey, TypeInstantiation>* instantiations = nullptr; // Cache of instantiations of this generic type.
     };
 
     struct Namespace {
@@ -1082,31 +1220,77 @@ namespace clover {
     }
 
     struct Module : public ArtifactData {
+        Compilation* compilation;
+        TypeSystem* types;
+
+        // These two vectors hold the AST itself, each AST node is comprised of
+        // one or more words in `astWords`, and all non-leaf AST nodes map
+        // their node index to their starting word index via `ast`.
         vec<ASTWord, 24> astWords;
         vec<u32, 8> ast;
+
+        // These vectors store associated data for each non-leaf node, filled
+        // in in later passes.
         vec<Pos, 8> nodePositions;
         vec<TypeIndex, 8> nodeTypes;
         vec<ScopeIndex, 8> nodeScopes;
+
+        // These two structures store interned constants - integers, floats,
+        // and other literal values that we couldn't cram into a single AST
+        // word.
         vec<Constant, 8> constantList;
         map<Constant, u32> constants;
-        Compilation* compilation;
-        TypeSystem* types;
-        vec<Scope*> scopes;
-        vec<VariableInfo, 8> globals;
-        vec<ConstInfo, 8> globalConstants;
-        map<ConstOriginKey, u32> importedConstants;
+
+        // These arrays allow us to map from indices to instances of other
+        // compiler structures. Some of these are owned by our module
+        // (identifiable by the instance storing this module in its `module`
+        // field, generally), while others are imported from elsewhere.
         vec<Function*, 8> functions;
-        map<Function*, u32> importedFunctions;
-        vec<Overloads*, 4> overloads;
-        map<Overloads*, u32> importedOverloads;
-        vec<GenericType*, 4> genericTypes;
-        map<GenericType*, u32> importedGenericTypes;
+        vec<Scope*> scopes;
         vec<Namespace*, 4> namespaces;
-        vec<NodeIndex> constDeclOrder;
+        vec<Overloads*, 4> overloads;
+        vec<GenericType*, 4> genericTypes;
+        vec<ConstInfo, 8> globalConstants;
+
+        // These maps associate imported instances of compiler structures,
+        // usually based on referential identity, with the local indices of
+        // these structures in the current module. Since this module doesn't
+        // own these instances, it can't guarantee that they are only imported
+        // once, so these maps are necessary to ensure a unique bidirectional
+        // mapping from instance to local id.
+        map<ConstOriginKey, u32> importedConstants;
+        map<Function*, u32> importedFunctions;
+        map<Overloads*, u32> importedOverloads;
+        map<GenericType*, u32> importedGenericTypes;
         map<Scope*, ScopeIndex> importedScopes;
+
+        // The globals array comprises the variable information for all
+        // definitions reachable from the top-level that are not within a
+        // function body.
+        vec<VariableInfo, 8> globals;
+
+        // The const decl order specifies the order of evaluation for top-level
+        // constants. This is needed because locally-defined constants might be
+        // interspersed with imported constants in our constants array, and we
+        // don't want to re-evaluate them.
+        vec<NodeIndex> constDeclOrder;
+
+        // This (kind of fragilely) holds a list of generic type instantiations
+        // we need to guarantee are concretified before finishing typechecking.
+        // This is stored on the module and not in the typechecking-local
+        // InferenceContext because we often instantiate these generic types
+        // during name resolution, but can only concretify them after inference
+        // is complete.
+        vec<TypeIndex> genericTypesToResolve;
+
+        // The literal text contents associated with this module, plus the byte
+        // offsets of the start of each line.
         const_slice<i8> source;
         vec<u32> lineOffsets;
+
+        // Which node is the top-level scope.
         NodeIndex topLevel;
+
         u32 numTemps = 0;
         Symbol name;
         bool noMangling = false;
@@ -2624,7 +2808,7 @@ namespace clover {
                 return format(io, "const#", ast.constId());
             case ASTKind::ResolvedFunction:
                 io = format(io, module->str(ast.resolvedFunction()->name));
-                io = format(io, "/", ast.module->functionIndex(ast.resolvedFunction()));
+                io = format(io, '/', ast.module->functionIndex(ast.resolvedFunction()));
                 return io;
             case ASTKind::ResolvedNamespace:
                 io = format(io, module->str(ast.resolvedNamespace()->name()));
@@ -2656,7 +2840,11 @@ namespace clover {
             case ASTKind::StructCaseDecl:
             case ASTKind::UnionCaseDecl:
             case ASTKind::FunDecl:
-            case ASTKind::ConstFunDecl: {
+            case ASTKind::ConstFunDecl:
+            case ASTKind::GenericFunDecl:
+            case ASTKind::GenericStructDecl:
+            case ASTKind::GenericUnionDecl:
+            case ASTKind::GenericNamedDecl: {
                 io = format(io, '(', AST_NAMES_SYMBOLIC[(u32)kind]);
                 if (ast.arity() == 0)
                     return format(io, ')');

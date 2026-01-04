@@ -2044,3 +2044,127 @@ i32 foo():
     auto foo = lookup<i32()>("foo()i32", exec);
     ASSERT_EQUAL(foo(), 42);
 }
+
+TEST(codegen_generic_linked_list_explicit) {
+    auto instance = COMPILE(R"(
+type List(type T):
+    case Nil
+    case Cons:
+        T data
+        own List(T)* next
+
+own List(T)* cons(type T, T data, own List(T)* next):
+    new List(T).Cons(data, next)
+
+List(T)* cdr(type T, List(T)* list):
+    match list:
+        case List(T).Nil: List(T).Nil
+        case List(T).Cons(x, xs): xs
+
+T car(type T, List(T)* list):
+    match list:
+        case List(T).Nil: 0
+        case List(T).Cons(x, xs): x
+
+i32 test():
+    var list: cons(1, cons(2, cons(3, List(i32).Nil)))
+    var sum: 0
+    while list is not List(i32).Nil:
+        sum += car(list)
+        list = cdr(list)
+    return sum
+)");
+
+    auto exec = load(instance.artifact);
+    auto test = lookup<i32()>("test()i32", exec);
+    ASSERT_EQUAL(test(), 6);
+}
+
+TEST(codegen_generic_vector_explicit) {
+    auto instance = COMPILE(R"(
+type Vec(type T):
+    own T[] buffer
+    u64 size
+
+Vec(T) makeVector(type T):
+    Vec(T)(own T[](new T[4]), 0)
+
+void grow(type T, Vec(T)* vec):
+    var new_buffer: new T[|vec.buffer| * 2]
+    var i: 0
+    for i < vec.size:
+        new_buffer[i] = vec.buffer[i]
+    vec.buffer = own T[](new_buffer)
+
+void push(type T, Vec(T)* vec, T i):
+    if vec.size >= |vec.buffer|:
+        vec.grow()
+    vec.buffer[vec.size ++] = i
+
+u64 length(type T, Vec(T)* vec):
+    vec.size
+
+T at(type T, Vec(T)* vec, u64 i):
+    vec.buffer[i]
+
+T[] slice(type T, Vec(T)* vec):
+    vec.buffer[:vec.size]
+
+i32 test():
+    var vec: makeVector(i32)
+    for i < 13:
+        vec.push(i)
+
+    var evens: makeVector(i32)
+    for i < vec.length():
+        evens.push(vec.at(i)) if vec.at(i) % 2 == 0
+
+    var sum: 0
+    for i < evens.length():
+        sum += evens.at(i)
+    return sum
+)");
+
+    auto exec = load(instance.artifact);
+    auto test = lookup<i32()>("test()i32", exec);
+
+    ASSERT_EQUAL(test(), 42);
+}
+
+TEST(codegen_generic_linked_list_implicit) {
+    return;
+    auto instance = COMPILE(R"(
+type List(type T):
+    case Nil
+    case Cons:
+        T data
+        own List(T)* next
+
+use List.*
+
+own List* cons(data, own List* next):
+    new Cons(data, next)
+
+List* cdr(List* list):
+    match list:
+        case Nil: Nil
+        case Cons(x, xs): xs
+
+fun car(List* list):
+    match list:
+        case Nil: 0
+        case Cons(x, xs): x
+
+i32 test():
+    var list: cons(1, cons(2, cons(3, Nil)))
+    var sum: 0
+    while list is not Nil:
+        sum += car(list)
+        list = cdr(list)
+    return sum
+)");
+
+    auto exec = load(instance.artifact);
+    auto test = lookup<i32()>("test()i32", exec);
+    ASSERT_EQUAL(test(), 6);
+}

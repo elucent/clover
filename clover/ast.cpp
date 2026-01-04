@@ -74,6 +74,7 @@ namespace clover {
             case ASTKind::Uninit:
             case ASTKind::ResolvedNamespace:
             case ASTKind::ResolvedFunction:
+            case ASTKind::ResolvedGenericType:
             case ASTKind::Missing:
             case ASTKind::AnyType:
             case ASTKind::Wildcard:
