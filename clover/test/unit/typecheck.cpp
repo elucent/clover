@@ -1019,6 +1019,42 @@ b.value
     ASSERT_TYPE_EQUAL(bval.type(), module->i64Type());
 }
 
+TEST(typecheck_generic_type_implicit) {
+    auto instance = TYPECHECK(R"(
+type Box:
+    var value
+
+type BoxBox:
+    Box box
+
+Box a: Box(42)
+var b: BoxBox(a)
+b.box.value
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto a = topLevel.child(2);
+    a.setType(expand(a.type()));
+    ASSERT(a.type().is<TypeKind::Struct>());
+    ASSERT(a.type().as<TypeKind::Struct>().isGeneric());
+    ASSERT_TYPE_EQUAL(a.type().as<TypeKind::Struct>().typeParameter(0), module->i64Type());
+
+    auto b = topLevel.child(3);
+    b.setType(expand(b.type()));
+    ASSERT(b.type().is<TypeKind::Struct>());
+    ASSERT(b.type().as<TypeKind::Struct>().isGeneric());
+    ASSERT_TYPE_EQUAL(b.type().as<TypeKind::Struct>().typeParameter(0), module->i64Type());
+    auto bbox = expand(b.type().as<TypeKind::Struct>().fieldType(0));
+    ASSERT(bbox.is<TypeKind::Struct>());
+    ASSERT(bbox.as<TypeKind::Struct>().isGeneric());
+    ASSERT(bbox.as<TypeKind::Struct>().genericOriginIndex() == a.type().as<TypeKind::Struct>().genericOriginIndex());
+
+    auto bval = topLevel.child(4);
+    ASSERT_TYPE_EQUAL(bval.type(), module->i64Type());
+}
+
 TEST(typecheck_array_least_common_subtype) {
     auto instance = TYPECHECK(R"(
 var arr: [1, 2, 3, 4]

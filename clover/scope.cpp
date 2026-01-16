@@ -416,16 +416,31 @@ namespace clover {
             setScopes(module, scope, child);
     }
 
-    void addGenericType(Module* module, Scope* currentScope, AST ast, ASTKind genericKind) {
-        // We don't set up a new scope or investigate the body,
-        // instead we wait until the type is instantiated.
-        ast.setScope(currentScope);
+    void addGenericType(Module* module, Scope* currentScope, AST ast, Symbol name, ASTKind genericKind) {
+        // We define a pseudo-scope for generic types. They're kind of a
+        // weird situation overall - we can't fully resolve them, because we
+        // need to keep the raw identifiers around until instantiation time,
+        // otherwise we'd be relying on the indexing of the global defs being
+        // the same for each instantiation (which is basically never true since
+        // each instantiation owns its own definitions). But, we do need to try
+        // to resolve the body, to discover any tacit type parameters that
+        // weren't explicitly declared. So, we need a real scope attached, with
+        // at least dummy entries for our known type parameters.
+        Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
+        ast.setScope(newScope);
+        for (AST child : ast.children(1))
+            computeScopes(module, newScope, child);
 
         // We do create a GenericType in the module to keep track
         // of this template for future reference.
-        GenericType* genericType = module->addGenericType(ast.child(0).symbol(), ast, currentScope);
+        GenericType* genericType = module->addGenericType(name, ast, currentScope);
         ast.setKind(genericKind);
-        ast.setChild(0, module->add(ASTKind::Missing)); // We'll use this to represent a linked list of instantiations.
+
+        // We'll use this to represent a linked list of instantiations. Unlike
+        // a generic function, which can be trivially recovered from the scope,
+        // we want to be able to dig into this list and find the GenericType
+        // instance. So we insert it as the tail of the list.
+        ast.setChild(0, module->add(ASTKind::ResolvedGenericType, genericType));
 
         currentScope->addGenericType(ast, genericType);
     }
@@ -726,16 +741,25 @@ namespace clover {
             }
             case ASTKind::NamedDecl:
             case ASTKind::NamedCaseDecl: {
-                assert(ast.child(0).kind() == ASTKind::Ident);
+                Symbol name;
+                if LIKELY(ast.child(0).kind() == ASTKind::Ident)
+                    name = ast.child(0).symbol();
+                else {
+                    // This can happen in the case that we instantiate a
+                    // generic type in the middle of resolving its body. In
+                    // this case, the nodes can be in a half-resolved state.
+                    assert(ast.kind() == ASTKind::NamedCaseDecl);
+                    name = ast.child(0).varInfo(currentScope->function).name;
+                }
 
                 if (!ast.child(1).missing()) {
                     if (ast.kind() == ASTKind::NamedCaseDecl)
                         error(module, ast.pos(), "Type parameters are not allowed in case types.");
                     else
-                        return addGenericType(module, currentScope, ast, ASTKind::GenericNamedDecl);
+                        return addGenericType(module, currentScope, ast, name, ASTKind::GenericNamedDecl);
                 }
 
-                currentScope->add(VariableKind::Type, ast, ast.child(0).symbol()); // Type name
+                currentScope->add(VariableKind::Type, ast, name); // Type name
                 Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
                 ast.setScope(newScope);
                 computeScopes(module, imports, newScope, ast.child(2));
@@ -743,16 +767,25 @@ namespace clover {
             }
             case ASTKind::StructDecl:
             case ASTKind::StructCaseDecl: {
-                assert(ast.child(0).kind() == ASTKind::Ident);
+                Symbol name;
+                if LIKELY(ast.child(0).kind() == ASTKind::Ident)
+                    name = ast.child(0).symbol();
+                else {
+                    // This can happen in the case that we instantiate a
+                    // generic type in the middle of resolving its body. In
+                    // this case, the nodes can be in a half-resolved state.
+                    assert(ast.kind() == ASTKind::StructCaseDecl);
+                    name = ast.child(0).varInfo(currentScope->function).name;
+                }
 
                 if (!ast.child(1).missing()) {
                     if (ast.kind() == ASTKind::StructCaseDecl)
                         error(module, ast.pos(), "Type parameters are not allowed in case types.");
                     else
-                        return addGenericType(module, currentScope, ast, ASTKind::GenericStructDecl);
+                        return addGenericType(module, currentScope, ast, name, ASTKind::GenericStructDecl);
                 }
 
-                currentScope->add(VariableKind::Type, ast, ast.child(0).symbol()); // Type name
+                currentScope->add(VariableKind::Type, ast, name); // Type name
                 Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
                 ast.setScope(newScope);
                 for (u32 i = 2; i < ast.arity(); i ++)
@@ -761,16 +794,25 @@ namespace clover {
             }
             case ASTKind::UnionDecl:
             case ASTKind::UnionCaseDecl: {
-                assert(ast.child(0).kind() == ASTKind::Ident);
+                Symbol name;
+                if LIKELY(ast.child(0).kind() == ASTKind::Ident)
+                    name = ast.child(0).symbol();
+                else {
+                    // This can happen in the case that we instantiate a
+                    // generic type in the middle of resolving its body. In
+                    // this case, the nodes can be in a half-resolved state.
+                    assert(ast.kind() == ASTKind::UnionCaseDecl);
+                    name = ast.child(0).varInfo(currentScope->function).name;
+                }
 
                 if (!ast.child(1).missing()) {
                     if (ast.kind() == ASTKind::UnionCaseDecl)
                         error(module, ast.pos(), "Type parameters are not allowed in case types.");
                     else
-                        return addGenericType(module, currentScope, ast, ASTKind::GenericUnionDecl);
+                        return addGenericType(module, currentScope, ast, name, ASTKind::GenericUnionDecl);
                 }
 
-                currentScope->add(VariableKind::Type, ast, ast.child(0).symbol()); // Type name
+                currentScope->add(VariableKind::Type, ast, name); // Type name
                 Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
                 ast.setScope(newScope);
                 for (u32 i = 2; i < ast.arity(); i ++)

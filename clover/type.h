@@ -2230,25 +2230,27 @@ namespace clover {
         }
     }
 
-    inline void getTypeParameters(vec<TypeIndex>& out, Type type) {
+    template<typename Func>
+    inline void forEachTypeParameter(Type type, Func&& func) {
+        type = expand(type);
         switch (type.kind()) {
             case TypeKind::Named:
                 if (!type.as<TypeKind::Named>().isGeneric())
                     return;
                 for (u32 i = 0; i < type.as<TypeKind::Named>().typeParameterCount(); i ++)
-                    out.push(type.as<TypeKind::Named>().typeParameterIndex(i));
+                    func(type.as<TypeKind::Named>().typeParameter(i));
                 return;
             case TypeKind::Struct:
                 if (!type.as<TypeKind::Struct>().isGeneric())
                     return;
                 for (u32 i = 0; i < type.as<TypeKind::Struct>().typeParameterCount(); i ++)
-                    out.push(type.as<TypeKind::Struct>().typeParameterIndex(i));
+                    func(type.as<TypeKind::Struct>().typeParameter(i));
                 return;
             case TypeKind::Union:
                 if (!type.as<TypeKind::Union>().isGeneric())
                     return;
                 for (u32 i = 0; i < type.as<TypeKind::Union>().typeParameterCount(); i ++)
-                    out.push(type.as<TypeKind::Union>().typeParameterIndex(i));
+                    func(type.as<TypeKind::Union>().typeParameter(i));
                 return;
             default:
                 unreachable("Not a possible generic type kind.");

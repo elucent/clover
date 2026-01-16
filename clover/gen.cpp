@@ -538,7 +538,9 @@ namespace clover {
                         return format(target, '.', module->str(type.as<TypeKind::Struct>().name()));
                     }
                     vec<TypeIndex> params;
-                    getTypeParameters(params, type);
+                    forEachTypeParameter(type, [&](Type t) {
+                        params.push(t.index);
+                    });
                     return mangleNamedType(target, type.as<TypeKind::Struct>().scope(), type.as<TypeKind::Struct>().name(), type.types, params);
                 }
                 case TypeKind::Named: {
@@ -550,7 +552,9 @@ namespace clover {
                         return format(target, '.', module->str(type.as<TypeKind::Named>().name()));
                     }
                     vec<TypeIndex> params;
-                    getTypeParameters(params, type);
+                    forEachTypeParameter(type, [&](Type t) {
+                        params.push(t.index);
+                    });
                     return mangleNamedType(target, type.as<TypeKind::Named>().scope(), type.as<TypeKind::Named>().name(), type.types, params);
                 }
                 case TypeKind::Union: {
@@ -562,7 +566,9 @@ namespace clover {
                         return format(target, '.', module->str(type.as<TypeKind::Union>().name()));
                     }
                     vec<TypeIndex> params;
-                    getTypeParameters(params, type);
+                    forEachTypeParameter(type, [&](Type t) {
+                        params.push(t.index);
+                    });
                     return mangleNamedType(target, type.as<TypeKind::Union>().scope(), type.as<TypeKind::Union>().name(), type.types, params);
                 }
                 default:

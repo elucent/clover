@@ -456,6 +456,27 @@ namespace clover {
 
     static_assert(sizeof(ASTWord) == 4);
 
+    struct ChangePosition {
+        AST ast;
+        i32 child;
+
+        inline ChangePosition():
+            child(-1) {}
+
+        inline ChangePosition(AST ast_in, u32 child_in):
+            ast(ast_in), child(child_in) {}
+
+        inline AST current() {
+            assert(child >= 0);
+            return ast.child(child);
+        }
+
+        inline void replaceWith(AST node) {
+            assert(child >= 0);
+            ast.setChild(child, node);
+        }
+    };
+
     struct Identifier {
         Symbol name;
 
@@ -1094,10 +1115,13 @@ namespace clover {
             return scope;
         }
 
+        inline const VariableInfo& info() const;
         inline VariableHandle expand() const;
         inline bool isGlobal() const { return g; }
         inline u32 index() const { return i; }
         inline VariableKind kind() const;
+        inline void setKind(VariableKind kind);
+        inline void setGenericType(GenericType* generic);
         inline TypeIndex type() const;
         inline void setType(Type type);
         inline void setType(TypeIndex type);
@@ -1793,7 +1817,7 @@ namespace clover {
             for (AST child : ast)
                 nodes.push(clone(child));
             if (nodeTypes.size())
-                return add(ast.kind(), ast.pos(), InvalidScope, ast.typeIndex(), nodes);
+                return add(ast.kind(), ast.pos(), InvalidScope, InvalidType, nodes);
             else
                 return add(ast.kind(), ast.pos(), nodes);
         }
@@ -2692,6 +2716,11 @@ namespace clover {
         module->replace(*this, kind, args...);
     }
 
+    inline const VariableInfo& VariableHandle::info() const {
+        assert(kind() != VariableKind::Forward);
+        return isGlobal() ? scope->module->globals[i] : scope->function->locals[i];
+    }
+
     inline VariableHandle VariableHandle::expand() const {
         if (kind() == VariableKind::Forward) {
             const auto& info = isGlobal() ? scope->module->globals[i] : scope->function->locals[i];
@@ -2705,6 +2734,20 @@ namespace clover {
         if (isGlobal())
             return scope->module->globals[i].kind;
         return scope->function->locals[i].kind;
+    }
+
+    inline void VariableHandle::setKind(VariableKind kind) {
+        if (isGlobal())
+            scope->module->globals[i].kind = kind;
+        else
+            scope->function->locals[i].kind = kind;
+    }
+
+    inline void VariableHandle::setGenericType(GenericType* generic) {
+        auto& info = isGlobal() ? scope->module->globals[i] : scope->function->locals[i];
+        info.isImport = true;
+        info.genericTypeIndex = scope->module->genericTypeIndex(generic);
+        info.name = generic->name;
     }
 
     inline TypeIndex VariableHandle::type() const {

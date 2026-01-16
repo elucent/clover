@@ -783,15 +783,6 @@ namespace clover {
         return eval;
     }
 
-    struct ChangePosition {
-        AST ast;
-        u32 child;
-
-        inline void replaceWith(AST node) {
-            ast.setChild(child, node);
-        }
-    };
-
     struct TypeEvaluation : public Evaluation {
         inline TypeEvaluation(const Evaluation& eval):
             Evaluation(eval) {}
