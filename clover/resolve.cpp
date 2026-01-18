@@ -24,16 +24,6 @@ namespace clover {
         }
     }
 
-    bool isGenericTypeExpression(AST ast) {
-        switch (ast.kind()) {
-            case ASTKind::ResolvedGenericType:
-            case ASTKind::Projection:
-                return true;
-            default:
-                return false;
-        }
-    }
-
     struct LateUse {
         ScopeIndex scope;
         NodeIndex node;
@@ -166,6 +156,7 @@ namespace clover {
             if (it != genericType->instantiations->end())
                 return module->types->get(it->value.type);
         }
+        // println("Instantiating ", module->str(genericType->name), TypesKeyLogger { module->types, key });
 
         if (!genericType->instantiations)
             genericType->instantiations = new map<TypesKey, TypeInstantiation>();
@@ -225,6 +216,8 @@ namespace clover {
     }
 
     Type instantiate(GenericType* genericType) {
+        if (genericType->placeholder != InvalidType)
+            return genericType->module->types->get(genericType->placeholder);
         vec<TypeIndex> vars;
         AST ast = genericType->module->node(genericType->parameterList);
         for (AST child : ast)
@@ -232,28 +225,46 @@ namespace clover {
         return instantiate(genericType, vars);
     }
 
-    template<typename... Args>
-    Type instantiate(ResolutionContext& ctx, ChangePosition changePos, Args... parameters) {
-        AST ast = changePos.current();
+    AST getNode(ChangePosition pos) {
+        return pos.current();
+    }
+
+    AST getNode(AST ast) {
+        return ast;
+    }
+
+    template<typename Node, typename... Args>
+    Type instantiate(ResolutionContext& ctx, Node changePos, Args... parameters) {
+        AST ast = getNode(changePos);
         switch (ast.kind()) {
             case ASTKind::ResolvedGenericType: {
-                Type result = instantiate(ast.genericType(), parameters...);
-                if (sizeof...(parameters) == 0)
-                    ctx.reportGenericField(changePos, result);
+                GenericType* generic = ast.genericType();
+                Type result = instantiate(generic, parameters...);
+                if constexpr (isSame<Node, ChangePosition> && sizeof...(parameters) == 0) {
+                    if (generic->placeholder != InvalidType)
+                        changePos.replaceWith(ast.module->add(ASTKind::GenericInst, changePos.ast.pos(), changePos.ast.scope(), result));
+                    else
+                        ctx.reportGenericField(changePos, result);
+                }
                 return result;
             }
             case ASTKind::Projection: {
                 AST base = ast;
                 vec<Symbol> path;
-                ChangePosition basePos = changePos;
+                AST baseParent = base;
                 while (base.kind() == ASTKind::Projection)
-                    path.push(base.child(1).symbol()), basePos = { base, 0 }, base = base.child(0);
+                    path.push(base.child(1).symbol()), baseParent = base, base = base.child(0);
                 assert(base.kind() == ASTKind::ResolvedGenericType);
                 GenericType* generic = base.genericType();
                 Type inst = instantiate(generic, parameters...);
                 assert(inst);
-                if (sizeof...(parameters) == 0)
-                    ctx.reportGenericField(basePos, inst);
+                if constexpr (isSame<Node, ChangePosition> && sizeof...(parameters) == 0) {
+                    ChangePosition basePos = baseParent.node == ast.node ? changePos : ChangePosition { baseParent, 0 };
+                    if (generic->placeholder != InvalidType)
+                        basePos.replaceWith(ast.module->add(ASTKind::GenericInst, ast.pos(), ast.scope(), inst));
+                    else
+                        ctx.reportGenericField(basePos, inst);
+                }
 
                 Scope* scope = getScope(inst);
                 assert(scope);
@@ -281,6 +292,12 @@ namespace clover {
             default:
                 unreachable("Can't instantiate non-generic-type expression ", ast);
         }
+    }
+
+    Type instantiateType(AST ast) {
+        // We only want to do this from later phases.
+        ResolutionContext ctx;
+        return instantiate(ctx, ast);
     }
 
     Type evaluateType(Module* module, ResolutionContext& ctx, Scope* scope, AST ast, ChangePosition changePos, MayInstantiateTag mayInstantiate) {
@@ -479,6 +496,8 @@ namespace clover {
                     auto it = inst->genericType->instantiations->find(*inst->typesKey);
                     assert(it != inst->genericType->instantiations->end());
                     it->value.type = placeholder.index;
+                    assert(inst->genericType->placeholder == InvalidType);
+                    inst->genericType->placeholder = placeholder.index;
                 }
                 AST child = resolveChild(module, ctx, refTraits, ast, 2, ExpectType);
                 if (child.kind() == ASTKind::VarDecl) {
@@ -522,6 +541,8 @@ namespace clover {
                 (entry.isGlobal() ? entry.scope->module->globals[entry.index] : entry.scope->function->locals[entry.index]).type = ast.type().index;
                 assert(!placeholder.asVar().isEqual());
                 placeholder.asVar().makeEqual(ast.type());
+                if (inst)
+                    inst->genericType->placeholder = InvalidType;
                 // resolveChild(module, ctx, refTraits, ast, 0, ExpectType);
                 return ast.type();
             }
@@ -533,6 +554,8 @@ namespace clover {
                     auto it = inst->genericType->instantiations->find(*inst->typesKey);
                     assert(it != inst->genericType->instantiations->end());
                     it->value.type = placeholder.index;
+                    assert(inst->genericType->placeholder == InvalidType);
+                    inst->genericType->placeholder = placeholder.index;
                 }
                 ast.setType(placeholder);
                 auto builder = StructBuilder(module->types, sym);
@@ -562,6 +585,8 @@ namespace clover {
                 (entry.isGlobal() ? entry.scope->module->globals[entry.index] : entry.scope->function->locals[entry.index]).type = ast.type().index;
                 assert(!placeholder.asVar().isEqual());
                 placeholder.asVar().makeEqual(ast.type());
+                if (inst)
+                    inst->genericType->placeholder = InvalidType;
                 // resolveChild(module, ctx, refTraits, ast, 0, ExpectType);
                 return ast.type();
             }
@@ -574,6 +599,8 @@ namespace clover {
                     auto it = inst->genericType->instantiations->find(*inst->typesKey);
                     assert(it != inst->genericType->instantiations->end());
                     it->value.type = placeholder.index;
+                    assert(inst->genericType->placeholder == InvalidType);
+                    inst->genericType->placeholder = placeholder.index;
                 }
                 auto builder = UnionBuilder(module->types, sym);
                 builder.isCase = ast.kind() == ASTKind::UnionCaseDecl;
@@ -598,6 +625,8 @@ namespace clover {
                 (entry.isGlobal() ? entry.scope->module->globals[entry.index] : entry.scope->function->locals[entry.index]).type = ast.type().index;
                 assert(!placeholder.asVar().isEqual());
                 placeholder.asVar().makeEqual(ast.type());
+                if (inst)
+                    inst->genericType->placeholder = InvalidType;
                 // resolveChild(module, ctx, refTraits, ast, 0, ExpectType);
                 return ast.type();
             }
@@ -607,6 +636,7 @@ namespace clover {
                 assert(!inst);
                 GenericType* generic = genericTypeForDecl(ast);
                 Type placeholder = module->varType();
+                generic->placeholder = placeholder.index;
                 ast.setType(placeholder);
                 for (AST param : ast.child(1))
                     param.setType(Any);
@@ -616,6 +646,7 @@ namespace clover {
                     addTypeParametersToExistingGeneric(module, ast, generic->name, discoveredTypeParameters);
                 else for (u32 i = 2; i < ast.arity(); i ++)
                     unresolveTypeDecl(module, ast.scope(), { ast, i });
+                generic->placeholder = InvalidType;
                 return PossiblyGenericType(module, generic);
             }
             default:
@@ -988,9 +1019,14 @@ namespace clover {
             // worry about it being a function type, since a function type is
             // forbidden from returning an uninstantiated generic.
 
+            GenericType* generic = getGenericType(func);
+
             if (call.arity() == 1) { // No arguments case. This means we must be a constructor, since generic types can't have no parameters.
                 call.setKind(ASTKind::Construct);
-                call.setType(instantiate(ctx, { call, 0 }));
+                if (generic->placeholder != InvalidType)
+                    call.setType(generic->placeholder);
+                else
+                    call.setType(instantiate(ctx, ChangePosition { call, 0 }));
                 call.setArity(0);
                 return call;
             }
@@ -1009,14 +1045,21 @@ namespace clover {
                 } else
                     hasAnyNonType = true;
             }
-            GenericType* generic = getGenericType(func);
             u32 arity = generic->module->node(generic->parameterList).arity();
             if (types.size() != arity) {
-                type_assert(types.size() == 0);
-                assert(hasAnyNonType);
-                call.setType(instantiate(ctx, { call, 0 }));
-            } else
-                call.setType(instantiate(ctx, { call, 0 }, types));
+                if (generic->placeholder != InvalidType)
+                    call.setType(generic->placeholder);
+                else {
+                    type_assert(types.size() == 0);
+                    assert(hasAnyNonType);
+                    call.setType(instantiate(ctx, ChangePosition { call, 0 }));
+                }
+            } else {
+                if (generic->placeholder != InvalidType)
+                    call.setType(generic->placeholder);
+                else
+                    call.setType(instantiate(ctx, ChangePosition { call, 0 }, types));
+            }
             if (hasAnyNonType) {
                 for (u32 i = 1; i < call.arity(); i ++)
                     call.setChild(i - 1, call.child(i));
@@ -1279,14 +1322,15 @@ namespace clover {
         return resolve(module, ctx, refTraits, scope, none<AST>(), decl, ExpectValue);
     }
 
-    AST resolvePattern(Module* module, ResolutionContext& ctx, RefTraits refTraits, Scope* scope, AST pattern, bool allowSplat) {
+    void resolvePattern(Module* module, ResolutionContext& ctx, RefTraits refTraits, Scope* scope, ChangePosition patternPos, bool allowSplat) {
+        AST pattern = patternPos.current();
         switch (pattern.kind()) {
             case ASTKind::Int:
             case ASTKind::Unsigned:
             case ASTKind::Float:
             case ASTKind::Bool:
             case ASTKind::Char:
-                return pattern;
+                break;
 
             case ASTKind::Splat:
                 assert(allowSplat);
@@ -1294,35 +1338,45 @@ namespace clover {
                     assert(pattern.child(0).kind() == ASTKind::Local
                         || pattern.child(0).kind() == ASTKind::Global
                         || pattern.child(0).kind() == ASTKind::Ident);
-                    pattern.setChild(0, resolvePattern(module, ctx, NoRefTraits, scope, pattern.child(0), false));
+                    resolvePattern(module, ctx, NoRefTraits, scope, { pattern, 0 }, false);
                 }
-                return pattern;
+                break;
 
             case ASTKind::Local:
-                return resolvePatternBinding(module, ctx, refTraits, scope, pattern.varInfo(scope->function).name);
+                patternPos.replaceWith(resolvePatternBinding(module, ctx, refTraits, scope, pattern.varInfo(scope->function).name));
+                break;
             case ASTKind::Global:
-                return resolvePatternBinding(module, ctx, refTraits, scope, pattern.varInfo().name);
+                patternPos.replaceWith(resolvePatternBinding(module, ctx, refTraits, scope, pattern.varInfo().name));
+                break;
             case ASTKind::Ident:
-                return resolvePatternBinding(module, ctx, refTraits, scope, pattern.symbol());
+                patternPos.replaceWith(resolvePatternBinding(module, ctx, refTraits, scope, pattern.symbol()));
+                break;
 
             case ASTKind::VarDecl:
                 assert(pattern.child(2).missing()); // Can't initialize within a pattern.
-                return pattern;
+                break;
 
             case ASTKind::Construct:
                 for (u32 i = 0; i < pattern.arity(); i ++)
-                    pattern.setChild(i, resolvePattern(module, ctx, refTraits, scope, pattern.child(i), true));
-                return pattern;
+                    resolvePattern(module, ctx, refTraits, scope, { pattern, i }, true);
+                break;
 
             case ASTKind::List:
                 for (u32 i = 0; i < pattern.arity(); i ++)
-                    pattern.setChild(i, resolvePattern(module, ctx, refTraits, scope, pattern.child(i), true));
-                return pattern;
+                    resolvePattern(module, ctx, refTraits, scope, { pattern, i }, true);
+                break;
 
             case ASTKind::Tuple:
                 for (u32 i = 0; i < pattern.arity(); i ++)
-                    pattern.setChild(i, resolvePattern(module, ctx, refTraits, scope, pattern.child(i), true));
-                return pattern;
+                    resolvePattern(module, ctx, refTraits, scope, { pattern, i }, true);
+                break;
+
+            case ASTKind::ResolvedGenericType:
+            case ASTKind::Projection: {
+                Type result = instantiate(ctx, patternPos);
+                patternPos.replaceWith(module->add(ASTKind::GenericInst, patternPos.ast.pos(), patternPos.ast.scope(), result, pattern));
+                break;
+            }
 
             case ASTKind::Typename:
             case ASTKind::GlobalTypename:
@@ -1335,7 +1389,7 @@ namespace clover {
             case ASTKind::OwnType:
             case ASTKind::UninitType:
             case ASTKind::GenericInst:
-                return pattern; // Bare type expressions can be used to check if a value matches a specific type.
+                break; // Bare type expressions can be used to check if a value matches a specific type.
 
             default:
                 unreachable("Found illegal node in pattern ", pattern, ".");
@@ -1594,7 +1648,7 @@ namespace clover {
                 // We don't need a rule for match itself.
                 AST pattern = resolveChild(module, ctx, refTraits, ast, 0, ExpectValue);
                 if (!pattern.missing())
-                    ast.setChild(0, resolvePattern(module, ctx, refTraits, ast.scope(), pattern, false));
+                    resolvePattern(module, ctx, refTraits, ast.scope(), { ast, 0 }, false);
 
                 // Our scope should be fully populated now. So we can resolve the body.
                 resolveChild(module, ctx, refTraits, ast, 1, ExpectValue);
@@ -1604,7 +1658,7 @@ namespace clover {
                 resolveChild(module, ctx, refTraits, ast, 0, ExpectValue);
                 AST pattern = resolveChild(module, ctx, refTraits, ast, 1, ExpectValue);
                 if (!pattern.missing())
-                    ast.setChild(1, resolvePattern(module, ctx, refTraits, ast.scope(), pattern, false));
+                    resolvePattern(module, ctx, refTraits, ast.scope(), { ast, 1 }, false);
                 return ast;
             }
             case ASTKind::AliasDecl:
@@ -1645,7 +1699,7 @@ namespace clover {
                     // Must be some kind of pattern.
                     assert(!ast.child(2).missing() && ast.child(2).kind() != ASTKind::Uninit);
                     AST pattern = resolveChild(module, ctx, refTraits, ast, 1, ExpectValue);
-                    resolvePattern(module, ctx, refTraits, scope, pattern, false);
+                    resolvePattern(module, ctx, refTraits, scope, { ast, 1 }, false);
                 }
                 if (ast.child(2).kind() != ASTKind::Uninit)
                     resolveChild(module, ctx, refTraits, ast, 2, ExpectValue);
@@ -1729,7 +1783,7 @@ namespace clover {
                         bool alreadyResolved = false;
                         AST arg = a;
                         if (arg.kind() != ASTKind::VarDecl) {
-                            AST resolvedArg = resolve(module, ctx, refTraits, arg.scope(), some<AST>(ast.child(2)), arg, ExpectType);
+                            AST resolvedArg = resolve(module, ctx, refTraits, ast.scope(), some<AST>(ast.child(2)), arg, ExpectType);
                             assert(isTypeExpression(resolvedArg, MayInstantiate) || resolvedArg.kind() == ASTKind::VarDecl);
                             if (resolvedArg.kind() == ASTKind::VarDecl)
                                 arg = resolvedArg, alreadyResolved = true;

@@ -996,8 +996,9 @@ namespace clover {
                         if (defScope->kind == ScopeKind::Namespace)
                             root = module->node(defScope->owner).child(0).resolvedNamespace();
                         defineNamespace(scope, root, module->namespaces[info.namespaceIndex], ast);
-                    } else
+                    } else {
                         scope->addIndirect(module, ast, defScope, entry.index, path.back());
+                    }
                 }
             } else {
                 Path filepath(module->compilation->cwd);

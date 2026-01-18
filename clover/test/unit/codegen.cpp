@@ -2081,20 +2081,19 @@ i32 test():
 }
 
 TEST(codegen_generic_linked_list_implicit) {
-    return;
     auto instance = COMPILE(R"(
 type List:
-    case Nil
     case Cons:
         var data
         own List* next
+    case Nil
 
 use List.*
 
 own List* cons(data, own List* next):
     new Cons(data, next)
 
-List* cdr(List* list):
+fun cdr(List* list):
     match list:
         case Nil: Nil
         case Cons(x, xs): xs
@@ -2105,7 +2104,7 @@ fun car(List* list):
         case Cons(x, xs): x
 
 i32 test():
-    var list: cons(1, cons(2, cons(3, Nil)))
+    var list: cons(1, cons(2, cons(3, Nil(i32))))
     var sum: 0
     while list is not Nil:
         sum += car(list)

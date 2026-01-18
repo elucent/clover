@@ -7,6 +7,8 @@
 namespace clover {
     bool isTypeExpression(AST ast, MayInstantiateTag);
 
+    Type instantiateType(AST generic);
+
     AST resolveNode(Scope* scope, AST parent, AST ast);
     NOINLINE Artifact* resolveNamesAndTypes(Artifact* artifact);
 }

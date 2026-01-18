@@ -1649,7 +1649,8 @@ namespace clover {
             case ASTKind::SliceType:
             case ASTKind::OwnType:
             case ASTKind::UninitType:
-            case ASTKind::ArrayType: {
+            case ASTKind::ArrayType:
+            case ASTKind::GenericInst: {
                 Type patternType = expand(evaluateType(genCtx.module, genCtx.func(), pattern));
 
                 bool allCases = true;
@@ -1818,6 +1819,7 @@ namespace clover {
             case ASTKind::TypeField:
             case ASTKind::Typename:
             case ASTKind::GlobalTypename:
+            case ASTKind::GenericInst:
                 return true; // It's either an atom or we broke something. We can catch it in the later call once we have a Function handy.
             default:
                 return false;
@@ -1974,7 +1976,8 @@ namespace clover {
 
             case ASTKind::TypeField:
             case ASTKind::Typename:
-            case ASTKind::GlobalTypename: {
+            case ASTKind::GlobalTypename:
+            case ASTKind::GenericInst: {
                 Type type = evaluateType(genCtx.module, genCtx.func(), init);
                 if (isAtom(type)) {
                     genCtx.ensureTypeTag(type);
@@ -2804,7 +2807,8 @@ namespace clover {
 
             case ASTKind::TypeField:
             case ASTKind::Typename:
-            case ASTKind::GlobalTypename: {
+            case ASTKind::GlobalTypename:
+            case ASTKind::GenericInst: {
                 Type type = expand(evaluateType(module, genCtx.func(), ast));
                 if (isAtom(type)) {
                     auto impl = genCtx.atomRef(type);

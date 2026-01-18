@@ -1125,6 +1125,7 @@ namespace clover {
             case ASTKind::ArrayType:
             case ASTKind::TupleType:
             case ASTKind::FunType:
+            case ASTKind::GenericInst:
                 type = evaluateType(module, function, pattern);
                 if (parentType)
                     unify(parentType, type, pattern, ctx);
@@ -1180,9 +1181,20 @@ namespace clover {
             case ASTKind::ResolvedFunction:
                 return fromType(ast.resolvedFunction()->type());
 
+            case ASTKind::ResolvedGenericType:
+            case ASTKind::Projection: {
+                Type inst = instantiateType(ast);
+                if (inst.is<TypeKind::Named>() && inst.as<TypeKind::Named>().innerType() == Void) {
+                    // It's an atom, so it's allowed to be used in a value position.
+                    return fromNode(inst.index, module->add(ASTKind::GenericInst, {}, InvalidScope, inst, ast));
+                }
+                unreachable("Type expressions are not allowed in value positions unless they are atoms.");
+            }
+
             case ASTKind::Typename:
             case ASTKind::GlobalTypename:
-            case ASTKind::TypeField: {
+            case ASTKind::TypeField:
+            case ASTKind::GenericInst: {
                 Type type = evaluateType(module, function, ast);
                 if (type.is<TypeKind::Named>() && type.as<TypeKind::Named>().innerType() == Void) {
                     // It's an atom, so it's allowed to be used in a value position.
@@ -1641,6 +1653,8 @@ namespace clover {
                     ctx.constraints->constrainOrder(funcType, ast.type());
                 }
                 for (u32 i = 1; i < ast.arity(); i ++) {
+                    if (isGenericTypeExpression(ast.child(i)))
+                        inferChild(ctx, function, ast, i);
                     if (isTypeParameter(function, ast.child(i)))
                         continue; // It's a type parameter, skip it for now.
                     auto arg = inferChild(ctx, function, ast, i);
@@ -2040,7 +2054,8 @@ namespace clover {
             case ASTKind::SliceType:
             case ASTKind::ArrayType:
             case ASTKind::TupleType:
-            case ASTKind::FunType: {
+            case ASTKind::FunType:
+            case ASTKind::GenericInst: {
                 Type type = evaluateType(module, function, pattern);
                 if (canUnify(type, input, pattern))
                     return true;

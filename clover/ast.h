@@ -1054,6 +1054,7 @@ namespace clover {
         u32 index;
         Symbol name;
         NodeIndex decl, parameterList;
+        TypeIndex placeholder = InvalidType;
         Scope* parentScope;
 
         inline GenericType(Module* module_in, u32 index_in, Symbol name_in, AST decl_in, Scope* parentScope_in):
@@ -2790,6 +2791,16 @@ namespace clover {
     };
 
     bool isTypeExpression(AST, MayInstantiateTag);
+
+    inline bool isGenericTypeExpression(AST ast) {
+        switch (ast.kind()) {
+            case ASTKind::ResolvedGenericType:
+            case ASTKind::Projection:
+                return true;
+            default:
+                return false;
+        }
+    }
 
     inline AST VarType::owner(Module* module) const {
         return module->node(this->owner());

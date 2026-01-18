@@ -1445,8 +1445,12 @@ namespace clover {
                 if (rhs.kind() == ASTKind::Call) {
                     // It's a FunDecl.
                     vec<AST> arguments;
-                    for (AST child : rhs.children(1))
-                        arguments.push(child);
+                    for (AST child : rhs.children(1)) {
+                        if (child.kind() == ASTKind::Ident)
+                            arguments.push(module->add(ASTKind::VarDecl, rhs.pos(), module->add(ASTKind::Missing), module->add(ASTKind::Ident, Identifier(child.symbol())), module->add(ASTKind::Missing)));
+                        else
+                            arguments.push(child);
+                    }
                     if (rhs.child(0).kind() != ASTKind::Ident)
                         error(module, rhs.pos(), "Expected identifier in function declaration, found '", rhs.child(0), "'.");
                     AST lhs = possibleDecl.child(0);
