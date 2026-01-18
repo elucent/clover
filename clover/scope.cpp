@@ -753,9 +753,12 @@ namespace clover {
                 }
 
                 if (!ast.child(1).missing()) {
-                    if (ast.kind() == ASTKind::NamedCaseDecl)
-                        error(module, ast.pos(), "Type parameters are not allowed in case types.");
-                    else
+                    if (ast.kind() == ASTKind::NamedCaseDecl) {
+                        // Unsigned is allowed because we use the 2nd slot as
+                        // a bit of a hack to stash the case's parent pointer.
+                        if (ast.child(1).kind() != ASTKind::Unsigned)
+                            error(module, ast.pos(), "Type parameters are not allowed in case types.");
+                    } else
                         return addGenericType(module, currentScope, ast, name, ASTKind::GenericNamedDecl);
                 }
 
@@ -779,9 +782,12 @@ namespace clover {
                 }
 
                 if (!ast.child(1).missing()) {
-                    if (ast.kind() == ASTKind::StructCaseDecl)
-                        error(module, ast.pos(), "Type parameters are not allowed in case types.");
-                    else
+                    if (ast.kind() == ASTKind::StructCaseDecl) {
+                        // Unsigned is allowed because we use the 2nd slot as
+                        // a bit of a hack to stash the case's parent pointer.
+                        if (ast.child(1).kind() != ASTKind::Unsigned)
+                            error(module, ast.pos(), "Type parameters are not allowed in case types.");
+                    } else
                         return addGenericType(module, currentScope, ast, name, ASTKind::GenericStructDecl);
                 }
 
@@ -806,17 +812,30 @@ namespace clover {
                 }
 
                 if (!ast.child(1).missing()) {
-                    if (ast.kind() == ASTKind::UnionCaseDecl)
-                        error(module, ast.pos(), "Type parameters are not allowed in case types.");
-                    else
+                    if (ast.kind() == ASTKind::UnionCaseDecl) {
+                        // Unsigned is allowed because we use the 2nd slot as
+                        // a bit of a hack to stash the case's parent pointer.
+                        if (ast.child(1).kind() != ASTKind::Unsigned)
+                            error(module, ast.pos(), "Type parameters are not allowed in case types.");
+                    } else
                         return addGenericType(module, currentScope, ast, name, ASTKind::GenericUnionDecl);
                 }
 
                 currentScope->add(VariableKind::Type, ast, name); // Type name
                 Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
                 ast.setScope(newScope);
-                for (u32 i = 2; i < ast.arity(); i ++)
+                for (u32 i = 2; i < ast.arity(); i ++) {
+                    switch (ast.child(i).kind()) {
+                        case ASTKind::NamedCaseDecl:
+                        case ASTKind::StructCaseDecl:
+                        case ASTKind::UnionCaseDecl:
+                            ast.child(i).setChild(1, module->add(ASTKind::Unsigned, Constant::UnsignedConst(ast.node)));
+                            break;
+                        default:
+                            break;
+                    }
                     computeScopes(module, imports, newScope, ast.child(i));
+                }
                 break;
             }
             case ASTKind::Namespace: {
@@ -950,14 +969,17 @@ namespace clover {
                 if (path.back() == InvalidSymbol) {
                     if (defNs)
                         importNamespace(scope, defNs, ast);
-                    else for (const auto [k, v] : defScope->entries) {
-                        VariableInfo info = defScope->function ? defScope->function->locals[v] : module->globals[v];
-                        if (info.kind == VariableKind::Constant)
-                            scope->addConstantIndirect(module, ast, defScope, info.constantIndex, k);
-                        else if (info.kind == VariableKind::Namespace)
-                            defineNamespace(scope, nullptr, module->namespaces[info.namespaceIndex], ast);
-                        else
-                            scope->addIndirect(module, ast, defScope, v, k);
+                    else {
+                        assert(defScope->kind == ScopeKind::Type);
+                        for (const auto [k, v] : defScope->entries) {
+                            VariableInfo info = defScope->function ? defScope->function->locals[v] : module->globals[v];
+                            if (info.kind == VariableKind::Constant)
+                                scope->addConstantIndirect(module, ast, defScope, info.constantIndex, k);
+                            else if (info.kind == VariableKind::Namespace)
+                                defineNamespace(scope, nullptr, module->namespaces[info.namespaceIndex], ast);
+                            else
+                                scope->addIndirect(module, ast, defScope, v, k);
+                        }
                     }
                 } else {
                     auto entry = defNs ? defNs->lookup(path.back()) : defScope->findLocal(path.back());

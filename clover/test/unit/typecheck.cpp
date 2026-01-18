@@ -1055,6 +1055,42 @@ b.box.value
     ASSERT_TYPE_EQUAL(bval.type(), module->i64Type());
 }
 
+TEST(typecheck_generic_case_projection) {
+    auto instance = TYPECHECK(R"(
+type Maybe:
+    case Some: var x
+    case None
+
+Maybe.Some x: Maybe.Some(1)
+var Maybe.Some(y): x
+y + 2
+)");
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto expr = topLevel.child(3);
+    ASSERT_TYPE_EQUAL(expr.type(), module->i64Type());
+}
+
+TEST(typecheck_generic_case_projection_use) {
+    auto instance = TYPECHECK(R"(
+type Maybe:
+    case Some: var x
+    case None
+
+use Maybe.*
+
+var x: Some(1)
+var Some(y): x
+y + 2
+)");
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto expr = topLevel.child(4);
+    ASSERT_TYPE_EQUAL(expr.type(), module->i64Type());
+}
+
 TEST(typecheck_array_least_common_subtype) {
     auto instance = TYPECHECK(R"(
 var arr: [1, 2, 3, 4]

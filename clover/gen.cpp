@@ -83,7 +83,6 @@ namespace clover {
         TypeIndex assignTags(Type type, TypeIndex tag) {
             // Takes the next available tag, returns the next available tag
             // after assigning tags to each of the union cases.
-
             assert(type.is<TypeKind::Union>());
             auto unionType = type.as<TypeKind::Union>();
             for (u32 i = 0; i < unionType.count(); i ++) {
@@ -99,6 +98,7 @@ namespace clover {
         }
 
         void ensureTypeTag(Type type) {
+            type = expand(type);
             bool hasTag = true;
             if (type.is<TypeKind::Named>())
                 hasTag = type.as<TypeKind::Named>().typeTag() != InvalidType;
@@ -1443,7 +1443,7 @@ namespace clover {
                         // generatePattern again once we've isolated the right
                         // subtype.
 
-                        Type patternType = typeOf(pattern);
+                        Type patternType = expand(typeOf(pattern));
                         JasmineType loweredPattern = genCtx.lower(patternType);
 
                         u32 id;
@@ -1650,7 +1650,7 @@ namespace clover {
             case ASTKind::OwnType:
             case ASTKind::UninitType:
             case ASTKind::ArrayType: {
-                Type patternType = evaluateType(genCtx.module, genCtx.func(), pattern);
+                Type patternType = expand(evaluateType(genCtx.module, genCtx.func(), pattern));
 
                 bool allCases = true;
                 if (patternType.is<TypeKind::Tuple>()) {
@@ -2805,7 +2805,7 @@ namespace clover {
             case ASTKind::TypeField:
             case ASTKind::Typename:
             case ASTKind::GlobalTypename: {
-                Type type = evaluateType(module, genCtx.func(), ast);
+                Type type = expand(evaluateType(module, genCtx.func(), ast));
                 if (isAtom(type)) {
                     auto impl = genCtx.atomRef(type);
                     if (destType.is<TypeKind::Pointer>())

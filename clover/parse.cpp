@@ -1601,6 +1601,8 @@ namespace clover {
             contents.push(body);
     }
 
+    AST parsePrimaryStatement(Module* module, TokenVisitor& visitor);
+
     AST parseTypeDecl(Module* module, TokenVisitor& visitor, u32 expectedKeyword) {
         assert(visitor.peek().token == expectedKeyword);
         Token token = visitor.read();
@@ -1624,7 +1626,7 @@ namespace clover {
         if (visitor.done() || visitor.peek().token == WhitespaceNewline)
             body = parseBlock(module, visitor);
         else
-            body = parseExpressionOrJuxtaposition(module, visitor, true, true, true);
+            body = parsePrimaryStatement(module, visitor);
 
         vec<AST> contents;
         exploreBody(contents, body);

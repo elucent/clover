@@ -643,6 +643,14 @@ TEST(parse_multiline_ternary_expression) {
 )", "(ternary foo 1 2) (ternary foo 1 2)");
 }
 
+TEST(parse_generic_typedecl) {
+    ASSERT_SAME_PARSE("type Foo: var x", "(struct Foo missing (var missing x missing))");
+    ASSERT_SAME_PARSE(R"(
+type Foo:
+    var x
+)", "(struct Foo missing (var missing x missing))");
+}
+
 TEST(parse_relational_operator_chaining) {
     ASSERT_SAME_PARSE("a < b < c", "(and (< a b) (< b c))");
     ASSERT_SAME_PARSE("a > b > c", "(and (> a b) (> b c))");

@@ -136,6 +136,7 @@ namespace clover {
         macro(TupleType, tupleType, tuple_type, false, -1) \
         macro(FunType, funType, fun_type, false, -1) \
         macro(TypeField, typeField, type_field, false, 2) \
+        macro(Projection, projection, projection, false, 2) /* GenericType Name */ \
         \
         /* Declarations */ \
         macro(VarDecl, varDecl, var, false, 3) /* Type? Name Init? */ \
@@ -147,9 +148,9 @@ namespace clover {
         macro(NamedDecl, namedDecl, named, false, 3) /* Name Parameters? Type? */ \
         macro(StructDecl, structDecl, struct, false, -1) /* Name Parameters? Fields? */ \
         macro(UnionDecl, unionDecl, union, false, -1) /* Name Parameters? Cases? */ \
-        macro(NamedCaseDecl, namedCaseDecl, named_case, false, 3) \
-        macro(StructCaseDecl, structCaseDecl, struct_case, false, -1) \
-        macro(UnionCaseDecl, unionCaseDecl, union_case, false, -1) \
+        macro(NamedCaseDecl, namedCaseDecl, named_case, false, 3) /* Name ParentIndex? Cases? */ \
+        macro(StructCaseDecl, structCaseDecl, struct_case, false, -1) /* Name ParentIndex? Cases? */ \
+        macro(UnionCaseDecl, unionCaseDecl, union_case, false, -1) /* Name ParentIndex? Cases? */ \
         macro(KindDecl, kindDecl, kind, false, -1) \
         macro(GenericStructDecl, genericStructDecl, generic_struct_decl, false, -1) \
         macro(GenericUnionDecl, genericUnionDecl, generic_union_decl, false, -1) \

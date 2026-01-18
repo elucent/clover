@@ -21,6 +21,27 @@ namespace clover {
             println(" - ", TypesKeyLogger { sys, k }, " => ", sys->get(v.type), " @ ", generic->module->node(v.node));
     }
 
+    void recursivelyForward(Type us, Type them) {
+        for (u32 i = 0; i < us.as<TypeKind::Union>().count(); i ++) {
+            Type caseType = us.as<TypeKind::Union>().caseType(i), other = them.as<TypeKind::Union>().caseType(i);
+            if (caseType.is<TypeKind::Union>())
+                recursivelyForward(caseType, other);
+
+            caseType.firstWord().kind = TypeKind::Var;
+            caseType.firstWord().isConcrete = false;
+            caseType.firstWord().typeBound = other.index;
+
+            caseType.nthWord(1).markedEqual = true;
+            caseType.nthWord(1).hasOwner = false;
+            caseType.nthWord(1).typeBound = other.index;
+
+            if UNLIKELY(config::readableTypeVars) {
+                caseType.nthWord(2).bits = us.types->vars.size();
+                us.types->vars.push(caseType.index);
+            }
+        }
+    }
+
     template<TypeKind Kind>
     void concretifyGeneric(Type t) {
         auto type = t.as<Kind>();
@@ -56,6 +77,10 @@ namespace clover {
             // A named type must have at least enough space to store a var type. So
             // we replace this type's data in-place with a type variable pointing
             // to our replacement.
+
+            // Actually, first, if we're a union, we do this to all of our cases.
+            if (type.template is<TypeKind::Union>())
+                recursivelyForward(type, other);
 
             type.firstWord().kind = TypeKind::Var;
             type.firstWord().isConcrete = false;

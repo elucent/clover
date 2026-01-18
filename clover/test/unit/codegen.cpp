@@ -2080,6 +2080,44 @@ i32 test():
     ASSERT_EQUAL(test(), 6);
 }
 
+TEST(codegen_generic_linked_list_implicit) {
+    return;
+    auto instance = COMPILE(R"(
+type List:
+    case Nil
+    case Cons:
+        var data
+        own List* next
+
+use List.*
+
+own List* cons(data, own List* next):
+    new Cons(data, next)
+
+List* cdr(List* list):
+    match list:
+        case Nil: Nil
+        case Cons(x, xs): xs
+
+fun car(List* list):
+    match list:
+        case Nil: 0
+        case Cons(x, xs): x
+
+i32 test():
+    var list: cons(1, cons(2, cons(3, Nil)))
+    var sum: 0
+    while list is not Nil:
+        sum += car(list)
+        list = cdr(list)
+    return sum
+)");
+
+    auto exec = load(instance.artifact);
+    auto test = lookup<i32()>("test()i32", exec);
+    ASSERT_EQUAL(test(), 6);
+}
+
 TEST(codegen_generic_vector_explicit) {
     auto instance = COMPILE(R"(
 type Vec(type T):
@@ -2129,42 +2167,4 @@ i32 test():
     auto test = lookup<i32()>("test()i32", exec);
 
     ASSERT_EQUAL(test(), 42);
-}
-
-TEST(codegen_generic_linked_list_implicit) {
-    return;
-    auto instance = COMPILE(R"(
-type List(type T):
-    case Nil
-    case Cons:
-        T data
-        own List(T)* next
-
-use List.*
-
-own List* cons(data, own List* next):
-    new Cons(data, next)
-
-List* cdr(List* list):
-    match list:
-        case Nil: Nil
-        case Cons(x, xs): xs
-
-fun car(List* list):
-    match list:
-        case Nil: 0
-        case Cons(x, xs): x
-
-i32 test():
-    var list: cons(1, cons(2, cons(3, Nil)))
-    var sum: 0
-    while list is not Nil:
-        sum += car(list)
-        list = cdr(list)
-    return sum
-)");
-
-    auto exec = load(instance.artifact);
-    auto test = lookup<i32()>("test()i32", exec);
-    ASSERT_EQUAL(test(), 6);
 }

@@ -2578,11 +2578,11 @@ namespace clover {
         assert(isCase(type));
         switch (type.kind()) {
             case TypeKind::Named:
-                return type.as<TypeKind::Named>().parentType();
+                return expand(type.as<TypeKind::Named>().parentType());
             case TypeKind::Struct:
-                return type.as<TypeKind::Struct>().parentType();
+                return expand(type.as<TypeKind::Struct>().parentType());
             case TypeKind::Union:
-                return type.as<TypeKind::Union>().parentType();
+                return expand(type.as<TypeKind::Union>().parentType());
             default:
                 unreachable("Not a case type.");
         }
@@ -3154,8 +3154,13 @@ namespace clover {
             // a pointer to an atom automatically.
             return Type::unifyOnto(other.as<TypeKind::Pointer>().elementType(), constraints, mode | MustSubstitute);
         }
-        if (isCase())
+        if (isCase()) {
+            if (other.is<TypeKind::Named>() && other.as<TypeKind::Named>().isCase() && other.as<TypeKind::Named>().name() == name()) {
+                return parentType().unifyOnto(other.as<TypeKind::Named>().parentType(), constraints, mode)
+                    & other.as<TypeKind::Named>().parentType().unifyOnto(parentType(), constraints, mode);
+            }
             return parentType().unifyOnto(other, constraints, mode);
+        }
         if (isGeneric() && other.is<TypeKind::Named>() && other.as<TypeKind::Named>().isGeneric()) {
             if (genericOriginIndex() == other.as<TypeKind::Named>().genericOriginIndex())
                 return unifyTypeParameters(*this, other.as<TypeKind::Named>(), constraints, mode);
@@ -3548,8 +3553,13 @@ namespace clover {
     inline UnifyResult StructType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         if (other == *this)
             return UnifySuccess;
-        if (isCase())
+        if (isCase()) {
+            if (other.is<TypeKind::Struct>() && other.as<TypeKind::Struct>().isCase() && other.as<TypeKind::Struct>().name() == name()) {
+                return parentType().unifyOnto(other.as<TypeKind::Struct>().parentType(), constraints, mode)
+                    & other.as<TypeKind::Struct>().parentType().unifyOnto(parentType(), constraints, mode);
+            }
             return parentType().unifyOnto(other, constraints, mode);
+        }
         if (isGeneric() && other.is<TypeKind::Struct>() && other.as<TypeKind::Struct>().isGeneric()) {
             if (genericOriginIndex() == other.as<TypeKind::Struct>().genericOriginIndex())
                 return unifyTypeParameters(*this, other.as<TypeKind::Struct>(), constraints, mode);
@@ -4098,8 +4108,15 @@ namespace clover {
     inline UnifyResult UnionType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         if (other == *this)
             return UnifySuccess;
-        if (isCase())
+        if (isCase()) {
+            if (other.is<TypeKind::Union>() && other.as<TypeKind::Union>().isCase() && other.as<TypeKind::Union>().name() == name()) {
+                if (parentType().unifyOnto(other.as<TypeKind::Union>().parentType(), constraints, Query | (mode & MustSubstitute))
+                    && other.as<TypeKind::Struct>().parentType().unifyOnto(parentType(), constraints, Query | (mode & MustSubstitute)))
+                    return parentType().unifyOnto(other.as<TypeKind::Union>().parentType(), constraints, mode)
+                        & other.as<TypeKind::Struct>().parentType().unifyOnto(parentType(), constraints, mode);
+            }
             return parentType().unifyOnto(other, constraints, mode);
+        }
         if (isGeneric() && other.is<TypeKind::Union>() && other.as<TypeKind::Union>().isGeneric()) {
             if (genericOriginIndex() == other.as<TypeKind::Union>().genericOriginIndex())
                 return unifyTypeParameters(*this, other.as<TypeKind::Union>(), constraints, mode);
@@ -4391,6 +4408,8 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const Type& type) {
+        if (type.index == InvalidType)
+            return format(io, "INVALID");
         switch (type.kind()) {
             case TypeKind::Bottom:
                 return format(io, type.as<TypeKind::Bottom>());
