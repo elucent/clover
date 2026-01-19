@@ -2180,10 +2180,10 @@ namespace clover {
                     module->add(ASTKind::CallMethod, binding.pos, Identifier(MethodNext), module->fromOperand(binding.items))));
                 break;
             case BindingKind::RangeDecreasing:
-                bodyStmts.push(module->add(ASTKind::PreDecr, binding.pos, module->fromOperand(binding.pattern)));
+                bodyStmts.push(module->add(ASTKind::PreDecr, binding.pos, module->fromOperand(binding.high)));
                 break;
             case BindingKind::RangeIncreasing:
-                bodyStmts.push(module->add(ASTKind::PreIncr, binding.pos, module->fromOperand(binding.pattern)));
+                bodyStmts.push(module->add(ASTKind::PreIncr, binding.pos, module->fromOperand(binding.low)));
                 break;
         }
 
