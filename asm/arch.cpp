@@ -176,7 +176,7 @@ void Assembly::linkInternally(RelocationFunction relocator) {
             case CODE_SECTION: base = (iptr)code._data; break;
             case DATA_SECTION: base = (iptr)data._data; break;
             case STATIC_SECTION: base = (iptr)stat._data; break;
-            case STATIC_UNINIT_SECTION: cantEliminateDef.on(i); continue; // Shouldn't link internally against uninitialized statics.
+            case STATIC_UNINIT_SECTION: cantEliminateDef.on(i); defs.push(0); continue; // Shouldn't link internally against uninitialized statics.
         }
         if (def.hasSym)
             defmap.put(def.sym, defs.size());
@@ -198,7 +198,7 @@ void Assembly::linkInternally(RelocationFunction relocator) {
             if (it != defmap.end() && this->defs[it->value].section == reloc.section && this->defs[it->value].type == DEF_LOCAL) {
                 internalRelocs.push(reloc);
                 return true;
-            } else
+            } else if (it != defmap.end())
                 cantEliminateDef.on(it->value);
         }
         return false;
