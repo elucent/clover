@@ -712,6 +712,7 @@ namespace clover {
         vec<NodeIndex, 16>* discoveredFunctions;
         Value env;
         Constraints* constraints;
+        Function* currentInstantiation;
 
         inline void checkLater(AST ast) {
             assert(!ast.isLeaf()); // Otherwise it's hard to recover information about this node later.
@@ -1982,6 +1983,8 @@ namespace clover {
                 unifyInPlace(pattern, input, ast);
             else if (expand(input).is<TypeKind::Pointer>())
                 unifyInPlace(pattern, expand(input).as<TypeKind::Pointer>().elementType(), ast);
+            else
+                type_error("Failed to unify ", pattern, " onto ", input, " in pattern ", ast);
         };
         Module* module = pattern.module;
         switch (pattern.kind()) {
@@ -2129,14 +2132,20 @@ namespace clover {
         // all type parameters. In that case, we would know all generic types
         // in the function's signature will derive from those parameters, so we
         // can more accurately cache.
-        key.setReturnType(packedBoundsFor(inferredType(ctx, parent, call)));
+        Type expectedReturnType = inferredType(ctx, parent, call);
+        vec<TypeIndex> argumentTypes;
+        key.setReturnType(packedBoundsFor(expectedReturnType = inferredType(ctx, parent, call)));
         u32 nonTypeParameterIndex = 0;
         for (u32 i = 0; i < call.arity() - 1; i ++) {
             if (isTypeParameter(parent, call.child(i + 1)))
                 continue;
-            key.setParameterType(nonTypeParameterIndex ++, packedBoundsFor(inferredType(ctx, parent, call.child(i + 1))));
+            argumentTypes.push(inferredType(ctx, parent, call.child(i + 1)).index);
+            key.setParameterType(nonTypeParameterIndex ++, packedBoundsFor(module->types->get(argumentTypes.back())));
         }
         key.computeHash();
+
+        if UNLIKELY(config::verboseInstantiation)
+            println("[TYPE]\tGoing to instantiate generic function ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key });
 
         if (generic->instantiations) {
             auto it = generic->instantiations->find(key);
@@ -2182,8 +2191,7 @@ namespace clover {
 
         // Refine the type variables from instantiating the signature based on
         // our parameters and return type constraints.
-        auto returnType = inferredType(ctx, call.function(), call);
-        unifyInPlace(funcType.returnType(), returnType, call);
+        unifyInPlace(funcType.returnType(), expectedReturnType, call);
         u32 typeParameterIndex = 0;
         nonTypeParameterIndex = 0;
         for (u32 i = 1; i < call.arity(); i ++) {
@@ -2197,9 +2205,8 @@ namespace clover {
                 unifyInPlace(passedParam, param, call);
                 continue;
             }
-            auto arg = inferredType(ctx, call.function(), call.child(i));
             auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterIndex ++);
-            unifyInPlace(arg, parameterType, call);
+            unifyInPlace(module->types->get(argumentTypes[i - 1]), parameterType, call);
         }
 
         // Now we can finally explore the function body.
@@ -2223,6 +2230,7 @@ namespace clover {
         instantiationCtx.lateChecks = &lateChecks;
         instantiationCtx.lateResolves = &lateResolves;
         instantiationCtx.discoveredFunctions = &discoveredFunctions;
+        instantiationCtx.currentInstantiation = newFunction;
 
         // TODO: It's super icky that we have so much duplication between here,
         // the global inference, and drainFunctions. I bet they can be unified.
@@ -2477,7 +2485,10 @@ namespace clover {
         if (possibleFunctions.size() == 1) {
             Function* candidate = possibleFunctions[0].function;
             if (candidate->isGeneric) {
-                candidate = instantiate(ctx, function, candidate, ast);
+                if (ctx.currentInstantiation && ctx.currentInstantiation->generic == candidate)
+                    candidate = ctx.currentInstantiation;
+                else
+                    candidate = instantiate(ctx, function, candidate, ast);
                 possibleFunctions[0].type = candidate->typeIndex;
             }
             ast.setChild(0, module->add(ASTKind::ResolvedFunction, candidate));
@@ -2510,7 +2521,10 @@ namespace clover {
             Function* callee = ast.child(0).resolvedFunction();
             type_assert(!callee->isConst); // Should have already dealt with such calls.
             if (callee->isGeneric) {
-                callee = instantiate(ctx, function, callee, ast);
+                if (ctx.currentInstantiation && ctx.currentInstantiation->generic == callee)
+                    callee = ctx.currentInstantiation;
+                else
+                    callee = instantiate(ctx, function, callee, ast);
                 ast.setChild(0, ast.module->add(ASTKind::ResolvedFunction, callee));
                 return some<TypeIndex>(callee->typeIndex);
             }
@@ -3174,11 +3188,11 @@ namespace clover {
         for (ConstraintIndex i : indices(constraints.constraints)) if (!constraints.constraints[i].isForwarded())
             nonForwarded.on(i);
 
-        if UNLIKELY(config::printInferredTreeAfterEachPass) {
-            println("| Module after cycle elimination: ");
-            println("*---------------------------------");
-            module->print(module->compilation), println();
-        }
+        // if UNLIKELY(config::printInferredTreeAfterEachPass) {
+        //     println("| Module after cycle elimination: ");
+        //     println("*---------------------------------");
+        //     module->print(module->compilation), println();
+        // }
         if (UNLIKELY(config::printTypeConstraints))
             printTypeConstraints(module->types, &constraints);
 
@@ -3435,6 +3449,7 @@ namespace clover {
         globalCtx.lateResolves = &lateResolves;
         globalCtx.discoveredFunctions = &discoveredFunctions;
         globalCtx.env = createEnv(module, nullptr);
+        globalCtx.currentInstantiation = nullptr;
 
         lateResolves.append(module->genericTypesToResolve);
         module->genericTypesToResolve.clear();

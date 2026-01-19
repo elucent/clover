@@ -2217,6 +2217,19 @@ namespace clover {
         }
     }
 
+    inline u32 genericOriginIndexOf(Type type) {
+        switch (type.kind()) {
+            case TypeKind::Named:
+                return type.as<TypeKind::Named>().genericOriginIndex();
+            case TypeKind::Struct:
+                return type.as<TypeKind::Struct>().genericOriginIndex();
+            case TypeKind::Union:
+                return type.as<TypeKind::Union>().genericOriginIndex();
+            default:
+                unreachable("Not a possible generic type kind.");
+        }
+    }
+
     inline u32 typeParameterCountOf(Type type) {
         switch (type.kind()) {
             case TypeKind::Named:
@@ -2278,7 +2291,6 @@ namespace clover {
             println("[TYPE]\tUnifying ", *this, " onto ", other, ((mode & ModeMask) == InPlace ? " in place" : ((mode & ModeMask) == Query ? " querying" : " constraining")), (mode & MustSubstitute ? ", substituting" : ", coercing"));
 
         bool weAreVar = isVar(), otherIsVar = other.isVar();
-        bool hasAnyVar = weAreVar || otherIsVar;
 
         // First, we do some preliminary expansion - any type variable that is
         // equal to another type gets expanded. Once we're done with that, if
@@ -2291,6 +2303,7 @@ namespace clover {
             self = expand(self), weAreVar = self.isVar();
         if (otherIsVar)
             other = expand(other), otherIsVar = other.isVar();
+        bool hasAnyVar = weAreVar || otherIsVar;
 
         if (index == other.index)
             return UnifySuccess;
@@ -2632,24 +2645,86 @@ namespace clover {
         return types->invalidType();
     }
 
-    inline Type caseLCA(Type a, Type b) {
+    struct TypeOrGenericOrigin {
+        i32 index;
+
+        inline static TypeOrGenericOrigin fromType(TypeIndex index) {
+            TypeOrGenericOrigin t;
+            t.index = index;
+            return t;
+        }
+
+        inline static TypeOrGenericOrigin fromOrigin(u32 originIndex) {
+            TypeOrGenericOrigin t;
+            t.index = ~(i32)originIndex;
+            return t;
+        }
+
+        inline bool isType() const {
+            return index >= 0;
+        }
+
+        inline bool isGenericOrigin() const {
+            return index < 0;
+        }
+
+        inline operator bool() const {
+            return index != InvalidType;
+        }
+
+        inline Type type(TypeSystem* sys) {
+            assert(isType());
+            return sys->get(index);
+        }
+
+        inline u32 genericOriginIndex(TypeSystem* sys) {
+            assert(isGenericOrigin());
+            return ~index;
+        }
+
+        inline GenericType* genericOrigin(TypeSystem* sys) {
+            assert(isGenericOrigin());
+            return sys->genericTypes[~index];
+        }
+
+        inline bool operator==(TypeOrGenericOrigin o) const {
+            return index == o.index;
+        }
+
+        inline bool operator!=(TypeOrGenericOrigin o) const {
+            return index != o.index;
+        }
+    };
+
+    inline u64 hash(const TypeOrGenericOrigin o) {
+        return intHash(o.index);
+    }
+
+    inline TypeOrGenericOrigin ancestor(Type type) {
+        if (isGenericInst(type))
+            return TypeOrGenericOrigin::fromOrigin(genericOriginIndexOf(type));
+        return TypeOrGenericOrigin::fromType(type.index);
+    }
+
+    inline TypeOrGenericOrigin caseLCA(Type a, Type b) {
         // Finds the least common ancestor (parent union) of two case types.
 
-        ::set<TypeIndex> parents;
+        ::set<TypeOrGenericOrigin> parents;
         Type parent = a;
         while (isCase(parent)) {
             parent = parentType(parent);
-            parents.insert(parent.index);
+            parents.insert(ancestor(parent));
         }
 
         parent = b;
         while (isCase(parent)) {
             parent = parentType(parent);
-            if (parents.contains(parent.index))
-                return parent;
+            auto a = ancestor(parent);
+            if (parents.contains(a))
+                return a;
         }
 
-        return a.types->invalidType();
+        return TypeOrGenericOrigin::fromType(InvalidType);
     }
 
     inline bool operator<=(RefTraits a, RefTraits b) {
@@ -2662,6 +2737,35 @@ namespace clover {
             return false;
 
         return true;
+    }
+
+    inline Type unifyTypesOrOrigins(TypeOrGenericOrigin ancestor, Type a, Type b, Constraints* constraints, UnifyMode mode) {
+        TypeSystem* types = a.types;
+        if (ancestor.isType())
+            return ancestor.type(types);
+        Type ap = a, bp = b;
+        while (isCase(ap)) {
+            ap = parentType(ap);
+            if (isGenericInst(ap) && genericOriginIndexOf(ap) == ancestor.genericOriginIndex(types))
+                break;
+        }
+        while (isCase(bp)) {
+            bp = parentType(bp);
+            if (isGenericInst(bp) && genericOriginIndexOf(bp) == ancestor.genericOriginIndex(types))
+                break;
+        }
+        UnifyMode substituteFlag = mode & ~ModeMask;
+        mode = mode & ModeMask;
+        if (bp.unifyOnto(ap, nullptr, Query | substituteFlag)
+            && ap.unifyOnto(bp, nullptr, Query | substituteFlag)) {
+            if (mode != Query) {
+                ap.unifyOnto(bp, constraints, mode | substituteFlag);
+                bp.unifyOnto(ap, constraints, mode | substituteFlag);
+            }
+            return ap;
+        }
+
+        return types->invalidType();
     }
 
     inline Type leastCommonSupertype(Type a, Type b, Constraints* constraints, UnifyMode mode) {
@@ -2679,6 +2783,7 @@ namespace clover {
             return a;
 
         TypeKind ak = a.kind(), bk = b.kind();
+
         if (ak == TypeKind::Var) {
             Type rec = leastCommonSupertype(a.asVar().lowerBound(), b, constraints, mode);
             if (rec) {
@@ -2775,8 +2880,8 @@ namespace clover {
         }
 
         if (isCase(a) && isCase(b)) {
-            if (Type result = caseLCA(a, b))
-                return result;
+            if (TypeOrGenericOrigin result = caseLCA(a, b))
+                return unifyTypesOrOrigins(result, a, b, constraints, mode | substituteFlag);
         }
 
         if (isAtom(a) && b.is<TypeKind::Pointer>()) {
@@ -2799,8 +2904,8 @@ namespace clover {
             else
                 return types->invalidType();
 
-            if (Type result = caseLCA(a.as<TypeKind::Pointer>().elementType(), b.as<TypeKind::Pointer>().elementType()))
-                return types->encode<TypeKind::Pointer>(traits, result);
+            if (TypeOrGenericOrigin result = caseLCA(a.as<TypeKind::Pointer>().elementType(), b.as<TypeKind::Pointer>().elementType()))
+                return types->encode<TypeKind::Pointer>(traits, unifyTypesOrOrigins(result, a.as<TypeKind::Pointer>().elementType(), b.as<TypeKind::Pointer>().elementType(), constraints, mode | substituteFlag));
         }
 
         return types->invalidType();
@@ -2964,7 +3069,7 @@ namespace clover {
         Type element = elementType().cloneExpand();
         if (element.index == elementTypeIndex())
             return *this;
-        return types->encode<TypeKind::Array>(element, length());
+        return types->encode<TypeKind::Array>(element, rawLength());
     }
 
     // ArrayBuilder
@@ -3140,7 +3245,9 @@ namespace clover {
     inline UnifyResult unifyTypeParameters(InstType a, InstType b, Constraints* constraints, UnifyMode mode) {
         assert(a.typeParameterCount() == b.typeParameterCount());
         for (u32 i = 0; i < a.typeParameterCount(); i ++) {
-            if (a.typeParameter(i).unifyOnto(b.typeParameter(i), constraints, mode | MustSubstitute) == UnifyFailure)
+            if (a.typeParameter(i).unifyOnto(b.typeParameter(i), constraints, mode) == UnifyFailure)
+                return UnifyFailure;
+            if (b.typeParameter(i).unifyOnto(a.typeParameter(i), constraints, mode) == UnifyFailure)
                 return UnifyFailure;
         }
         return UnifySuccess;

@@ -390,7 +390,7 @@ namespace clover {
             return chain.genericType();
         if (chain.child(0).kind() == ASTKind::ResolvedGenericType)
             return chain.child(0).genericType();
-        Type type = chain.child(1).type();
+        Type type = expand(chain.child(1).type());
         switch (type.kind()) {
             case TypeKind::Struct:
                 return type.as<TypeKind::Struct>().genericOrigin();
@@ -1712,6 +1712,9 @@ namespace clover {
                 if (ast.child(0).missing())
                     function->isGeneric = true;
 
+                vec<pair<Symbol, TypeIndex>> discoveredTypeParameters;
+                ctx.typeDecls.push({ ast.scope(), &discoveredTypeParameters });
+
                 // First we have to see if the function is generic.
                 for (auto [i, a] : enumerate(ast.child(2))) switch (a.kind()) {
                     case ASTKind::AliasDecl: {
@@ -1728,18 +1731,18 @@ namespace clover {
                         if (a.child(0).missing() && a.child(2).missing()) {
                             AST arg = a;
                             auto entry = module->naturalize(module->lookup(ast.scope(), arg.child(1).symbol()));
-                            if (!entry) {
-                                // Must be a generic parameter declaration.
-                                function->isGeneric = true;
-                                computeScopes(module, ast.scope(), arg);
-                            }
-                            AST resolvedName = resolve(module, ctx, refTraits, ast.scope(), some<AST>(arg), arg.child(1), ExpectValue);
-                            if (isTypeExpression(resolvedName, MayInstantiate)) {
-                                arg.setChild(0, resolvedName);
+                            if (entry && entry.kind() == VariableKind::Type) {
+                                arg.setChild(0, resolve(module, ctx, refTraits, ast.scope(), some<AST>(arg), arg.child(1), ExpectValue));
                                 arg.setChild(1, module->add(ASTKind::Missing));
                                 break;
                             }
-                        }
+                            // Must be a generic parameter declaration.
+                            function->isGeneric = true;
+                            computeScopes(module, ast.scope(), arg);
+                            resolve(module, ctx, refTraits, ast.scope(), some<AST>(arg), arg.child(1), ExpectValue);
+                            break;
+                        } else
+                            resolveChild(module, ctx, NoRefTraits, a, 0, ExpectType);
                         break;
                     default:
                         break;
@@ -1762,6 +1765,23 @@ namespace clover {
                             ast.scope()->add(VariableKind::ThisAccess, ast, e.key);
                     }
                 }
+
+                if (discoveredTypeParameters.size()) {
+                    function->isGeneric = true;
+
+                    vec<AST> paramNodes;
+                    for (const auto [s, t] : discoveredTypeParameters) {
+                        AST param = module->add(ASTKind::AliasDecl, ast.pos(), ast.scope(), t, module->add(ASTKind::Ident, Identifier(s)), module->add(ASTKind::Missing), module->add(ASTKind::Missing));
+                        computeScopes(module, ast.scope(), param);
+                        paramNodes.push(param);
+                        function->typeParameterDecls.push(paramNodes.back().node);
+                    }
+                    for (AST node : ast.child(2))
+                        paramNodes.push(node);
+                    ast.setChild(2, module->add(ASTKind::Tuple, ast.child(2).pos(), ast.scope(), InvalidType, paramNodes));
+                }
+
+                ctx.typeDecls.pop();
 
                 if (function->isGeneric) {
                     ast.setKind(ASTKind::GenericFunDecl);
