@@ -586,7 +586,7 @@ namespace clover {
             }
             scopes.push(scope);
             for (Scope* scope : reversed(scopes)) {
-                if (scope != scopes.front())
+                if (scope != scopes.back())
                     target = format(target, '.');
                 switch (scope->kind) {
                     case ScopeKind::TopLevel:

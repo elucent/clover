@@ -774,7 +774,19 @@ namespace clover {
             bounds.upper = data[i * 2 + 1];
             io = format(io, PackedTypeBoundsLogger { kl.sys, bounds });
         }
-        return format(io, ")");
+        io = format(io, ")");
+        if (kl.key.header.instParent != InvalidScope)
+            io = format(io, " @ ", kl.key.header.instParent);
+        else {
+            if (kl.key.header.length != kl.key.header.numArgs * 2)
+                io = format(io, " + ");
+            for (u32 i = kl.key.header.numArgs * 2; i < kl.key.header.length; i ++) {
+                if (i > kl.key.header.numArgs * 2)
+                    io = format(io, ", ");
+                io = format(io, data[i]);
+            }
+        }
+        return io;
     }
 
     inline u64 hash(const SignatureKey& key) {

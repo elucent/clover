@@ -2119,7 +2119,7 @@ namespace clover {
         return scope;
     }
 
-    void gatherResolvedFunctions(vec<u32>& indices, AST body) {
+    void gatherResolvedFunctions(vec<u32>& indices, Function* self, AST body) {
         // This is pretty gross, since we have to walk the whole function body
         // again just to find the resolved functions. In theory we could build
         // this list as we go, but it gets kind of complicated since functions
@@ -2128,10 +2128,12 @@ namespace clover {
         // constraint graph checking being done in a deterministic order
         // (necessary for the order of function resolution to also be
         // deterministic) is probably too tight of a constraint.
-        if (body.kind() == ASTKind::ResolvedFunction)
-            indices.push(body.resolvedFunction()->globalIndex);
+        if (body.kind() == ASTKind::ResolvedFunction) {
+            if (body.resolvedFunction() != self)
+                indices.push(body.resolvedFunction()->globalIndex);
+        }
         if (!body.isLeaf()) for (AST ast : body)
-            gatherResolvedFunctions(indices, ast);
+            gatherResolvedFunctions(indices, self, ast);
     }
 
     Function* instantiate(InferenceContext& ctx, Function* parent, Function* generic, AST call) {
@@ -2324,7 +2326,7 @@ namespace clover {
         funcType.concretify();
         auto concreteSignature = funcType.cloneExpand().as<TypeKind::Function>();
         vec<u32> functionIndices;
-        gatherResolvedFunctions(functionIndices, newDecl.child(4));
+        gatherResolvedFunctions(functionIndices, newFunction, newDecl.child(4));
 
         auto concreteKey = SignatureKey::create(concreteSignature.parameterCount(), functionIndices.size());
         concreteKey.setReturnType(packedBoundsFor(concreteSignature.returnType()));
