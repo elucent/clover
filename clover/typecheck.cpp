@@ -902,7 +902,6 @@ namespace clover {
         switch (ast.kind()) {
             case ASTKind::Local: {
                 assert(function);
-                type_assert(ast.varInfo(function).kind != VariableKind::OverloadedFunction);
                 Type type = types.get(ast.varInfo(function).type);
                 if (type.isVar() && type.asVar().isEqual()) {
                     type = expand(type);
@@ -911,7 +910,6 @@ namespace clover {
                 return type;
             }
             case ASTKind::Global: {
-                type_assert(ast.varInfo().kind != VariableKind::OverloadedFunction);
                 Type type = types.get(ast.varInfo().type);
                 if (type.isVar() && type.asVar().isEqual()) {
                     type = expand(type);
@@ -934,6 +932,9 @@ namespace clover {
             case ASTKind::ResolvedFunction: {
                 return ast.resolvedFunction()->type();
             }
+
+            case ASTKind::ResolvedOverloads:
+                unreachable("Shouldn't try to get inferred type of overloaded function directly.");
 
             case ASTKind::Const:
                 unreachable("Should have already eliminated constants and replaced them with their evaluations.");
@@ -1138,11 +1139,7 @@ namespace clover {
     }
 
     bool isOverloadedFunction(Function* function, AST ast) {
-        if (ast.kind() == ASTKind::Local)
-            return function->locals[ast.variable()].kind == VariableKind::OverloadedFunction;
-        else if (ast.kind() == ASTKind::Global)
-            return ast.module->globals[ast.variable()].kind == VariableKind::OverloadedFunction;
-        return false;
+        return ast.kind() == ASTKind::ResolvedOverloads;
     }
 
     Evaluation infer(InferenceContext& ctx, Function* function, AST ast) {
@@ -1795,7 +1792,7 @@ namespace clover {
                     assert(!ast.child(2).missing());
                     varType = module->varType(ast.node);
                     unify(value, varType, ast, ctx);
-                    inferPattern(ctx, function, module->invalidType(), ast.child(1));
+                    ctx.constraints->constrainOrder(inferPattern(ctx, function, module->invalidType(), ast.child(1)), varType);
                     ctx.constraints->constrainOrder(ast.type(), varType);
                 }
                 return fromType(module->voidType());
@@ -1931,8 +1928,10 @@ namespace clover {
                     // the gap between the input expression and the pattern during
                     // later refinement.
                     AST matchCase = ast.child(i);
-                    if (!matchCase.child(0).missing())
-                        inferPattern(ctx, function, module->invalidType(), matchCase.child(0));
+                    if (!matchCase.child(0).missing()) {
+                        Type patternType = inferPattern(ctx, function, module->invalidType(), matchCase.child(0));
+                        ctx.constraints->constrainOrder(patternType, varType);
+                    }
                     inferChild(ctx, function, matchCase, 1);
                     matchCase.setType(module->voidType());
                 }
@@ -1944,16 +1943,18 @@ namespace clover {
             case ASTKind::Case:
                 unreachable("Should have been inferred by match.");
 
-            case ASTKind::Is:
+            case ASTKind::Is: {
                 value = inferChild(ctx, function, ast, 0);
                 valueType = toType(module, value).type(module);
                 varType = module->varType(ast.node);
                 unify(value, varType, ast, ctx);
-                inferPattern(ctx, function, module->invalidType(), ast.child(1));
+                Type patternType = inferPattern(ctx, function, module->invalidType(), ast.child(1));
+                ctx.constraints->constrainOrder(patternType, varType);
                 ctx.constraints->constrainOrder(valueType, varType);
                 ctx.ensureResolved(varType);
                 ast.setType(module->boolType());
                 return fromNodeType(ast);
+            }
 
             case ASTKind::Namespace:
                 // Nothing to do, but we do need to explore the contents.
@@ -2112,21 +2113,36 @@ namespace clover {
         return module->funType(returnType, parameterTypes);
     }
 
-    SignatureKey concreteKeyFor(Type funcType) {
-        funcType.concretify();
-        auto concreteSignature = funcType.cloneExpand().as<TypeKind::Function>();
-        auto key = SignatureKey::withLength(concreteSignature.parameterCount());
-        key.setReturnType(packedBoundsFor(concreteSignature.returnType()));
-        for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
-            key.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
-        key.computeHash();
-        return key;
+    Scope* functionDefiningParent(Scope* scope) {
+        while (!scope->definesFunctions && !scope->instParent && scope->kind != ScopeKind::TopLevel)
+            scope = scope->parent;
+        return scope;
+    }
+
+    void gatherResolvedFunctions(vec<u32>& indices, AST body) {
+        // This is pretty gross, since we have to walk the whole function body
+        // again just to find the resolved functions. In theory we could build
+        // this list as we go, but it gets kind of complicated since functions
+        // can be resolved during name resolution or typechecking. It's also
+        // important that we do this in a deterministic order, and relying on
+        // constraint graph checking being done in a deterministic order
+        // (necessary for the order of function resolution to also be
+        // deterministic) is probably too tight of a constraint.
+        if (body.kind() == ASTKind::ResolvedFunction)
+            indices.push(body.resolvedFunction()->globalIndex);
+        if (!body.isLeaf()) for (AST ast : body)
+            gatherResolvedFunctions(indices, ast);
     }
 
     Function* instantiate(InferenceContext& ctx, Function* parent, Function* generic, AST call) {
         Module* module = generic->module;
 
-        SignatureKey key = SignatureKey::withLength(call.arity() - 1); // Number of arguments.
+        // The first key we create involves our signature and our scope. If we
+        // instantiated this generic with the same types and in the same scope,
+        // then we can safely use the previous version without typechecking a
+        // new instantiation.
+        Scope* methodScope = functionDefiningParent(call.scope());
+        SignatureKey key = SignatureKey::create(call.arity() - 1, methodScope);
 
         // TODO: Add an alternate path for the case that we explicitly specify
         // all type parameters. In that case, we would know all generic types
@@ -2151,7 +2167,7 @@ namespace clover {
             auto it = generic->instantiations->find(key);
             if (it != generic->instantiations->end()) {
                 if UNLIKELY(config::verboseInstantiation)
-                    println("[TYPE]\tTried to instantiate ", module->str(generic->name), " for signature ", SignatureKeyLogger { module->types, key }, ", using existing version with signature ", SignatureKeyLogger { module->types, concreteKeyFor(it->value->type()) });
+                    println("[TYPE]\tTried to instantiate ", module->str(generic->name), " for signature ", SignatureKeyLogger { module->types, key }, ", using existing version with signature ", it->value->type());
                 return it->value;
             }
         }
@@ -2164,6 +2180,12 @@ namespace clover {
         newDecl.setChild(1, module->add(ASTKind::ResolvedFunction, newFunction));
         Scope* oldScope = oldDecl.scope();
         Scope* newScope = module->addScope(ScopeKind::Function, newDecl.node, oldDecl.scope()->parent, newFunction);
+
+        // The new scope is allowed to look in the caller's scope for function
+        // definitions.
+        newScope->instParent = methodScope;
+        newFunction->methodScope = methodScope;
+
         for (auto e : oldScope->entries) {
             newScope->entries.put(e.key, e.value);
             newScope->inTable.add(e.key.symbol);
@@ -2293,19 +2315,45 @@ namespace clover {
 
         instantiationCtx.constraints->clear();
 
-        SignatureKey concreteKey = concreteKeyFor(funcType);
-        auto it = generic->instantiations->find(concreteKey);
+        // Now we create a different key. This will contain the concrete
+        // types of our final signature, as well as the list of resolved
+        // function indices in the instantiated body. By incorporating the
+        // list of resolved functions, we can look across scope/module
+        // boundaries to see if a structurally identical instantiation already
+        // exists.
+        funcType.concretify();
+        auto concreteSignature = funcType.cloneExpand().as<TypeKind::Function>();
+        vec<u32> functionIndices;
+        gatherResolvedFunctions(functionIndices, newDecl.child(4));
 
+        auto concreteKey = SignatureKey::create(concreteSignature.parameterCount(), functionIndices.size());
+        concreteKey.setReturnType(packedBoundsFor(concreteSignature.returnType()));
+        for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
+            concreteKey.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
+        concreteKey.setResolutions(functionIndices);
+        concreteKey.computeHash();
+
+        auto it = generic->instantiations->find(concreteKey);
         if (it != generic->instantiations->end()) {
             // Not only is there an existing instantiation, but we need to fix
             // the cache for our non-concrete parameters to point to the
             // existing instantiation too.
 
             if UNLIKELY(config::verboseInstantiation)
-                println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key }, " and concrete signature ", SignatureKeyLogger { module->types, concreteKey }, ", which matches existing version with signature ", SignatureKeyLogger { module->types, concreteKeyFor(it->value->type()) });
+                println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key }, " and concrete signature ", SignatureKeyLogger { module->types, concreteKey }, ", which matches existing version with signature ", it->value->type());
 
             auto existing = it->value;
             generic->instantiations->put(key, existing);
+
+            // We also create a scoped key with our concrete parameters, in
+            // case we run into an instantiation where we know our signature
+            // concretely in this scope.
+            key.setReturnType(packedBoundsFor(concreteSignature.returnType()));
+            for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
+                key.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
+            key.computeHash();
+            generic->instantiations->put(key, existing);
+
             delete newFunction;
             return existing;
         }
@@ -2319,6 +2367,14 @@ namespace clover {
 
         if UNLIKELY(config::verboseInstantiation)
             println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key }, " and unique concrete signature ", SignatureKeyLogger { module->types, concreteKey });
+
+        // And we set up entries with the scoped keys too.
+        generic->instantiations->put(key, newFunction);
+        key.setReturnType(packedBoundsFor(concreteSignature.returnType()));
+        for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
+            key.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
+        key.computeHash();
+        generic->instantiations->put(key, newFunction);
 
         if (oldDecl.child(1).missing())
             oldDecl.setChild(1, newDecl);
@@ -2372,7 +2428,7 @@ namespace clover {
 
     maybe<TypeIndex> refineOverloadedCall(InferenceContext& ctx, Function* function, AST ast) {
         assert(isOverloadedFunction(function, ast.child(0)));
-        Overloads* overloads = ast.module->overloads[ast.child(0).varInfo(function).overloads];
+        Overloads* overloads = ast.child(0).resolvedOverloads();
         auto returnType = ast.type();
         TypeSystem* types = returnType.types;
 
@@ -2409,7 +2465,7 @@ namespace clover {
                 return;
 
             if UNLIKELY(config::verboseUnify >= 3)
-                println("[TYPE]\tConsidering overload with type ", funcType);
+                println("[TYPE]\tConsidering overload ", module->str(overload->name), "/", overload->index, " with type ", funcType);
 
             i64 rank = computeOverloadRank(overload, ast, funcType, argumentTypes, returnType);
             if (rank < 0)

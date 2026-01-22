@@ -74,15 +74,15 @@ namespace clover {
         };
 
         enum Kind : u32 {
-            Variable, Constant, ConstFunction, Function, OverloadedFunction, Namespace, Type, Member, GenericFunction, GenericType, Temp, Forward, ThisAccess, NumKinds
+            Variable, Constant, ConstFunction, Function, OverloadedFunction, Namespace, Type, Member, GenericFunction, GenericType, Projection, Temp, Forward, ThisAccess, NumKinds
         };
 
         static constexpr const i8* KindNamesUpper[NumKinds] = {
-            "Variable", "Constant", "Const Function", "Function", "Overloaded Function", "Namespace", "Type", "Member", "Generic Function", "Generic Type", "Temp", "Forward", "ThisAccess"
+            "Variable", "Constant", "Const Function", "Function", "Overloaded Function", "Namespace", "Type", "Member", "Generic Function", "Generic Type", "Projection", "Temp", "Forward", "ThisAccess"
         };
 
         static constexpr const i8* KindNamesLower[NumKinds] = {
-            "variable", "constant", "const function", "function", "overloaded function", "namespace", "type", "member", "generic function", "generic type", "temp", "forward", "this access"
+            "variable", "constant", "const function", "function", "overloaded function", "namespace", "type", "member", "generic function", "generic type", "projection", "temp", "forward", "this access"
         };
 
         TypeIndex type : Limits::TypesPerCompilationBits;
@@ -94,8 +94,8 @@ namespace clover {
             struct { u32 : 1; u32 constantIndex : 31; u32 : 32; };
             struct { u32 : 1; u32 namespaceIndex : 31; u32 : 32; };
             struct { u32 : 1; u32 genericTypeIndex : 31; u32 : 32; };
-            struct { u32 overloads; u32 : 32; };
-            struct { ScopeIndex defScope; u32 index; };
+            struct { u32 : 1; u32 overloadsIndex : 31; u32 : 32; };
+            struct { u32 : 1; ScopeIndex defScope : 31; u32 index; };
         };
     };
 
@@ -106,36 +106,39 @@ namespace clover {
 
     struct Scope {
         enum class Kind : u8 {
-            Function, Type, Namespace, Block, TopLevel, Root
+            Function, Type, GenericType, Namespace, Block, TopLevel, Root
         };
 
         Module* module;
         Scope* parent;
+
+        // This special sibling is only non-null for scopes associated with
+        // generic function instantiations. In particular, this is the scope
+        // which that function is allowed to look for method definitions in,
+        // so that a generic function defined in one module can still include
+        // the extensions made in another.
+        Scope* instParent = nullptr;
+
         Function* function;
         bloom<u32, 1> inTable;
         map<Symbol, u32> entries;
         NodeIndex owner;
-        ScopeIndex index;
+        ScopeIndex index, globalIndex;
         u32 ns = -1;
         Kind kind;
         bool hasInChain = false;
+        bool isGenericTypeCase = false;
 
-        inline Scope(Kind kind_in, Module* module_in, Function* function_in, Scope* parent_in, NodeIndex owner_in, ScopeIndex index_in):
-            module(module_in), parent(parent_in), function(function_in), owner(owner_in), index(index_in), kind(kind_in) {}
+        // This is kind of important - this distinguishes a Scope as containing
+        // nontrivial function/overload definitions, meaning it might change
+        // the resolution of methods for any generics instantiated within. If
+        // we do instantiate a generic function in this scope, we mangle its
+        // name based on the chain of parent scopes - but starting from the
+        // first parent for which definesFunctions = true.
+        bool definesFunctions = false;
 
-        inline Scope(Kind kind_in, Module* module_in, Scope* parent_in, NodeIndex owner_in, ScopeIndex index_in):
-            module(module_in), parent(parent_in), function(nullptr), owner(owner_in), index(index_in), kind(kind_in) {
-            if (parent) {
-                Scope* p = parent;
-                while (p->kind != Kind::Root) {
-                    if (p->kind == Kind::Function) {
-                        function = p->function;
-                        break;
-                    }
-                    p = p->parent;
-                }
-            }
-        }
+        Scope(Kind kind_in, Module* module_in, Function* function_in, Scope* parent_in, NodeIndex owner_in, ScopeIndex index_in);
+        Scope(Kind kind_in, Module* module_in, Scope* parent_in, NodeIndex owner_in, ScopeIndex index_in);
 
         inline bool isGlobal() const {
             return function == nullptr;
@@ -151,7 +154,7 @@ namespace clover {
         void addConstant(VariableKind kind, const AST& decl, Symbol name);
         void addImport(VariableKind kind, TypeIndex type, Symbol name);
         void addFunction(VariableKind kind, Function* function);
-        void addOverloadedFunction(Overloads* overloads, Symbol name);
+        void addOverloadedFunction(Overloads* overloads);
         void addIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
         void addConstantIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
         void addNamespace(const AST& decl, Symbol name, Namespace* ns);
@@ -190,6 +193,7 @@ namespace clover {
         };
 
         FindResult find(Symbol name, bool searchParent = true);
+        FindResult findMethodOnly(Symbol name, bool searchParent = true);
 
         inline FindResult findLocal(Symbol name) {
             return find(name, false);

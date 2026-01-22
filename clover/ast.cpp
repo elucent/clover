@@ -74,6 +74,7 @@ namespace clover {
             case ASTKind::Uninit:
             case ASTKind::ResolvedNamespace:
             case ASTKind::ResolvedFunction:
+            case ASTKind::ResolvedOverloads:
             case ASTKind::ResolvedGenericType:
             case ASTKind::Missing:
             case ASTKind::AnyType:
@@ -162,6 +163,7 @@ namespace clover {
                 case VariableKind::OverloadedFunction:
                 case VariableKind::Member:
                 case VariableKind::Namespace:
+                case VariableKind::Projection:
                     ::println(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
                     break;
                 case VariableKind::Forward: {

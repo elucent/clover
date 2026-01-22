@@ -6,6 +6,26 @@
 #include "util/config.h"
 
 namespace clover {
+    Scope::Scope(Kind kind_in, Module* module_in, Function* function_in, Scope* parent_in, NodeIndex owner_in, ScopeIndex index_in):
+        module(module_in), parent(parent_in), function(function_in), owner(owner_in), index(index_in), kind(kind_in) {
+        globalIndex = module->compilation->numScopes ++;
+    }
+
+    Scope::Scope(Kind kind_in, Module* module_in, Scope* parent_in, NodeIndex owner_in, ScopeIndex index_in):
+        module(module_in), parent(parent_in), function(nullptr), owner(owner_in), index(index_in), kind(kind_in) {
+        globalIndex = module->compilation->numScopes ++;
+        if (parent) {
+            Scope* p = parent;
+            while (p->kind != Kind::Root) {
+                if (p->kind == Kind::Function) {
+                    function = p->function;
+                    break;
+                }
+                p = p->parent;
+            }
+        }
+    }
+
     void Scope::addToRoot(VariableKind kind, TypeIndex type, Symbol name) {
         assert(entries.find(name) == entries.end());
         assert(!parent);
@@ -35,7 +55,7 @@ namespace clover {
     const VariableInfo& Scope::FindResult::info() const {
         const auto& info = scope->function ? scope->function->locals[index] : scope->module->globals[index];
         if (info.kind == VariableKind::Forward) {
-            const Scope* defScope = scope->module->scopes[info.scope];
+            const Scope* defScope = scope->module->scopes[info.defScope];
             return defScope->isGlobal() ? defScope->module->globals[info.index] : defScope->function->locals[info.index];
         }
         return info;
@@ -44,7 +64,7 @@ namespace clover {
     VariableInfo& Scope::FindResult::info() {
         auto& info = scope->function ? scope->function->locals[index] : scope->module->globals[index];
         if (info.kind == VariableKind::Forward) {
-            Scope* defScope = scope->module->scopes[info.scope];
+            Scope* defScope = scope->module->scopes[info.defScope];
             return defScope->isGlobal() ? defScope->module->globals[info.index] : defScope->function->locals[info.index];
         }
         return info;
@@ -57,13 +77,44 @@ namespace clover {
                 return FindResult(this, it->value, !function);
         }
         if (searchParent) {
+            if (instParent) {
+                auto result = instParent->findMethodOnly(name);
+                if (result)
+                    return result;
+            }
             if (kind == ScopeKind::Namespace) {
                 auto result = module->namespaces[ns]->lookup(name);
                 if (result)
                     return result;
             }
-            if (parent && searchParent)
+            if (parent)
                 return parent->find(name);
+        }
+        return {};
+    }
+
+    Scope::FindResult Scope::findMethodOnly(Symbol name, bool searchParent) {
+        if (inTable.mayContain(name.symbol)) {
+            auto it = entries.find(name);
+            if (it != entries.end()) {
+                auto result = FindResult(this, it->value, !function);
+                if (result.info().kind == VariableKind::Function || result.info().kind == VariableKind::OverloadedFunction || result.info().kind == VariableKind::GenericFunction)
+                    return result;
+            }
+        }
+        if (searchParent) {
+            if (instParent) {
+                auto result = instParent->findMethodOnly(name);
+                if (result)
+                    return result;
+            }
+            if (kind == ScopeKind::Namespace) {
+                auto result = module->namespaces[ns]->lookupMethodOnly(name);
+                if (result)
+                    return result;
+            }
+            if (parent && searchParent)
+                return parent->findMethodOnly(name);
         }
         return {};
     }
@@ -112,6 +163,7 @@ namespace clover {
             error(module, Pos(), "Duplicate definition of symbol '", module->str(name), "'.");
             return;
         }
+        definesFunctions = true;
         u32 var;
         if (this->function)
             var = this->function->addLocalFunction(kind, function).index;
@@ -137,14 +189,15 @@ namespace clover {
         inTable.add(name.symbol);
     }
 
-    void Scope::addOverloadedFunction(Overloads* overloads, Symbol name) {
+    void Scope::addOverloadedFunction(Overloads* overloads) {
         u32 var;
         if (function)
-            var = function->addLocalOverload(module->overloadIndex(overloads), name).index;
+            var = function->addLocalOverload(overloads).index;
         else
-            var = module->addGlobalOverload(module->overloadIndex(overloads), name).index;
-        entries.put(name, var);
-        inTable.add(name.symbol);
+            var = module->addGlobalOverload(overloads).index;
+        definesFunctions = true;
+        entries.put(overloads->name, var);
+        inTable.add(overloads->name.symbol);
     }
 
     void Scope::addConstantIndirect(Module* module, const AST& ast, Scope* defScope, u32 constantIndex, Symbol name) {
@@ -249,17 +302,17 @@ namespace clover {
                         inPlaceOverloads->add((Overloads*)ptr);
                     else
                         inPlaceOverloads->add((Function*)ptr);
-                    info->overloads = inPlaceOverloads->index;
+                    info->overloadsIndex = inPlaceOverloads->index;
                 } else
                     overloads = module->addOverloads(module->functions[info->functionIndex]);
             } else if (info->kind == VariableKind::OverloadedFunction) {
                 if (existing.scope == scope) {
                     if (isOverloads)
-                        module->overloads[info->overloads]->add((Overloads*)ptr);
+                        module->overloads[info->overloadsIndex]->add((Overloads*)ptr);
                     else
-                        module->overloads[info->overloads]->add((Function*)ptr);
+                        module->overloads[info->overloadsIndex]->add((Function*)ptr);
                 } else
-                    overloads = module->addOverloads(module->overloads[info->overloads]);
+                    overloads = module->addOverloads(module->overloads[info->overloadsIndex]);
             } else
                 error(scope->module, pos, "Tried to define function '", module->str(name), "' but it was already declared as a ", VariableInfo::KindNamesLower[info->kind], ".");
             if (overloads) {
@@ -267,11 +320,11 @@ namespace clover {
                     overloads->add((Overloads*)ptr);
                 else
                     overloads->add((Function*)ptr);
-                scope->addOverloadedFunction(overloads, name);
+                scope->addOverloadedFunction(overloads);
             }
         } else {
             if (isOverloads)
-                scope->addOverloadedFunction((Overloads*)ptr, name);
+                scope->addOverloadedFunction((Overloads*)ptr);
             else
                 scope->addFunction(VariableKind::Function, (Function*)ptr);
         }
@@ -391,7 +444,7 @@ namespace clover {
 
                 case VariableKind::OverloadedFunction: {
                     assert(info.isImport);
-                    Overloads* overloads = otherModule->overloads[info.overloads];
+                    Overloads* overloads = otherModule->overloads[info.overloadsIndex];
                     defineOverloads(scope, info.name, use.pos(), overloads);
                     break;
                 }
@@ -426,7 +479,7 @@ namespace clover {
         // to resolve the body, to discover any tacit type parameters that
         // weren't explicitly declared. So, we need a real scope attached, with
         // at least dummy entries for our known type parameters.
-        Scope* newScope = module->addScope(ScopeKind::Type, ast.node, currentScope);
+        Scope* newScope = module->addScope(ScopeKind::GenericType, ast.node, currentScope);
         ast.setScope(newScope);
         for (AST child : ast.children(1))
             computeScopes(module, newScope, child);
@@ -946,6 +999,7 @@ namespace clover {
             if (ast.kind() == ASTKind::UseLocal) {
                 Scope* defScope = scope;
                 Namespace* defNs = nullptr;
+                bool inType = false;
                 for (u32 i = 0; i < path.size() - 1; i ++) {
                     auto entry = defNs ? defNs->lookup(path[i]) : defScope->find(path[i]);
                     if (!entry) {
@@ -953,30 +1007,54 @@ namespace clover {
                         return;
                     }
                     if (entry.isGlobal()) {
-                        const auto& global = module->globals[entry.index];
+                        const auto& global = entry.scope->module->globals[entry.index];
                         if (global.kind == VariableKind::Namespace)
-                            defScope = nullptr, defNs = module->namespaces[global.namespaceIndex];
-                        else
-                            defScope = module->node(global.decl).scope(), defNs = nullptr;
+                            defScope = nullptr, defNs = entry.scope->module->namespaces[global.namespaceIndex];
+                        else {
+                            defNs = nullptr;
+                            if (global.kind == VariableKind::Type)
+                                defScope = entry.scope->module->node(global.decl).scope();
+                            else if (global.kind == VariableKind::GenericType) {
+                                GenericType* generic = entry.scope->module->genericTypes[entry.info().genericTypeIndex];
+                                defScope = generic->module->node(generic->decl).scope();
+                            }
+                            if (!inType) {
+                                inType = true;
+                                if (defScope->module == module)
+                                    module->possiblyGenericTypeImports.push({ defScope, defScope->owner });
+                            }
+                        }
                     } else {
-                        const auto& local = defScope->function->locals[entry.index];
+                        const auto& local = entry.scope->function->locals[entry.index];
                         if (local.kind == VariableKind::Namespace)
-                            defScope = nullptr, defNs = module->namespaces[local.namespaceIndex];
-                        else
-                            defScope = module->node(local.decl).scope(), defNs = nullptr;
+                            defScope = nullptr, defNs = entry.scope->module->namespaces[local.namespaceIndex];
+                        else {
+                            defNs = nullptr;
+                            if (local.kind == VariableKind::Type)
+                                defScope = entry.scope->module->node(local.decl).scope();
+                            else if (local.kind == VariableKind::GenericType) {
+                                GenericType* generic = entry.scope->module->genericTypes[entry.info().genericTypeIndex];
+                                defScope = generic->module->node(generic->decl).scope();
+                            }
+                            if (!inType) {
+                                inType = true;
+                                if (defScope->module == module)
+                                    module->possiblyGenericTypeImports.push({ defScope, defScope->owner });
+                            }
+                        }
                     }
                 }
                 if (path.back() == InvalidSymbol) {
                     if (defNs)
                         importNamespace(scope, defNs, ast);
                     else {
-                        assert(defScope->kind == ScopeKind::Type);
+                        assert(defScope->kind == ScopeKind::Type || defScope->kind == ScopeKind::GenericType);
                         for (const auto [k, v] : defScope->entries) {
-                            VariableInfo info = defScope->function ? defScope->function->locals[v] : module->globals[v];
+                            VariableInfo info = defScope->function ? defScope->function->locals[v] : defScope->module->globals[v];
                             if (info.kind == VariableKind::Constant)
                                 scope->addConstantIndirect(module, ast, defScope, info.constantIndex, k);
                             else if (info.kind == VariableKind::Namespace)
-                                defineNamespace(scope, nullptr, module->namespaces[info.namespaceIndex], ast);
+                                defineNamespace(scope, nullptr, defScope->module->namespaces[info.namespaceIndex], ast);
                             else
                                 scope->addIndirect(module, ast, defScope, v, k);
                         }
@@ -1031,8 +1109,15 @@ namespace clover {
                         Function* function = otherModule->functions[info.functionIndex];
                         defineFunction(scope, k, ast.pos(), function);
                     } else if (info.kind == VariableKind::OverloadedFunction) {
-                        Overloads* overloads = otherModule->overloads[info.overloads];
+                        Overloads* overloads = otherModule->overloads[info.overloadsIndex];
                         defineOverloads(scope, k, ast.pos(), overloads);
+                    } else if (info.kind == VariableKind::GenericType) {
+                        GenericType* genericType = otherModule->genericTypes[info.genericTypeIndex];
+                        scope->addGenericType(ast, genericType);
+                    } else if (info.kind == VariableKind::Forward) {
+                        Scope* origin = otherModule->scopes[info.defScope];
+                        module->scopeIndex(origin); // Do this for the side effects, to ensure we assign the origin scope an index in our module.
+                        scope->addIndirect(module, ast, origin, info.index, k);
                     } else if (auto result = scope->findLocal(k)) {
                         error(module, ast.pos(), "Duplicate symbol definition ", module->str(k), " from module ", module->str(path.back()), ".");
                         break;

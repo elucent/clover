@@ -8,7 +8,9 @@
 namespace clover {
     struct JasmineArtifact : public ArtifactData {
         JasmineModule module;
-        JasmineArtifact(Artifact* artifact, JasmineModule module_in):
+        Module* ast; // We need to hold onto the module for the time being.
+
+        JasmineArtifact(Artifact* artifact, JasmineModule module_in, Module* ast_in):
             ArtifactData(artifact), module(module_in) {}
 
         ~JasmineArtifact() {}
@@ -576,6 +578,37 @@ namespace clover {
             }
         }
 
+        slice<i8> mangleScope(slice<i8> target, Scope* scope) {
+            vec<Scope*> scopes;
+            while (scope->parent && scope->kind != ScopeKind::TopLevel) {
+                scopes.push(scope);
+                scope = scope->parent;
+            }
+            scopes.push(scope);
+            for (Scope* scope : reversed(scopes)) {
+                if (scope != scopes.front())
+                    target = format(target, '.');
+                switch (scope->kind) {
+                    case ScopeKind::TopLevel:
+                        target = format(target, scope->module->str(scope->module->name));
+                        break;
+                    case ScopeKind::Function:
+                        if (!scope->function->isInstantiation)
+                            target = format(target, scope->module->str(scope->function->name));
+                        else
+                            target = format(target, scope->globalIndex);
+                        break;
+                    case ScopeKind::Type:
+                        target = mangleType(target, scope->module->node(scope->owner).type());
+                        break;
+                    default:
+                        target = format(target, scope->globalIndex);
+                        break;
+                }
+            }
+            return target;
+        }
+
         Symbol mangledName(Module* module, Function* function) {
             if (function->mangledName != InvalidSymbol)
                 return function->mangledName;
@@ -618,6 +651,11 @@ namespace clover {
                 target = mangleType(target, type.as<TypeKind::Function>().returnType());
 
                 if (function->isInstantiation) {
+                    // First we add an annotation indicating where this function
+                    // was instantiated.
+                    target = format(target, '@');
+                    target = mangleScope(target, function->methodScope);
+
                     // For generic functions, we append a hash of the initial
                     // template's source structure. This is a mitigation against a
                     // niche but potentially nasty linking issue, where if two
@@ -2840,12 +2878,14 @@ namespace clover {
 
     struct AssemblyArtifact : public ArtifactData {
         JasmineAssembly assembly;
-        AssemblyArtifact(Artifact* artifact, JasmineAssembly assembly_in):
-            ArtifactData(artifact), assembly(assembly_in) {}
+        Module* ast;
+        AssemblyArtifact(Artifact* artifact, JasmineAssembly assembly_in, Module* ast_in):
+            ArtifactData(artifact), assembly(assembly_in), ast(ast_in) {}
 
         ~AssemblyArtifact() {
             if (assembly.handle)
                 jasmine_destroy_assembly(assembly);
+            delete ast;
         }
 
         maybe<const_slice<i8>> getSource() override {
@@ -2893,10 +2933,10 @@ namespace clover {
         genCtx.leave();
         if (optimizationLevel < 2) {
             jasmine_compile_module_only(*genCtx.assembly, output, optimizationLevel, true);
-            artifact->update(new AssemblyArtifact(artifact, *genCtx.assembly));
+            artifact->update(new AssemblyArtifact(artifact, *genCtx.assembly, module));
             return artifact;
         }
-        artifact->update(new JasmineArtifact(artifact, output));
+        artifact->update(new JasmineArtifact(artifact, output, module));
         return artifact;
     }
 
@@ -2908,7 +2948,7 @@ namespace clover {
         JasmineAssembly assembly = jasmine_create_assembly(module);
         jasmine_compile(assembly, module, optimizationLevel, true);
 
-        artifact->update(new AssemblyArtifact(artifact, assembly));
+        artifact->update(new AssemblyArtifact(artifact, assembly, jasmineIR->ast));
         return artifact;
     }
 

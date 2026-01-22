@@ -35,6 +35,7 @@ namespace clover {
         macro(AnyType, anyType, any, true, 0) \
         macro(Wildcard, wildcard, wildcard, true, 0) /* Used in paths to indicate a glob. */ \
         macro(ResolvedFunction, resolvedFunction, resolved_function, true, 0) /* Encodes function index in symbol. */ \
+        macro(ResolvedOverloads, resolvedOverloads, resolved_overloads, true, 0) /* Encodes overloads index in symbol. */ \
         macro(ResolvedGenericType, resolvedGenericType, _, true, 0) /* Encodes generic type index in symbol. */ \
         macro(ResolvedNamespace, resolvedNamespace, resolved_namespace, true, 0) /* Encodes namespace index in symbol. */ \
         macro(Missing, missing, missing, true, 0) /* Used to mark missing expressions in nodes where some children are optional. */ \
@@ -320,6 +321,7 @@ namespace clover {
         inline u32 fieldId() const;
         inline u32 constId() const;
         inline Function* resolvedFunction() const;
+        inline Overloads* resolvedOverloads() const;
         inline Namespace* resolvedNamespace() const;
         inline GenericType* genericType() const;
         inline f64 floatConst() const;
@@ -333,6 +335,7 @@ namespace clover {
         inline void setFieldId(u32 i);
         inline void setConstId(u32 i);
         inline void setResolvedFunction(Function* function);
+        inline void setResolvedOverloads(Overloads* overloads);
         inline void setResolvedNamespace(Namespace* ns);
         inline void setGenericType(GenericType* genericType);
         inline void setFloatConst(f64 f);
@@ -585,117 +588,153 @@ namespace clover {
     static_assert(sizeof(PackedTypeBounds) == sizeof(PackedTypeBounds*));
 
     struct SignatureKey {
+        struct Common {
+            u32 length, numArgs, hash;
+            ScopeIndex instParent;
+            PackedTypeBounds ret;
+        };
         union {
-            struct { u32 length; u32 hash; PackedTypeBounds ret; PackedTypeBounds args[2]; };
-            struct { u32 : 32; u32 : 32; PackedTypeBounds _[2]; PackedTypeBounds* buf; };
+            struct { Common header; i32 args[6]; };
+            struct { Common _; u32 pad[4]; i32* buf; };
         };
 
         inline SignatureKey() {}
 
         inline ~SignatureKey() {
-            if (length > 2)
+            if (header.length > 6)
                 delete[] buf;
         }
 
         inline SignatureKey(const SignatureKey& other) {
-            if (other.length <= 2)
+            if (other.header.length <= 6)
                 memory::copy(this, &other, sizeof(SignatureKey));
             else {
-                length = other.length;
-                hash = other.hash;
-                ret = other.ret;
-                buf = new PackedTypeBounds[length];
-                memory::copy(buf, other.buf, sizeof(PackedTypeBounds) * length);
+                header = other.header;
+                buf = new i32[header.length];
+                memory::copy(buf, other.buf, sizeof(i32) * header.length);
             }
         }
 
         inline SignatureKey& operator=(const SignatureKey& other) {
             if (this != &other) {
-                if (length > 2)
+                if (header.length > 6)
                     delete[] buf;
-                if (other.length <= 2)
+                if (other.header.length <= 6)
                     memory::copy(this, &other, sizeof(SignatureKey));
                 else {
-                    length = other.length;
-                    hash = other.hash;
-                    ret = other.ret;
-                    buf = new PackedTypeBounds[length];
-                    memory::copy(buf, other.buf, sizeof(PackedTypeBounds) * length);
+                    header = other.header;
+                    buf = new i32[header.length];
+                    memory::copy(buf, other.buf, sizeof(i32) * header.length);
                 }
             }
             return *this;
         }
 
         inline SignatureKey(SignatureKey&& other) {
-            if (other.length <= 2)
+            if (other.header.length <= 6)
                 memory::copy(this, &other, sizeof(SignatureKey));
             else {
-                length = other.length;
-                hash = other.hash;
-                ret = other.ret;
+                header = other.header;
                 buf = other.buf;
-                other.length = 0;
+                other.header.length = 0;
             }
         }
 
         inline SignatureKey& operator=(SignatureKey&& other) {
             if (this != &other) {
-                if (length > 2)
+                if (header.length > 6)
                     delete[] buf;
-                if (other.length <= 2)
+                if (other.header.length <= 6)
                     memory::copy(this, &other, sizeof(SignatureKey));
                 else {
-                    length = other.length;
-                    hash = other.hash;
-                    ret = other.ret;
+                    header = other.header;
                     buf = other.buf;
-                    other.length = 0;
+                    other.header.length = 0;
                 }
             }
             return *this;
         }
 
-        inline static SignatureKey withLength(u32 length) {
+        inline static SignatureKey create(u32 numArgs, Scope* scope) {
             SignatureKey key;
-            key.length = length;
-            key.hash = 0;
-            key.ret.lower = key.ret.upper = InvalidType;
-            if (length <= 2) {
-                key.args[0].lower = key.args[0].upper = key.args[1].lower = key.args[1].upper = InvalidType;
+            key.header.length = numArgs * 2;
+            key.header.numArgs = numArgs;
+            key.header.instParent = scope->globalIndex;
+            key.header.hash = 0;
+            key.header.ret.lower = key.header.ret.upper = InvalidType;
+            if (key.header.length <= 6) {
+                for (u32 i = 0; i < 6; i ++)
+                    key.args[i] = InvalidType;
                 return key;
             }
-            key.buf = new PackedTypeBounds[length];
+            key.buf = new i32[key.header.length];
+            return key;
+        }
+
+        inline static SignatureKey create(u32 numArgs, u32 numResolutions) {
+            SignatureKey key;
+            key.header.length = numArgs * 2 + numResolutions;
+            key.header.numArgs = numArgs;
+            key.header.instParent = InvalidScope;
+            key.header.hash = 0;
+            key.header.ret.lower = key.header.ret.upper = InvalidType;
+            if (key.header.length <= 6) {
+                for (u32 i = 0; i < numArgs * 2; i ++)
+                    key.args[i] = InvalidType;
+                for (u32 i = numArgs * 2; i < key.header.length; i ++)
+                    key.args[i] = -1;
+                return key;
+            }
+            key.buf = new i32[key.header.length];
             return key;
         }
 
         inline void setReturnType(PackedTypeBounds bounds) {
-            ret = bounds;
+            header.ret = bounds;
         }
 
         inline void setParameterType(u32 i, PackedTypeBounds bounds) {
-            (length <= 2 ? args : buf)[i] = bounds;
+            i32* dest = header.length <= 6 ? args : buf;
+            dest[i * 2] = bounds.lower;
+            dest[i * 2 + 1] = bounds.upper;
+        }
+
+        inline void setResolution(u32 i, u32 index) {
+            i32* dest = header.length <= 6 ? args : buf;
+            dest[header.numArgs * 2 + i] = index;
+        }
+
+        inline void setResolutions(const_slice<u32> resolutions) {
+            i32* dest = header.length <= 6 ? args : buf;
+            dest += header.numArgs * 2;
+            assert(resolutions.size() == header.length - header.numArgs * 2);
+            memory::copy(dest, resolutions.data(), resolutions.size() * sizeof(i32));
         }
 
         inline void computeHash() {
-            u64 h = mixHash(10492018930511853907ull, intHash(ret.bits));
-            if (length <= 2)
-                h = mixHash(mixHash(h, intHash(args[0].bits)), intHash(args[1].bits));
-            else for (u32 i = 0; i < length; i ++)
-                h = mixHash(h, intHash(buf[i].bits));
-            hash = h;
+            u64 h = mixHash(10492018930511853907ull, intHash(header.ret.bits));
+            i32* data = header.length <= 6 ? args : buf;
+            for (u32 i = 0; i < header.numArgs; i ++)
+                h = mixHash(h, intHash(((u64*)data)[i]));
+            if (header.instParent != InvalidScope)
+                h = mixHash(h, intHash(header.instParent));
+            else for (u32 i = header.numArgs * 2; i < header.length; i ++)
+                h = mixHash(h, intHash(data[i]));
+            header.hash = h;
         }
 
         inline bool operator==(const SignatureKey& other) const {
-            if (other.length != length)
+            if (other.header.length != header.length)
                 return false;
-            if (other.hash != hash)
+            if (other.header.hash != header.hash)
                 return false;
-            if (ret.bits != other.ret.bits)
+            if (header.ret.bits != other.header.ret.bits)
                 return false;
-            if (length <= 2)
-                return args[0].bits == other.args[0].bits && args[1].bits == other.args[1].bits;
-
-            for (u32 i = 0; i < length; i ++) if (buf[i].bits != other.buf[i].bits)
+            if (header.instParent != other.header.instParent)
+                return false;
+            const i32* data = header.length <= 6 ? args : buf;
+            const i32* otherData = header.length <= 6 ? other.args : other.buf;
+            for (u32 i = 0; i < header.length; i ++) if (data[i] != otherData[i])
                 return false;
             return true;
         }
@@ -724,18 +763,22 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const SignatureKeyLogger& kl) {
-        io = format(io, PackedTypeBoundsLogger { kl.sys, kl.key.ret });
+        io = format(io, PackedTypeBoundsLogger { kl.sys, kl.key.header.ret });
         io = format(io, "(");
-        for (u32 i = 0; i < kl.key.length; i ++) {
+        auto data = kl.key.header.length <= 6 ? kl.key.args : kl.key.buf;
+        for (u32 i = 0; i < kl.key.header.numArgs; i ++) {
             if (i > 0)
                 io = format(io, ", ");
-            io = format(io, PackedTypeBoundsLogger { kl.sys, kl.key.length <= 2 ? kl.key.args[i] : kl.key.buf[i] });
+            PackedTypeBounds bounds;
+            bounds.lower = data[i * 2];
+            bounds.upper = data[i * 2 + 1];
+            io = format(io, PackedTypeBoundsLogger { kl.sys, bounds });
         }
         return format(io, ")");
     }
 
     inline u64 hash(const SignatureKey& key) {
-        return key.hash;
+        return key.header.hash;
     }
 
     struct TypesKey {
@@ -878,7 +921,7 @@ namespace clover {
         Module* module;
         Function* parent;
         NodeIndex decl;
-        u32 index;
+        u32 index, globalIndex;
         TypeIndex typeIndex = InvalidType;
         Symbol name, mangledName = InvalidSymbol;
         vec<VariableInfo, 8> locals;
@@ -891,6 +934,7 @@ namespace clover {
         Function* generic = nullptr; // Generic version of this function we were instantiated from, if applicable.
         u64 genericHash = 0; // Hash of this function's body, used as a discriminator for the binary symbols of its instantiations.
         AST thisOperand;
+        Scope* methodScope = nullptr; // Only used for generic function instantiations, necessary to mangle the final symbol.
 
         union {
             map<SignatureKey, Function*>* instantiations = nullptr; // Cache of instantiations of this function.
@@ -911,16 +955,7 @@ namespace clover {
         inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in);
         inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in, Symbol name_in);
 
-        inline Local addLocalOverload(u32 overloads, Symbol name) {
-            VariableInfo info;
-            info.type = InvalidType;
-            info.scope = VariableInfo::Local;
-            info.kind = VariableKind::OverloadedFunction;
-            info.name = name;
-            info.overloads = overloads;
-            locals.push(info);
-            return Local(locals.size() - 1);
-        }
+        inline Local addLocalOverload(Overloads* overloads);
 
         inline Local addLocal(VariableKind kind, AST decl, Symbol name) {
             return addLocal(kind, decl, InvalidType, name);
@@ -1023,13 +1058,16 @@ namespace clover {
 
         Module* module;
         u32 index;
+        Symbol name;
         vec<Member, 8> functions;
 
         inline void add(Function* function) {
+            name = function->name;
             functions.push(Member { uptr(function) });
         }
 
         inline void add(Overloads* overloads) {
+            name = overloads->name;
             functions.push(Member { uptr(overloads) | 1ull });
         }
 
@@ -1093,6 +1131,18 @@ namespace clover {
             }
             for (Namespace* parent : parents) {
                 if (auto result = parent->lookup(name))
+                    return result;
+            }
+            return Scope::FindResult();
+        }
+
+        Scope::FindResult lookupMethodOnly(Symbol name) {
+            for (Scope* scope : constituentScopes) {
+                if (auto result = scope->findMethodOnly(name, false))
+                    return result;
+            }
+            for (Namespace* parent : parents) {
+                if (auto result = parent->lookupMethodOnly(name))
                     return result;
             }
             return Scope::FindResult();
@@ -1309,6 +1359,11 @@ namespace clover {
         // is complete.
         vec<TypeIndex> genericTypesToResolve;
 
+        // This holds a list of type definitions we import cases from via use
+        // statements, which we want to specially resolve before anything else
+        // to discover if they're secretly generic.
+        vec<pair<Scope*, NodeIndex>> possiblyGenericTypeImports;
+
         // The literal text contents associated with this module, plus the byte
         // offsets of the start of each line.
         const_slice<i8> source;
@@ -1513,6 +1568,18 @@ namespace clover {
             return AST(this, ast);
         }
 
+        inline AST addLeaf(ASTKind kind, Overloads* const& overloads) {
+            assert(kind == ASTKind::ResolvedOverloads);
+            assert(nodeScopes.size() != 0); // Should only be producing these after scope resolution.
+            assert(nodeTypes.size() != 0); // Should only be producing these after scope resolution.
+            ASTWord ast;
+            ast.kind = kind;
+            auto internResult = tryIntern(Constant::UnsignedConst(overloadIndex(overloads)));
+            ast.isInline = internResult.canIntern;
+            ast.constantIndex = internResult.payload;
+            return AST(this, ast);
+        }
+
         inline AST addLeaf(ASTKind kind, Namespace* const& ns) {
             assert(kind == ASTKind::ResolvedNamespace);
             ASTWord ast;
@@ -1564,6 +1631,8 @@ namespace clover {
         template<typename... Args>
         inline u32 computeArity(Function* const&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
+        inline u32 computeArity(Overloads* const&, const Args&... args) { return 1 + computeArity(args...); }
+        template<typename... Args>
         inline u32 computeArity(Namespace* const&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
         inline u32 computeArity(GenericType* const&, const Args&... args) { return 1 + computeArity(args...); }
@@ -1603,6 +1672,10 @@ namespace clover {
 
         inline void addChild(Function* const& function) {
             astWords.pushUnchecked(addLeaf(ASTKind::ResolvedFunction, function).firstWord());
+        }
+
+        inline void addChild(Overloads* const& overloads) {
+            astWords.pushUnchecked(addLeaf(ASTKind::ResolvedOverloads, overloads).firstWord());
         }
 
         inline void addChild(GenericType* const& genericType) {
@@ -1892,13 +1965,13 @@ namespace clover {
             return Global(globals.size() - 1);
         }
 
-        inline Global addGlobalOverload(u32 overloads, Symbol name) {
+        inline Global addGlobalOverload(Overloads* overloads) {
             VariableInfo info;
             info.type = InvalidType;
             info.scope = VariableInfo::Global;
             info.kind = VariableKind::OverloadedFunction;
-            info.name = name;
-            info.overloads = overloads;
+            info.name = overloads->name;
+            info.overloadsIndex = overloadIndex(overloads);
             globals.push(info);
             return Global(globals.size() - 1);
         }
@@ -2105,16 +2178,23 @@ namespace clover {
                 return handle;
             }
             assert(handle.isGlobal());
-            Global global = naturalize(handle.scope->module, handle.i);
+            Global global = naturalize(handle.scope, handle.i);
             return VariableHandle(getTopLevel().scope(), global.index).expand();
         }
 
-        inline Global naturalize(Module* other, Global global) {
+        inline Global naturalize(Scope* scope, Global global) {
+            Module* other = scope->module;
             if (this == other)
                 return global;
             auto otherEntry = other->globals[global.index];
+            if (otherEntry.kind == VariableKind::Projection)
+                return addGlobalIndirect(scopeIndex(scope), global.index);
             if (otherEntry.kind == VariableKind::Function)
                 return addGlobalFunction(VariableKind::Function, other->functions[otherEntry.functionIndex]);
+            if (otherEntry.kind == VariableKind::OverloadedFunction)
+                return addGlobalOverload(other->overloads[otherEntry.overloadsIndex]);
+            if (otherEntry.kind == VariableKind::GenericType)
+                return addGlobalGenericType(other->genericTypes[otherEntry.genericTypeIndex]);
             if (otherEntry.kind == VariableKind::Namespace)
                 return addGlobalNamespace(other->namespaces[otherEntry.namespaceIndex]);
             return addGlobal(otherEntry.kind, otherEntry.type, otherEntry.name);
@@ -2261,11 +2341,13 @@ namespace clover {
         assert(nameNode.kind() == ASTKind::Ident);
         name = nameNode.symbol();
         isConst = module->node(decl).kind() == ASTKind::ConstFunDecl;
+        globalIndex = module->compilation->numFunctions ++;
     }
 
     inline Function::Function(Module* module_in, Function* parent_in, NodeIndex decl_in, Symbol name_in):
         module(module_in), parent(parent_in), decl(decl_in), name(name_in) {
         isConst = module->node(decl).kind() == ASTKind::ConstFunDecl;
+        globalIndex = module->compilation->numFunctions ++;
     }
 
     inline Local Function::addLocalFunction(VariableKind kind, Function* function) {
@@ -2282,6 +2364,17 @@ namespace clover {
         info.functionIndex = module->functionIndex(function);
         info.type = function->typeIndex;
         info.name = function->name;
+        locals.push(info);
+        return Local(locals.size() - 1);
+    }
+
+    inline Local Function::addLocalOverload(Overloads* overloads) {
+        VariableInfo info;
+        info.type = InvalidType;
+        info.scope = VariableInfo::Local;
+        info.kind = VariableKind::OverloadedFunction;
+        info.name = overloads->name;
+        info.overloadsIndex = module->overloadIndex(overloads);
         locals.push(info);
         return Local(locals.size() - 1);
     }
@@ -2425,6 +2518,14 @@ namespace clover {
             return module->functions[module->constantList[firstWord().constantIndex].uintConst];
     }
 
+    inline Overloads* AST::resolvedOverloads() const {
+        assert(kind() == ASTKind::ResolvedOverloads);
+        if LIKELY(firstWord().isInline)
+            return module->overloads[firstWord().inlineUnsigned];
+        else
+            return module->overloads[module->constantList[firstWord().constantIndex].uintConst];
+    }
+
     inline Namespace* AST::resolvedNamespace() const {
         assert(kind() == ASTKind::ResolvedNamespace);
         if LIKELY(firstWord().isInline)
@@ -2495,6 +2596,14 @@ namespace clover {
 
     inline void AST::setResolvedFunction(Function* function) {
         auto intern = module->tryIntern(Constant::UnsignedConst(module->functionIndex(function)));
+        if (intern.canIntern)
+            firstWord().isInline = true, firstWord().inlineSigned = intern.payload;
+        else
+            firstWord().isInline = false, firstWord().constantIndex = intern.payload;
+    }
+
+    inline void AST::setResolvedOverloads(Overloads* overloads) {
+        auto intern = module->tryIntern(Constant::UnsignedConst(module->overloadIndex(overloads)));
         if (intern.canIntern)
             firstWord().isInline = true, firstWord().inlineSigned = intern.payload;
         else
@@ -2583,7 +2692,7 @@ namespace clover {
         assert(!isLocal());
         const auto& info = module->globals[variable()];
         if (info.kind == VariableKind::Forward) {
-            const Scope* scope = module->scopes[info.scope];
+            const Scope* scope = module->scopes[info.defScope];
             return scope->isGlobal() ? module->globals[info.index] : scope->function->locals[info.index];
         }
         return info;
@@ -2593,7 +2702,7 @@ namespace clover {
         assert(!isLocal());
         auto& info = module->globals[variable()];
         if (info.kind == VariableKind::Forward) {
-            Scope* scope = module->scopes[info.scope];
+            Scope* scope = module->scopes[info.defScope];
             return scope->isGlobal() ? module->globals[info.index] : scope->function->locals[info.index];
         }
         return info;
@@ -2604,7 +2713,7 @@ namespace clover {
             return this->varInfo();
         const auto& info = function->locals[variable()];
         if (info.kind == VariableKind::Forward) {
-            Scope* scope = module->scopes[info.scope];
+            Scope* scope = module->scopes[info.defScope];
             return scope->isGlobal() ? module->globals[info.index] : scope->function->locals[info.index];
         }
         return info;
@@ -2615,7 +2724,7 @@ namespace clover {
             return this->varInfo();
         auto& info = function->locals[variable()];
         if (info.kind == VariableKind::Forward) {
-            Scope* scope = module->scopes[info.scope];
+            Scope* scope = module->scopes[info.defScope];
             return scope->isGlobal() ? module->globals[info.index] : scope->function->locals[info.index];
         }
         return info;
@@ -2726,7 +2835,7 @@ namespace clover {
     inline VariableHandle VariableHandle::expand() const {
         if (kind() == VariableKind::Forward) {
             const auto& info = isGlobal() ? scope->module->globals[i] : scope->function->locals[i];
-            Scope* originalScope = isGlobal() ? scope->module->scopes[info.scope] : scope->function->module->scopes[info.scope];
+            Scope* originalScope = isGlobal() ? scope->module->scopes[info.defScope] : scope->function->module->scopes[info.defScope];
             return VariableHandle(originalScope, info.index);
         }
         return *this;
@@ -2865,6 +2974,10 @@ namespace clover {
                 io = format(io, module->str(ast.resolvedFunction()->name));
                 io = format(io, '/', ast.module->functionIndex(ast.resolvedFunction()));
                 return io;
+            case ASTKind::ResolvedOverloads: {
+                io = format(io, ast.module->str(ast.resolvedOverloads()->name), "?", ast.module->overloadIndex(ast.resolvedOverloads()));
+                return io;
+            }
             case ASTKind::ResolvedNamespace:
                 io = format(io, module->str(ast.resolvedNamespace()->name()));
                 return io;

@@ -41,6 +41,9 @@ bool sameAST(ArtifactKind kind, Function* function, AST a, AST b, ShouldCompareP
                 case ASTKind::ResolvedFunction:
                     result = a.resolvedFunction() == b.resolvedFunction() && result;
                     break;
+                case ASTKind::ResolvedOverloads:
+                    result = a.resolvedOverloads() == b.resolvedOverloads() && result;
+                    break;
                 case ASTKind::ResolvedNamespace:
                     result = a.resolvedNamespace() == b.resolvedNamespace() && result;
                     break;

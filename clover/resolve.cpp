@@ -34,8 +34,8 @@ namespace clover {
 
     struct ResolutionContext {
         struct TypeDecl {
-            Scope* scope;
             vec<pair<Symbol, TypeIndex>, 8>* discoveredTypeParameters;
+            bool isReallyFunction;
         };
 
         vec<LateUse, 8> lateUses;
@@ -43,8 +43,8 @@ namespace clover {
         vec<NodeIndex, 8> assignments;
         vec<TypeDecl> typeDecls;
 
-        void enterTypeDecl(Scope* typeScope, vec<pair<Symbol, TypeIndex>, 8>* discoveredTypeParameters) {
-            typeDecls.push({ typeScope, discoveredTypeParameters });
+        void enterTypeDecl(vec<pair<Symbol, TypeIndex>, 8>* discoveredTypeParameters, bool isReallyFunction) {
+            typeDecls.push({ discoveredTypeParameters, isReallyFunction });
         }
 
         void leaveTypeDecl() {
@@ -81,6 +81,10 @@ namespace clover {
 
         bool isInTypeDecl() const {
             return typeDecls.size() > 0;
+        }
+
+        bool isInFunctionSignature() const {
+            return isInTypeDecl() && typeDecls.back().isReallyFunction;
         }
 
         void reportAddressOf(NodeIndex node) {
@@ -144,7 +148,7 @@ namespace clover {
 
     PossiblyGenericType resolveTypeForDecl(Module* module, ResolutionContext& ctx, RefTraits refTraits, AST ast, InstantiationContext* inst = nullptr);
 
-    Type instantiate(GenericType* genericType, const_slice<TypeIndex> parameters) {
+    Type instantiate(GenericType* genericType, const_slice<TypeIndex> parameters, bool inFunctionSignature) {
         Module* module = genericType->module;
 
         TypesKey key = TypesKey::withLength(parameters.size());
@@ -204,7 +208,7 @@ namespace clover {
         auto resultType = result.type(module);
         // println("Instantiated ", module->str(genericType->name), TypesKeyLogger { module->types, key }, " to ", resultType);
 
-        if (!resultType.isConcrete())
+        if (!resultType.isConcrete() && !inFunctionSignature)
             genericType->module->genericTypesToResolve.push(resultType.index);
 
         if UNLIKELY(config::printResolvedTree)
@@ -215,14 +219,14 @@ namespace clover {
         return resultType;
     }
 
-    Type instantiate(GenericType* genericType) {
+    Type instantiate(GenericType* genericType, bool inFunctionSignature) {
         if (genericType->placeholder != InvalidType)
             return genericType->module->types->get(genericType->placeholder);
         vec<TypeIndex> vars;
         AST ast = genericType->module->node(genericType->parameterList);
         for (AST child : ast)
             vars.push(genericType->module->varType().index);
-        return instantiate(genericType, vars);
+        return instantiate(genericType, vars, inFunctionSignature);
     }
 
     AST getNode(ChangePosition pos) {
@@ -239,7 +243,7 @@ namespace clover {
         switch (ast.kind()) {
             case ASTKind::ResolvedGenericType: {
                 GenericType* generic = ast.genericType();
-                Type result = instantiate(generic, parameters...);
+                Type result = instantiate(generic, parameters..., ctx.isInFunctionSignature());
                 if constexpr (isSame<Node, ChangePosition> && sizeof...(parameters) == 0) {
                     if (generic->placeholder != InvalidType)
                         changePos.replaceWith(ast.module->add(ASTKind::GenericInst, changePos.ast.pos(), changePos.ast.scope(), result));
@@ -256,7 +260,7 @@ namespace clover {
                     path.push(base.child(1).symbol()), baseParent = base, base = base.child(0);
                 assert(base.kind() == ASTKind::ResolvedGenericType);
                 GenericType* generic = base.genericType();
-                Type inst = instantiate(generic, parameters...);
+                Type inst = instantiate(generic, parameters..., ctx.isInFunctionSignature());
                 assert(inst);
                 if constexpr (isSame<Node, ChangePosition> && sizeof...(parameters) == 0) {
                     ChangePosition basePos = baseParent.node == ast.node ? changePos : ChangePosition { baseParent, 0 };
@@ -361,7 +365,7 @@ namespace clover {
         bool isCase;
         inline TypeDeclScope(ResolutionContext& ctx_in, AST decl, vec<pair<Symbol, TypeIndex>>& discoveredTypeParameters): ctx(ctx_in), isCase(isCaseDecl(decl.kind())) {
             if (!isCase)
-                ctx.enterTypeDecl(decl.scope(), &discoveredTypeParameters);
+                ctx.enterTypeDecl(&discoveredTypeParameters, false);
         }
 
         inline ~TypeDeclScope() {
@@ -425,6 +429,7 @@ namespace clover {
                     unresolveTypeDecl(module, ast.scope(), { ast, i });
                 break;
             case ASTKind::ResolvedFunction:
+            case ASTKind::ResolvedOverloads:
             case ASTKind::ResolvedNamespace:
             case ASTKind::ResolvedGenericType:
                 break; // Can we just leave these be? I'm really not sure.
@@ -453,8 +458,34 @@ namespace clover {
         genericType->parameterList = ast.child(1).node;
     }
 
+    void markGenericCaseScopes(AST ast) {
+        for (AST child : ast.children(2)) switch (child.kind()) {
+            case ASTKind::NamedCaseDecl:
+            case ASTKind::StructCaseDecl: {
+                child.scope()->isGenericTypeCase = true;
+                auto entry = ast.scope()->findLocal(child.child(0).symbol());
+                entry.info().kind = VariableKind::Projection;
+                entry.info().decl = child.node;
+                entry.info().name = child.child(0).symbol();
+                break;
+            }
+            case ASTKind::UnionCaseDecl: {
+                child.scope()->isGenericTypeCase = true;
+                auto entry = ast.scope()->findLocal(child.child(0).symbol());
+                entry.info().kind = VariableKind::Projection;
+                entry.info().decl = child.node;
+                entry.info().name = child.child(0).symbol();
+                markGenericCaseScopes(child);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
     GenericType* addTypeParametersToNonGeneric(Module* module, AST ast, Symbol name, vec<pair<Symbol, TypeIndex>>& discoveredTypeParameters, ASTKind genericKind) {
         vec<AST> paramNodes;
+        ast.scope()->kind = ScopeKind::GenericType;
         for (auto p : discoveredTypeParameters)
             paramNodes.push(module->add(ASTKind::AliasDecl, ast.pos(), ast.scope(), p.second, module->add(ASTKind::Ident, Identifier(p.first)), module->add(ASTKind::Missing), module->add(ASTKind::Missing)));
         ast.setChild(1, module->add(ASTKind::Tuple, ast.pos(), ast.scope(), InvalidType, paramNodes));
@@ -462,6 +493,9 @@ namespace clover {
 
         for (u32 i = 2; i < ast.arity(); i ++)
             unresolveTypeDecl(module, ast.scope(), { ast, i });
+
+        if (genericKind == ASTKind::GenericUnionDecl)
+            markGenericCaseScopes(ast);
 
         // We need to make a new GenericType instance.
         auto entry = ast.scope()->find(name);
@@ -646,6 +680,8 @@ namespace clover {
                     addTypeParametersToExistingGeneric(module, ast, generic->name, discoveredTypeParameters);
                 else for (u32 i = 2; i < ast.arity(); i ++)
                     unresolveTypeDecl(module, ast.scope(), { ast, i });
+                if (ast.kind() == ASTKind::GenericUnionDecl)
+                    markGenericCaseScopes(ast);
                 generic->placeholder = InvalidType;
                 return PossiblyGenericType(module, generic);
             }
@@ -684,6 +720,23 @@ namespace clover {
         assert(!isCaseDecl(caseDecl.kind()));
     }
 
+    AST resolvePossibleProjection(ResolutionContext& ctx, AST decl, AST parent) {
+        Module* module = parent.module;
+        if (isCaseDecl(decl.kind())) {
+            AST root = rootNodeForCase(decl);
+            if (isGenericTypeDecl(root.kind())) {
+                // We need to set up a projection.
+                vec<Symbol> path;
+                getPathToCaseFromRoot(decl, path);
+                AST result = module->add(ASTKind::ResolvedGenericType, genericTypeForDecl(root));
+                while (path.size())
+                    result = module->add(ASTKind::Projection, parent.pos(), parent.scope(), InvalidType, result, module->add(ASTKind::Ident, Identifier(path.pop())));
+                return result;
+            }
+        }
+        return AST();
+    }
+
     AST resolveIdentifier(Module* module, ResolutionContext& ctx, Scope* scope, AST parent, AST ast, VariableHandle entry) {
         if (!entry) {
             assert(parent);
@@ -691,27 +744,22 @@ namespace clover {
             return ast;
         }
         switch (entry.kind()) {
+            case VariableKind::Projection: {
+                Module* otherModule = entry.scope->module;
+                AST decl = otherModule->node(entry.info().decl);
+                if (auto type = resolvePossibleProjection(ctx, decl, parent))
+                    return type;
+                unreachable("Expected a generic type when resolving imported projection ", module->str(ast.symbol()));
+            }
             case VariableKind::Type:
                 if (entry.hasDecl()) {
                     AST decl = entry.decl();
-                    if (isCaseDecl(decl.kind())) {
-                        AST root = rootNodeForCase(decl);
-                        resolve(module, ctx, NoRefTraits, scope, none<AST>(), root, ExpectType);
-                        if (isGenericTypeDecl(root.kind())) {
-                            // We need to set up a projection.
-                            vec<Symbol> path;
-                            getPathToCaseFromRoot(decl, path);
-                            AST result = module->add(ASTKind::ResolvedGenericType, genericTypeForDecl(root));
-                            while (path.size())
-                                result = module->add(ASTKind::Projection, parent.pos(), scope, InvalidType, result, module->add(ASTKind::Ident, Identifier(path.pop())));
-                            return result;
-                        }
-                    }
+                    if (auto type = resolvePossibleProjection(ctx, decl, parent))
+                        return type;
                     if (decl.type()) {
                         // println("Set entry type for ", module->str(ast.symbol()), " declared at ", decl, " to ", module->types->get(entry.type()));
                         entry.setType(decl.type());
-                    }
-                    else if (!isCaseDecl(decl.kind())) {
+                    } else if (!isCaseDecl(decl.kind())) {
                         // We are the first thing reaching this type decl, so
                         // we need to resolve it. This might mean we discover
                         // it's actually generic! If this happens, we rely on
@@ -727,7 +775,6 @@ namespace clover {
                 else
                     return module->add(ASTKind::Typename, Local(entry.index()));
             case VariableKind::Variable:
-            case VariableKind::OverloadedFunction:
                 if (entry.isGlobal())
                     return module->add(ASTKind::Global, Global(entry.index()));
                 else
@@ -751,21 +798,13 @@ namespace clover {
                 assert(reentry);
                 return module->add(ASTKind::Const, ConstId(scope->function->locals[reentry.index].constantIndex));
             }
-            case VariableKind::ConstFunction: {
-                const VariableInfo& info = entry.isGlobal()
-                    ? entry.scope->module->globals[entry.index()]
-                    : entry.scope->function->locals[entry.index()];
-                Function* function = module->functions[info.functionIndex];
-                return module->add(ASTKind::ResolvedFunction, function);
-            }
+            case VariableKind::ConstFunction:
+                unreachable("TODO: Implement constant functions.");
 
-            case VariableKind::Function: {
-                const VariableInfo& info = entry.isGlobal()
-                    ? entry.scope->module->globals[entry.index()]
-                    : entry.scope->function->locals[entry.index()];
-                Function* function = entry.scope->module->functions[info.functionIndex];
-                return module->add(ASTKind::ResolvedFunction, function);
-            }
+            case VariableKind::Function:
+                return module->add(ASTKind::ResolvedFunction, entry.scope->module->functions[entry.info().functionIndex]);
+            case VariableKind::OverloadedFunction:
+                return module->add(ASTKind::ResolvedOverloads, entry.scope->module->overloads[entry.info().overloadsIndex]);
 
             case VariableKind::Namespace: {
                 const VariableInfo& info = entry.isGlobal()
@@ -1562,7 +1601,7 @@ namespace clover {
                     Type type = evaluateType(module, ctx, scope, ast.child(i), {}, ForbidInstantiation);
                     types.push(type.index);
                 }
-                ast.setType(instantiate(ast.child(0).genericType(), types));
+                ast.setType(instantiate(ast.child(0).genericType(), types, ctx.isInFunctionSignature()));
                 return ast;
             }
             case ASTKind::New:
@@ -1713,7 +1752,7 @@ namespace clover {
                     function->isGeneric = true;
 
                 vec<pair<Symbol, TypeIndex>> discoveredTypeParameters;
-                ctx.typeDecls.push({ ast.scope(), &discoveredTypeParameters });
+                ctx.typeDecls.push({ &discoveredTypeParameters, true });
 
                 // First we have to see if the function is generic.
                 for (auto [i, a] : enumerate(ast.child(2))) switch (a.kind()) {
@@ -2211,6 +2250,9 @@ namespace clover {
         Module* module = artifact->as<Module>();
         module->nodeTypes.expandTo(module->ast.size(), InvalidType);
         ResolutionContext ctx;
+        for (const auto& [scope, node] : module->possiblyGenericTypeImports)
+            resolve(module, ctx, NoRefTraits, scope, none<AST>(), module->node(node), ExpectType);
+
         resolve(module, ctx, NoRefTraits, module->getTopLevel().scope(), none<AST>(), module->getTopLevel(), ExpectValue);
         resolveLateUses(module, ctx);
         resolveAccessChains(module, module->getTopLevel());

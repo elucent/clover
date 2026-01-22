@@ -144,8 +144,8 @@ namespace clover {
         inline void update(Source* source) { update(ArtifactKind::Source, (ArtifactData*)source, true); }
         inline void update(Tokens* tokens) { update(ArtifactKind::Tokens, (ArtifactData*)tokens, true); }
         inline void update(ArtifactKind kind, Module* module) { update(kind, (ArtifactData*)module, kind == ArtifactKind::ParsedAST); }
-        inline void update(JasmineArtifact* jasmine) { update(ArtifactKind::JasmineIR, (ArtifactData*)jasmine, true); }
-        inline void update(AssemblyArtifact* assembly) { update(ArtifactKind::Assembly, (ArtifactData*)assembly, true); }
+        inline void update(JasmineArtifact* jasmine) { update(ArtifactKind::JasmineIR, (ArtifactData*)jasmine, false); }
+        inline void update(AssemblyArtifact* assembly) { update(ArtifactKind::Assembly, (ArtifactData*)assembly, false); }
 
         void print();
 
@@ -235,6 +235,7 @@ namespace clover {
         u32 optimizationLevel = 0;
         u32 topLevels = 0;
         u32 staticDataEntries = 0;
+        u32 numFunctions = 0, numScopes = 0;
         vec<Artifact*> topologicalOrder;
         map<Symbol, NamespaceTree*> topLevelNamespaces;
 
