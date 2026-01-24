@@ -973,7 +973,7 @@ namespace clover {
                     // append a void return, so we add a `then` expression that
                     // can be easily substituted in place of the previous
                     // expression.
-                    AST voidReturn = module->add(ASTKind::Return, node.isLeaf() ? parent.pos() : node.pos(), parent.scope(), module->voidType(), module->add(ASTKind::Missing));
+                    AST voidReturn = module->add(ASTKind::Return, node.isLeaf() ? parent.pos() : node.pos(), parent.scope(), module->voidType(), Missing);
                     AST result = module->add(ASTKind::Then, voidReturn.pos(), parent.scope(), module->invalidType(), node, voidReturn);
                     toChange.replaceWith(result);
                 } else {
@@ -2195,7 +2195,7 @@ namespace clover {
         }
 
         AST oldDecl = module->node(generic->decl);
-        AST newDecl = module->add(ASTKind::FunDecl, oldDecl.pos(), InvalidScope, InvalidType, module->clone(oldDecl.child(0)), module->add(ASTKind::Missing), module->clone(oldDecl.child(2)), module->clone(oldDecl.child(3)), module->clone(oldDecl.child(4)));
+        AST newDecl = module->add(ASTKind::FunDecl, oldDecl.pos(), InvalidScope, InvalidType, module->clone(oldDecl.child(0)), Missing, module->clone(oldDecl.child(2)), module->clone(oldDecl.child(3)), module->clone(oldDecl.child(4)));
         Function* newFunction = module->addFunction(newDecl, generic->parent, generic->name);
         newFunction->isInstantiation = true;
         newFunction->generic = generic;

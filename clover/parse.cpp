@@ -657,7 +657,7 @@ namespace clover {
                                 visitor.read();
                                 init = parseExpression(module, visitor);
                             }
-                            argument = module->add(ASTKind::AliasDecl, token.pos, ident, module->add(ASTKind::Missing), init);
+                            argument = module->add(ASTKind::AliasDecl, token.pos, ident, Missing, init);
                         } else if (token.token == KeywordConst) {
                             // Const parameter.
                             visitor.read();
@@ -705,7 +705,7 @@ namespace clover {
                         if (visitor.peek().token == PunctuatorRightBracket) {
                             visitor.stopIgnoringWhitespace();
                             visitor.read();
-                            ast = module->add(ASTKind::GetSlice, ast, module->add(ASTKind::Missing), module->add(ASTKind::Missing));
+                            ast = module->add(ASTKind::GetSlice, ast, Missing, Missing);
                             break;
                         }
                         AST end = parseExpression(module, visitor);
@@ -715,7 +715,7 @@ namespace clover {
                             visitor.readUpToAndIncluding(PunctuatorRightBracket);
                         } else
                             visitor.read();
-                        ast = module->add(ASTKind::GetSlice, ast, module->add(ASTKind::Missing), end);
+                        ast = module->add(ASTKind::GetSlice, ast, Missing, end);
                         break;
                     }
                     if (visitor.peek().token == PunctuatorRightBracket) {
@@ -745,7 +745,7 @@ namespace clover {
                         case PunctuatorColon: { // Slice access
                             visitor.read();
                             if (visitor.peek().token == PunctuatorRightBracket) { // No upper bound
-                                ast = module->add(ASTKind::GetSlice, token.pos, ast, index, module->add(ASTKind::Missing));
+                                ast = module->add(ASTKind::GetSlice, token.pos, ast, index, Missing);
                                 break;
                             }
                             AST end = parseExpression(module, visitor);
@@ -1294,7 +1294,7 @@ namespace clover {
                     visitor.read();
                     value = parseExpression(module, visitor);
                 }
-                parameters.push(module->add(ASTKind::AliasDecl, namePos, name, module->add(ASTKind::Missing), value));
+                parameters.push(module->add(ASTKind::AliasDecl, namePos, name, Missing, value));
             } else {
                 Token token = visitor.peek();
                 AST expr = parseExpression(module, visitor);
@@ -1343,7 +1343,7 @@ namespace clover {
                         visitor.read();
                         value = parseExpression(module, visitor);
                     }
-                    parameters.push(module->add(ASTKind::VarDecl, pos, module->add(ASTKind::Missing), expr, value));
+                    parameters.push(module->add(ASTKind::VarDecl, pos, Missing, expr, value));
                 } else {
                     // We accept arbitrary exprs at parse time, but we expect
                     // anything that isn't a VarDecl to be a type expression
@@ -1447,7 +1447,7 @@ namespace clover {
                     vec<AST> arguments;
                     for (AST child : rhs.children(1)) {
                         if (child.kind() == ASTKind::Ident)
-                            arguments.push(module->add(ASTKind::VarDecl, rhs.pos(), module->add(ASTKind::Missing), module->add(ASTKind::Ident, Identifier(child.symbol())), module->add(ASTKind::Missing)));
+                            arguments.push(module->add(ASTKind::VarDecl, rhs.pos(), Missing, module->add(ASTKind::Ident, Identifier(child.symbol())), Missing));
                         else
                             arguments.push(child);
                     }
@@ -1623,7 +1623,7 @@ namespace clover {
             error(module, token.pos, "Type parameter list not permitted on case type declaration.");
 
         if (visitor.peek().token != PunctuatorColon) // Stub type, or maybe unit.
-            return module->add(isCase ? ASTKind::NamedCaseDecl : ASTKind::NamedDecl, token.pos, name, parameters, module->add(ASTKind::Missing));
+            return module->add(isCase ? ASTKind::NamedCaseDecl : ASTKind::NamedDecl, token.pos, name, parameters, Missing);
 
         visitor.read();
         AST body;
@@ -1749,7 +1749,7 @@ namespace clover {
                     || (next.token.symbol >= FirstKeyword && next.token.symbol <= LastKeyword
                         && followSetForEmptyReturn & (1ull << (next.token.symbol - FirstKeyword)));
                 if (isEmptyReturn)
-                    return module->add(ASTKind::Return, token.pos, module->add(ASTKind::Missing));
+                    return module->add(ASTKind::Return, token.pos, Missing);
                 return module->add(ASTKind::Return, token.pos, parseExpression(module, visitor));
             }
             case KeywordRaise:
@@ -1897,7 +1897,7 @@ namespace clover {
                     body = module->add(ASTKind::Missing);
                 else
                     body = parseBlockOrChain(module, visitor, "function declaration", false);
-                return module->add(ASTKind::FunDecl, namePos, module->add(ASTKind::Missing), name, parameters, raises, body);
+                return module->add(ASTKind::FunDecl, namePos, Missing, name, parameters, raises, body);
             }
             case KeywordIn: {
                 visitor.read();
@@ -2074,7 +2074,7 @@ namespace clover {
             case BindingKind::In: {
                 array<i8, 64> buffer;
                 auto name = prints(buffer, "__iter", i);
-                seq.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), Identifier(module->sym(name)),
+                seq.push(module->add(ASTKind::VarDecl, binding.pos, Missing, Identifier(module->sym(name)),
                     module->add(ASTKind::CallMethod, binding.pos, Identifier(MethodIter), module->fromOperand(binding.items))));
                 binding.items = seq.back().child(1).asOperand();
                 break;
@@ -2085,10 +2085,10 @@ namespace clover {
                 AST init = module->fromOperand(binding.high);
                 if (!binding.highInclusive)
                     init = module->add(ASTKind::Sub, binding.pos, init, Constant::UnsignedConst(1));
-                seq.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), Identifier(module->sym(name)), init));
+                seq.push(module->add(ASTKind::VarDecl, binding.pos, Missing, Identifier(module->sym(name)), init));
                 binding.high = seq.back().child(1).asOperand();
                 name = prints(buffer, "__end", i);
-                seq.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), Identifier(module->sym(name)), module->fromOperand(binding.low)));
+                seq.push(module->add(ASTKind::VarDecl, binding.pos, Missing, Identifier(module->sym(name)), module->fromOperand(binding.low)));
                 binding.low = seq.back().child(1).asOperand();
                 break;
             }
@@ -2098,10 +2098,10 @@ namespace clover {
                 AST init = module->fromOperand(binding.low);
                 if (!binding.lowInclusive)
                     init = module->add(ASTKind::Add, binding.pos, init, Constant::UnsignedConst(1));
-                seq.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), Identifier(module->sym(name)), init));
+                seq.push(module->add(ASTKind::VarDecl, binding.pos, Missing, Identifier(module->sym(name)), init));
                 binding.low = seq.back().child(1).asOperand();
                 name = prints(buffer, "__end", i);
-                seq.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), Identifier(module->sym(name)), module->fromOperand(binding.high)));
+                seq.push(module->add(ASTKind::VarDecl, binding.pos, Missing, Identifier(module->sym(name)), module->fromOperand(binding.high)));
                 binding.high = seq.back().child(1).asOperand();
                 break;
             }
@@ -2144,14 +2144,14 @@ namespace clover {
                 case BindingKind::Error:
                     break;
                 case BindingKind::In:
-                    bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.pattern),
+                    bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, Missing, module->fromOperand(binding.pattern),
                         module->add(ASTKind::CallMethod, binding.pos, Identifier(MethodRead), module->fromOperand(binding.items))));
                     break;
                 case BindingKind::RangeDecreasing:
-                    bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.var), module->fromOperand(binding.high)));
+                    bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, Missing, module->fromOperand(binding.var), module->fromOperand(binding.high)));
                     break;
                 case BindingKind::RangeIncreasing:
-                    bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, module->add(ASTKind::Missing), module->fromOperand(binding.var), module->fromOperand(binding.low)));
+                    bodyStmts.push(module->add(ASTKind::VarDecl, binding.pos, Missing, module->fromOperand(binding.var), module->fromOperand(binding.low)));
                     break;
             }
             if (binding.hasBreakIf)

@@ -388,7 +388,7 @@ namespace clover {
         if (typeParameters.size() == 0)
             return existing;
         for (const auto [k, t] : typeParameters)
-            paramNodes.push(module->add(ASTKind::AliasDecl, pos, InvalidScope, InvalidType, module->add(ASTKind::Ident, Identifier(k)), module->add(ASTKind::Missing), module->add(ASTKind::Missing)));
+            paramNodes.push(module->add(ASTKind::AliasDecl, pos, InvalidScope, InvalidType, module->add(ASTKind::Ident, Identifier(k)), Missing, Missing));
         return module->add(ASTKind::Tuple, pos, paramNodes);
     }
 
@@ -452,7 +452,7 @@ namespace clover {
         for (AST param : ast.child(1))
             paramNodes.push(param);
         for (auto p : discoveredTypeParameters)
-            paramNodes.push(module->add(ASTKind::AliasDecl, ast.pos(), ast.scope(), p.second, module->add(ASTKind::Ident, Identifier(p.first)), module->add(ASTKind::Missing), module->add(ASTKind::Missing)));
+            paramNodes.push(module->add(ASTKind::AliasDecl, ast.pos(), ast.scope(), p.second, module->add(ASTKind::Ident, Identifier(p.first)), Missing, Missing));
         ast.setChild(1, module->add(ASTKind::Tuple, ast.pos(), ast.scope(), InvalidType, paramNodes));
         ast.setType(InvalidType); // We don't want to mistakenly cache the placeholder.
 
@@ -491,7 +491,7 @@ namespace clover {
         vec<AST> paramNodes;
         ast.scope()->kind = ScopeKind::GenericType;
         for (auto p : discoveredTypeParameters)
-            paramNodes.push(module->add(ASTKind::AliasDecl, ast.pos(), ast.scope(), p.second, module->add(ASTKind::Ident, Identifier(p.first)), module->add(ASTKind::Missing), module->add(ASTKind::Missing)));
+            paramNodes.push(module->add(ASTKind::AliasDecl, ast.pos(), ast.scope(), p.second, module->add(ASTKind::Ident, Identifier(p.first)), Missing, Missing));
         ast.setChild(1, module->add(ASTKind::Tuple, ast.pos(), ast.scope(), InvalidType, paramNodes));
         ast.setType(InvalidType); // We don't want to mistakenly cache the placeholder.
 
@@ -1319,21 +1319,21 @@ namespace clover {
                         AST child = call.child(i);
                         if (child.kind() == ASTKind::NamedParameter) {
                             // Untyped argument with a default value.
-                            arguments.push(module->add(ASTKind::VarDecl, child.pos(), InvalidScope, InvalidType, module->add(ASTKind::Missing), child.child(0), child.child(1)));
+                            arguments.push(module->add(ASTKind::VarDecl, child.pos(), InvalidScope, InvalidType, Missing, child.child(0), child.child(1)));
                         } else if (child.kind() == ASTKind::Ident) {
                             // Untyped argument with no default value.
-                            arguments.push(module->add(ASTKind::VarDecl, call.pos(), InvalidScope, InvalidType, module->add(ASTKind::Missing), child, module->add(ASTKind::Missing)));
+                            arguments.push(module->add(ASTKind::VarDecl, call.pos(), InvalidScope, InvalidType, Missing, child, Missing));
                         } else
                             arguments.push(child);
                     }
                     AST argsTuple = module->add(ASTKind::Tuple, ast.pos(), InvalidScope, InvalidType, arguments);
                     // If there was a raises clause or a body, we'd already
                     // know it was a fundecl at parse-time.
-                    AST decl = module->add(ASTKind::FunDecl, ast.pos(), InvalidScope, InvalidType, ptrNode, right, argsTuple, module->add(ASTKind::Missing), module->add(ASTKind::Missing));
+                    AST decl = module->add(ASTKind::FunDecl, ast.pos(), InvalidScope, InvalidType, ptrNode, right, argsTuple, Missing, Missing);
                     computeScopes(module, scope, decl);
                     return resolve(module, ctx, NoRefTraits, scope, none<AST>(), decl, ExpectValue);
                 } else {
-                    AST decl = module->add(ASTKind::VarDecl, ast.pos(), InvalidScope, InvalidType, ptrNode, right, module->add(ASTKind::Missing));
+                    AST decl = module->add(ASTKind::VarDecl, ast.pos(), InvalidScope, InvalidType, ptrNode, right, Missing);
                     computeScopes(module, scope, decl);
                     return resolve(module, ctx, NoRefTraits, scope, none<AST>(), decl, ExpectValue);
                 }
@@ -1360,7 +1360,7 @@ namespace clover {
 
     AST resolvePatternBinding(Module* module, ResolutionContext& ctx, RefTraits refTraits, Scope* scope, Symbol name) {
         assert(!scope->findLocal(name));
-        AST decl = module->add(ASTKind::VarDecl, {}, scope->index, InvalidType, module->add(ASTKind::Missing), Identifier(name), module->add(ASTKind::Missing));
+        AST decl = module->add(ASTKind::VarDecl, {}, scope->index, InvalidType, Missing, Identifier(name), Missing);
         scope->add(VariableKind::Variable, decl, name);
         return resolve(module, ctx, refTraits, scope, none<AST>(), decl, ExpectValue);
     }
@@ -1814,7 +1814,7 @@ namespace clover {
 
                     vec<AST> paramNodes;
                     for (const auto [s, t] : discoveredTypeParameters) {
-                        AST param = module->add(ASTKind::AliasDecl, ast.pos(), ast.scope(), t, module->add(ASTKind::Ident, Identifier(s)), module->add(ASTKind::Missing), module->add(ASTKind::Missing));
+                        AST param = module->add(ASTKind::AliasDecl, ast.pos(), ast.scope(), t, module->add(ASTKind::Ident, Identifier(s)), Missing, Missing);
                         computeScopes(module, ast.scope(), param);
                         paramNodes.push(param);
                         function->typeParameterDecls.push(paramNodes.back().node);
@@ -1851,7 +1851,7 @@ namespace clover {
                             if (resolvedArg.kind() == ASTKind::VarDecl)
                                 arg = resolvedArg, alreadyResolved = true;
                             else
-                                arg = module->add(ASTKind::VarDecl, resolvedArg.pos(), resolvedArg.scope(), InvalidType, resolvedArg, module->add(ASTKind::Missing), module->add(ASTKind::Missing));
+                                arg = module->add(ASTKind::VarDecl, resolvedArg.pos(), resolvedArg.scope(), InvalidType, resolvedArg, Missing, Missing);
                         }
                         AST resolvedArg = alreadyResolved ? arg : resolve(module, ctx, refTraits, ast.scope(), some<AST>(ast.child(2)), arg, ExpectValue);
                         ast.child(2).setChild(i, resolvedArg);

@@ -1310,6 +1310,10 @@ namespace clover {
         return ::hash(u64(node));
     }
 
+    enum MissingTag {
+        Missing
+    };
+
     struct Module : public ArtifactData {
         Compilation* compilation;
         TypeSystem* types;
@@ -1515,6 +1519,11 @@ namespace clover {
             return AST(this, ast);
         }
 
+        inline AST addLeaf(ASTKind kind, const MissingTag& missingTag) {
+            assert(kind == ASTKind::Missing);
+            return addLeaf(kind);
+        }
+
         inline AST addLeaf(ASTKind kind, const Constant& constant) {
             switch (constant.kind) {
                 case Constant::Int:
@@ -1640,6 +1649,8 @@ namespace clover {
         template<typename... Args>
         inline u32 computeArity(const Constant&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
+        inline u32 computeArity(const MissingTag&, const Args&... args) { return 1 + computeArity(args...); }
+        template<typename... Args>
         inline u32 computeArity(const FieldId&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
         inline u32 computeArity(const ConstId&, const Args&... args) { return 1 + computeArity(args...); }
@@ -1671,6 +1682,10 @@ namespace clover {
 
         inline void addChild(const Identifier& ident) {
             astWords.pushUnchecked(addLeaf(ASTKind::Ident, ident).firstWord());
+        }
+
+        inline void addChild(const MissingTag& ident) {
+            astWords.pushUnchecked(addLeaf(ASTKind::Missing).firstWord());
         }
 
         inline void addChild(const FieldId& field) {
