@@ -2871,7 +2871,8 @@ namespace clover {
                 FunctionType funcType;
 
                 if (resolution.isIntrinsic() && resolution.intrinsic->isGeneric) {
-                    println("[TYPE]\tInstantiated intrinsic ", module->str(resolution.intrinsic->name), " in call ", ast, " with type ", module->types->get(resolution.type));
+                    if UNLIKELY(config::verboseInstantiation)
+                        println("[TYPE]\tInstantiated intrinsic ", module->str(resolution.intrinsic->name), " in call ", ast, " with type ", module->types->get(resolution.type));
                     Constraints constraints(module, module->types, ctx.constraints->depth + 1);
                     InferenceContext intrinsicCtx;
                     intrinsicCtx.constraints = &constraints;
@@ -2894,12 +2895,7 @@ namespace clover {
                     if (!funcType.isConcrete())
                         intrinsicCtx.ensureResolved(funcType);
 
-                    println("[TYPE]\tConstraint graph before refining intrinsic graph:");
-                    printTypeConstraints(module->types, ctx.constraints);
                     refineGraph(module, intrinsicCtx, &ctx);
-
-                    println("[TYPE]\tConstraint graph after refining intrinsic graph:");
-                    printTypeConstraints(module->types, ctx.constraints);
 
                     ast.setKind(ASTKind::Call); // These will be truly indistinguishable from this point forward.
                     ast.setChild(0, module->add(ASTKind::ResolvedFunction, resolution.intrinsic));
