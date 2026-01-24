@@ -931,7 +931,25 @@ namespace clover {
         return key.hash;
     }
 
+    struct InferenceContext;
+
+    using IntrinsicTypeFactory = TypeIndex(*)(InferenceContext&, Module*);
+    using IntrinsicTransformer = AST(*)(Module*, Pos, Scope*, const_slice<ASTWord>, TypeIndex, const_slice<TypeIndex>);
+
+    struct Intrinsic {
+        IntrinsicTypeFactory typeFactory;
+        IntrinsicTransformer transform;
+
+        inline Intrinsic(): typeFactory(nullptr), transform(nullptr) {}
+        inline Intrinsic(IntrinsicTypeFactory type_in, IntrinsicTransformer transform_in): typeFactory(type_in), transform(transform_in) {}
+
+        inline operator bool() const {
+            return typeFactory;
+        }
+    };
+
     struct Function {
+        Compilation* compilation;
         Module* module;
         Function* parent;
         NodeIndex decl;
@@ -950,6 +968,7 @@ namespace clover {
         AST thisOperand;
         Scope* methodScope = nullptr; // Only used for generic function instantiations, necessary to mangle the final symbol.
         SignatureKey initialKey;
+        Intrinsic intrinsic;
 
         union {
             map<SignatureKey, Function*>* instantiations = nullptr; // Cache of instantiations of this function.
@@ -967,6 +986,7 @@ namespace clover {
         // are a reasonable candidate for instantiation).
         TypeIndex genericType = InvalidType;
 
+        inline Function(Compilation* compilation_in, TypeIndex type, Symbol name, bool isGeneric, Intrinsic intrinsic);
         inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in);
         inline Function(Module* module_in, Function* parent_in, NodeIndex decl_in, Symbol name_in);
 
@@ -1310,9 +1330,11 @@ namespace clover {
         return ::hash(u64(node));
     }
 
-    enum MissingTag {
+    enum class MissingTag {
         Missing
     };
+
+    using enum MissingTag;
 
     struct Module : public ArtifactData {
         Compilation* compilation;
@@ -1664,12 +1686,18 @@ namespace clover {
         inline u32 computeArity(GenericType* const&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
         inline u32 computeArity(const AST&, const Args&... args) { return 1 + computeArity(args...); }
+        template<typename... Args>
+        inline u32 computeArity(const ASTWord&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename T, u32 N, typename... Args>
         inline u32 computeArity(const vec<T, N>& vec, Args... args) {
             u32 arity = computeArity(args...);
             for (const auto& i : vec)
                 arity += computeArity(i);
             return arity;
+        }
+
+        inline void addChild(const ASTWord& word) {
+            astWords.pushUnchecked(word);
         }
 
         inline void addChild(const Local& local) {
@@ -2361,11 +2389,16 @@ namespace clover {
 
     inline Type Function::type() const {
         assert(typeIndex != InvalidType);
-        return module->types->get(typeIndex);
+        return compilation->types->get(typeIndex);
+    }
+
+    inline Function::Function(Compilation* compilation_in, TypeIndex type_in, Symbol name_in, bool isGeneric_in, Intrinsic intrinsic_in):
+        compilation(compilation_in), module(nullptr), parent(nullptr), decl(InvalidNode), typeIndex(type_in), name(name_in), isConst(false), isGeneric(isGeneric_in), intrinsic(intrinsic_in) {
+        globalIndex = compilation->numFunctions ++;
     }
 
     inline Function::Function(Module* module_in, Function* parent_in, NodeIndex decl_in):
-        module(module_in), parent(parent_in), decl(decl_in) {
+        compilation(module_in->compilation), module(module_in), parent(parent_in), decl(decl_in) {
         AST nameNode = module->node(decl).child(1);
         if (nameNode.kind() == ASTKind::GetField)
             nameNode = nameNode.child(1);
@@ -2376,7 +2409,7 @@ namespace clover {
     }
 
     inline Function::Function(Module* module_in, Function* parent_in, NodeIndex decl_in, Symbol name_in):
-        module(module_in), parent(parent_in), decl(decl_in), name(name_in) {
+        compilation(module_in->compilation), module(module_in), parent(parent_in), decl(decl_in), name(name_in) {
         isConst = module->node(decl).kind() == ASTKind::ConstFunDecl;
         globalIndex = module->compilation->numFunctions ++;
     }

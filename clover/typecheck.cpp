@@ -2393,7 +2393,19 @@ namespace clover {
         return rank;
     }
 
-    maybe<TypeIndex> refineOverloadedCall(InferenceContext& ctx, Function* function, AST ast) {
+    struct CallResolution {
+        TypeIndex type;
+        Function* intrinsic;
+
+        inline explicit CallResolution(): type(InvalidType), intrinsic(nullptr) {}
+        inline explicit CallResolution(TypeIndex type_in): type(type_in), intrinsic(nullptr) {}
+        inline explicit CallResolution(Function* intrinsic_in): type(Bottom), intrinsic(intrinsic_in) {}
+
+        inline operator bool() const { return type != InvalidType; }
+        inline bool isIntrinsic() { return intrinsic; }
+    };
+
+    CallResolution refineOverloadedCall(InferenceContext& ctx, Function* function, AST ast) {
         assert(isOverloadedFunction(function, ast.child(0)));
         Overloads* overloads = ast.child(0).resolvedOverloads();
         auto returnType = ast.type();
@@ -2507,6 +2519,8 @@ namespace clover {
 
         if (possibleFunctions.size() == 1) {
             Function* candidate = possibleFunctions[0].function;
+            if (candidate->intrinsic)
+                return CallResolution(candidate);
             if (candidate->isGeneric) {
                 if (ctx.currentInstantiation && ctx.currentInstantiation->generic == candidate)
                     candidate = ctx.currentInstantiation;
@@ -2515,12 +2529,12 @@ namespace clover {
                 possibleFunctions[0].type = candidate->typeIndex;
             }
             ast.setChild(0, module->add(ASTKind::ResolvedFunction, candidate));
-            return some<TypeIndex>(possibleFunctions[0].type);
+            return CallResolution(possibleFunctions[0].type);
         }
-        return none<TypeIndex>();
+        return CallResolution();
     }
 
-    maybe<TypeIndex> refineCall(InferenceContext& ctx, Function* function, AST ast) {
+    CallResolution refineCall(InferenceContext& ctx, Function* function, AST ast) {
         auto type = inferredType(ctx, function, ast.child(0));
         type_assert(type.is<TypeKind::Function>());
         auto funcType = type.as<TypeKind::Function>();
@@ -2528,7 +2542,7 @@ namespace clover {
 
         auto returnType = ast.type();
         if (!canUnify(funcType.returnType(), returnType, ast))
-            return none<TypeIndex>();
+            return CallResolution();
         u32 nonTypeParameters = 0;
         for (u32 i = 1; i < ast.arity(); i ++) {
             if (isTypeParameter(function, ast.child(i)))
@@ -2537,23 +2551,25 @@ namespace clover {
             type_assert(nonTypeParameters < funcType.as<TypeKind::Function>().parameterCount());
             auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameters ++);
             if (!canUnify(arg, parameterType, ast))
-                return none<TypeIndex>();
+                return CallResolution();
         }
 
         if (ast.child(0).kind() == ASTKind::ResolvedFunction) {
             Function* callee = ast.child(0).resolvedFunction();
             type_assert(!callee->isConst); // Should have already dealt with such calls.
+            if (callee->intrinsic)
+                return CallResolution(callee);
             if (callee->isGeneric) {
                 if (ctx.currentInstantiation && ctx.currentInstantiation->generic == callee)
                     callee = ctx.currentInstantiation;
                 else
                     callee = instantiate(ctx, function, callee, ast);
                 ast.setChild(0, ast.module->add(ASTKind::ResolvedFunction, callee));
-                return some<TypeIndex>(callee->typeIndex);
+                return CallResolution(callee->typeIndex);
             }
         }
 
-        return some<TypeIndex>((TypeIndex)funcType.index);
+        return CallResolution((TypeIndex)funcType.index);
     }
 
     Type dereferenceIfPointer(Module* module, Type type, bool allowUninit) {
@@ -2821,12 +2837,12 @@ namespace clover {
 
             case ASTKind::Call:
             case ASTKind::CallMethod: {
-                maybe<TypeIndex> resolvedType = none<TypeIndex>();
+                CallResolution resolution;
                 if (isOverloadedFunction(function, ast.child(0)))
-                    resolvedType = refineOverloadedCall(ctx, function, ast);
+                    resolution = refineOverloadedCall(ctx, function, ast);
                 else
-                    resolvedType = refineCall(ctx, function, ast);
-                if (!resolvedType && ast.kind() == ASTKind::CallMethod) {
+                    resolution = refineCall(ctx, function, ast);
+                if (!resolution && ast.kind() == ASTKind::CallMethod) {
                     auto arg = inferredType(ctx, function, ast.child(1));
                     switch (ast.child(1).kind()) {
                         case ASTKind::Local:
@@ -2845,14 +2861,58 @@ namespace clover {
                             type_error("Failed to call method ", ast.child(0), ": argument ", ast.child(1), " could not be implicitly referenced.");
                     }
                     if (isOverloadedFunction(function, ast.child(0)))
-                        resolvedType = refineOverloadedCall(ctx, function, ast);
+                        resolution = refineOverloadedCall(ctx, function, ast);
                     else
-                        resolvedType = refineCall(ctx, function, ast);
+                        resolution = refineCall(ctx, function, ast);
                 }
-                if (!resolvedType)
+                if (!resolution)
                     type_error("Failed to resolve call ", ast);
 
-                auto funcType = module->types->get(*resolvedType).as<TypeKind::Function>();
+                FunctionType funcType;
+
+                if (resolution.isIntrinsic() && resolution.intrinsic->isGeneric) {
+                    println("[TYPE]\tInstantiated intrinsic ", module->str(resolution.intrinsic->name), " in call ", ast, " with type ", module->types->get(resolution.type));
+                    Constraints constraints(module, module->types, ctx.constraints->depth + 1);
+                    InferenceContext intrinsicCtx;
+                    intrinsicCtx.constraints = &constraints;
+                    intrinsicCtx.lateChecks = ctx.lateChecks;
+                    intrinsicCtx.lateResolves = ctx.lateResolves;
+                    intrinsicCtx.instantiatedFunctions = ctx.instantiatedFunctions;
+
+                    Type funcType = module->types->get(resolution.intrinsic->intrinsic.typeFactory(intrinsicCtx, module));
+                    u32 nonTypeParameterCount = 0;
+                    for (u32 i = 1; i < ast.arity(); i ++) {
+                        if (isTypeParameter(function, ast.child(i)))
+                            continue;
+                        ast.setChild(1 + nonTypeParameterCount, ast.child(i));
+                        auto arg = inferredType(ctx, function, ast.child(i));
+                        auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterCount ++);
+                        unify(arg, parameterType, ast, intrinsicCtx);
+                    }
+                    ast.setArity(1 + nonTypeParameterCount);
+                    unify(funcType.as<TypeKind::Function>().returnType(), ast, intrinsicCtx);
+                    if (!funcType.isConcrete())
+                        intrinsicCtx.ensureResolved(funcType);
+
+                    println("[TYPE]\tConstraint graph before refining intrinsic graph:");
+                    printTypeConstraints(module->types, ctx.constraints);
+                    refineGraph(module, intrinsicCtx, &ctx);
+
+                    println("[TYPE]\tConstraint graph after refining intrinsic graph:");
+                    printTypeConstraints(module->types, ctx.constraints);
+
+                    ast.setKind(ASTKind::Call); // These will be truly indistinguishable from this point forward.
+                    ast.setChild(0, module->add(ASTKind::ResolvedFunction, resolution.intrinsic));
+                    ctx.checkLater(ast);
+                    return true;
+                } else if (resolution.intrinsic) {
+                    funcType = module->types->get(resolution.intrinsic->intrinsic.typeFactory(ctx, module)).as<TypeKind::Function>();
+                    ast.setChild(0, module->add(ASTKind::ResolvedFunction, resolution.intrinsic));
+                    ctx.checkLater(ast);
+                } else
+                    funcType = module->types->get(resolution.type).as<TypeKind::Function>();
+
+
                 // At this point, if our call passed type parameters, they've
                 // outlived their use. For convenience we eliminate these
                 // children from the node so later passes don't have to skip
@@ -2866,6 +2926,7 @@ namespace clover {
                     auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterCount ++);
                     unifyInPlace(arg, parameterType, ast);
                 }
+
                 ast.setArity(1 + nonTypeParameterCount);
                 unifyInPlace(funcType.as<TypeKind::Function>().returnType(), ast);
                 ast.setKind(ASTKind::Call); // These will be truly indistinguishable from this point forward.
@@ -3550,6 +3611,29 @@ namespace clover {
         Type lhsType, rhsType, operandType, resultType;
 
         switch (ast.kind()) {
+            case ASTKind::Call:
+                if (ast.child(0).kind() == ASTKind::ResolvedFunction && ast.child(0).resolvedFunction()->intrinsic) {
+                    Intrinsic intrinsic = ast.child(0).resolvedFunction()->intrinsic;
+                    vec<ASTWord> params;
+                    vec<TypeIndex> types;
+                    for (u32 i = 1; i < ast.arity(); i ++) {
+                        ASTWord word;
+                        if (ast.child(i).isLeaf())
+                            word = ast.child(i).word;
+                        else
+                            word.makeRef(ast.child(i).node);
+                        params.push(word);
+                        Type paramType = concreteType(module, inferredType(ctx, function, ast.child(i)));
+                        types.push(paramType.index);
+                    }
+                    AST intrinsicNode = intrinsic.transform(module, ast.pos(), ast.scope(), params, concreteType(module, ast.type()).index, types);
+                    if (intrinsicNode.isLeaf())
+                        intrinsicNode = module->add(ASTKind::Paren, ast.pos(), ast.scope(), inferredType(ctx, function, intrinsicNode), intrinsicNode);
+                    unifyInPlace(intrinsicNode.type(), ast);
+                    module->replace(ast, intrinsicNode);
+                }
+                break;
+
             case ASTKind::Less:
             case ASTKind::LessEq:
             case ASTKind::Greater:

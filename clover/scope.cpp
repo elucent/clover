@@ -2,6 +2,7 @@
 #include "clover/ast.h"
 #include "clover/compilation.h"
 #include "clover/error.h"
+#include "clover/intrinsic.h"
 #include "clover/value.h"
 #include "util/config.h"
 
@@ -159,7 +160,7 @@ namespace clover {
         Symbol name = function->name;
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
-            const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
+            const auto& varInfo = this->function ? this->function->locals[prev] : module->globals[prev];
             error(module, Pos(), "Duplicate definition of symbol '", module->str(name), "'.");
             return;
         }
@@ -966,6 +967,8 @@ namespace clover {
         root->addToRoot(VariableKind::Type, Void, BuiltinVoid);
         root->addToRoot(VariableKind::Type, Bool, BuiltinBool);
         root->addToRoot(VariableKind::Type, Char, BuiltinChar);
+
+        addIntrinsicsTo(root);
 
         module->compilation->rootScope = root;
         return root;

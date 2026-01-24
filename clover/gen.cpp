@@ -613,6 +613,8 @@ namespace clover {
             if (function->mangledName != InvalidSymbol)
                 return function->mangledName;
 
+            assert(!function->intrinsic);
+
             auto name = module->str(function->name);
             i8 buffer[1024];
             slice<i8> target = { buffer, 1024 };

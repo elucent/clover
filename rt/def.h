@@ -130,14 +130,6 @@ public: \
     using __ ## type ## __forbidMoving = int
 
 /*
- * Intrinsics
- *
- * Special functions for hardware instructions that aren't standard C.
- */
-
-#define intrinsic(insn, ...) insn##_intrinsic(__VA_ARGS__)
-
-/*
  * Types Section
  *
  * These are the types over which we define the ABI of the Basil runtime.

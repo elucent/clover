@@ -2570,8 +2570,13 @@ namespace clover {
     }
 
     inline Type Type::cloneExpand() const {
-        if (isVar())
-            return expand(*this).cloneExpand();
+        if (isVar()) {
+            Type self = expand(*this);
+            if (self.isVar())
+                return types->var(self.asVar().lowerBound(), self.asVar().upperBound());
+            else
+                return self.cloneExpand();
+        }
 
         switch (kind()) {
             case TypeKind::Bottom:

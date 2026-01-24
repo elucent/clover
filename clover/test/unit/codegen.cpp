@@ -2167,3 +2167,18 @@ i32 test():
 
     ASSERT_EQUAL(test(), 42);
 }
+
+TEST(codegen_iterate_slice) {
+    auto instance = COMPILE(R"(
+i32 test():
+    var nums: [1, 2, 3, 4], sum: 0
+    for i in nums:
+        sum += i
+    return sum
+)");
+
+    auto exec = load(instance.artifact);
+    auto test = lookup<i32()>("test()i32", exec);
+
+    ASSERT_EQUAL(test(), 10);
+}
