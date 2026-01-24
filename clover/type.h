@@ -88,6 +88,7 @@ namespace clover {
             struct { u32 name; };
             struct { u32 hasName : 1; u32 isBitField : 1; u32 bitFieldSize : 6; TypeIndex fieldType : 24; };
             struct { ConstraintIndex constraintNode; };
+            struct { u32 moduleIndex; };
             struct { NodeIndex owner; };
             struct { ScopeIndex scope; };
             struct { TypeIndex tag; };
@@ -968,6 +969,10 @@ namespace clover {
     struct AST;
     struct Module;
 
+    inline u64 hash(Module* module) {
+        return ::hash(u64(module));
+    }
+
     struct VarType : public Type {
         // These methods let us query the upper and lower bounds of a type
         // variable. They should be equal if the variable is marked equal
@@ -1018,8 +1023,9 @@ namespace clover {
         // particular AST node, and see what node that is.
 
         inline bool hasOwner() const;
-        inline NodeIndex owner() const;
-        inline AST owner(Module* module) const;
+        inline Module* module() const;
+        inline NodeIndex ownerIndex() const;
+        inline AST owner() const;
 
         // Helper for when we have readable variable names.
 
@@ -1284,6 +1290,8 @@ namespace clover {
         ::map<Scope*, u32> scopeMap;
         vec<GenericType*> genericTypes;
         ::map<GenericType*, u32> genericTypeMap;
+        vec<Module*> modules;
+        ::map<Module*, u32> moduleMap;
 
         TypeIndex signedTypeCache[66];
         TypeIndex unsignedTypeCache[66];
@@ -1428,6 +1436,15 @@ namespace clover {
 
         inline VarType var(const Type& bottom, const Type& top) {
             return encode<TypeKind::Var>(bottom, top);
+        }
+
+        inline u32 internModule(Module* module) {
+            auto it = moduleMap.find(module);
+            if (it != moduleMap.end())
+                return it->value;
+            moduleMap.put(module, modules.size());
+            modules.push(module);
+            return modules.size() - 1;
         }
 
         inline ScopeIndex internScope(Scope* scope) {
@@ -1733,7 +1750,7 @@ namespace clover {
         }
 
         template<>
-        inline u32 encode<TypeKind::Var>(TypeSystem& sys, const Type& bottom, const Type& top, const NodeIndex& owner) {
+        inline u32 encode<TypeKind::Var>(TypeSystem& sys, const Type& bottom, const Type& top, Module* const& ownerModule, const NodeIndex& owner) {
             TypeWord word;
             word.bits = 0;
             word.kind = TypeKind::Var;
@@ -1747,6 +1764,9 @@ namespace clover {
             word.typeBound = top.index;
             sys.words.push(word);
 
+            word.moduleIndex = sys.internModule(ownerModule);
+            sys.words.push(word);
+
             word.owner = owner;
             sys.words.push(word);
 
@@ -1754,15 +1774,15 @@ namespace clover {
                 word.bits = sys.vars.size();
                 sys.vars.push(sys.typeList.size());
                 sys.words.push(word);
-                return sys.words.size() - 4;
+                return sys.words.size() - 5;
             }
 
-            return sys.words.size() - 3;
+            return sys.words.size() - 4;
         }
 
         template<>
-        inline u32 encode<TypeKind::Var>(TypeSystem& sys, const NodeIndex& owner) {
-            return encode<TypeKind::Var>(sys, sys.get(Bottom), sys.get(Any), owner);
+        inline u32 encode<TypeKind::Var>(TypeSystem& sys, Module* const& ownerModule, const NodeIndex& owner) {
+            return encode<TypeKind::Var>(sys, sys.get(Bottom), sys.get(Any), ownerModule, owner);
         }
 
         template<>
@@ -4098,20 +4118,25 @@ namespace clover {
             unreachable("Failed to concretify variable ", *this, ": canonicalized lower bound ", lb, " is no longer a subtype of concrete upper bound ", ub);
         else
             lb.unifyOnto(ub, nullptr, InPlace); // We need to observe this choice.
+        lb.concretify();
         makeEqual(lb);
     }
 
     inline u32 VarType::varNumber() const {
         assert(config::readableTypeVars);
-        return nthWord(hasOwner() ? 3 : 2).bits;
+        return nthWord(hasOwner() ? 4 : 2).bits;
     }
 
     inline bool VarType::hasOwner() const {
         return nthWord(1).hasOwner;
     }
 
-    inline NodeIndex VarType::owner() const {
-        return nthWord(2).owner;
+    inline Module* VarType::module() const {
+        return types->modules[nthWord(2).moduleIndex];
+    }
+
+    inline NodeIndex VarType::ownerIndex() const {
+        return nthWord(3).owner;
     }
 
     inline bool VarType::operator==(VarType other) const {

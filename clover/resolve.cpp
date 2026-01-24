@@ -160,7 +160,9 @@ namespace clover {
             if (it != genericType->instantiations->end())
                 return module->types->get(it->value.type);
         }
-        // println("Instantiating ", module->str(genericType->name), TypesKeyLogger { module->types, key });
+
+        // if UNLIKELY(config::verboseInstantiation)
+        //     println("[TYPE]\tInstantiating type ", module->str(genericType->name), TypesKeyLogger { module->types, key });
 
         if (!genericType->instantiations)
             genericType->instantiations = new map<TypesKey, TypeInstantiation>();
@@ -206,7 +208,9 @@ namespace clover {
         auto result = resolveTypeForDecl(module, ctx, NoRefTraits, inst, &instCtx);
         type_assert(result.isType());
         auto resultType = result.type(module);
-        // println("Instantiated ", module->str(genericType->name), TypesKeyLogger { module->types, key }, " to ", resultType);
+
+        if UNLIKELY(config::verboseInstantiation)
+            println("[TYPE]\tInstantiated type ", module->str(genericType->name), TypesKeyLogger { module->types, key }, " to ", resultType);
 
         if (!resultType.isConcrete() && !inFunctionSignature)
             genericType->module->genericTypesToResolve.push(resultType.index);

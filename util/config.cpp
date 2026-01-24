@@ -104,7 +104,7 @@ void parseOptions(i32& argc, i8** argv) {
         }
         process::exit(0);
     }
-    
+
     i8** writer = argv + 1;
     i8** reader = writer;
     for (i32 i = 1; i < argc; i ++) {

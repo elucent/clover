@@ -2104,7 +2104,7 @@ fun car(List* list):
         case Cons(x, xs): x
 
 i32 test():
-    var list: cons(1, cons(2, cons(3, Nil(i32))))
+    var list: cons(1, cons(2, cons(3, Nil)))
     var sum: 0
     while list is not Nil:
         sum += car(list)

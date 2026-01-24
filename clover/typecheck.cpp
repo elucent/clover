@@ -707,16 +707,17 @@ namespace clover {
     // constructor does not influence the values of other type variables.
 
     struct InferenceContext {
-        vec<NodeIndex, 16>* lateChecks;
+        vec<AST, 16>* lateChecks;
         vec<TypeIndex, 16>* lateResolves;
-        vec<NodeIndex, 16>* discoveredFunctions;
+        vec<Function*, 16>* instantiatedFunctions;
+        vec<ConstraintIndex, 32>* order;
         Value env;
         Constraints* constraints;
         Function* currentInstantiation;
 
         inline void checkLater(AST ast) {
             assert(!ast.isLeaf()); // Otherwise it's hard to recover information about this node later.
-            lateChecks->push(ast.node);
+            lateChecks->push(ast);
         }
 
         inline void ensureResolved(Type type) {
@@ -774,7 +775,7 @@ namespace clover {
     }
 
     Evaluation infer(InferenceContext& ctx, Function* function, AST ast);
-    void refineGraph(Module* module, InferenceContext& ctx);
+    void refineGraph(Module* module, InferenceContext& ctx, InferenceContext* parent);
     void check(InferenceContext& ctx, Function* function, AST ast);
 
     ALWAYSINLINE Evaluation inferChild(InferenceContext& ctx, Function* function, AST ast, u32 i) {
@@ -1454,7 +1455,7 @@ namespace clover {
                 else
                     unify(rhs, module->topIntegerType(), ast, ctx);
 
-                varType = module->varType(ast.node);
+                varType = module->varType(ast);
                 ctx.ensureResolved(varType);
                 switch (ast.kind()) {
                     case ASTKind::GetIndex:
@@ -1546,7 +1547,7 @@ namespace clover {
                     rhsType = rhs.type(module);
                 }
 
-                varType = module->varType(ast.node);
+                varType = module->varType(ast);
                 ctx.ensureResolved(varType);
                 if (ast.kind() == ASTKind::SetField)
                     ast.setType(module->voidType());
@@ -1565,7 +1566,7 @@ namespace clover {
                 lhs = toType(module, lhs);
                 lhsType = lhs.type(module);
 
-                ast.setType(module->varType(ast.node));
+                ast.setType(module->varType(ast));
                 ctx.ensureResolved(ast.type());
                 ctx.constraints->constrainOrder(lhsType, ast.type());
                 return fromNodeType(ast);
@@ -1641,7 +1642,7 @@ namespace clover {
 
             case ASTKind::Call:
             case ASTKind::CallMethod: {
-                ast.setType(module->varType(ast.node));
+                ast.setType(module->varType(ast));
                 if (ast.arity() == 1)
                     ctx.constraints->constrainOrder(module->voidType(), ast.type());
                 ctx.ensureResolved(ast.type());
@@ -1790,7 +1791,7 @@ namespace clover {
                     && ast.child(1).kind() != ASTKind::Global
                     && ast.child(1).kind() != ASTKind::Uninit) {
                     assert(!ast.child(2).missing());
-                    varType = module->varType(ast.node);
+                    varType = module->varType(ast);
                     unify(value, varType, ast, ctx);
                     ctx.constraints->constrainOrder(inferPattern(ctx, function, module->invalidType(), ast.child(1)), varType);
                     ctx.constraints->constrainOrder(ast.type(), varType);
@@ -1920,7 +1921,7 @@ namespace clover {
             case ASTKind::Match:
                 value = inferChild(ctx, function, ast, 0);
                 valueType = toType(module, value).type(module);
-                varType = module->varType(ast.node);
+                varType = module->varType(ast);
                 unify(value, varType, ast, ctx);
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     // We pass invalid type because we don't know, without
@@ -1946,7 +1947,7 @@ namespace clover {
             case ASTKind::Is: {
                 value = inferChild(ctx, function, ast, 0);
                 valueType = toType(module, value).type(module);
-                varType = module->varType(ast.node);
+                varType = module->varType(ast);
                 unify(value, varType, ast, ctx);
                 Type patternType = inferPattern(ctx, function, module->invalidType(), ast.child(1));
                 ctx.constraints->constrainOrder(patternType, varType);
@@ -2119,7 +2120,7 @@ namespace clover {
         return scope;
     }
 
-    void gatherResolvedFunctions(vec<u32>& indices, Function* self, AST body) {
+    void gatherResolvedFunctions(vec<u32>& indices, Function* self, ChangePosition bodyPos) {
         // This is pretty gross, since we have to walk the whole function body
         // again just to find the resolved functions. In theory we could build
         // this list as we go, but it gets kind of complicated since functions
@@ -2128,12 +2129,31 @@ namespace clover {
         // constraint graph checking being done in a deterministic order
         // (necessary for the order of function resolution to also be
         // deterministic) is probably too tight of a constraint.
+        AST body = bodyPos.current();
         if (body.kind() == ASTKind::ResolvedFunction) {
-            if (body.resolvedFunction() != self)
-                indices.push(body.resolvedFunction()->globalIndex);
+            Function* func = body.resolvedFunction();
+            while (func->isInstantiation && func->forward)
+                func = func->forward;
+            if (func != body.resolvedFunction())
+                bodyPos.replaceWith(body.module->add(ASTKind::ResolvedFunction, func));
+            if (func != self)
+                indices.push(func->globalIndex);
         }
-        if (!body.isLeaf()) for (AST ast : body)
-            gatherResolvedFunctions(indices, self, ast);
+        if (!body.isLeaf()) for (u32 i : ::indices(body))
+            gatherResolvedFunctions(indices, self, { body, i });
+    }
+
+    void forwardResolvedFunctions(ChangePosition bodyPos) {
+        AST body = bodyPos.current();
+        if (body.kind() == ASTKind::ResolvedFunction) {
+            Function* func = body.resolvedFunction();
+            while (func->isInstantiation && func->forward)
+                func = func->forward;
+            if (func != body.resolvedFunction())
+                bodyPos.replaceWith(body.module->add(ASTKind::ResolvedFunction, func));
+        }
+        if (!body.isLeaf() && body.kind() != ASTKind::GenericFunDecl) for (u32 i : ::indices(body))
+            forwardResolvedFunctions({ body, i });
     }
 
     Function* instantiate(InferenceContext& ctx, Function* parent, Function* generic, AST call) {
@@ -2163,7 +2183,7 @@ namespace clover {
         key.computeHash();
 
         if UNLIKELY(config::verboseInstantiation)
-            println("[TYPE]\tGoing to instantiate generic function ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key });
+            println("[TYPE]\tGoing to instantiate generic function ", module->str(generic->name), " with signature key ", SignatureKeyLogger { module->types, key });
 
         if (generic->instantiations) {
             auto it = generic->instantiations->find(key);
@@ -2212,6 +2232,9 @@ namespace clover {
 
         assert(type.is<TypeKind::Function>());
         auto funcType = type.as<TypeKind::Function>();
+        if UNLIKELY(config::verboseInstantiation)
+            println("[TYPE]\tInstantiation of ", module->str(generic->name), " has function type ", funcType);
+
 
         // Refine the type variables from instantiating the signature based on
         // our parameters and return type constraints.
@@ -2245,15 +2268,12 @@ namespace clover {
         // refinement. This means we need another constraint graph.
 
         Constraints constraints(module, module->types, ctx.constraints->depth + 1);
-        vec<NodeIndex, 16> lateChecks;
-        vec<TypeIndex, 16> lateResolves;
-        vec<NodeIndex, 16> discoveredFunctions;
 
         InferenceContext instantiationCtx;
         instantiationCtx.constraints = &constraints;
-        instantiationCtx.lateChecks = &lateChecks;
-        instantiationCtx.lateResolves = &lateResolves;
-        instantiationCtx.discoveredFunctions = &discoveredFunctions;
+        instantiationCtx.lateChecks = ctx.lateChecks;
+        instantiationCtx.lateResolves = ctx.lateResolves;
+        instantiationCtx.instantiatedFunctions = ctx.instantiatedFunctions;
         instantiationCtx.currentInstantiation = newFunction;
 
         // TODO: It's super icky that we have so much duplication between here,
@@ -2261,7 +2281,7 @@ namespace clover {
 
         instantiationCtx.env = createEnv(module, newFunction);
 
-        lateResolves.append(module->genericTypesToResolve);
+        instantiationCtx.lateResolves->append(module->genericTypesToResolve);
         module->genericTypesToResolve.clear();
 
         auto name = newDecl.child(1).variable();
@@ -2286,102 +2306,41 @@ namespace clover {
         if UNLIKELY(config::printInferredTreeAfterEachPass) {
             println("| Function ", ASTWithParent { newDecl, newDecl.child(1) }, " after type discovery pass: ");
             println("*-----------------------------------");
-            println(Multiline(newDecl)); printTypeVariableState(module->types); println();
+            println(Multiline(newDecl)); println();
         }
 
         finalizeConstants(module, newDecl.function(), instantiationCtx.env);
 
-        refineGraph(module, instantiationCtx);
+        refineGraph(module, instantiationCtx, &ctx);
         if UNLIKELY(config::printInferredTreeAfterEachPass) {
             println("| Function ", ASTWithParent { newDecl, newDecl.child(1) }, " after type refinement pass: ");
             println("*------------------------------------");
-            println(Multiline(newDecl)); printTypeVariableState(module->types); println();
+            println(Multiline(newDecl)); println();
         }
 
-        for (TypeIndex v : *instantiationCtx.lateResolves)
-            expand(module->types->get(v)).concretify();
-        for (NodeIndex node : *instantiationCtx.lateChecks) {
-            AST ast = module->node(node);
-            assert(!ast.isLeaf());
-            check(instantiationCtx, ast.function(), ast);
-        }
+        // for (TypeIndex v : *instantiationCtx.lateResolves)
+        //     expand(module->types->get(v)).concretify();
+        // for (NodeIndex node : *instantiationCtx.lateChecks) {
+        //     AST ast = module->node(node);
+        //     assert(!ast.isLeaf());
+        //     check(instantiationCtx, ast.function(), ast);
+        // }
 
-        instantiationCtx.lateChecks->clear();
-        instantiationCtx.lateResolves->clear();
+        // instantiationCtx.lateChecks->clear();
+        // instantiationCtx.lateResolves->clear();
 
-        if UNLIKELY(config::printInferredTreeAfterEachPass) {
-            println("| Function ", ASTWithParent { newDecl, newDecl.child(1) }, " after type checking pass: ");
-            println("*----------------------------------");
-            println(Multiline(newDecl)); printTypeVariableState(module->types); println();
-        }
+        // if UNLIKELY(config::printInferredTreeAfterEachPass) {
+        //     println("| Function ", ASTWithParent { newDecl, newDecl.child(1) }, " after type checking pass: ");
+        //     println("*----------------------------------");
+        //     println(Multiline(newDecl)); printTypeVariableState(module->types); println();
+        // }
 
-        instantiationCtx.constraints->clear();
+        // instantiationCtx.constraints->clear();
 
-        // Now we create a different key. This will contain the concrete
-        // types of our final signature, as well as the list of resolved
-        // function indices in the instantiated body. By incorporating the
-        // list of resolved functions, we can look across scope/module
-        // boundaries to see if a structurally identical instantiation already
-        // exists.
-        funcType.concretify();
-        auto concreteSignature = funcType.cloneExpand().as<TypeKind::Function>();
-        vec<u32> functionIndices;
-        gatherResolvedFunctions(functionIndices, newFunction, newDecl.child(4));
-
-        auto concreteKey = SignatureKey::create(concreteSignature.parameterCount(), functionIndices.size());
-        concreteKey.setReturnType(packedBoundsFor(concreteSignature.returnType()));
-        for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
-            concreteKey.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
-        concreteKey.setResolutions(functionIndices);
-        concreteKey.computeHash();
-
-        auto it = generic->instantiations->find(concreteKey);
-        if (it != generic->instantiations->end()) {
-            // Not only is there an existing instantiation, but we need to fix
-            // the cache for our non-concrete parameters to point to the
-            // existing instantiation too.
-
-            if UNLIKELY(config::verboseInstantiation)
-                println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key }, " and concrete signature ", SignatureKeyLogger { module->types, concreteKey }, ", which matches existing version with signature ", it->value->type());
-
-            auto existing = it->value;
-            generic->instantiations->put(key, existing);
-
-            // We also create a scoped key with our concrete parameters, in
-            // case we run into an instantiation where we know our signature
-            // concretely in this scope.
-            key.setReturnType(packedBoundsFor(concreteSignature.returnType()));
-            for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
-                key.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
-            key.computeHash();
-            generic->instantiations->put(key, existing);
-
-            delete newFunction;
-            return existing;
-        }
-
-        // Otherwise, we are truly the first instantiation with this signature,
-        // so we become the canonical copy and insert ourselves into the map.
-        generic->instantiations->put(concreteKey, newFunction);
-
-        if UNLIKELY(config::printInferredTree && generic->module != call.module)
-            println(newDecl, '\n');
-
-        if UNLIKELY(config::verboseInstantiation)
-            println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, key }, " and unique concrete signature ", SignatureKeyLogger { module->types, concreteKey });
-
-        // And we set up entries with the scoped keys too.
-        generic->instantiations->put(key, newFunction);
-        key.setReturnType(packedBoundsFor(concreteSignature.returnType()));
-        for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
-            key.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
-        key.computeHash();
-        generic->instantiations->put(key, newFunction);
-
-        if (oldDecl.child(1).missing())
-            oldDecl.setChild(1, newDecl);
-        else
-            oldDecl.setChild(1, module->add(ASTKind::Then, oldDecl.pos(), oldDecl.scope(), module->voidType(), oldDecl.child(1), newDecl));
+        // if UNLIKELY(config::verboseInstantiation)
+            // println("[TYPE]\tInstantiated function ", module->str(newFunction->name), "/", newFunction->index, " with signature ", newFunction->type());
+        instantiationCtx.instantiatedFunctions->push(newFunction);
+        newFunction->initialKey = move(key);
 
         return newFunction;
     }
@@ -2591,6 +2550,54 @@ namespace clover {
         return some<TypeIndex>((TypeIndex)funcType.index);
     }
 
+    Type dereferenceIfPointer(Module* module, Type type, bool allowUninit) {
+        type = expand(type);
+        if (type.kind() == TypeKind::Pointer) {
+            if (type.as<TypeKind::Pointer>().isUninit() && !allowUninit)
+                type_error("Tried to dereference uninitialized pointer type ", type);
+            return type.as<TypeKind::Pointer>().elementType();
+        }
+        if (type.isVar()) {
+            Type result = expand(canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound()));
+            if (result.kind() == TypeKind::Pointer) {
+                if (result.as<TypeKind::Pointer>().isUninit() && !allowUninit)
+                    type_error("Tried to dereference uninitialized pointer type ", result);
+                return expand(result.as<TypeKind::Pointer>().elementType());
+            }
+        }
+        return type;
+    }
+
+    Type elementTypeOf(Module* module, Type type, bool allowUninit) {
+        if (type.kind() == TypeKind::Array)
+            return expand(type.as<TypeKind::Array>().elementType());
+        if (type.kind() == TypeKind::Slice) {
+            if (type.as<TypeKind::Slice>().isUninit() && !allowUninit)
+                type_error("Tried to access uninitialized slice type ", type);
+            return expand(type.as<TypeKind::Slice>().elementType());
+        }
+        if (type.isVar()) {
+            Type result = expand(canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound()));
+            if (result.kind() == TypeKind::Array)
+                return expand(result.as<TypeKind::Array>().elementType());
+            if (result.kind() == TypeKind::Slice) {
+                if (result.as<TypeKind::Slice>().isUninit() && !allowUninit)
+                    type_error("Tried to access uninitialized slice type ", result);
+                return expand(result.as<TypeKind::Slice>().elementType());
+            }
+            result = concreteType(module, type);
+            if (result.kind() == TypeKind::Array)
+                return expand(result.as<TypeKind::Array>().elementType());
+            if (result.kind() == TypeKind::Slice) {
+                if (result.as<TypeKind::Slice>().isUninit() && !allowUninit)
+                    type_error("Tried to access uninitialized slice type ", result);
+                return expand(result.as<TypeKind::Slice>().elementType());
+            }
+        }
+        type_error("Type ", type, " cannot be indexed.");
+        unreachable("");
+    }
+
     bool refine(InferenceContext& ctx, Function* function, AST ast, Type refinedType) {
         Module* module = ast.module;
 
@@ -2775,18 +2782,8 @@ namespace clover {
             case ASTKind::EnsureAddrIndex:
             case ASTKind::SetIndex: {
                 Type baseType = inferredType(ctx, function, ast.child(0));
-
-                if (baseType.isVar())
-                    baseType = concreteType(module, baseType);
-
-                // Indexing supports implicit dereference.
-                if (baseType.is<TypeKind::Pointer>())
-                    baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
-
-                if (baseType.isVar())
-                    baseType = concreteType(module, baseType);
-
-                Type elementType = baseType.is<TypeKind::Slice>() ? expand(baseType.as<TypeKind::Slice>().elementType()) : expand(baseType.as<TypeKind::Array>().elementType());
+                baseType = dereferenceIfPointer(module, baseType, ast.kind() == ASTKind::SetIndex);
+                Type elementType = elementTypeOf(module, baseType, ast.kind() == ASTKind::SetIndex);
 
                 switch (ast.kind()) {
                     case ASTKind::SetIndex:
@@ -2871,13 +2868,7 @@ namespace clover {
 
             case ASTKind::Match: {
                 bool result = true;
-                Type baseType = expand(refinedType);
-                if (baseType.isVar() && baseType.asVar().lowerBound().is<TypeKind::Pointer>()) {
-                    baseType.asVar().makeEqual(baseType.asVar().lowerBound());
-                    baseType = expand(baseType);
-                }
-                if (baseType.is<TypeKind::Pointer>())
-                    baseType = baseType.as<TypeKind::Pointer>().elementType();
+                Type baseType = dereferenceIfPointer(module, expand(refinedType), false);
                 for (AST matchCase : ast.children(1)) {
                     AST check = matchCase.child(0);
                     AST body = matchCase.child(1);
@@ -2889,13 +2880,7 @@ namespace clover {
 
             case ASTKind::Is:
             case ASTKind::VarDecl: {
-                Type baseType = expand(refinedType);
-                if (baseType.isVar() && baseType.asVar().lowerBound().is<TypeKind::Pointer>()) {
-                    baseType.asVar().makeEqual(baseType.asVar().lowerBound());
-                    baseType = expand(baseType);
-                }
-                if (baseType.is<TypeKind::Pointer>())
-                    baseType = baseType.as<TypeKind::Pointer>().elementType();
+                Type baseType = dereferenceIfPointer(module, expand(refinedType), false);
 
                 AST pattern = ast.child(1);
                 return refinePattern(ctx, function, baseType, pattern);
@@ -3206,7 +3191,7 @@ namespace clover {
         order.trim(reader - writer);
     }
 
-    void refineGraph(Module* module, InferenceContext& ctx) {
+    void refineGraph(Module* module, InferenceContext& ctx, InferenceContext* parent) {
         // This is a beastly function, and contains the bulk of the actual
         // inference algorithm. From infer(), we have a constraint graph
         // containing both (1) subtype-supertype edges between types, and
@@ -3227,13 +3212,9 @@ namespace clover {
         // can concretify it to its lower bound. Otherwise, we have to leave
         // the type in the constraint graph.
 
-        u32 epoch = 0;
-
         Constraints& constraints = *ctx.constraints;
         TypeSystem* types = constraints.types;
-        vec<i32> epochs;
         u32 numVisited = 0;
-        epochs.expandTo(constraints.constraints.size(), -1);
 
         // Before anything else, we need to eliminate any initial cycles in
         // the dependency graph. We do two passes, first reducing any cycles
@@ -3260,6 +3241,7 @@ namespace clover {
         // make typing decisions based on incomplete information.
 
         vec<ConstraintIndex, 32> order;
+        ctx.order = &order;
         biasedset<128> tempMarks, permMarks;
         for (ConstraintIndex i : nonForwarded) {
             assert(!constraints.constraints[i].isForwarded());
@@ -3331,7 +3313,10 @@ namespace clover {
             }
         }
 
-        for (ConstraintIndex i : order) {
+        u32 initialOrderSize = order.size();
+        for (u32 k = 0; k < initialOrderSize; k ++) {
+            ConstraintIndex i = order[k];
+
             // It's important to remember the original type, since once we
             // expand, we will potentially have lost any variable provenance.
             Type origType = constraints.types->get(constraints.constrainedTypes[i]);
@@ -3371,7 +3356,7 @@ namespace clover {
             if (constraints.constraints[i].doesNeedRefinement()) {
                 assert(origType.isVar());
                 assert(origType.asVar().hasOwner());
-                AST ast = origType.asVar().owner(module);
+                AST ast = origType.asVar().owner();
                 assert(!ast.isLeaf());
                 if (!refine(ctx, ast.function(), ast, type))
                     type_error("Couldn't refine node ", ast, " after inferring type ", type);
@@ -3389,7 +3374,7 @@ namespace clover {
                     Type origType = constraints.types->get(constraints.constrainedTypes[i]);
                     assert(origType.isVar());
                     assert(origType.asVar().hasOwner());
-                    AST ast = origType.asVar().owner(module);
+                    AST ast = origType.asVar().owner();
                     assert(!ast.isLeaf());
                     if (!refine(ctx, ast.function(), ast, type))
                         type_error("Couldn't refine node ", ast, " after inferring type ", type);
@@ -3397,12 +3382,131 @@ namespace clover {
 
                 constraints.constraints[i].dropRefinementList(constraints);
             }
+        }
 
-            // Finally, we try and reduce the type if that's possible based on
-            // its current lower bound.
+        if (order.size() > initialOrderSize) {
+            for (ConstraintIndex i : reversed(order)) {
+                // Do a pass in reverse to try and inform the upper bounds of our
+                // type variables. We don't refine any nodes here, but do as much
+                // unification as we can.
 
-            if (type.isVar() && !type.asVar().isEqual() && canResolveTypeFromLowerBound(constraints.types, type.asVar().lowerBound()))
-                type.concretify();
+                // It's important to remember the original type, since once we
+                // expand, we will potentially have lost any variable provenance.
+                Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+                Type type = expand(origType);
+
+                for (Constraint constraint : constraints.constraints[i]) {
+                    constraint.index = constraints.expand(constraint.index);
+                    if (constraint.kind == Constraint::Order)
+                        continue;
+
+                    auto substituteFlag = constraint.kind == Constraint::Substitute ? MustSubstitute : NoUnifyFlags;
+
+                    Type other = expand(constraints.types->get(constraints.constrainedTypes[constraint.index]));
+                    if UNLIKELY(config::verboseUnify >= 3)
+                        println("[TYPE]\tTrying to apply subtype constraint against ", other, " to constrained type ", type);
+
+                    if (type.index == other.index)
+                        continue;
+
+                    bool isVar = type.isVar(), otherVar = other.isVar();
+                    Type bound = expand(type);
+                    if (type.isVar())
+                        bound = type.asVar().lowerBound();
+                    if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
+                        type_error("Failed to unify ", other, " onto ", type, " in-place.");
+                    if (substituteFlag && !isNamed(bound.kind())) {
+                        if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
+                            type_error("Failed to unify ", type, " onto ", other, " in-place.");
+                    }
+                }
+            }
+            for (ConstraintIndex i : order) {
+                // Do a pass in reverse to try and inform the upper bounds of our
+                // type variables. We don't refine any nodes here, but do as much
+                // unification as we can.
+
+                // It's important to remember the original type, since once we
+                // expand, we will potentially have lost any variable provenance.
+                Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+                Type type = expand(origType);
+
+                for (Constraint constraint : constraints.constraints[i]) {
+                    constraint.index = constraints.expand(constraint.index);
+                    if (constraint.kind == Constraint::Order)
+                        continue;
+
+                    auto substituteFlag = constraint.kind == Constraint::Substitute ? MustSubstitute : NoUnifyFlags;
+
+                    Type other = expand(constraints.types->get(constraints.constrainedTypes[constraint.index]));
+                    if UNLIKELY(config::verboseUnify >= 3)
+                        println("[TYPE]\tTrying to apply subtype constraint against ", other, " to constrained type ", type);
+
+                    if (type.index == other.index)
+                        continue;
+
+                    bool isVar = type.isVar(), otherVar = other.isVar();
+                    Type bound = expand(type);
+                    if (type.isVar())
+                        bound = type.asVar().lowerBound();
+                    if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
+                        type_error("Failed to unify ", other, " onto ", type, " in-place.");
+                    if (substituteFlag && !isNamed(bound.kind())) {
+                        if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
+                            type_error("Failed to unify ", type, " onto ", other, " in-place.");
+                    }
+                }
+            }
+        }
+
+        if (parent) {
+            // If we have a parent (which occurs if we are a generic function
+            // instantiation), then we want to tell the parent about any
+            // remaining subtype constraints in our graph it needs to be aware
+            // of.
+            nonForwarded.clear();
+            for (ConstraintIndex i : order) {
+                nonForwarded.on(i);
+                bool addedAny = false;
+                Type t = expand(types->get(ctx.constraints->constrainedTypes[i]));
+                bool tConcrete = t.isConcrete();
+                ConstraintIndex outer = ctx.constraints->outerIndices[i].index();
+                ConstraintList* outerList;
+                if (outer == InvalidConstraint || ctx.constraints->outerIndices[i].depth() != parent->constraints->depth) {
+                    types->constraintNodes[t.index] = {};
+                    outer = parent->constraints->index(t);
+                    ctx.constraints->outerIndices[i] = PackedConstraintNode(parent->constraints, outer);
+                    outerList = &parent->constraints->constraints[outer];
+                } else {
+                    types->constraintNodes[t.index] = ctx.constraints->outerIndices[i];
+                    assert(types->constraintNodes[t.index].depth() == parent->constraints->depth);
+                    outerList = &parent->constraints->constraints[types->constraintNodes[t.index].index()];
+                }
+                for (Constraint constraint : ctx.constraints->constraints[i]) if (constraint.kind != Constraint::Order) {
+                    ConstraintIndex i = constraint.index;
+                    Type ct = expand(types->get(ctx.constraints->constrainedTypes[i]));
+                    if (t.index == ct.index)
+                        continue;
+                    if (tConcrete && ct.isConcrete())
+                        continue;
+                    ConstraintIndex outerIndex;
+                    if (ctx.constraints->outerIndices[i].index() == InvalidConstraint || ctx.constraints->outerIndices[i].depth() != parent->constraints->depth) {
+                        types->constraintNodes[ct.index] = {};
+                        outerIndex = parent->constraints->index(ct);
+                        ctx.constraints->outerIndices[i] = PackedConstraintNode(parent->constraints, outerIndex);
+                    } else {
+                        outerIndex = (types->constraintNodes[ct.index] = ctx.constraints->outerIndices[i]).index();
+                        assert(types->constraintNodes[ct.index].depth() == parent->constraints->depth);
+                    }
+                    outerList->add(Constraint { outerIndex, constraint.kind });
+                    if (!addedAny)
+                        addedAny = true;
+                }
+                if (addedAny)
+                    parent->order->push(outer);
+            }
+            for (auto [i, t] : enumerate(ctx.constraints->constrainedTypes)) if (!nonForwarded[i])
+                types->constraintNodes[t] = ctx.constraints->outerIndices[i];
         }
     }
 
@@ -3484,6 +3588,81 @@ namespace clover {
         }
     }
 
+    void finalizeInstantiatedFunction(Module* callerModule, Function* function) {
+        assert(function->isInstantiation);
+        Module* module = function->generic->module;
+        Function* generic = function->generic;
+        Type type = function->type();
+        auto funcType = type.as<TypeKind::Function>();
+        AST decl = module->node(function->decl);
+        AST genericDecl = module->node(generic->decl);
+
+        // Now we create a different key. This will contain the concrete
+        // types of our final signature, as well as the list of resolved
+        // function indices in the instantiated body. By incorporating the
+        // list of resolved functions, we can look across scope/module
+        // boundaries to see if a structurally identical instantiation already
+        // exists.
+        funcType.concretify();
+        auto concreteSignature = funcType.cloneExpand().as<TypeKind::Function>();
+        vec<u32> functionIndices;
+        gatherResolvedFunctions(functionIndices, function, { decl, 4 });
+
+        auto concreteKey = SignatureKey::create(concreteSignature.parameterCount(), functionIndices.size());
+        concreteKey.setReturnType(packedBoundsFor(concreteSignature.returnType()));
+        for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
+            concreteKey.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
+        concreteKey.setResolutions(functionIndices);
+        concreteKey.computeHash();
+
+        auto it = generic->instantiations->find(concreteKey);
+        if (it != generic->instantiations->end()) {
+            // Not only is there an existing instantiation, but we need to fix
+            // the cache for our non-concrete parameters to point to the
+            // existing instantiation too.
+
+            if UNLIKELY(config::verboseInstantiation)
+                println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, function->initialKey }, " and concrete signature ", SignatureKeyLogger { module->types, concreteKey }, ", which matches existing version with signature ", it->value->type());
+
+            auto existing = it->value;
+            generic->instantiations->put(function->initialKey, existing);
+
+            // We also create a scoped key with our concrete parameters, in
+            // case we run into an instantiation where we know our signature
+            // concretely in this scope.
+            function->initialKey.setReturnType(packedBoundsFor(concreteSignature.returnType()));
+            for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
+                function->initialKey.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
+            function->initialKey.computeHash();
+            generic->instantiations->put(function->initialKey, existing);
+            function->forward = existing;
+            return;
+        }
+
+        // Otherwise, we are truly the first instantiation with this signature,
+        // so we become the canonical copy and insert ourselves into the map.
+        generic->instantiations->put(concreteKey, function);
+
+        if UNLIKELY(config::printInferredTree && generic->module != callerModule)
+            println(decl, '\n');
+
+        if UNLIKELY(config::verboseInstantiation)
+            println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, function->initialKey }, " and unique concrete signature ", SignatureKeyLogger { module->types, concreteKey });
+
+        // And we set up entries with the scoped keys too.
+        generic->instantiations->put(function->initialKey, function);
+        function->initialKey.setReturnType(packedBoundsFor(concreteSignature.returnType()));
+        for (u32 i = 0; i < concreteSignature.parameterCount(); i ++)
+            function->initialKey.setParameterType(i, packedBoundsFor(concreteSignature.parameterType(i)));
+        function->initialKey.computeHash();
+        generic->instantiations->put(function->initialKey, function);
+
+        if (genericDecl.child(1).missing())
+            genericDecl.setChild(1, decl);
+        else
+            genericDecl.setChild(1, module->add(ASTKind::Then, genericDecl.pos(), genericDecl.scope(), module->voidType(), genericDecl.child(1), decl));
+    }
+
     NOINLINE Artifact* inferAndCheckTypes(Artifact* artifact) {
         assert(artifact->kind == ArtifactKind::ResolvedAST);
 
@@ -3497,15 +3676,15 @@ namespace clover {
         // Next, discover type and ordering constraints.
 
         Constraints constraints(module, module->types, 0);
-        vec<NodeIndex, 16> lateChecks;
+        vec<AST, 16> lateChecks;
         vec<TypeIndex, 16> lateResolves;
-        vec<NodeIndex, 16> discoveredFunctions;
+        vec<Function*, 16> instantiatedFunctions;
 
         InferenceContext globalCtx;
         globalCtx.constraints = &constraints;
         globalCtx.lateChecks = &lateChecks;
         globalCtx.lateResolves = &lateResolves;
-        globalCtx.discoveredFunctions = &discoveredFunctions;
+        globalCtx.instantiatedFunctions = &instantiatedFunctions;
         globalCtx.env = createEnv(module, nullptr);
         globalCtx.currentInstantiation = nullptr;
 
@@ -3531,7 +3710,7 @@ namespace clover {
 
         finalizeConstants(module, nullptr, globalCtx.env);
 
-        refineGraph(module, globalCtx);
+        refineGraph(module, globalCtx, nullptr);
         if UNLIKELY(config::printInferredTreeAfterEachPass) {
             println("| Module after type refinement pass: ");
             println("*------------------------------------");
@@ -3540,13 +3719,18 @@ namespace clover {
 
         for (TypeIndex v : *globalCtx.lateResolves)
             expand(module->types->get(v)).concretify();
-        for (NodeIndex node : *globalCtx.lateChecks) {
-            AST ast = module->node(node);
+        for (AST ast : *globalCtx.lateChecks) {
             assert(!ast.isLeaf());
             check(globalCtx, ast.function(), ast);
         }
         globalCtx.lateChecks->clear();
         globalCtx.lateResolves->clear();
+
+        for (Function* function : *globalCtx.instantiatedFunctions)
+            finalizeInstantiatedFunction(module, function);
+
+        for (u32 i = 0; i < module->getTopLevel().arity(); i ++)
+            forwardResolvedFunctions({ module->getTopLevel(), i });
 
         if UNLIKELY(config::printInferredTreeAfterEachPass) {
             println("| Module after type checking pass: ");

@@ -598,7 +598,9 @@ namespace clover {
             struct { Common _; u32 pad[4]; i32* buf; };
         };
 
-        inline SignatureKey() {}
+        inline SignatureKey() {
+            header.length = 0;
+        }
 
         inline ~SignatureKey() {
             if (header.length > 6)
@@ -947,6 +949,7 @@ namespace clover {
         u64 genericHash = 0; // Hash of this function's body, used as a discriminator for the binary symbols of its instantiations.
         AST thisOperand;
         Scope* methodScope = nullptr; // Only used for generic function instantiations, necessary to mangle the final symbol.
+        SignatureKey initialKey;
 
         union {
             map<SignatureKey, Function*>* instantiations = nullptr; // Cache of instantiations of this function.
@@ -1929,6 +1932,7 @@ namespace clover {
         inline Type funType(const Args&... args) { return type<TypeKind::Function>(FunctionBuilder(types, args...)); }
         template<typename... Args>
         inline Type unionType(const Args&... args) { return type<TypeKind::Union>(UnionBuilder(types, args...)); }
+        inline Type varType(AST owner) { return type<TypeKind::Var>(owner.module, owner.node); }
         template<typename... Args>
         inline Type varType(const Args&... args) { return type<TypeKind::Var>(args...); }
         template<typename... Args>
@@ -2923,8 +2927,8 @@ namespace clover {
         }
     }
 
-    inline AST VarType::owner(Module* module) const {
-        return module->node(this->owner());
+    inline AST VarType::owner() const {
+        return module()->node(this->ownerIndex());
     }
 
     template<typename IO, typename Format = Formatter<IO>>
