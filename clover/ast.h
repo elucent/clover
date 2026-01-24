@@ -2989,6 +2989,8 @@ namespace clover {
             case ASTKind::ResolvedFunction:
                 io = format(io, module->str(ast.resolvedFunction()->name));
                 io = format(io, '/', ast.module->functionIndex(ast.resolvedFunction()));
+                if (module->nodeTypes.size())
+                    io = format(io, typeColor, ":", ast.resolvedFunction()->type(), typeReset);
                 return io;
             case ASTKind::ResolvedOverloads: {
                 io = format(io, ast.module->str(ast.resolvedOverloads()->name), "?", ast.module->overloadIndex(ast.resolvedOverloads()));

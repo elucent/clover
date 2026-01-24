@@ -162,10 +162,12 @@ namespace clover {
         Query = 0,          // Queries if a type can unify onto another, but doesn't change any state.
         InPlace = 1,        // Unifies a type onto another, updating variable bounds in-place.
         Constraining = 2,   // Unifies a type onto another, adding discovered constraints to the out-of-line graph.
-        ModeMask = 15,      // Masks out the "mode". Above this are bits reserved for flags.
+        ModeMask = 0xf,     // Masks out the "mode". Above this are bits reserved for flags.
 
         NoUnifyFlags = 0,
-        MustSubstitute = 16 // Not only does this type need to be a subtype of the target, it needs to be structurally substitutable.
+        UnifyFlagsMask = 0xf0,
+        MustSubstitute = 0x10, // Not only does this type need to be a subtype of the target, it needs to be structurally substitutable.
+        MustBeEqual = 0x20,    // These types must be strictly equal to each other, not just substitutable or subtypes.
     };
 
     inline UnifyMode operator&(UnifyMode a, UnifyMode b) {
@@ -2180,13 +2182,26 @@ namespace clover {
         // operations that would otherwise require multiple passes to fully
         // propagate up.
 
-        UnifyMode substituteFlag = mode & MustSubstitute;
-        assert(substituteFlag == MustSubstitute || !substituteFlag);
-
         sub = expand(sub);
         super = expand(super);
         Type subl = expand(sub.isVar() ? sub.asVar().lowerBound() : sub), subu = expand(sub.isVar() ? sub.asVar().upperBound() : sub);
         Type superl = expand(super.isVar() ? super.asVar().lowerBound() : super), superu = expand(super.isVar() ? super.asVar().upperBound() : super);
+
+        if ((mode & UnifyFlagsMask) == MustBeEqual) {
+            auto lb = leastCommonSupertype(subl, superl, constraints, mode);
+            if (!lb)
+                return some<UnifyResult>(UnifyFailure);
+            auto ub = greatestCommonSubtype(subu, superu, constraints, mode);
+            if (!ub)
+                return some<UnifyResult>(UnifyFailure);
+            if (sub.isVar() && super.isVar())
+                super.asVar().setLowerBound(lb), super.asVar().setUpperBound(ub);
+            if (sub.isVar())
+                sub.asVar().makeEqual(super);
+            else if (super.isVar())
+                super.asVar().makeEqual(sub);
+            return some<UnifyResult>(UnifySuccess);
+        }
 
         if (sub.isVar() && subu.isConcrete() && superu.isConcrete()) {
             auto ub = greatestCommonSubtype(subu, superu, constraints, mode);
@@ -2308,7 +2323,7 @@ namespace clover {
 
     inline UnifyResult Type::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         if (config::verboseUnify >= 2)
-            println("[TYPE]\tUnifying ", *this, " onto ", other, ((mode & ModeMask) == InPlace ? " in place" : ((mode & ModeMask) == Query ? " querying" : " constraining")), (mode & MustSubstitute ? ", substituting" : ", coercing"));
+            println("[TYPE]\tUnifying ", *this, " onto ", other, ((mode & ModeMask) == InPlace ? " in place" : ((mode & ModeMask) == Query ? " querying" : " constraining")), (mode & UnifyFlagsMask) == MustSubstitute ? ", substituting" : ((mode & UnifyFlagsMask) == MustBeEqual ? ", equal" : ", coercing"));
 
         bool weAreVar = isVar(), otherIsVar = other.isVar();
 
@@ -2369,7 +2384,8 @@ namespace clover {
                     return UnifyFailure;
                 if UNLIKELY(config::verboseUnify >= 3)
                     println("[TYPE]\tUpdating upper bound of variable ", *this, " to ", upper, " in-place");
-                if (mode & MustSubstitute && !isNamed(upper.kind())) {
+
+                if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(upper.kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
                     Type lower = leastCommonSupertype(asVar().lowerBound(), other.isVar() ? other.asVar().lowerBound() : other, constraints, mode & ModeMask);
                     if (!lower)
                         return UnifyFailure;
@@ -2390,7 +2406,7 @@ namespace clover {
                     return UnifyFailure;
                 if UNLIKELY(config::verboseUnify >= 3)
                     println("[TYPE]\tUpdating lower bound of variable ", other, " to ", lower, " in-place");
-                if (mode & MustSubstitute && !isNamed(lower.kind())) {
+                if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(lower.kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
                     Type upper = greatestCommonSubtype(isVar() ? asVar().upperBound() : *this, other.asVar().upperBound(), constraints, mode & ModeMask);
                     if (!upper)
                         return UnifyFailure;
@@ -2411,9 +2427,10 @@ namespace clover {
         if ((mode & ModeMask) == Constraining && hasAnyVar) {
             if (auto result = tryConstrainLocally(*this, other, constraints, mode))
                 return *result;
+            assert((mode & UnifyFlagsMask) != MustBeEqual); // Should always be taken care of locally.
             if (index == other.index)
                 return UnifySuccess;
-            if (mode & MustSubstitute)
+            if ((mode & UnifyFlagsMask) == MustSubstitute)
                 constraints->constrainSubstitute(*this, other);
             else
                 constraints->constrainType(*this, other);
@@ -2427,9 +2444,10 @@ namespace clover {
                 bl = other.asVar().lowerBound(), bu = other.asVar().upperBound();
 
             auto result = al.unifyOnto(bu, constraints, mode);
-            if (!result && mode & MustSubstitute) {
-                // We aren't a substitutable subtype. But we might be able
-                // to check if we can be equal to the other type.
+            if ((mode & UnifyFlagsMask) == MustBeEqual
+                || (!result && (mode & UnifyFlagsMask) == MustSubstitute)) {
+                // We know that two types can be equal to each other if they
+                // can unify bidirectionally.
                 return al.unifyOnto(bu, constraints, Query)
                     & bl.unifyOnto(au, constraints, Query);
             }
@@ -2622,9 +2640,8 @@ namespace clover {
     }
 
     inline Type greatestCommonSubtype(Type a, Type b, Constraints* constraints, UnifyMode mode) {
-        UnifyMode substituteFlag = mode & MustSubstitute;
+        UnifyMode flags = mode & UnifyFlagsMask;
         mode = mode & ModeMask;
-        assert(substituteFlag == MustSubstitute || !substituteFlag);
 
         TypeSystem* types = a.types;
         assert(b.types == types);
@@ -2634,21 +2651,21 @@ namespace clover {
         assert(!a.isRange() && !b.isRange());
         if (a == b)
             return a;
-        if (a.unifyOnto(b, nullptr, Query | substituteFlag)) {
+        if (a.unifyOnto(b, nullptr, Query | flags)) {
             // We need to re-unify in order to record the requirement that
             // b <: a, unless our overall mode is just Query.
             if (mode != Query)
-                a.unifyOnto(b, constraints, mode | substituteFlag);
+                a.unifyOnto(b, constraints, mode | flags);
             return a;
         }
-        if (b.unifyOnto(a, nullptr, Query | substituteFlag)) {
+        if (b.unifyOnto(a, nullptr, Query | flags)) {
             if (mode != Query)
-                b.unifyOnto(a, constraints, mode | substituteFlag);
+                b.unifyOnto(a, constraints, mode | flags);
             return b;
         }
         TypeKind ak = a.kind(), bk = b.kind();
 
-        if (ak == TypeKind::Numeric && bk == TypeKind::Numeric && !substituteFlag) {
+        if (ak == TypeKind::Numeric && bk == TypeKind::Numeric && flags == NoUnifyFlags) {
             // This handles the case where we have a signed v.s. unsigned
             // integer type, and need to find a smaller common integer.
             const auto& an = a.as<TypeKind::Numeric>(), bn = b.as<TypeKind::Numeric>();
@@ -2789,9 +2806,8 @@ namespace clover {
     }
 
     inline Type leastCommonSupertype(Type a, Type b, Constraints* constraints, UnifyMode mode) {
-        UnifyMode substituteFlag = mode & ~ModeMask;
+        UnifyMode flags = mode & UnifyFlagsMask;
         mode = mode & ModeMask;
-        assert(substituteFlag == MustSubstitute || !substituteFlag);
 
         TypeSystem* types = a.types;
         assert(b.types == types);
@@ -2820,20 +2836,20 @@ namespace clover {
             }
             return types->invalidType();
         }
-        if (a.unifyOnto(b, nullptr, Query | substituteFlag)) {
+        if (a.unifyOnto(b, nullptr, Query | flags)) {
             // We need to re-unify in order to record the requirement that
             // b <: a, unless our overall mode is just Query.
             if (mode != Query)
-                a.unifyOnto(b, constraints, mode | substituteFlag);
+                a.unifyOnto(b, constraints, mode | flags);
             return b;
         }
-        if (b.unifyOnto(a, nullptr, Query | substituteFlag)) {
+        if (b.unifyOnto(a, nullptr, Query | flags)) {
             if (mode != Query)
-                b.unifyOnto(a, constraints, mode | substituteFlag);
+                b.unifyOnto(a, constraints, mode | flags);
             return a;
         }
 
-        if (ak == TypeKind::Numeric && bk == TypeKind::Numeric && !substituteFlag) {
+        if (ak == TypeKind::Numeric && bk == TypeKind::Numeric && flags == NoUnifyFlags) {
             // This handles the case where we have a signed v.s. unsigned
             // integer type, and need an extra bit to store all possible
             // values. Otherwise, we should be able to rely on normal
@@ -2850,10 +2866,10 @@ namespace clover {
 
         if (ak == TypeKind::Slice && bk == TypeKind::Array) {
             auto ae = a.as<TypeKind::Slice>().elementType(), be = b.as<TypeKind::Array>().elementType();
-            if (ae.unifyOnto(be, nullptr, Query | substituteFlag) && be.unifyOnto(be, nullptr, Query | substituteFlag)) {
+            if (ae.unifyOnto(be, nullptr, Query | flags) && be.unifyOnto(be, nullptr, Query | flags)) {
                 if (mode != Query) {
-                    ae.unifyOnto(be, constraints, mode | substituteFlag);
-                    be.unifyOnto(ae, constraints, mode | substituteFlag);
+                    ae.unifyOnto(be, constraints, mode | flags);
+                    be.unifyOnto(ae, constraints, mode | flags);
                 }
                 // The result can't be Own, because arrays technically do not
                 // own their memory (at least not in the same way).
@@ -2863,10 +2879,10 @@ namespace clover {
 
         if (ak == TypeKind::Array && bk == TypeKind::Slice) {
             auto ae = a.as<TypeKind::Array>().elementType(), be = b.as<TypeKind::Slice>().elementType();
-            if (ae.unifyOnto(be, nullptr, Query | substituteFlag) && be.unifyOnto(be, nullptr, Query | substituteFlag)) {
+            if (ae.unifyOnto(be, nullptr, Query | flags) && be.unifyOnto(be, nullptr, Query | flags)) {
                 if (mode != Query) {
-                    ae.unifyOnto(be, constraints, mode | substituteFlag);
-                    be.unifyOnto(ae, constraints, mode | substituteFlag);
+                    ae.unifyOnto(be, constraints, mode | flags);
+                    be.unifyOnto(ae, constraints, mode | flags);
                 }
                 // The result can't be Own, because arrays technically do not
                 // own their memory (at least not in the same way).
@@ -2876,10 +2892,10 @@ namespace clover {
 
         if (ak == TypeKind::Array && bk == TypeKind::Array) {
             auto ae = a.as<TypeKind::Array>().elementType(), be = b.as<TypeKind::Array>().elementType();
-            if (ae.unifyOnto(be, nullptr, Query | substituteFlag) && be.unifyOnto(be, nullptr, Query | substituteFlag)) {
+            if (ae.unifyOnto(be, nullptr, Query | flags) && be.unifyOnto(be, nullptr, Query | flags)) {
                 if (mode != Query) {
-                    ae.unifyOnto(be, constraints, mode | substituteFlag);
-                    be.unifyOnto(ae, constraints, mode | substituteFlag);
+                    ae.unifyOnto(be, constraints, mode | flags);
+                    be.unifyOnto(ae, constraints, mode | flags);
                 }
                 return types->encode<TypeKind::Slice>(NoRefTraits, ae);
             }
@@ -2890,7 +2906,7 @@ namespace clover {
             if (atup.count() == btup.count()) {
                 TupleBuilder lcs(types);
                 for (u32 i = 0; i < atup.count(); i ++) {
-                    auto t = leastCommonSupertype(atup.fieldType(i), btup.fieldType(i), constraints, mode | substituteFlag);
+                    auto t = leastCommonSupertype(atup.fieldType(i), btup.fieldType(i), constraints, mode | flags);
                     if (!t)
                         return t;
                     lcs.add(t);
@@ -2901,16 +2917,16 @@ namespace clover {
 
         if (isCase(a) && isCase(b)) {
             if (TypeOrGenericOrigin result = caseLCA(a, b))
-                return unifyTypesOrOrigins(result, a, b, constraints, mode | substituteFlag);
+                return unifyTypesOrOrigins(result, a, b, constraints, mode | flags);
         }
 
         if (isAtom(a) && b.is<TypeKind::Pointer>()) {
-            if (Type common = leastCommonSupertype(a, b.as<TypeKind::Pointer>().elementType(), constraints, mode | MustSubstitute))
+            if (Type common = leastCommonSupertype(a, b.as<TypeKind::Pointer>().elementType(), constraints, mode | flags))
                 return types->encode<TypeKind::Pointer>(b.as<TypeKind::Pointer>().traits(), common);
         }
 
         if (isAtom(b) && a.is<TypeKind::Pointer>()) {
-            if (Type common = leastCommonSupertype(b, a.as<TypeKind::Pointer>().elementType(), constraints, mode | MustSubstitute))
+            if (Type common = leastCommonSupertype(b, a.as<TypeKind::Pointer>().elementType(), constraints, mode | flags))
                 return types->encode<TypeKind::Pointer>(a.as<TypeKind::Pointer>().traits(), common);
         }
 
@@ -2925,7 +2941,7 @@ namespace clover {
                 return types->invalidType();
 
             if (TypeOrGenericOrigin result = caseLCA(a.as<TypeKind::Pointer>().elementType(), b.as<TypeKind::Pointer>().elementType()))
-                return types->encode<TypeKind::Pointer>(traits, unifyTypesOrOrigins(result, a.as<TypeKind::Pointer>().elementType(), b.as<TypeKind::Pointer>().elementType(), constraints, mode | substituteFlag));
+                return types->encode<TypeKind::Pointer>(traits, unifyTypesOrOrigins(result, a.as<TypeKind::Pointer>().elementType(), b.as<TypeKind::Pointer>().elementType(), constraints, mode | flags));
         }
 
         return types->invalidType();
@@ -2984,7 +3000,7 @@ namespace clover {
         // Different numeric types have different representations and meanings
         // for the same bits, so we can't do numeric subtyping if
         // substitutability is a requirement.
-        if (mode & MustSubstitute)
+        if ((mode & UnifyFlagsMask) != NoUnifyFlags)
             return *this == other ? UnifySuccess : UnifyFailure;
 
         if (other.is<TypeKind::Numeric>()) {
@@ -3075,7 +3091,7 @@ namespace clover {
 
         // Slices and arrays have different representations, so we can't take
         // this path if we are required to substitute.
-        if (other.is<TypeKind::Slice>() && !(mode & MustSubstitute)) {
+        if (other.is<TypeKind::Slice>() && (mode & UnifyFlagsMask) == NoUnifyFlags) {
             if (other.as<TypeKind::Slice>().isOwn())
                 return UnifyFailure;
             auto otherElement = other.as<TypeKind::Slice>().elementType();
@@ -3205,12 +3221,14 @@ namespace clover {
             if (!(traits() <= other.as<TypeKind::Pointer>().traits()))
                 return UnifyFailure;
             auto otherElement = other.as<TypeKind::Pointer>().elementType();
-            return elementType().unifyOnto(otherElement, constraints, mode | MustSubstitute);
+            if ((mode & UnifyFlagsMask) == NoUnifyFlags)
+                mode = mode | MustSubstitute;
+            return elementType().unifyOnto(otherElement, constraints, mode);
         }
 
         // Slices and pointers have different representations, so we can't take
         // this path if we are required to substitute.
-        if (other.is<TypeKind::Slice>() && !(mode & MustSubstitute)) {
+        if (other.is<TypeKind::Slice>() && (mode & UnifyFlagsMask) == NoUnifyFlags) {
             if (!(traits() <= other.as<TypeKind::Slice>().traits()))
                 return UnifyFailure;
 
@@ -3265,9 +3283,7 @@ namespace clover {
     inline UnifyResult unifyTypeParameters(InstType a, InstType b, Constraints* constraints, UnifyMode mode) {
         assert(a.typeParameterCount() == b.typeParameterCount());
         for (u32 i = 0; i < a.typeParameterCount(); i ++) {
-            if (a.typeParameter(i).unifyOnto(b.typeParameter(i), constraints, mode) == UnifyFailure)
-                return UnifyFailure;
-            if (b.typeParameter(i).unifyOnto(a.typeParameter(i), constraints, mode) == UnifyFailure)
+            if (a.typeParameter(i).unifyOnto(b.typeParameter(i), constraints, (mode & ModeMask) | MustBeEqual) == UnifyFailure)
                 return UnifyFailure;
         }
         return UnifySuccess;
@@ -3279,7 +3295,9 @@ namespace clover {
         if (other.is<TypeKind::Pointer>() && innerType() == Void) {
             // Since instances of atoms are indistinguishable, we can construct
             // a pointer to an atom automatically.
-            return Type::unifyOnto(other.as<TypeKind::Pointer>().elementType(), constraints, mode | MustSubstitute);
+            if ((mode & UnifyFlagsMask) == NoUnifyFlags)
+                mode = mode | MustSubstitute;
+            return Type::unifyOnto(other.as<TypeKind::Pointer>().elementType(), constraints, mode);
         }
         if (isCase()) {
             if (other.is<TypeKind::Named>() && other.as<TypeKind::Named>().isCase() && other.as<TypeKind::Named>().name() == name()) {
@@ -4242,8 +4260,8 @@ namespace clover {
             return UnifySuccess;
         if (isCase()) {
             if (other.is<TypeKind::Union>() && other.as<TypeKind::Union>().isCase() && other.as<TypeKind::Union>().name() == name()) {
-                if (parentType().unifyOnto(other.as<TypeKind::Union>().parentType(), constraints, Query | (mode & MustSubstitute))
-                    && other.as<TypeKind::Struct>().parentType().unifyOnto(parentType(), constraints, Query | (mode & MustSubstitute)))
+                if (parentType().unifyOnto(other.as<TypeKind::Union>().parentType(), constraints, Query | (mode & UnifyFlagsMask))
+                    && other.as<TypeKind::Struct>().parentType().unifyOnto(parentType(), constraints, Query | (mode & UnifyFlagsMask)))
                     return parentType().unifyOnto(other.as<TypeKind::Union>().parentType(), constraints, mode)
                         & other.as<TypeKind::Struct>().parentType().unifyOnto(parentType(), constraints, mode);
             }
