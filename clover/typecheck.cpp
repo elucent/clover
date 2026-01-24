@@ -1638,6 +1638,12 @@ namespace clover {
                 return fromNodeType(ast);
             }
 
+            case ASTKind::Del: {
+                inferChild(ctx, function, ast, 0); // Any type is fine, `del` is just a no-op if it's not an owning pointer.
+                ast.setType(module->voidType());
+                return fromNodeType(ast);
+            }
+
             // Operations involving functions
 
             case ASTKind::Call:

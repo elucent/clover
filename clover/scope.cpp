@@ -966,6 +966,7 @@ namespace clover {
         root->addToRoot(VariableKind::Type, Void, BuiltinVoid);
         root->addToRoot(VariableKind::Type, Bool, BuiltinBool);
         root->addToRoot(VariableKind::Type, Char, BuiltinChar);
+
         module->compilation->rootScope = root;
         return root;
     }

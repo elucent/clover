@@ -2288,8 +2288,16 @@ namespace clover {
             }
 
             case ASTKind::Del: {
-                value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
-                jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &value, 1);
+                Type child = typeOf(ast, 0);
+                if (child.is<TypeKind::Pointer>() && child.as<TypeKind::Pointer>().isOwn()) {
+                    value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
+                    jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &value, 1);
+                } else if (child.is<TypeKind::Slice>() && child.as<TypeKind::Slice>().isOwn()) {
+                    auto slice = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
+                    value = genCtx.temp();
+                    jasmine_append_get_field(builder, genCtx.lower(child), value, slice, 0);
+                    jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &value, 1);
+                }
                 return JASMINE_INVALID_OPERAND;
             }
 
