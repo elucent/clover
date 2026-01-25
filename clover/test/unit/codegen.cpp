@@ -2182,3 +2182,36 @@ i32 test():
 
     ASSERT_EQUAL(test(), 10);
 }
+
+TEST(codegen_iterate_range) {
+    auto instance = COMPILE(R"(
+type Range:
+    var low, high
+
+fun iter(Range range): range
+fun next(Range range): Range(range.low + 1, range.high)
+fun done(Range range): range.low == range.high
+fun read(Range range): range.low
+
+fun range(xs):
+    var min: xs.read(), max: min
+    for i in xs:
+        min = i if i < min
+        max = i if i > max
+    Range(min, max + 1)
+
+i32 test():
+    var nums: [4, 2, 3, 1, 5]
+    var r: range(nums)
+    var r2: range(r)
+    var sum: 0
+    for i in r2:
+        sum += i
+    return sum
+)");
+
+    auto exec = load(instance.artifact);
+    auto test = lookup<i32()>("test()i32", exec);
+
+    ASSERT_EQUAL(test(), 15);
+}

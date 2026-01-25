@@ -882,12 +882,13 @@ namespace clover {
             Constraint* writer = data();
             Constraint* reader = writer;
             while (reader != end()) {
-                if (func(*reader))
+                if (!func(*reader))
                     *writer ++ = *reader;
                 reader ++;
             }
+            auto newSize = writer - data();
             if (sz <= 3) {
-                sz = writer - data();
+                sz = newSize;
                 return;
             }
             if (writer - data() <= 3) {
@@ -897,7 +898,7 @@ namespace clover {
                 memory::copy(items, old, sizeof(Constraint) * (writer - old));
                 delete[] old;
             }
-            sz = writer - data();
+            sz = newSize;
         }
     };
 
@@ -943,6 +944,7 @@ namespace clover {
         vec<PackedConstraintNode, 16> outerIndices;
         pool<vec<ConstraintIndex>> refinementLists;
         u32 depth;
+        bool graphChanged = false;
 
         inline Constraints(Module* module_in, TypeSystem* types_in, u32 depth_in):
             module(module_in), types(types_in), depth(depth_in) {}
@@ -1902,20 +1904,20 @@ namespace clover {
         return expand(types->get(t)).index;
     }
 
-    inline Type lowerBound(Type t) {
-        if (t.isVar())
-            return t.asVar().lowerBound();
-        if (t.isRange())
-            return t.asRange().lowerBound();
-        return t;
+    inline Type lowerBound(Type type) {
+        switch (type.kind()) {
+            case TypeKind::Var: return type.asVar().lowerBound();
+            case TypeKind::Range: return type.asRange().lowerBound();
+            default: return type;
+        }
     }
 
-    inline Type upperBound(Type t) {
-        if (t.isVar())
-            return t.asVar().upperBound();
-        if (t.isRange())
-            return t.asRange().upperBound();
-        return t;
+    inline Type upperBound(Type type) {
+        switch (type.kind()) {
+            case TypeKind::Var: return type.asVar().upperBound();
+            case TypeKind::Range: return type.asRange().upperBound();
+            default: return type;
+        }
     }
 
     inline bool operator==(Type a, Type b) {
@@ -2171,58 +2173,64 @@ namespace clover {
     inline Type leastCommonSupertype(Type, Type, Constraints*, UnifyMode);
     inline Type greatestCommonSubtype(Type, Type, Constraints*, UnifyMode);
 
-    inline maybe<UnifyResult> tryConstrainLocally(Type sub, Type super, Constraints* constraints, UnifyMode mode) {
-        // This function serves as a pretty critical optimization: if we are
-        // some variable and can immediately resolve its type bound without any
-        // propagative effects, i.e. we know the variable bounds and the types
-        // we're refining it with are both concrete, then we can update it
-        // right away instead of waiting for constraint reduction. Even more
-        // than the fact we're saving more expensive constraint operations is
-        // the fact that this often means we can easily refine chains of
-        // operations that would otherwise require multiple passes to fully
-        // propagate up.
+    // inline maybe<UnifyResult> tryConstrainLocally(Type sub, Type super, Constraints* constraints, UnifyMode mode) {
+    //     // This function serves as a pretty critical optimization: if we are
+    //     // some variable and can immediately resolve its type bound without any
+    //     // propagative effects, i.e. we know the variable bounds and the types
+    //     // we're refining it with are both concrete, then we can update it
+    //     // right away instead of waiting for constraint reduction. Even more
+    //     // than the fact we're saving more expensive constraint operations is
+    //     // the fact that this often means we can easily refine chains of
+    //     // operations that would otherwise require multiple passes to fully
+    //     // propagate up.
 
-        sub = expand(sub);
-        super = expand(super);
-        Type subl = expand(sub.isVar() ? sub.asVar().lowerBound() : sub), subu = expand(sub.isVar() ? sub.asVar().upperBound() : sub);
-        Type superl = expand(super.isVar() ? super.asVar().lowerBound() : super), superu = expand(super.isVar() ? super.asVar().upperBound() : super);
+    //     sub = expand(sub);
+    //     super = expand(super);
+    //     Type subl = expand(sub.isVar() ? sub.asVar().lowerBound() : sub), subu = expand(sub.isVar() ? sub.asVar().upperBound() : sub);
+    //     Type superl = expand(super.isVar() ? super.asVar().lowerBound() : super), superu = expand(super.isVar() ? super.asVar().upperBound() : super);
 
-        if ((mode & UnifyFlagsMask) == MustBeEqual) {
-            auto lb = leastCommonSupertype(subl, superl, constraints, mode);
-            if (!lb)
-                return some<UnifyResult>(UnifyFailure);
-            auto ub = greatestCommonSubtype(subu, superu, constraints, mode);
-            if (!ub)
-                return some<UnifyResult>(UnifyFailure);
-            if (sub.isVar() && super.isVar())
-                super.asVar().setLowerBound(lb), super.asVar().setUpperBound(ub);
-            if (sub.isVar())
-                sub.asVar().makeEqual(super);
-            else if (super.isVar())
-                super.asVar().makeEqual(sub);
-            return some<UnifyResult>(UnifySuccess);
-        }
+    //     if ((mode & UnifyFlagsMask) == MustBeEqual) {
+    //         auto lb = leastCommonSupertype(subl, superl, constraints, mode);
+    //         if (!lb)
+    //             return some<UnifyResult>(UnifyFailure);
+    //         auto ub = greatestCommonSubtype(subu, superu, constraints, mode);
+    //         if (!ub)
+    //             return some<UnifyResult>(UnifyFailure);
+    //         if (sub.isVar() && super.isVar()) {
+    //             Type result = sub.index < super.index ? sub : super;
+    //             Type other = sub.index < super.index ? super : sub;
+    //             result.asVar().setLowerBound(lb), result.asVar().setUpperBound(ub);
+    //             other.asVar().makeEqual(result);
+    //         } else if (super.isVar())
+    //             super.asVar().makeEqual(sub);
+    //         else if (sub.isVar())
+    //             sub.asVar().makeEqual(super);
+    //         return some<UnifyResult>(UnifySuccess);
+    //     }
 
-        if (sub.isVar() && subu.isConcrete() && superu.isConcrete()) {
-            auto ub = greatestCommonSubtype(subu, superu, constraints, mode);
-            if (!ub)
-                return none<UnifyResult>();
-            if (config::verboseUnify >= 2)
-                println("[TYPE]\tRefined upper bound of ", sub, " from ", subu, " to ", ub);
-            sub.asVar().setUpperBound(ub);
-            return super.isConcrete() ? some<UnifyResult>(UnifySuccess) : none<UnifyResult>();
-        }
-        if (super.isVar() && superl.isConcrete() && subl.isConcrete()) {
-            auto lb = leastCommonSupertype(subl, superl, constraints, mode);
-            if (!lb)
-                return none<UnifyResult>();
-            if (config::verboseUnify >= 2)
-                println("[TYPE]\tRefined lower bound of ", super, " from ", superl, " to ", lb);
-            super.asVar().setLowerBound(lb);
-            return sub.isConcrete() ? some<UnifyResult>(UnifySuccess) : none<UnifyResult>();
-        }
-        return none<UnifyResult>();
-    }
+    //     if (sub.isVar() && super.isVar())
+    //         return none<UnifyResult>();
+
+    //     if (sub.isVar() && subu.isConcrete() && superu.isConcrete()) {
+    //         auto ub = greatestCommonSubtype(subu, superu, constraints, mode);
+    //         if (!ub)
+    //             return none<UnifyResult>();
+    //         if (config::verboseUnify >= 2)
+    //             println("[TYPE]\tRefined upper bound of ", sub, " from ", subu, " to ", ub);
+    //         sub.asVar().setUpperBound(ub);
+    //         return super.isConcrete() ? some<UnifyResult>(UnifySuccess) : none<UnifyResult>();
+    //     }
+    //     if (super.isVar() && superl.isConcrete() && subl.isConcrete()) {
+    //         auto lb = leastCommonSupertype(subl, superl, constraints, mode);
+    //         if (!lb)
+    //             return none<UnifyResult>();
+    //         if (config::verboseUnify >= 2)
+    //             println("[TYPE]\tRefined lower bound of ", super, " from ", superl, " to ", lb);
+    //         super.asVar().setLowerBound(lb);
+    //         return sub.isConcrete() ? some<UnifyResult>(UnifySuccess) : none<UnifyResult>();
+    //     }
+    //     return none<UnifyResult>();
+    // }
 
     inline bool isNamed(TypeKind kind) {
         constexpr u32 CaseTypeKinds = 0
@@ -2322,8 +2330,11 @@ namespace clover {
     inline Type canonicalTypeInBounds(TypeSystem* sys, Type lb, Type ub);
 
     inline UnifyResult Type::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
-        if (config::verboseUnify >= 2)
-            println("[TYPE]\tUnifying ", *this, " onto ", other, ((mode & ModeMask) == InPlace ? " in place" : ((mode & ModeMask) == Query ? " querying" : " constraining")), (mode & UnifyFlagsMask) == MustSubstitute ? ", substituting" : ((mode & UnifyFlagsMask) == MustBeEqual ? ", equal" : ", coercing"));
+        if (index == other.index)
+            return UnifySuccess;
+
+        if (index == Bottom || other.index == Any)
+            return UnifySuccess;
 
         bool weAreVar = isVar(), otherIsVar = other.isVar();
 
@@ -2346,18 +2357,12 @@ namespace clover {
         if (self.index != index)
             return self.unifyOnto(other, constraints, mode);
 
+        if (config::verboseUnify >= 2)
+            println("[TYPE]\tUnifying ", self, " onto ", other, ((mode & ModeMask) == InPlace ? " in place" : ((mode & ModeMask) == Query ? " querying" : " constraining")), (mode & UnifyFlagsMask) == MustSubstitute ? ", substituting" : ((mode & UnifyFlagsMask) == MustBeEqual ? ", equal" : ", coercing"));
+
         // If we reached here, we either had some type variable in our input
-        // that we couldn't expand away, or
-
-        // If the other type is a range, act as if it's the upper bound.
-
-        if (other.isRange())
-            other = other.asRange().upperBound();
-
-        // If we're a range, act as if we're the lower bound.
-
-        if (isRange())
-            return asRange().lowerBound().unifyOnto(other, constraints, mode);
+        // that we couldn't expand away, or we need to nontrivially unify two
+        // types using a more specialized method.
 
         // If either of us are variables, then:
         //
@@ -2370,87 +2375,130 @@ namespace clover {
         //  - If we are just querying the current bounds, then any involved
         //    variables just act like their lower/upper bounds.
 
-        if ((mode & ModeMask) == InPlace && hasAnyVar) {
-            // If we're doing an in-place unification, we see if we can fit
-            // both the upper and lower bounds of our type to the other type.
-            // Note that we do not find the bounds in a way that must
-            // substitute - specifically because if both unifications succeed,
-            // we set at least one of the variables involved equal to the other
-            // type.
+        if (hasAnyVar) switch (mode & ModeMask) {
+            case Query: {
+                Type al = lowerBound(*this), au = upperBound(*this);
+                Type bl = lowerBound(other), bu = upperBound(other);
 
-            if (isVar()) {
-                Type upper = greatestCommonSubtype(asVar().upperBound(), other.isVar() ? other.asVar().upperBound() : other, constraints, mode & ModeMask);
-                if (!upper)
-                    return UnifyFailure;
-                if UNLIKELY(config::verboseUnify >= 3)
-                    println("[TYPE]\tUpdating upper bound of variable ", *this, " to ", upper, " in-place");
-
-                if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(upper.kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
-                    Type lower = leastCommonSupertype(asVar().lowerBound(), other.isVar() ? other.asVar().lowerBound() : other, constraints, mode & ModeMask);
-                    if (!lower)
-                        return UnifyFailure;
-                    if (other.isVar()) {
-                        other.asVar().setLowerBound(lower);
-                        other.asVar().setUpperBound(upper);
-                    }
-                    asVar().makeEqual(other);
-                    return UnifySuccess;
-                } else
-                    asVar().setUpperBound(upper);
-                if (!asVar().lowerBound().unifyOnto(upper, constraints, mode))
-                    return UnifyFailure;
+                auto result = al.unifyOnto(bu, constraints, Query);
+                if (result && ((mode & UnifyFlagsMask) == MustBeEqual
+                    || (mode & UnifyFlagsMask) == MustSubstitute)) {
+                    // We know that two types can be equal to each other if they
+                    // can unify bidirectionally.
+                    return bl.unifyOnto(au, constraints, Query);
+                }
+                return result;
             }
-            if (other.isVar()) {
-                Type lower = leastCommonSupertype(isVar() ? asVar().lowerBound() : *this, other.asVar().lowerBound(), constraints, mode & ModeMask);
-                if (!lower)
-                    return UnifyFailure;
-                if UNLIKELY(config::verboseUnify >= 3)
-                    println("[TYPE]\tUpdating lower bound of variable ", other, " to ", lower, " in-place");
-                if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(lower.kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
-                    Type upper = greatestCommonSubtype(isVar() ? asVar().upperBound() : *this, other.asVar().upperBound(), constraints, mode & ModeMask);
+            case InPlace:
+            case Constraining: {
+                // If we're doing an in-place unification, we see if we can fit
+                // both the upper and lower bounds of our type to the other type.
+                // Note that we do not find the bounds in a way that must
+                // substitute - specifically because if both unifications succeed,
+                // we set at least one of the variables involved equal to the other
+                // type.
+
+                if (isVar() && other.isVar()) {
+                    Type upper = greatestCommonSubtype(asVar().upperBound(), upperBound(other), constraints, mode & ModeMask);
                     if (!upper)
                         return UnifyFailure;
-                    if (isVar()) {
-                        asVar().setLowerBound(lower);
-                        asVar().setUpperBound(upper);
+                    Type lower = leastCommonSupertype(asVar().lowerBound(), lowerBound(other), constraints, mode & ModeMask);
+                    if (!lower)
+                        return UnifyFailure;
+                    if UNLIKELY(config::verboseUnify >= 3)
+                        println("[TYPE]\tUpdating upper bound of variable ", *this, " to ", upper, " in-place");
+                    if UNLIKELY(config::verboseUnify >= 3)
+                        println("[TYPE]\tUpdating lower bound of variable ", other, " to ", lower, " in-place");
+                    if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(lower.kind()) && (mode & ModeMask) != Constraining)
+                        || (mode & UnifyFlagsMask) == MustBeEqual) {
+                        Type result = index < other.index ? *this : other;
+                        other = index < other.index ? other : *this;
+                        result.asVar().setLowerBound(lower);
+                        result.asVar().setUpperBound(upper);
+                        other.asVar().makeEqual(result);
+                        return UnifySuccess;
                     }
-                    other.asVar().makeEqual(*this);
-                    return UnifySuccess;
-                } else
+
+                    asVar().setUpperBound(upper);
                     other.asVar().setLowerBound(lower);
-                if (!lower.unifyOnto(other.asVar().upperBound(), constraints, mode))
-                    return UnifyFailure;
+                    if (!asVar().lowerBound().unifyOnto(upper, constraints, mode & ModeMask))
+                        return UnifyFailure;
+                    if (!lower.unifyOnto(other.asVar().upperBound(), constraints, mode & ModeMask))
+                        return UnifyFailure;
+
+                    if ((mode & ModeMask) == Constraining) {
+                        self = expand(*this), other = expand(other);
+                        if ((mode & UnifyFlagsMask) == MustSubstitute)
+                            constraints->constrainSubstitute(self, other);
+                        else
+                            constraints->constrainType(self, other);
+                    }
+                    return UnifySuccess;
+                } else if (isVar()) {
+                    Type upper = greatestCommonSubtype(asVar().upperBound(), upperBound(other), constraints, mode & ModeMask);
+                    if (!upper)
+                        return UnifyFailure;
+                    if UNLIKELY(config::verboseUnify >= 3)
+                        println("[TYPE]\tUpdating upper bound of variable ", *this, " to ", upper, " in-place");
+
+                    if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(asVar().lowerBound().kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
+                        Type lower = leastCommonSupertype(asVar().lowerBound(), other.isRange() ? other.asRange().lowerBound() : other, constraints, mode & ModeMask);
+                        if (!lower)
+                            return UnifyFailure;
+                        if (!other.isRange())
+                            asVar().makeEqual(other);
+                        return UnifySuccess;
+                    }
+                    asVar().setUpperBound(upper);
+                    if (asVar().isEqual())
+                        return UnifySuccess;
+                    if (!asVar().lowerBound().unifyOnto(upper, constraints, mode & ModeMask))
+                        return UnifyFailure;
+                    if ((mode & ModeMask) == Constraining) {
+                        if ((mode & UnifyFlagsMask) == MustSubstitute)
+                            constraints->constrainSubstitute(*this, other);
+                        else
+                            constraints->constrainType(*this, other);
+                    }
+                    return UnifySuccess;
+                } else {
+                    assert(other.isVar());
+                    Type lower = leastCommonSupertype(lowerBound(*this), other.asVar().lowerBound(), constraints, mode & ModeMask);
+                    if (!lower)
+                        return UnifyFailure;
+                    if UNLIKELY(config::verboseUnify >= 3)
+                        println("[TYPE]\tUpdating lower bound of variable ", other, " to ", lower, " in-place");
+
+                    if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(lower.kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
+                        Type upper = greatestCommonSubtype(other.asVar().upperBound(), isRange() ? asRange().upperBound() : *this, constraints, mode & ModeMask);
+                        if (!upper)
+                            return UnifyFailure;
+                        if (!other.isRange())
+                            other.asVar().makeEqual(*this);
+                        return UnifySuccess;
+                    }
+                    other.asVar().setLowerBound(lower);
+                    if (other.asVar().isEqual())
+                        return UnifySuccess;
+                    if (!lower.unifyOnto(other.asVar().upperBound(), constraints, mode & ModeMask))
+                        return UnifyFailure;
+                    if ((mode & ModeMask) == Constraining) {
+                        if ((mode & UnifyFlagsMask) == MustSubstitute)
+                            constraints->constrainSubstitute(*this, other);
+                        else
+                            constraints->constrainType(*this, other);
+                    }
+                    return UnifySuccess;
+                }
             }
-            return UnifySuccess;
+            default:
+                unreachable("Unexpected unify mode.");
         }
 
-        if ((mode & ModeMask) == Constraining && hasAnyVar) {
-            if (auto result = tryConstrainLocally(*this, other, constraints, mode))
-                return *result;
-            assert((mode & UnifyFlagsMask) != MustBeEqual); // Should always be taken care of locally.
-            if (index == other.index)
-                return UnifySuccess;
-            if ((mode & UnifyFlagsMask) == MustSubstitute)
-                constraints->constrainSubstitute(*this, other);
-            else
-                constraints->constrainType(*this, other);
-            return UnifySuccess;
-        } else if ((mode & ModeMask) == Query && hasAnyVar) {
-            Type al = *this, au = *this;
-            if (isVar())
-                al = asVar().lowerBound(), au = asVar().upperBound();
-            Type bl = other, bu = other;
-            if (other.isVar())
-                bl = other.asVar().lowerBound(), bu = other.asVar().upperBound();
-
-            auto result = al.unifyOnto(bu, constraints, mode);
-            if ((mode & UnifyFlagsMask) == MustBeEqual
-                || (!result && (mode & UnifyFlagsMask) == MustSubstitute)) {
-                // We know that two types can be equal to each other if they
-                // can unify bidirectionally.
-                return al.unifyOnto(bu, constraints, Query)
-                    & bl.unifyOnto(au, constraints, Query);
-            }
+        if (other.isRange()) {
+            UnifyResult result = unifyOnto(other.asRange().upperBound(), constraints, mode & ModeMask);
+            if (result && ((mode & UnifyFlagsMask) == MustSubstitute || (mode & UnifyFlagsMask) == MustBeEqual))
+                return other.asRange().lowerBound().unifyOnto(*this, constraints, mode & ModeMask);
             return result;
         }
 
@@ -2460,11 +2508,6 @@ namespace clover {
 
         assert(!isVar());
         assert(!other.isVar());
-
-        // All types can unify onto the top type.
-
-        if (other == Any)
-            return UnifySuccess;
 
         switch(kind()) {
             case TypeKind::Bottom:
@@ -2654,7 +2697,11 @@ namespace clover {
         a = expand(a);
         b = expand(b);
         assert(!a.isRange() && !b.isRange());
-        if (a == b)
+        if (a.index == b.index)
+            return a;
+        if (a.index == Any)
+            return b;
+        if (b.index == Any)
             return a;
         if (a.unifyOnto(b, nullptr, Query | flags)) {
             // We need to re-unify in order to record the requirement that
@@ -2820,7 +2867,11 @@ namespace clover {
         a = expand(a);
         b = expand(b);
         assert(!a.isRange() && !b.isRange());
-        if (a == b)
+        if (a.index == b.index)
+            return a;
+        if (a.index == Bottom)
+            return b;
+        if (b.index == Bottom)
             return a;
 
         TypeKind ak = a.kind(), bk = b.kind();
@@ -3864,8 +3915,9 @@ namespace clover {
     inline vec<ConstraintIndex>& ConstraintList::ensureRefinementList(Constraints& constraints) {
         if (!hasRefinementList) {
             hasRefinementList = 1;
-            assert(sz == 0); // This should be true, but mostly we assert it for convenience.
             this->add({ .index = constraints.refinementLists.claim(), .kind = Constraint::Order });
+            if (sz > 1)
+                swap(data()[0], data()[sz - 1]);
         }
 
         auto handle = data()[0];
@@ -3875,7 +3927,10 @@ namespace clover {
     inline void ConstraintList::dropRefinementList(Constraints& constraints) {
         auto handle = data()[0];
         constraints.refinementLists.release(handle.index);
-        memory::move(data(), begin(), end() - begin());
+        if (sz == 4)
+            memory::move(items, data() + 1, (sz - 1) * sizeof(Constraint));
+        else
+            memory::move(data(), data() + 1, (sz - 1) * sizeof(Constraint));
         hasRefinementList = 0;
         sz --;
     }
@@ -3912,6 +3967,7 @@ namespace clover {
             return false;
         auto superIndex = index(superType);
         auto subIndex = index(subType);
+        graphChanged = true;
         return list(superType).add({ .index = subIndex, .kind = Constraint::Subtype });
     }
 
@@ -3924,6 +3980,7 @@ namespace clover {
             return false;
         auto superIndex = index(superType);
         auto subIndex = index(subType);
+        graphChanged = true;
         return list(superType).add({ .index = subIndex, .kind = Constraint::Substitute });
     }
 
@@ -3934,16 +3991,21 @@ namespace clover {
         if (beforeType.index == afterType.index)
             return false;
         if (!beforeType.isVar()) {
+            bool addedAnyEdge = false;
             beforeType.forEachVar([&, this](Type type) {
                 this->constrainOrder(type, afterType);
+                addedAnyEdge = true;
             });
-            list(afterType).setNeedsRefinement();
-            return true;
+            if (addedAnyEdge) {
+                list(afterType).setNeedsRefinement();
+                return true;
+            }
         }
         if UNLIKELY(config::verboseUnify >= 2)
             println("[TYPE]\tAdded ordering constraint ", beforeType, " ~> ", afterType);
         list(afterType).setNeedsRefinement();
         auto beforeIndex = index(beforeType);
+        graphChanged = true;
         return list(afterType).add({ .index = beforeIndex, .kind = Constraint::Order });
     }
 
@@ -4213,8 +4275,11 @@ namespace clover {
         assert(upperBound().isConcrete());
     }
 
-    inline UnifyResult RangeType::unifyOnto(Type other, Constraints*, UnifyMode) {
-        unreachable("Should not be reached directly.");
+    inline UnifyResult RangeType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
+        UnifyResult result = lowerBound().unifyOnto(other, constraints, mode & ModeMask);
+        if (result && ((mode & UnifyFlagsMask) == MustSubstitute || (mode & UnifyFlagsMask) == MustBeEqual))
+            return other.unifyOnto(upperBound(), constraints, mode & ModeMask);
+        return result;
     }
 
     inline Type RangeType::cloneExpand() {
@@ -4496,7 +4561,7 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const VarType& type) {
-        if (type.isEqual() && LIKELY(!config::verboseUnify))
+        if (type.isEqual() && !config::verboseUnify)
             return format(io, type.equalType());
         if UNLIKELY(config::readableTypeVars) {
             io = format(io, '\'');
@@ -4512,8 +4577,12 @@ namespace clover {
                 p /= 26;
                 io = format(io, i8('a' + c));
             }
-            if UNLIKELY(config::verboseUnify)
-                io = format(io, '[', type.lowerBound(), ", ", type.upperBound(), ']');
+            if UNLIKELY(config::verboseUnify) {
+                if (type.isEqual())
+                    io = format(io, '=', type.equalType());
+                else
+                    io = format(io, '[', type.lowerBound(), ", ", type.upperBound(), ']');
+            }
             return io;
         }
         return format(io, '@', type.index);
@@ -4605,7 +4674,7 @@ namespace clover {
     inline IO formatTypeVariableState(IO io, TypeSystem* sys) {
         for (TypeIndex i : indices(sys->typeList)) if (sys->get(i).isVar()) {
             auto var = sys->get(i).asVar();
-            if (var.isEqual() && LIKELY(!config::verboseUnify))
+            if (var.isEqual())
                 continue; // Don't print type variables that are equal unless we have enabled verbose logging. See VarType.
             io = format(io, " - ", var);
             if (var.isEqual())
@@ -4632,7 +4701,7 @@ namespace clover {
                 const i8* str = " <: ";
                 if (edge.kind == Constraint::Order) str = " ~> ";
                 if (edge.kind == Constraint::Substitute) str = " =: ";
-                io = format(io, "[TYPE]\t    - ", sys->get(constraints->constrainedTypes[constraints->expand(edge.index)]), str, sys->get(constraints->constrainedTypes[i]), '\n');
+                io = format(io, "[TYPE]\t - ", sys->get(constraints->constrainedTypes[constraints->expand(edge.index)]), str, sys->get(constraints->constrainedTypes[i]), '\n');
             }
         }
         return io;

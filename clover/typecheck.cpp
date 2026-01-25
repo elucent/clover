@@ -795,6 +795,8 @@ namespace clover {
     }
 
     void unify(Type srcType, Type destType, AST ast, InferenceContext& ctx) {
+        if UNLIKELY(config::verboseUnify >= 3)
+            println("[TYPE]\tUnifying ", srcType, " onto ", destType, " at ", ast, ", constraining, coercing");
         auto result = srcType.unifyOnto(destType, ctx.constraints, Constraining);
 
         if (!result) {
@@ -819,7 +821,63 @@ namespace clover {
         unify(src.type(ast.module), ast, ctx);
     }
 
+    void unifyEqual(Type srcType, Type destType, AST ast, InferenceContext& ctx) {
+        if UNLIKELY(config::verboseUnify >= 3)
+            println("[TYPE]\tUnifying ", srcType, " onto ", destType, " at ", ast, ", constraining, equal");
+        auto result = srcType.unifyOnto(destType, ctx.constraints, Constraining | MustBeEqual);
+
+        if (!result) {
+            printTypeVariableState(srcType.types);
+            type_error("Failed to unify ", srcType, " onto ", destType, " in ", ast);
+        }
+    }
+
+    void unifyEqual(Evaluation src, Type destType, AST ast, InferenceContext& ctx) {
+        if (src.isKnownValue())
+            src = toType(ast.module, src);
+        unifyEqual(src.type(ast.module), destType, ast, ctx);
+    }
+
+    void unifyEqual(Type srcType, AST ast, InferenceContext& ctx) {
+        unifyEqual(srcType, ast.type(), ast, ctx);
+    }
+
+    void unifyEqual(Evaluation src, AST ast, InferenceContext& ctx) {
+        if (src.isKnownValue())
+            src = toType(ast.module, src);
+        unifyEqual(src.type(ast.module), ast, ctx);
+    }
+
+    void unifySubstituting(Type srcType, Type destType, AST ast, InferenceContext& ctx) {
+        if UNLIKELY(config::verboseUnify >= 3)
+            println("[TYPE]\tUnifying ", srcType, " onto ", destType, " at ", ast, ", constraining, substituting");
+        auto result = srcType.unifyOnto(destType, ctx.constraints, Constraining | MustSubstitute);
+
+        if (!result) {
+            printTypeVariableState(srcType.types);
+            type_error("Failed to unify ", srcType, " onto ", destType, " in ", ast);
+        }
+    }
+
+    void unifySubstituting(Evaluation src, Type destType, AST ast, InferenceContext& ctx) {
+        if (src.isKnownValue())
+            src = toType(ast.module, src);
+        unifySubstituting(src.type(ast.module), destType, ast, ctx);
+    }
+
+    void unifySubstituting(Type srcType, AST ast, InferenceContext& ctx) {
+        unifySubstituting(srcType, ast.type(), ast, ctx);
+    }
+
+    void unifySubstituting(Evaluation src, AST ast, InferenceContext& ctx) {
+        if (src.isKnownValue())
+            src = toType(ast.module, src);
+        unifySubstituting(src.type(ast.module), ast, ctx);
+    }
+
     void unifyInPlaceSubstituting(Type srcType, Type destType, AST ast) {
+        if UNLIKELY(config::verboseUnify >= 3)
+            println("[TYPE]\tUnifying ", srcType, " onto ", destType, " at ", ast, ", in-place, substituting");
         auto result = srcType.unifyOnto(destType, nullptr, InPlace | MustSubstitute);
         if (!result) {
             printTypeVariableState(srcType.types);
@@ -828,6 +886,8 @@ namespace clover {
     }
 
     void unifyInPlace(Type srcType, Type destType, AST ast) {
+        if UNLIKELY(config::verboseUnify >= 3)
+            println("[TYPE]\tUnifying ", srcType, " onto ", destType, " at ", ast, ", in-place, coercing");
         auto result = srcType.unifyOnto(destType, nullptr, InPlace);
         if (!result) {
             printTypeVariableState(srcType.types);
@@ -1307,8 +1367,7 @@ namespace clover {
                 ast.setType(module->boolType());
                 lhs = toType(module, lhs), rhs = toType(module, rhs);
                 lhsType = lhs.type(module), rhsType = rhs.type(module);
-                unify(lhsType, rhsType, ast, ctx);
-                unify(rhsType, lhsType, ast, ctx);
+                unifyEqual(lhsType, rhsType, ast, ctx);
 
                 // Needed to check that the types we are comparing are allowed
                 // to be compared. This sort of set-membership check is hard to
@@ -1983,14 +2042,77 @@ namespace clover {
         }
     }
 
+    Type dereferenceIfPointer(Module* module, Type type, bool allowUninit) {
+        type = expand(type);
+        if (type.kind() == TypeKind::Pointer) {
+            if (type.as<TypeKind::Pointer>().isUninit() && !allowUninit)
+                type_error("Tried to dereference uninitialized pointer type ", type);
+            return type.as<TypeKind::Pointer>().elementType();
+        }
+        if (type.isVar()) {
+            Type result = expand(canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound()));
+            if (result.kind() == TypeKind::Pointer) {
+                if (result.as<TypeKind::Pointer>().isUninit() && !allowUninit)
+                    type_error("Tried to dereference uninitialized pointer type ", result);
+                return expand(result.as<TypeKind::Pointer>().elementType());
+            }
+        }
+        return type;
+    }
+
+    Type elementTypeOf(Module* module, Type type, bool allowUninit) {
+        if (type.kind() == TypeKind::Array)
+            return expand(type.as<TypeKind::Array>().elementType());
+        if (type.kind() == TypeKind::Slice) {
+            if (type.as<TypeKind::Slice>().isUninit() && !allowUninit)
+                type_error("Tried to access uninitialized slice type ", type);
+            return expand(type.as<TypeKind::Slice>().elementType());
+        }
+        if (type.isVar()) {
+            Type result = expand(canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound()));
+            if (result.kind() == TypeKind::Array)
+                return expand(result.as<TypeKind::Array>().elementType());
+            if (result.kind() == TypeKind::Slice) {
+                if (result.as<TypeKind::Slice>().isUninit() && !allowUninit)
+                    type_error("Tried to access uninitialized slice type ", result);
+                return expand(result.as<TypeKind::Slice>().elementType());
+            }
+            result = concreteType(module, type);
+            if (result.kind() == TypeKind::Array)
+                return expand(result.as<TypeKind::Array>().elementType());
+            if (result.kind() == TypeKind::Slice) {
+                if (result.as<TypeKind::Slice>().isUninit() && !allowUninit)
+                    type_error("Tried to access uninitialized slice type ", result);
+                return expand(result.as<TypeKind::Slice>().elementType());
+            }
+        }
+        type_error("Type ", type, " cannot be indexed.");
+        unreachable("");
+    }
+
     bool refinePattern(InferenceContext& ctx, Function* function, Type input, AST pattern) {
         auto unifyOrDereference = [&](Type pattern, Type input, AST ast) {
-            // This is basically just unifyInPlace, but it'll try automatically
+            // This is basically just unify, but it'll try automatically
             // dereferencing the input if it would otherwise fail.
-            if (canUnify(pattern, input, ast))
+
+            if (canUnify(pattern, input, ast)) {
+                unify(pattern, input, ast, ctx);
+                return;
+            }
+
+            Type base = dereferenceIfPointer(ast.module, expand(input), true);
+            if (base.index != input.index && canUnify(pattern, base, ast))
+                unify(pattern, base, ast, ctx);
+            else
+                type_error("Failed to unify ", pattern, " onto ", input, " in pattern ", ast);
+        };
+        auto unifyOrDereferenceInPlace = [&](Type pattern, Type input, AST ast) {
+            // This is basically just unify, but it'll try automatically
+            // dereferencing the input if it would otherwise fail.
+
+            Type base = dereferenceIfPointer(ast.module, expand(input), true);
+            if (canUnify(pattern, base, ast))
                 unifyInPlace(pattern, input, ast);
-            else if (expand(input).is<TypeKind::Pointer>())
-                unifyInPlace(pattern, expand(input).as<TypeKind::Pointer>().elementType(), ast);
             else
                 type_error("Failed to unify ", pattern, " onto ", input, " in pattern ", ast);
         };
@@ -2049,7 +2171,7 @@ namespace clover {
             }
 
             case ASTKind::List: {
-                unifyInPlace(input, pattern.type(), pattern);
+                unify(input, pattern.type(), pattern, ctx);
 
                 // Kind of like for constructor patterns, we already defined a
                 // slice type for this pattern and propagated its constraints
@@ -2244,7 +2366,7 @@ namespace clover {
 
         // Refine the type variables from instantiating the signature based on
         // our parameters and return type constraints.
-        unifyInPlace(funcType.returnType(), expectedReturnType, call);
+        unify(funcType.returnType(), expectedReturnType, call, ctx);
         u32 typeParameterIndex = 0;
         nonTypeParameterIndex = 0;
         for (u32 i = 1; i < call.arity(); i ++) {
@@ -2254,12 +2376,12 @@ namespace clover {
                 Type param = newFunction->module->node(newFunction->typeParameterDecls[typeParameterIndex ++]).type();
                 Type passedParam = evaluateType(module, call.function(), call.child(i));
                 assert(param.isVar());
-                unifyInPlace(param, passedParam, call);
-                unifyInPlace(passedParam, param, call);
+                unify(param, passedParam, call, ctx);
+                unify(passedParam, param, call, ctx);
                 continue;
             }
             auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterIndex ++);
-            unifyInPlace(module->types->get(argumentTypes[i - 1]), parameterType, call);
+            unify(module->types->get(argumentTypes[i - 1]), parameterType, call, ctx);
         }
 
         // Now we can finally explore the function body.
@@ -2436,7 +2558,6 @@ namespace clover {
                 return;
             }
 
-            Module* module = overload->module;
             auto type = expand(overload->type());
             type_assert(type.is<TypeKind::Function>());
             auto funcType = type.as<TypeKind::Function>();
@@ -2444,7 +2565,7 @@ namespace clover {
                 return;
 
             if UNLIKELY(config::verboseUnify >= 3)
-                println("[TYPE]\tConsidering overload ", module->str(overload->name), "/", overload->index, " with type ", funcType);
+                println("[TYPE]\tConsidering overload ", overload->compilation->str(overload->name), "/", overload->index, " with type ", funcType);
 
             i64 rank = computeOverloadRank(overload, ast, funcType, argumentTypes, returnType);
             if (rank < 0)
@@ -2572,54 +2693,6 @@ namespace clover {
         return CallResolution((TypeIndex)funcType.index);
     }
 
-    Type dereferenceIfPointer(Module* module, Type type, bool allowUninit) {
-        type = expand(type);
-        if (type.kind() == TypeKind::Pointer) {
-            if (type.as<TypeKind::Pointer>().isUninit() && !allowUninit)
-                type_error("Tried to dereference uninitialized pointer type ", type);
-            return type.as<TypeKind::Pointer>().elementType();
-        }
-        if (type.isVar()) {
-            Type result = expand(canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound()));
-            if (result.kind() == TypeKind::Pointer) {
-                if (result.as<TypeKind::Pointer>().isUninit() && !allowUninit)
-                    type_error("Tried to dereference uninitialized pointer type ", result);
-                return expand(result.as<TypeKind::Pointer>().elementType());
-            }
-        }
-        return type;
-    }
-
-    Type elementTypeOf(Module* module, Type type, bool allowUninit) {
-        if (type.kind() == TypeKind::Array)
-            return expand(type.as<TypeKind::Array>().elementType());
-        if (type.kind() == TypeKind::Slice) {
-            if (type.as<TypeKind::Slice>().isUninit() && !allowUninit)
-                type_error("Tried to access uninitialized slice type ", type);
-            return expand(type.as<TypeKind::Slice>().elementType());
-        }
-        if (type.isVar()) {
-            Type result = expand(canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound()));
-            if (result.kind() == TypeKind::Array)
-                return expand(result.as<TypeKind::Array>().elementType());
-            if (result.kind() == TypeKind::Slice) {
-                if (result.as<TypeKind::Slice>().isUninit() && !allowUninit)
-                    type_error("Tried to access uninitialized slice type ", result);
-                return expand(result.as<TypeKind::Slice>().elementType());
-            }
-            result = concreteType(module, type);
-            if (result.kind() == TypeKind::Array)
-                return expand(result.as<TypeKind::Array>().elementType());
-            if (result.kind() == TypeKind::Slice) {
-                if (result.as<TypeKind::Slice>().isUninit() && !allowUninit)
-                    type_error("Tried to access uninitialized slice type ", result);
-                return expand(result.as<TypeKind::Slice>().elementType());
-            }
-        }
-        type_error("Type ", type, " cannot be indexed.");
-        unreachable("");
-    }
-
     bool refine(InferenceContext& ctx, Function* function, AST ast, Type refinedType) {
         Module* module = ast.module;
 
@@ -2656,23 +2729,23 @@ namespace clover {
 
                             switch (ast.kind()) {
                                 case ASTKind::GetField:
-                                    unifyInPlace(structType.fieldType(i), refinedType, ast);
+                                    unify(structType.fieldType(i), refinedType, ast, ctx);
                                     break;
                                 case ASTKind::AddrField:
-                                    unifyInPlaceSubstituting(structType.fieldType(i), refinedType, ast);
+                                    unifySubstituting(structType.fieldType(i), refinedType, ast, ctx);
                                     break;
                                 case ASTKind::SetField:
-                                    unifyInPlace(inferredType(ctx, function, ast.child(2)), structType.fieldType(i), ast);
+                                    unify(inferredType(ctx, function, ast.child(2)), structType.fieldType(i), ast, ctx);
                                     break;
                                 case ASTKind::EnsureAddrField: {
                                     refinedType = ast.type();
                                     auto fieldType = expand(structType.fieldType(i));
                                     if (fieldType.is<TypeKind::Pointer>()) {
-                                        unifyInPlaceSubstituting(fieldType, refinedType, ast);
+                                        unifySubstituting(fieldType, refinedType, ast, ctx);
                                         ast.setKind(ASTKind::GetField);
                                     } else {
                                         assert(refinedType.is<TypeKind::Pointer>());
-                                        unifyInPlaceSubstituting(fieldType, refinedType.as<TypeKind::Pointer>().elementType(), ast);
+                                        unifySubstituting(fieldType, refinedType.as<TypeKind::Pointer>().elementType(), ast, ctx);
                                         ast.setKind(ASTKind::AddrField);
                                     }
                                     break;
@@ -2719,7 +2792,7 @@ namespace clover {
                         for (FieldId i : indices)
                             fieldTypes.push(ast.kind() == ASTKind::AddrField ? module->ptrType(structType.fieldType(i.id)) : structType.fieldType(i.id));
                         Type result = module->tupleType(fieldTypes);
-                        unifyInPlace(result, refinedType, ast);
+                        unify(result, refinedType, ast, ctx);
                         AST newAST;
                         switch (ast.kind()) {
                             case ASTKind::GetField:
@@ -2733,7 +2806,7 @@ namespace clover {
                                 break;
                             case ASTKind::SetField:
                                 module->replace(ast, module->add(ASTKind::SetFields, ast.pos(), ast.scope(), module->voidType(), ast.child(0), indices, ast.child(2)));
-                                unifyInPlace(inferredType(ctx, function, ast.child(2)), result, ast);
+                                unify(inferredType(ctx, function, ast.child(2)), result, ast, ctx);
                                 break;
                             default:
                                 unreachable("Expected a field access.");
@@ -2774,7 +2847,7 @@ namespace clover {
                         Type old = ast.type();
                         ast.setType(module->tupleType(types));
                         if (old.isVar())
-                            unifyInPlace(old, ast);
+                            unify(old, ast, ctx);
                     }
                     type_assert(ast.type().is<TypeKind::Tuple>());
                     auto astTuple = ast.type().as<TypeKind::Tuple>();
@@ -2785,7 +2858,7 @@ namespace clover {
                         for (u32 j = 0; j < structType.count(); j ++) {
                             if (field == structType.fieldName(j)) {
                                 ast.setChild(i, module->add(ASTKind::Field, FieldId(j)));
-                                unifyInPlace(structType.fieldType(j), astTuple.fieldType(i), ast);
+                                unify(structType.fieldType(j), astTuple.fieldType(i), ast, ctx);
                                 foundField = true;
                             }
                         }
@@ -2809,11 +2882,11 @@ namespace clover {
 
                 switch (ast.kind()) {
                     case ASTKind::SetIndex:
-                        unifyInPlace(refinedType, elementType, ast);
-                        unifyInPlace(inferredType(ctx, function, ast.child(2)), refinedType, ast);
+                        unify(refinedType, elementType, ast, ctx);
+                        unify(inferredType(ctx, function, ast.child(2)), refinedType, ast, ctx);
                         break;
                     case ASTKind::GetIndex:
-                        unifyInPlace(elementType, refinedType, ast);
+                        unify(elementType, refinedType, ast, ctx);
                         break;
                     case ASTKind::AddrIndex:
                         unifyInPlaceSubstituting(elementType, refinedType, ast);
@@ -2920,11 +2993,11 @@ namespace clover {
                     ast.setChild(1 + nonTypeParameterCount, ast.child(i));
                     auto arg = inferredType(ctx, function, ast.child(i));
                     auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterCount ++);
-                    unifyInPlace(arg, parameterType, ast);
+                    unify(arg, parameterType, ast, ctx);
                 }
 
                 ast.setArity(1 + nonTypeParameterCount);
-                unifyInPlace(funcType.as<TypeKind::Function>().returnType(), ast);
+                unify(funcType.as<TypeKind::Function>().returnType(), ast, ctx);
                 ast.setKind(ASTKind::Call); // These will be truly indistinguishable from this point forward.
                 return true;
             }
@@ -3171,6 +3244,7 @@ namespace clover {
                 firstInCycle --;
             }
             const_slice<ConstraintIndex> cycle = ((const_slice<ConstraintIndex>)stack).drop(firstInCycle);
+            stack.shrinkBy(stack.size() - firstInCycle);
 
             if UNLIKELY(config::verboseUnify >= 1) {
                 print("[TYPE]\tFound strongly-connected group of ", cycle.size(), " types: ");
@@ -3279,10 +3353,28 @@ namespace clover {
         TypeSystem* types = constraints.types;
         u32 numVisited = 0;
 
-        // Before anything else, we need to eliminate any initial cycles in
-        // the dependency graph. We do two passes, first reducing any cycles
-        // in the subtype relation to equivalence classes, then cataloguing any
-        // remaining cycles in the ordering graph.
+        // Before anything else, we need to pre-forward any constraints whose
+        // target variables may have already been marked equal.
+
+        for (ConstraintIndex i : indices(constraints.constraints)) {
+            Type type = types->get(constraints.constrainedTypes[i]);
+            if (type.isVar() && type.asVar().isEqual()) {
+                Type expanded = expand(type);
+                if UNLIKELY(config::verboseUnify > 2)
+                    println("[TYPE]\tForwarded constraints from variable ", type, " to ", expanded);
+                ConstraintIndex other = constraints.index(expanded);
+                if (constraints.constraints[i].doesNeedRefinement() || constraints.constraints[i].hasRefinementList)
+                    constraints.constraints[other].ensureRefinementList(constraints).push(i);
+                for (Constraint constraint : constraints.constraints[i]) if (constraint.kind != Constraint::Order)
+                    constraints.constraints[other].add(constraint);
+                constraints.constraints[i].forwardTo(constraints.index(expanded));
+            }
+        }
+
+        // Now we need to eliminate any initial cycles in the dependency graph.
+        // We do two passes, first reducing any cycles in the subtype relation
+        // to equivalence classes, then cataloguing any remaining cycles in the
+        // ordering graph.
 
         scc(constraints, resolveSubtypeCycle);
         scc(constraints, resolveOrderingCycle);
@@ -3295,32 +3387,6 @@ namespace clover {
         //     println("*---------------------------------");
         //     module->print(module->compilation), println();
         // }
-        if (UNLIKELY(config::printTypeConstraints))
-            printTypeConstraints(module->types, &constraints);
-
-        // We know the graph no longer holds any ordering or subtype cycles.
-        // There still might be some cycles in the combined graph, but these
-        // mostly aren't a problem, since they represent cases where we have to
-        // make typing decisions based on incomplete information.
-
-        vec<ConstraintIndex, 32> order;
-        ctx.order = &order;
-        biasedset<128> tempMarks, permMarks;
-        for (ConstraintIndex i : nonForwarded) {
-            assert(!constraints.constraints[i].isForwarded());
-            if (!permMarks[i])
-                toposort(constraints, tempMarks, permMarks, order, i);
-        }
-
-        cleanUpOrder(order);
-
-        if UNLIKELY(config::verboseUnify >= 3) {
-            println("[TYPE]\tOrder of types:");
-            for (ConstraintIndex i : order) {
-                Type t = types->get(constraints.constrainedTypes[i]);
-                println("[TYPE]\t - ", t);
-            }
-        }
 
         // Now we follow the previously computed order and refine our previous
         // inferences. We do this by two main tactics:
@@ -3339,102 +3405,99 @@ namespace clover {
         // upper bound when concretifying, we can substitute that lower bound
         // for the type variable and simplify the rest of the inference.
 
-        for (ConstraintIndex i : reversed(order)) {
-            // Do a pass in reverse to try and inform the upper bounds of our
-            // type variables. We don't refine any nodes here, but do as much
-            // unification as we can.
+        auto processSubtypeConstraint = [&](Type type, Constraint& constraint) {
+            constraint.index = constraints.expand(constraint.index);
+            if (constraint.kind == Constraint::Order)
+                return;
 
-            // It's important to remember the original type, since once we
-            // expand, we will potentially have lost any variable provenance.
-            Type origType = constraints.types->get(constraints.constrainedTypes[i]);
-            Type type = expand(origType);
+            auto substituteFlag = constraint.kind == Constraint::Substitute ? MustSubstitute : NoUnifyFlags;
 
-            for (Constraint constraint : constraints.constraints[i]) {
-                constraint.index = constraints.expand(constraint.index);
-                if (constraint.kind == Constraint::Order)
-                    continue;
+            Type other = expand(constraints.types->get(constraints.constrainedTypes[constraint.index]));
+            if UNLIKELY(config::verboseUnify >= 3)
+                println("[TYPE]\tTrying to apply subtype constraint against ", other, " to constrained type ", type);
 
-                auto substituteFlag = constraint.kind == Constraint::Substitute ? MustSubstitute : NoUnifyFlags;
+            if (type.index == other.index)
+                return;
 
-                Type other = expand(constraints.types->get(constraints.constrainedTypes[constraint.index]));
-                if UNLIKELY(config::verboseUnify >= 3)
-                    println("[TYPE]\tTrying to apply subtype constraint against ", other, " to constrained type ", type);
-
-                if (type.index == other.index)
-                    continue;
-
-                bool isVar = type.isVar(), otherVar = other.isVar();
-                Type bound = expand(type);
-                if (type.isVar())
-                    bound = type.asVar().lowerBound();
-                if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
-                    type_error("Failed to unify ", other, " onto ", type, " in-place.");
-                if (substituteFlag && !isNamed(bound.kind())) {
-                    if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
-                        type_error("Failed to unify ", type, " onto ", other, " in-place.");
-                }
+            bool isVar = type.isVar(), otherVar = other.isVar();
+            Type bound = expand(type);
+            if (type.isVar())
+                bound = type.asVar().lowerBound();
+            if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
+                type_error("Failed to unify ", other, " onto ", type, " in-place.");
+            if (substituteFlag && !isNamed(bound.kind())) {
+                if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
+                    type_error("Failed to unify ", type, " onto ", other, " in-place.");
             }
+        };
+
+        vec<ConstraintIndex, 32> order;
+        biasedset<128> tempMarks, permMarks;
+        ctx.order = &order;
+        for (ConstraintIndex i : nonForwarded) {
+            assert(!constraints.constraints[i].isForwarded());
+            if (!permMarks[i])
+                toposort(constraints, tempMarks, permMarks, order, i);
         }
+        cleanUpOrder(order);
 
-        u32 initialOrderSize = order.size();
-        for (u32 k = 0; k < initialOrderSize; k ++) {
-            ConstraintIndex i = order[k];
+        bool fixpoint = false;
+        u32 iterations = 0;
+        while (constraints.graphChanged) {
+            constraints.graphChanged = false;
 
-            // It's important to remember the original type, since once we
-            // expand, we will potentially have lost any variable provenance.
-            Type origType = constraints.types->get(constraints.constrainedTypes[i]);
-            Type type = expand(origType);
+            if (UNLIKELY(config::printTypeConstraints))
+                printTypeConstraints(module->types, &constraints);
 
-            // First we make sure we're greater than all of our subtypes...
+            // We know the graph no longer holds any ordering or subtype cycles.
+            // There still might be some cycles in the combined graph, but these
+            // mostly aren't a problem, since they represent cases where we have to
+            // make typing decisions based on incomplete information.
 
-            for (Constraint constraint : constraints.constraints[i]) {
-                constraint.index = constraints.expand(constraint.index);
-                if (constraint.kind == Constraint::Order)
-                    continue;
+            if UNLIKELY(config::verboseUnify >= 1)
+                println("[TYPE]\n[TYPE]\tBeginning constraint graph iteration ", iterations + 1, ", solving ", order.size(), " constrained types.\n[TYPE]");
 
-                auto substituteFlag = constraint.kind == Constraint::Substitute ? MustSubstitute : NoUnifyFlags;
-
-                Type other = expand(constraints.types->get(constraints.constrainedTypes[constraint.index]));
-                if UNLIKELY(config::verboseUnify >= 3)
-                    println("[TYPE]\tTrying to apply subtype constraint against ", other, " to constrained type ", type);
-
-                if (type.index == other.index)
-                    continue;
-
-                bool isVar = type.isVar(), otherVar = other.isVar();
-                Type bound = expand(type);
-                if (type.isVar())
-                    bound = type.asVar().lowerBound();
-                if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
-                    type_error("Failed to unify ", other, " onto ", type, " in-place.");
-                if (substituteFlag && !isNamed(bound.kind())) {
-                    if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
-                        type_error("Failed to unify ", type, " onto ", other, " in-place.");
+            if UNLIKELY(config::verboseUnify >= 3) {
+                println("[TYPE]\tOrder of types:");
+                for (ConstraintIndex i : order) {
+                    Type t = types->get(constraints.constrainedTypes[i]);
+                    println("[TYPE]\t - ", t);
                 }
             }
 
-            // Next, if we had any ordering constraints, we know we need to be
-            // refined. So we refine() the owner of this type.
-
-            if (constraints.constraints[i].doesNeedRefinement()) {
-                assert(origType.isVar());
-                assert(origType.asVar().hasOwner());
-                AST ast = origType.asVar().owner();
-                assert(!ast.isLeaf());
-                if (!refine(ctx, ast.function(), ast, type))
-                    type_error("Couldn't refine node ", ast, " after inferring type ", type);
+            for (ConstraintIndex i : reversed(order)) {
+                // Do a pass in reverse to try and inform the upper bounds of our
+                // type variables. We don't refine any nodes here, but do as much
+                // unification as we can.
+                Type type = expand(constraints.types->get(constraints.constrainedTypes[i]));
+                if UNLIKELY(config::verboseUnify >= 3)
+                    println("[TYPE]\tConsidering constraints on type ", type);
+                for (Constraint constraint : constraints.constraints[i])
+                    processSubtypeConstraint(type, constraint);
             }
 
-            // On a similar note, we need to handle the case where this type
-            // has a refinement list. This will happen if our type doesn't need
-            // refinement, but another type that does need refinement was
-            // forwarded to it.
+            u32 initialOrderSize = order.size();
+            u32 keptConstraints = 0;
+            for (u32 k = 0; k < initialOrderSize; k ++) {
+                ConstraintIndex i = order[k];
 
-            if UNLIKELY(constraints.constraints[i].hasRefinementList) {
-                auto& list = constraints.constraints[i].refinementList(constraints);
+                // It's important to remember the original type, since once we
+                // expand, we will potentially have lost any variable provenance.
+                Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+                if UNLIKELY(config::verboseUnify >= 3)
+                    println("[TYPE]\tConsidering constraints on type ", origType);
+                Type type = expand(origType);
 
-                for (ConstraintIndex i : list) {
-                    Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+                // First we make sure we're greater than all of our subtypes...
+
+                for (Constraint constraint : constraints.constraints[i])
+                    processSubtypeConstraint(type, constraint);
+
+                // Next, on the first iteration, if we had any ordering
+                // constraints, we know we need to be refined. So we refine()
+                // the owner of this type.
+
+                if (iterations == 0 && constraints.constraints[i].doesNeedRefinement()) {
                     assert(origType.isVar());
                     assert(origType.asVar().hasOwner());
                     AST ast = origType.asVar().owner();
@@ -3443,83 +3506,66 @@ namespace clover {
                         type_error("Couldn't refine node ", ast, " after inferring type ", type);
                 }
 
-                constraints.constraints[i].dropRefinementList(constraints);
-            }
-        }
+                // On a similar note, we need to handle the case where this type
+                // has a refinement list. This will happen if our type doesn't need
+                // refinement, but another type that does need refinement was
+                // forwarded to it.
 
-        if (order.size() > initialOrderSize) {
-            for (ConstraintIndex i : reversed(order)) {
-                // Do a pass in reverse to try and inform the upper bounds of our
-                // type variables. We don't refine any nodes here, but do as much
-                // unification as we can.
+                if UNLIKELY(iterations == 0 && constraints.constraints[i].hasRefinementList) {
+                    auto& list = constraints.constraints[i].refinementList(constraints);
 
-                // It's important to remember the original type, since once we
-                // expand, we will potentially have lost any variable provenance.
-                Type origType = constraints.types->get(constraints.constrainedTypes[i]);
-                Type type = expand(origType);
-
-                for (Constraint constraint : constraints.constraints[i]) {
-                    constraint.index = constraints.expand(constraint.index);
-                    if (constraint.kind == Constraint::Order)
-                        continue;
-
-                    auto substituteFlag = constraint.kind == Constraint::Substitute ? MustSubstitute : NoUnifyFlags;
-
-                    Type other = expand(constraints.types->get(constraints.constrainedTypes[constraint.index]));
-                    if UNLIKELY(config::verboseUnify >= 3)
-                        println("[TYPE]\tTrying to apply subtype constraint against ", other, " to constrained type ", type);
-
-                    if (type.index == other.index)
-                        continue;
-
-                    bool isVar = type.isVar(), otherVar = other.isVar();
-                    Type bound = expand(type);
-                    if (type.isVar())
-                        bound = type.asVar().lowerBound();
-                    if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
-                        type_error("Failed to unify ", other, " onto ", type, " in-place.");
-                    if (substituteFlag && !isNamed(bound.kind())) {
-                        if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
-                            type_error("Failed to unify ", type, " onto ", other, " in-place.");
+                    for (ConstraintIndex i : list) {
+                        Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+                        assert(origType.isVar());
+                        assert(origType.asVar().hasOwner());
+                        AST ast = origType.asVar().owner();
+                        assert(!ast.isLeaf());
+                        if (!refine(ctx, ast.function(), ast, type))
+                            type_error("Couldn't refine node ", ast, " after inferring type ", type);
                     }
+
+                    constraints.constraints[i].dropRefinementList(constraints);
                 }
-            }
-            for (ConstraintIndex i : order) {
-                // Do a pass in reverse to try and inform the upper bounds of our
-                // type variables. We don't refine any nodes here, but do as much
-                // unification as we can.
 
-                // It's important to remember the original type, since once we
-                // expand, we will potentially have lost any variable provenance.
-                Type origType = constraints.types->get(constraints.constrainedTypes[i]);
-                Type type = expand(origType);
+                // Trim any unnecessary constraints from our list.
 
-                for (Constraint constraint : constraints.constraints[i]) {
-                    constraint.index = constraints.expand(constraint.index);
+                type = expand(type);
+                bool isConcrete = type.isConcrete();
+                constraints.constraints[i].removeIf([&](Constraint constraint) -> bool {
                     if (constraint.kind == Constraint::Order)
-                        continue;
-
-                    auto substituteFlag = constraint.kind == Constraint::Substitute ? MustSubstitute : NoUnifyFlags;
-
-                    Type other = expand(constraints.types->get(constraints.constrainedTypes[constraint.index]));
-                    if UNLIKELY(config::verboseUnify >= 3)
-                        println("[TYPE]\tTrying to apply subtype constraint against ", other, " to constrained type ", type);
-
-                    if (type.index == other.index)
-                        continue;
-
-                    bool isVar = type.isVar(), otherVar = other.isVar();
-                    Type bound = expand(type);
-                    if (type.isVar())
-                        bound = type.asVar().lowerBound();
-                    if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
-                        type_error("Failed to unify ", other, " onto ", type, " in-place.");
-                    if (substituteFlag && !isNamed(bound.kind())) {
-                        if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
-                            type_error("Failed to unify ", type, " onto ", other, " in-place.");
-                    }
-                }
+                        return true;
+                    Type other = types->get(constraints.constrainedTypes[constraint.index]);
+                    if (isConcrete && other.isConcrete())
+                        return true;
+                    return false;
+                });
             }
+
+            if (order.size() > initialOrderSize || iterations == 0)
+                constraints.graphChanged = true;
+
+            if (constraints.graphChanged) {
+                nonForwarded.clear();
+                order.clear();
+                permMarks.clear(), tempMarks.clear();
+                for (ConstraintIndex i : indices(constraints.constraints)) if (!constraints.constraints[i].isForwarded()) {
+                    Type type = types->get(constraints.constrainedTypes[i]);
+                    if (type.isVar() && type.asVar().isEqual()) {
+                        auto other = constraints.index(expand(type));
+                        for (u32 j = 0; j < constraints.constraints[i].size(); j ++)
+                            constraints.constraints[other].add(constraints.constraints[i][j]);
+                        constraints.constraints[i].forwardTo(other);
+                    } else
+                        nonForwarded.on(i);
+                }
+                for (ConstraintIndex i : nonForwarded) {
+                    if (!permMarks[i])
+                        toposort(constraints, tempMarks, permMarks, order, i);
+                }
+                cleanUpOrder(order);
+            }
+
+            iterations ++;
         }
 
         if (parent) {
@@ -3528,6 +3574,8 @@ namespace clover {
             // remaining subtype constraints in our graph it needs to be aware
             // of.
             nonForwarded.clear();
+            if UNLIKELY(config::verboseUnify >= 3)
+                println("[TYPE]\tPropagating constraints out to parent constraint graph:");
             for (ConstraintIndex i : order) {
                 nonForwarded.on(i);
                 bool addedAny = false;
@@ -3562,6 +3610,8 @@ namespace clover {
                         assert(types->constraintNodes[ct.index].depth() == parent->constraints->depth);
                     }
                     outerList->add(Constraint { outerIndex, constraint.kind });
+                    if UNLIKELY(config::verboseUnify >= 3)
+                        println("[TYPE]\t - Added constraint ", ct, constraint.kind == Constraint::Subtype ? " <: " : " =: ", t, " to parent constraint graph.");
                     if (!addedAny)
                         addedAny = true;
                 }

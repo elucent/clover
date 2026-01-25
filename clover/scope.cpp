@@ -305,7 +305,7 @@ namespace clover {
                         inPlaceOverloads->add((Function*)ptr);
                     info->overloadsIndex = inPlaceOverloads->index;
                 } else
-                    overloads = module->addOverloads(module->functions[info->functionIndex]);
+                    overloads = module->addOverloads(existing.scope->module->functions[info->functionIndex]);
             } else if (info->kind == VariableKind::OverloadedFunction) {
                 if (existing.scope == scope) {
                     if (isOverloads)
@@ -313,7 +313,7 @@ namespace clover {
                     else
                         module->overloads[info->overloadsIndex]->add((Function*)ptr);
                 } else
-                    overloads = module->addOverloads(module->overloads[info->overloadsIndex]);
+                    overloads = module->addOverloads(existing.scope->module->overloads[info->overloadsIndex]);
             } else
                 error(scope->module, pos, "Tried to define function '", module->str(name), "' but it was already declared as a ", VariableInfo::KindNamesLower[info->kind], ".");
             if (overloads) {
