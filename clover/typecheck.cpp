@@ -2228,6 +2228,7 @@ namespace clover {
         for (AST child : parameters) if (child.kind() == ASTKind::AliasDecl) {
             child.setType(module->varType());
             child.child(0).varInfo(newScope->function).type = child.typeIndex();
+            child.child(0).varInfo(newScope->function).decl = child.node;
         }
 
         vec<Type> parameterTypes;
