@@ -979,7 +979,7 @@ namespace types {
 
     template<typename T>
     slice<T> slice<T>::dup() const {
-        return utilities::dup(*this);
+        return utilities::dup((const_slice<T>)*this);
     }
 
     // Entries
