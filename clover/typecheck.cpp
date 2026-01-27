@@ -2581,6 +2581,10 @@ namespace clover {
                 // start.
                 return;
             }
+            for (const auto& candidate : possibleFunctions) {
+                if (candidate.function == overload)
+                    return;
+            }
 
             auto type = expand(overload->type());
             type_assert(type.is<TypeKind::Function>());
