@@ -1467,7 +1467,7 @@ namespace clover {
             if (isTypeExpression(base, MayInstantiate)) {
                 // new T[n]
                 ast.setKind(ASTKind::NewArray);
-                ast.setType(module->sliceType(Own | Uninit, evaluateType(module, ctx, ast.scope(), base, { ast, 0 }, MayInstantiate)));
+                ast.setType(module->sliceType(Own | Uninit, evaluateType(module, ctx, ast.scope(), base, { ast.child(0), 0 }, MayInstantiate)));
                 ast.setChild(0, resolveChild(module, ctx, refTraits, ast.child(0), 1, ExpectValue));
                 return ast;
             }
