@@ -1083,7 +1083,7 @@ namespace clover {
                     }
                 }
             } else {
-                Path filepath(module->compilation->cwd);
+                Path filepath(module->compilation->cwdPath);
                 for (u32 i = 0; i < path.size(); i ++) {
                     if (i == path.size() - 1) {
                         auto withext = tostring(module->str(path[i]), ".cl");

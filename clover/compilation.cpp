@@ -121,13 +121,22 @@ namespace clover {
         rootScope = nullptr;
         types = new TypeSystem(this);
         slice<i8> buf = { new i8[256], 256 };
-        cwd = file::cwd(buf);
+
+        array<i8, 4096> cwdbuf;
+        cwdPath = file::cwd(cwdbuf).dup();
+        auto path = Path(cwdPath);
+        auto* dir = root;
+        for (auto s : path.segments) {
+            assert(this == dir->compilation);
+            dir = dir->ensureDirectoryByName(sym(s));
+        }
+        cwd = dir;
     }
 
     Compilation::~Compilation() {
         delete root;
         delete types;
-        delete[] cwd.data();
+        delete[] cwdPath.data();
         if (shims) delete shims;
     }
 
@@ -173,10 +182,21 @@ namespace clover {
         }
     }
 
+    void printRelativeDirectoryName(Directory* directory) {
+        if (directory == directory->compilation->cwd)
+            return;
+        if (directory->parent) {
+            printRelativeDirectoryName(directory->parent);
+            if (directory->parent != directory->compilation->cwd)
+                print('/');
+            print(directory->compilation->str(directory->name));
+        }
+    }
+
     void printArtifactName(Artifact* artifact) {
         Compilation* compilation = artifact->parent->compilation;
-        printDirectoryName(artifact->parent);
-        if (artifact->parent != compilation->root)
+        printRelativeDirectoryName(artifact->parent);
+        if (artifact->parent != compilation->cwd)
             print('/');
         if (artifact->filename.size())
             print(artifact->filename);

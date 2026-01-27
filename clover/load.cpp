@@ -37,7 +37,7 @@ namespace clover {
     }
 
     Artifact* addSourceFile(Compilation* compilation, const_slice<i8> file) {
-        Path path(compilation->cwd);
+        Path path(compilation->cwdPath);
         path.append(file);
         return clover::addSourceFile(compilation, path);
     }

@@ -225,11 +225,12 @@ namespace clover {
     struct Compilation {
         SymbolTable symbols;
         Directory* root;
+        Directory* cwd;
+        const_slice<i8> cwdPath;
         TypeSystem* types;
         Module* rootModule;
         Scope* rootScope;
         JITRuntimeShims* shims = nullptr;
-        const_slice<i8> cwd;
         bool compilationErrored = false;
         bool filesChanged = false;
         u32 optimizationLevel = 0;
