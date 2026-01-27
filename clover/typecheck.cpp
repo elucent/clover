@@ -3441,10 +3441,19 @@ namespace clover {
         }
         cleanUpOrder(order);
 
-        bool fixpoint = false;
+        vec<pair<TypeIndex, TypeIndex>, 32> orderVarTypes;
+
         u32 iterations = 0;
         while (constraints.graphChanged) {
             constraints.graphChanged = false;
+
+            orderVarTypes.clear();
+            orderVarTypes.expandTo(order.size(), pair { InvalidType, InvalidType });
+            for (auto [i, n] : enumerate(order)) {
+                Type type = types->get(constraints.constrainedTypes[i]);
+                if (type.isVar())
+                    orderVarTypes[i] = { type.asVar().lowerBound().index, type.asVar().upperBound().index };
+            }
 
             if (UNLIKELY(config::printTypeConstraints))
                 printTypeConstraints(module->types, &constraints);
@@ -3544,6 +3553,20 @@ namespace clover {
             if (order.size() > initialOrderSize || iterations == 0)
                 constraints.graphChanged = true;
 
+            for (auto [i, p] : enumerate(orderVarTypes)) {
+                Type type = types->get(constraints.constrainedTypes[i]);
+                if (type.isVar()) {
+                    if (type.asVar().lowerBound().index != p.first) {
+                        constraints.graphChanged = true;
+                        break;
+                    }
+                    if (type.asVar().upperBound().index != p.second) {
+                        constraints.graphChanged = true;
+                        break;
+                    }
+                }
+            }
+
             if (constraints.graphChanged) {
                 nonForwarded.clear();
                 order.clear();
@@ -3578,7 +3601,6 @@ namespace clover {
                 println("[TYPE]\tPropagating constraints out to parent constraint graph:");
             for (ConstraintIndex i : order) {
                 nonForwarded.on(i);
-                bool addedAny = false;
                 Type t = expand(types->get(ctx.constraints->constrainedTypes[i]));
                 bool tConcrete = t.isConcrete();
                 ConstraintIndex outer = ctx.constraints->outerIndices[i].index();
@@ -3612,11 +3634,7 @@ namespace clover {
                     outerList->add(Constraint { outerIndex, constraint.kind });
                     if UNLIKELY(config::verboseUnify >= 3)
                         println("[TYPE]\t - Added constraint ", ct, constraint.kind == Constraint::Subtype ? " <: " : " =: ", t, " to parent constraint graph.");
-                    if (!addedAny)
-                        addedAny = true;
                 }
-                if (addedAny)
-                    parent->order->push(outer);
             }
             for (auto [i, t] : enumerate(ctx.constraints->constrainedTypes)) if (!nonForwarded[i])
                 types->constraintNodes[t] = ctx.constraints->outerIndices[i];
