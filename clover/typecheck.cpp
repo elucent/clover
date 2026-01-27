@@ -3105,7 +3105,7 @@ namespace clover {
         vec<Constraint> newConstraints;
         bool foundAnyOrderedBesidesResult = false;
         for (ConstraintIndex index : group) {
-            Type type = types->get(constraints.constrainedTypes[index]);
+            Type type = expand(types->get(constraints.constrainedTypes[index]));
             if (!result) {
                 result = type;
                 resultIndex = index;
@@ -3382,24 +3382,6 @@ namespace clover {
         Constraints& constraints = *ctx.constraints;
         TypeSystem* types = constraints.types;
         u32 numVisited = 0;
-
-        // Before anything else, we need to pre-forward any constraints whose
-        // target variables may have already been marked equal.
-
-        for (ConstraintIndex i : indices(constraints.constraints)) {
-            Type type = types->get(constraints.constrainedTypes[i]);
-            if (type.isVar() && type.asVar().isEqual()) {
-                Type expanded = expand(type);
-                if UNLIKELY(config::verboseUnify > 2)
-                    println("[TYPE]\tForwarded constraints from variable ", type, " to ", expanded);
-                ConstraintIndex other = constraints.index(expanded);
-                if (constraints.constraints[i].doesNeedRefinement() || constraints.constraints[i].hasRefinementList)
-                    constraints.constraints[other].ensureRefinementList(constraints).push(i);
-                for (Constraint constraint : constraints.constraints[i]) if (constraint.kind != Constraint::Order)
-                    constraints.constraints[other].add(constraint);
-                constraints.constraints[i].forwardTo(constraints.index(expanded));
-            }
-        }
 
         // Now we need to eliminate any initial cycles in the dependency graph.
         // We do two passes, first reducing any cycles in the subtype relation
