@@ -1517,7 +1517,8 @@ namespace clover {
                     unify(rhs, module->topIntegerType(), ast, ctx);
 
                 varType = module->varType(ast);
-                ctx.ensureResolved(varType);
+                if (ast.kind() != ASTKind::SetIndex)
+                    ctx.ensureResolved(varType);
                 switch (ast.kind()) {
                     case ASTKind::GetIndex:
                         ast.setType(varType);
@@ -1562,7 +1563,8 @@ namespace clover {
                     rhs = inferChild(ctx, function, ast, 3);
 
                 varType = module->varType();
-                ctx.ensureResolved(varType);
+                if (ast.kind() != ASTKind::SetSlice)
+                    ctx.ensureResolved(varType);
                 // Because we're potentially writing the result, we want to
                 // allow uninit bases for SetSlice but not for GetSlice.
                 auto sliceType = module->sliceType(ast.kind() == ASTKind::SetSlice ? Uninit : Unowned, varType);
@@ -1609,7 +1611,9 @@ namespace clover {
                 }
 
                 varType = module->varType(ast);
-                ctx.ensureResolved(varType);
+                if (ast.kind() != ASTKind::SetField)
+                    ctx.ensureResolved(varType);
+
                 if (ast.kind() == ASTKind::SetField)
                     ast.setType(module->voidType());
                 else if (ast.kind() == ASTKind::AddrField || ast.kind() == ASTKind::EnsureAddrField)
