@@ -2576,10 +2576,17 @@ namespace clover {
 
     inline Function* AST::resolvedFunction() const {
         assert(kind() == ASTKind::ResolvedFunction);
+        Function* result;
         if LIKELY(firstWord().isInline)
-            return module->functions[firstWord().inlineUnsigned];
+            result = module->functions[firstWord().inlineUnsigned];
         else
-            return module->functions[module->constantList[firstWord().constantIndex].uintConst];
+            result = module->functions[module->constantList[firstWord().constantIndex].uintConst];
+        if UNLIKELY(result->isInstantiation && result->forward) {
+            result = result->forward;
+            AST* ptr = const_cast<AST*>(this);
+            ptr->setResolvedFunction(result);
+        }
+        return result;
     }
 
     inline Overloads* AST::resolvedOverloads() const {

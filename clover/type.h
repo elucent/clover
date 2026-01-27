@@ -820,13 +820,15 @@ namespace clover {
 
         inline bool add(Constraint t) {
             Constraint* dat = data();
-            for (u32 i = 0; i < sz; i ++)
-                if (dat[i].index == t.index && dat[i].kind == t.kind)
-                    return false;
             if ((sz > 3 && sz >= capacity) || sz == 3) {
                 grow();
                 ::load<Constraint*>(dataPointer)[sz ++] = t;
                 return true;
+            } else if (sz <= 3) {
+                // Only try and avoid duplicates if we're still in inline storage.
+                for (u32 i = 0; i < sz; i ++)
+                    if (dat[i].index == t.index && dat[i].kind == t.kind)
+                        return false;
             }
             data()[sz ++] = t;
             return true;
@@ -1891,7 +1893,7 @@ namespace clover {
      * for working with Types.
      */
 
-    inline Type expand(Type t) {
+    inline ALWAYSINLINE Type expand(Type t) {
         // Expands any equality relations if t is a var.
 
         if LIKELY(!t.isVar() || !t.asVar().isEqual())
@@ -2427,7 +2429,8 @@ namespace clover {
                         return UnifyFailure;
 
                     if ((mode & ModeMask) == Constraining) {
-                        self = expand(*this), other = expand(other);
+                        Type self = expand(*this);
+                        other = expand(other);
                         if ((mode & UnifyFlagsMask) == MustSubstitute)
                             constraints->constrainSubstitute(self, other);
                         else
@@ -4059,11 +4062,11 @@ namespace clover {
         return nthWord(1).markedEqual;
     }
 
-    inline Type VarType::equalType() const {
+    inline ALWAYSINLINE Type VarType::equalType() const {
         assert(isEqual());
-        Type expanded = expand(types->get(firstWord().typeBound));
-        if (expanded.index != firstWord().typeBound)
-            firstWord().typeBound = expanded.index;
+        Type expanded = types->get(firstWord().typeBound);
+        while (expanded.isVar() && expanded.asVar().isEqual())
+            expanded = types->get(firstWord().typeBound = expanded.firstWord().typeBound);
         return expanded;
     }
 

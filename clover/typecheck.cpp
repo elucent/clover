@@ -2243,8 +2243,21 @@ namespace clover {
     }
 
     Scope* functionDefiningParent(Scope* scope) {
-        while (!scope->definesFunctions && !scope->instParent && scope->kind != ScopeKind::TopLevel)
+        Module* module = scope->module;
+        Scope* instParent = nullptr;
+        while (!scope->definesFunctions && scope->kind != ScopeKind::TopLevel) {
+            if (scope->instParent) {
+                if (scope->instParent->module != module)
+                    return scope;
+                else if (!instParent)
+                    instParent = scope->instParent;
+            }
+            if (scope == instParent)
+                return scope;
             scope = scope->parent;
+        }
+        if (instParent)
+            return instParent;
         return scope;
     }
 
@@ -2305,8 +2318,12 @@ namespace clover {
         for (u32 i = 0; i < call.arity() - 1; i ++) {
             if (isTypeParameter(parent, call.child(i + 1)))
                 continue;
-            argumentTypes.push(inferredType(ctx, parent, call.child(i + 1)).index);
-            key.setParameterType(nonTypeParameterIndex ++, packedBoundsFor(module->types->get(argumentTypes.back())));
+            Type type = expand(inferredType(ctx, parent, call.child(i + 1)));
+            argumentTypes.push(type.index);
+            if (type.isVar())
+                key.setParameterType(nonTypeParameterIndex ++, packedBoundsFor(module->types->get(argumentTypes.back())));
+            else
+                key.setParameterType(nonTypeParameterIndex ++, packedBoundsFor(type.cloneExpand()));
         }
         key.computeHash();
 
@@ -2330,6 +2347,10 @@ namespace clover {
         newDecl.setChild(1, module->add(ASTKind::ResolvedFunction, newFunction));
         Scope* oldScope = oldDecl.scope();
         Scope* newScope = module->addScope(ScopeKind::Function, newDecl.node, oldDecl.scope()->parent, newFunction);
+
+        if (!generic->instantiations)
+            generic->instantiations = new map<SignatureKey, Function*>();
+        generic->instantiations->put(key, newFunction);
 
         // The new scope is allowed to look in the caller's scope for function
         // definitions.
@@ -2380,8 +2401,8 @@ namespace clover {
                 unify(passedParam, param, call, ctx);
                 continue;
             }
-            auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterIndex ++);
-            unify(module->types->get(argumentTypes[i - 1]), parameterType, call, ctx);
+            auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterIndex);
+            unify(module->types->get(argumentTypes[nonTypeParameterIndex ++]), parameterType, call, ctx);
         }
 
         // Now we can finally explore the function body.
@@ -3043,6 +3064,8 @@ namespace clover {
         ::set<ConstraintIndex> group;
         for (ConstraintIndex i : cycle)
             group.insert(constraints.expand(i));
+        if (group.size() == 1)
+            return;
 
         // When we find a subtype cycle, we know that due to the transitivity
         // of subtyping, all types in the cycle must be strictly equal. To
@@ -3209,21 +3232,21 @@ namespace clover {
             constraints.constraints[node].removeIf([&](Constraint constraint) -> bool { return constraint.kind == Constraint::Order && group.contains(constraint.index); });
     }
 
-    void strongconnect(Constraints& constraints, ConstraintIndex node, vec<SCCNode, 31>& nodes, vec<ConstraintIndex>& stack, u32& index, StrongConnectFunc func) {
+    void strongconnect(Constraints& constraints, ConstraintIndex node, vec<SCCNode, 31>& nodes, vec<ConstraintIndex>& stack, u32& index, vec<ConstraintIndex, 32>& cycles) {
         TypeSystem* types = constraints.types;
-        bool isOrder = func == resolveOrderingCycle; // Kind of icky but we probably won't be adding new functions often.
 
         nodes[node].index = nodes[node].lowLink = index ++;
         nodes[node].onStack = 1;
         stack.push(node);
         for (Constraint& edge : constraints.constraints[node]) {
-            if (isOrder != (edge.kind == Constraint::Order))
+            if (edge.kind == Constraint::Order)
                 continue;
             edge.index = constraints.expand(edge.index);
-            if (nodes[edge.index].index == InvalidConstraint)
-                strongconnect(constraints, edge.index, nodes, stack, index, func);
-            else if (nodes[edge.index].onStack)
+            if (nodes[edge.index].index == InvalidConstraint) {
+                strongconnect(constraints, edge.index, nodes, stack, index, cycles);
                 nodes[node].lowLink = min(nodes[node].lowLink, nodes[edge.index].lowLink);
+            } else if (nodes[edge.index].onStack)
+                nodes[node].lowLink = min(nodes[node].lowLink, nodes[edge.index].index);
         }
 
         if (nodes[node].lowLink == nodes[node].index) {
@@ -3238,15 +3261,17 @@ namespace clover {
             }
 
             ConstraintIndex edge;
-            u32 firstInCycle = stack.size() - 1;
-            while (stack[firstInCycle] != node) {
-                assert(firstInCycle > 0);
-                firstInCycle --;
-            }
-            const_slice<ConstraintIndex> cycle = ((const_slice<ConstraintIndex>)stack).drop(firstInCycle);
-            stack.shrinkBy(stack.size() - firstInCycle);
+            u32 initialCycles = cycles.size();
+            ConstraintIndex n;
+            do {
+                n = stack.pop();
+                nodes[n].onStack = false;
+                cycles.push(n);
+            } while (n != node);
+            cycles.push(cycles.size() - initialCycles);
 
             if UNLIKELY(config::verboseUnify >= 1) {
+                const_slice<ConstraintIndex> cycle = cycles[{initialCycles, cycles.size() - 1}];
                 print("[TYPE]\tFound strongly-connected group of ", cycle.size(), " types: ");
                 bool first = true;
                 for (ConstraintIndex node : cycle) {
@@ -3256,12 +3281,10 @@ namespace clover {
                 }
                 println();
             }
-
-            func(constraints, cycle);
         }
     }
 
-    void scc(Constraints& constraints, StrongConnectFunc func) {
+    void scc(Constraints& constraints, vec<ConstraintIndex, 32>& cycles) {
         // Finds all strongly-connected components in the graph, i.e. variables
         // that have cyclic subtyping requirements, and turns them into
         // equality classes. We use Tarjan's algorithm because it only requires
@@ -3276,7 +3299,7 @@ namespace clover {
         for (ConstraintIndex i = 0; i < nodes.size(); i ++) {
             ConstraintIndex expanded = constraints.expand(i);
             if (nodes[expanded].index == InvalidConstraint)
-                strongconnect(constraints, expanded, nodes, stack, index, func);
+                strongconnect(constraints, expanded, nodes, stack, index, cycles);
         }
     }
 
@@ -3376,8 +3399,15 @@ namespace clover {
         // to equivalence classes, then cataloguing any remaining cycles in the
         // ordering graph.
 
-        scc(constraints, resolveSubtypeCycle);
-        scc(constraints, resolveOrderingCycle);
+        vec<ConstraintIndex, 32> cycles;
+        scc(constraints, cycles);
+        i64 i = i64(cycles.size()) - 1;
+        while (i >= 0) {
+            u32 size = cycles[i];
+            const_slice<ConstraintIndex> cycle = cycles[{u32(i - size), u32(i)}];
+            resolveSubtypeCycle(constraints, cycle);
+            i -= size + 1;
+        }
         biasedset<128> nonForwarded;
         for (ConstraintIndex i : indices(constraints.constraints)) if (!constraints.constraints[i].isForwarded())
             nonForwarded.on(i);
@@ -3902,30 +3932,32 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const DOT<Constraints>& dot) {
-        auto constraints = dot.value;
+        const auto& constraints = dot.value;
 
         io = format(io, "digraph G {\n");
         bitset<128> visited;
         for (u32 i = 0; i < constraints.constraints.size(); i ++) {
-            if (constraints.constraints[i].isForwarded())
-                i = constraints.constraints[i].expand();
-            if (visited[i])
+            u32 index = i;
+            if (constraints.constraints[index].isForwarded())
+                index = constraints.constraints[index].expand();
+            if (visited[index])
                 continue;
-            Type type = constraints.types->get(constraints.constrainedTypes[i]);
-            const auto& node = constraints.constraints[i];
-            io = format(io, "    node_", i, " [label=\"", type);
+            visited.on(index);
+            Type type = constraints.types->get(constraints.constrainedTypes[index]);
+            const auto& node = constraints.constraints[index];
+            io = format(io, "    node_", index, " [label=\"", type);
             if (type.isVar())
                 io = format(io, " {", type.asVar().lowerBound(), ":", type.asVar().upperBound(), "}");
             io = format(io, "\"]\n");
             for (u32 j = 0; j < node.size(); j ++) {
                 if (node[j].kind == Constraint::Order) {
-                    io = format(io, "    node_", node[j].index, " -> node_", i);
+                    io = format(io, "    node_", node[j].index, " -> node_", index);
                     io = format(io, " [color=red]");
                 } else if (node[j].kind == Constraint::Substitute) {
-                    io = format(io, "    node_", node[j].index, " -> node_", i);
+                    io = format(io, "    node_", node[j].index, " -> node_", index);
                     io = format(io, " [color=blue]");
                 } else
-                    io = format(io, "    node_", i, " -> node_", node[j].index);
+                    io = format(io, "    node_", index, " -> node_", node[j].index);
                 io = format(io, "\n");
             }
         }

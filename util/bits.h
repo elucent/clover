@@ -459,7 +459,7 @@ struct biasedset {
     }
 
     inline void off(u32 i) {
-        if (i - min >= maxp1)
+        if (i - min >= maxp1 - min)
             return; // Underflow-based bounds check.
         u32 adj = i - min;
         bits[adj / 64] &= ~(1ull << adj % 64);
@@ -487,7 +487,7 @@ struct biasedset {
     }
 
     inline bool operator[](u32 i) const {
-        if (i - min >= maxp1)
+        if (i - min >= maxp1 - min)
             return false;
         i -= min;
         return bits[i / 64] & (1ull << i % 64);

@@ -82,7 +82,7 @@ void flushInput(File f):
     var amount: file.read(entry.desc, entry.buf[entry.end:IOFileBufferSize])
     if amount < IOFileBufferSize - entry.end:
         entry.eof = true
-    entry.end += amount
+    entry.end += amount as u16
 
 # Standard IO interface for input and output, for Files.
 
