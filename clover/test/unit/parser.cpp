@@ -663,6 +663,12 @@ TEST(parse_relational_operator_chaining) {
     ASSERT_SAME_PARSE("a == b == c == d", "(and (and (== a b) (== b c)) (== c d))");
 }
 
+TEST(parse_file_ends_with_dedent) {
+    ASSERT_SAME_PARSE(R"(
+fun foo():
+    abc)", "(fun missing foo (tuple) missing (do abc))");
+}
+
 TEST(parse_stub_method_decl) {
     return; // TODO: Revisit method-style function declarations.
 

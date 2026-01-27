@@ -1544,7 +1544,7 @@ namespace clover {
         if (token.token.symbol >= FirstKeyword && token.token.symbol <= LastKeyword
             && followSetForNonJuxtaposed & (1ull << (token.token.symbol - FirstKeyword)))
             return ast;
-        if (token.token == WhitespaceNewline || token.token == PunctuatorRightParen || token.token == PunctuatorColon || token.token == PunctuatorComma)
+        if (token.token == WhitespaceNewline || token.token == WhitespaceDedent || token.token == PunctuatorRightParen || token.token == PunctuatorColon || token.token == PunctuatorComma)
             return ast;
 
         // Otherwise, we should consider this a juxtaposition (variable or
