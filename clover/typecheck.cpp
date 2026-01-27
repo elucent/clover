@@ -2370,10 +2370,6 @@ namespace clover {
             newFunction->locals.push(generic->locals[e.value]);
         }
 
-        if (!generic->instantiations)
-            generic->instantiations = new map<SignatureKey, Function*>();
-        generic->instantiations->put(key, newFunction);
-
         // Ensure our new scope is associated with our parameters/return type.
         newDecl.setScope(newScope);
         setScopes(module, newScope, newDecl.child(0));
