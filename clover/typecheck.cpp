@@ -1488,10 +1488,12 @@ namespace clover {
                 return fromType(module->arrayType(module->i8Type(), (u32)module->str(ast.stringConst()).size()));
 
             case ASTKind::List: {
-                assert(ast.arity() > 0);
                 varType = module->varType();
                 ctx.ensureResolved(varType);
-                ast.setType(module->arrayType(varType, u32(ast.arity())));
+                if (ast.arity() == 0)
+                    ast.setType(module->sliceType(varType));
+                else
+                    ast.setType(module->arrayType(varType, u32(ast.arity())));
                 for (u32 i : indices(ast))
                     unify(inferChild(ctx, function, ast, i), varType, ast, ctx);
                 return fromNodeType(ast);
