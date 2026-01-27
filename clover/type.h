@@ -3152,7 +3152,7 @@ namespace clover {
         // this path if we are required to substitute.
         if (other.is<TypeKind::Slice>() && (mode & UnifyFlagsMask) == NoUnifyFlags) {
             if (other.as<TypeKind::Slice>().isOwn())
-                return UnifyFailure;
+                return isBottom() ? UnifySuccess : UnifyFailure;
             auto otherElement = other.as<TypeKind::Slice>().elementType();
             return elementType().unifyOnto(otherElement, constraints, mode)
                 & otherElement.unifyOnto(elementType(), constraints, mode);
