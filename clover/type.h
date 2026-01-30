@@ -1166,7 +1166,7 @@ namespace clover {
 
         inline void addTypeParameters(GenericType* generic, const_slice<TypeIndex> params);
         inline void addTypeParameters(GenericType* generic, const_slice<Type> params);
-        inline void addTypeParametersFrom(Type type);
+        inline void addTypeParametersFrom(Type type, bool shouldClone);
 
         inline void add() {}
 
@@ -1238,7 +1238,7 @@ namespace clover {
 
         inline void addTypeParameters(GenericType* generic, const_slice<TypeIndex> params);
         inline void addTypeParameters(GenericType* generic, const_slice<Type> params);
-        inline void addTypeParametersFrom(Type type);
+        inline void addTypeParametersFrom(Type type, bool shouldClone);
 
         inline Type build(TypeSystem* types);
     };
@@ -2618,9 +2618,14 @@ namespace clover {
     inline Type Type::cloneExpand() const {
         if (isVar()) {
             Type self = expand(*this);
-            if (self.isVar())
-                return types->var(self.asVar().lowerBound(), self.asVar().upperBound());
-            else
+            if (self.isVar()) {
+                Type lb = self.asVar().lowerBound().cloneExpand(), ub = self.asVar().upperBound().cloneExpand();
+                if (lb == ub) {
+                    self.asVar().makeEqual(lb);
+                    return lb;
+                }
+                return types->var(lb, ub);
+            } else
                 return self.cloneExpand();
         }
 
@@ -3324,7 +3329,16 @@ namespace clover {
     }
 
     inline bool NamedType::operator==(NamedType other) const {
-        return name() == other.name() && innerTypeIndex() == other.innerTypeIndex();
+        if (!isGeneric())
+            return index == other.index;
+        if (!other.isGeneric())
+            return false;
+        if (genericOriginIndex() != other.genericOriginIndex())
+            return false;
+        for (u32 i = 0; i < typeParameterCount(); i ++)
+            if (typeParameter(i) != other.typeParameter(i))
+                return false;
+        return true;
     }
 
     inline bool NamedType::contains(TypeIndex var) const {
@@ -3335,7 +3349,13 @@ namespace clover {
     }
 
     inline u64 NamedType::hash() const {
-        return mixHash(kindHash(), intHash(index));
+        if (!isGeneric())
+            return mixHash(kindHash(), intHash(index));
+
+        u64 h = mixHash(kindHash(), intHash(genericOriginIndex()));
+        for (u32 i = 0; i < typeParameterCount(); i ++)
+            h = mixHash(h, clover::hash(typeParameter(i)));
+        return h;
     }
 
     template<typename InstType>
@@ -3385,8 +3405,10 @@ namespace clover {
             return *this;
 
         vec<TypeIndex, 8> typeParams;
-        for (u32 i = 0; i < typeParameterCount(); i ++)
-            typeParams.push(typeParameterIndex(i));
+        for (u32 i = 0; i < typeParameterCount(); i ++) {
+            Type param = typeParameter(i).cloneExpand();
+            typeParams.push(param.index);
+        }
         return types->encode<TypeKind::Named>(name(), scope(), innerType(), genericOrigin(), (const_slice<TypeIndex>)typeParams);
     }
 
@@ -3737,7 +3759,16 @@ namespace clover {
     }
 
     inline bool StructType::operator==(StructType other) const {
-        return index == other.index;
+        if (!isGeneric())
+            return index == other.index;
+        if (!other.isGeneric())
+            return false;
+        if (genericOriginIndex() != other.genericOriginIndex())
+            return false;
+        for (u32 i = 0; i < typeParameterCount(); i ++)
+            if (typeParameter(i) != other.typeParameter(i))
+                return false;
+        return true;
     }
 
     inline bool StructType::contains(TypeIndex var) const {
@@ -3751,7 +3782,13 @@ namespace clover {
     }
 
     inline u64 StructType::hash() const {
-        return mixHash(kindHash(), (index ^ 17402556438599366131ull) * 10595215790981386093ull);
+        if (!isGeneric())
+            return mixHash(kindHash(), (index ^ 17402556438599366131ull) * 10595215790981386093ull);
+
+        u64 h = mixHash(kindHash(), intHash(genericOriginIndex()));
+        for (u32 i = 0; i < typeParameterCount(); i ++)
+            h = mixHash(h, clover::hash(typeParameter(i)));
+        return h;
     }
 
     inline UnifyResult StructType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
@@ -3786,7 +3823,7 @@ namespace clover {
         StructBuilder builder(types, name());
         for (u32 i = 0; i < count(); i ++)
             builder.add(field(i));
-        builder.addTypeParametersFrom(*this);
+        builder.addTypeParametersFrom(*this, true);
         builder.add(scope());
         return types->encode<TypeKind::Struct>(builder);
     }
@@ -3878,28 +3915,34 @@ namespace clover {
             typeParameters.push(t.index);
     }
 
-    inline void StructBuilder::addTypeParametersFrom(Type type) {
+    inline void StructBuilder::addTypeParametersFrom(Type type, bool shouldClone) {
         assert(isGenericInst(type));
         switch (type.kind()) {
             case TypeKind::Named: {
                 const NamedType& named = type.as<TypeKind::Named>();
                 genericIndex = named.genericOriginIndex();
-                for (u32 i = 0; i < named.typeParameterCount(); i ++)
-                    typeParameters.push(named.typeParameterIndex(i));
+                if (shouldClone) for (u32 i = 0; i < named.typeParameterCount(); i ++)
+                    typeParameters.push(named.typeParameter(i).cloneExpand().index);
+                else for (u32 i = 0; i < named.typeParameterCount(); i ++)
+                    typeParameters.push(expand(type.types, named.typeParameterIndex(i)));
                 break;
             }
             case TypeKind::Struct: {
                 const StructType& str = type.as<TypeKind::Struct>();
                 genericIndex = str.genericOriginIndex();
-                for (u32 i = 0; i < str.typeParameterCount(); i ++)
-                    typeParameters.push(str.typeParameterIndex(i));
+                if (shouldClone) for (u32 i = 0; i < str.typeParameterCount(); i ++)
+                    typeParameters.push(str.typeParameter(i).cloneExpand().index);
+                else for (u32 i = 0; i < str.typeParameterCount(); i ++)
+                    typeParameters.push(expand(type.types, str.typeParameterIndex(i)));
                 break;
             }
             case TypeKind::Union: {
                 const UnionType& uni = type.as<TypeKind::Union>();
                 genericIndex = uni.genericOriginIndex();
-                for (u32 i = 0; i < uni.typeParameterCount(); i ++)
-                    typeParameters.push(uni.typeParameterIndex(i));
+                if (shouldClone) for (u32 i = 0; i < uni.typeParameterCount(); i ++)
+                    typeParameters.push(uni.typeParameter(i).cloneExpand().index);
+                else for (u32 i = 0; i < uni.typeParameterCount(); i ++)
+                    typeParameters.push(expand(type.types, uni.typeParameterIndex(i)));
                 break;
             }
             default:
@@ -4079,6 +4122,8 @@ namespace clover {
         assert(!isEqual());
         if (config::verboseUnify >= 2)
             println("[TYPE]\tMade type variable ", *this, " equal to ", t);
+        if (t.index == Bottom)
+            type_error("Made type variable ", *this, " equal to ", t);
         TypeWord* ptr = &firstWord();
         ptr[1].markedEqual = true;
         ptr[0].typeBound = ptr[1].typeBound = t.index;
@@ -4295,11 +4340,26 @@ namespace clover {
     // Unions
 
     inline bool UnionType::operator==(UnionType other) const {
-        return index == other.index;
+        if (!isGeneric())
+            return index == other.index;
+        if (!other.isGeneric())
+            return false;
+        if (genericOriginIndex() != other.genericOriginIndex())
+            return false;
+        for (u32 i = 0; i < typeParameterCount(); i ++)
+            if (typeParameter(i) != other.typeParameter(i))
+                return false;
+        return true;
     }
 
     inline u64 UnionType::hash() const {
-        return mixHash(kindHash(), intHash(index));
+        if (!isGeneric())
+            return mixHash(kindHash(), intHash(index));
+
+        u64 h = mixHash(kindHash(), intHash(genericOriginIndex()));
+        for (u32 i = 0; i < typeParameterCount(); i ++)
+            h = mixHash(h, clover::hash(typeParameter(i)));
+        return h;
     }
 
     inline Symbol UnionType::name() const {
@@ -4362,7 +4422,7 @@ namespace clover {
         UnionBuilder builder(types, name());
         for (u32 i = 0; i < count(); i ++)
             builder.add(caseType(i));
-        builder.addTypeParametersFrom(*this);
+        builder.addTypeParametersFrom(*this, true);
         builder.add(scope());
         return types->encode<TypeKind::Union>(builder);
     }
@@ -4442,7 +4502,7 @@ namespace clover {
             typeParameters.push(t.index);
     }
 
-    inline void UnionBuilder::addTypeParametersFrom(Type type) {
+    inline void UnionBuilder::addTypeParametersFrom(Type type, bool shouldClone) {
         assert(isGenericInst(type));
         switch (type.kind()) {
             case TypeKind::Named: {

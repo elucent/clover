@@ -538,9 +538,9 @@ namespace jasmine {
                     if (a != b) return false;
                 return true;
             case CompoundType::UNION:
-                if (a.fields().size() != b.fields().size())
+                if (a.cases().size() != b.cases().size())
                     return false;
-                for (auto [a, b] : zip(a.fields(), b.fields()))
+                for (auto [a, b] : zip(a.cases(), b.cases()))
                     if (a != b) return false;
                 return true;
             case CompoundType::FUNCTION:

@@ -2016,6 +2016,8 @@ namespace clover {
             binding.highInclusive = isDescending ? firstInclusive : secondInclusive;
         } else {
             error(module, next, "Unexpected token '", TokenFormat(module, next), "' in for loop binding.");
+            while (visitor.peek().token != WhitespaceNewline && visitor.peek().token != PunctuatorColon)
+                visitor.read();
             binding.kind = BindingKind::Error;
         }
 

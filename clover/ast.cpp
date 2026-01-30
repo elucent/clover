@@ -138,6 +138,7 @@ namespace clover {
             ::print("  ", VariableInfo::ScopeNames[(u32)info.scope], " ");
             switch (info.kind) {
                 case VariableKind::Type:
+                case VariableKind::TypeParameter:
                 case VariableKind::GenericType:
                     ::print(VariableInfo::KindNamesUpper[(u32)info.kind], " ", compilation->str(info.name));
                     if (info.type != InvalidType)

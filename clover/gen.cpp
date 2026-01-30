@@ -2235,6 +2235,13 @@ namespace clover {
                 return result;
             }
 
+            case ASTKind::Not: {
+                auto result = genCtx.temp();
+                value = generate(genCtx, builder, ast.child(0), module->boolType());
+                jasmine_append_is_eq(builder, JASMINE_TYPE_BOOL, result, value, genCtx.imm(0));
+                return result;
+            }
+
             case ASTKind::Call: {
                 JasmineOperand callee;
                 Type calleeType;
@@ -2326,7 +2333,7 @@ namespace clover {
                 auto loweredTuple = genCtx.lower(tupleType);
                 auto result = genCtx.temp();
                 for (u32 i = 0; i < tupleType.count(); i ++) {
-                    auto init = generate(genCtx, builder, ast.child(i), tupleType.fieldType(i));
+                    auto init = generate(genCtx, builder, ast.child(i), expand(tupleType.fieldType(i)));
                     jasmine_append_set_field(builder, loweredTuple, result, i, init);
                 }
                 return result;
@@ -2388,7 +2395,7 @@ namespace clover {
                         JasmineOperand field = generate(genCtx, builder, ast.child(i), structType.fieldType(i));
                         jasmine_append_set_field(builder, loweredStruct, result, structType.isCase() ? i + 1 : i, field);
                     }
-                    return result;
+                    return coerce(genCtx, builder, destType, type, result);
                 } else if (type.is<TypeKind::Named>()) {
                     auto namedType = type.as<TypeKind::Named>();
                     auto loweredStruct = genCtx.lower(type);
@@ -2397,7 +2404,7 @@ namespace clover {
                     if (namedType.isCase())
                         jasmine_append_set_field(builder, loweredStruct, result, 0, genCtx.imm(namedType.typeTag()));
                     jasmine_append_set_field(builder, loweredStruct, result, namedType.isCase() ? 1 : 0, field);
-                    return result;
+                    return coerce(genCtx, builder, destType, type, result);
                 } else if (type.is<TypeKind::Pointer>()) {
                     return generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
                 } else if (type.is<TypeKind::Slice>()) {

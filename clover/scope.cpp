@@ -470,6 +470,24 @@ namespace clover {
             setScopes(module, scope, child);
     }
 
+    void setCaseIds(AST unionDecl) {
+        Module* module = unionDecl.module;
+        for (u32 i = 2; i < unionDecl.arity(); i ++) {
+            switch (unionDecl.child(i).kind()) {
+                case ASTKind::NamedCaseDecl:
+                case ASTKind::StructCaseDecl:
+                    unionDecl.child(i).setChild(1, module->add(ASTKind::Unsigned, Constant::UnsignedConst(unionDecl.node)));
+                    break;
+                case ASTKind::UnionCaseDecl:
+                    unionDecl.child(i).setChild(1, module->add(ASTKind::Unsigned, Constant::UnsignedConst(unionDecl.node)));
+                    setCaseIds(unionDecl.child(i));
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
     void addGenericType(Module* module, Scope* currentScope, AST ast, Symbol name, ASTKind genericKind) {
         // We define a pseudo-scope for generic types. They're kind of a
         // weird situation overall - we can't fully resolve them, because we
@@ -495,6 +513,9 @@ namespace clover {
         // we want to be able to dig into this list and find the GenericType
         // instance. So we insert it as the tail of the list.
         ast.setChild(0, module->add(ASTKind::ResolvedGenericType, genericType));
+
+        if (genericKind == ASTKind::GenericUnionDecl)
+            setCaseIds(ast);
 
         currentScope->addGenericType(ast, genericType);
     }
@@ -789,7 +810,7 @@ namespace clover {
             case ASTKind::AliasDecl: {
                 ast.setScope(currentScope);
                 assert(ast.child(0).kind() == ASTKind::Ident);
-                currentScope->add(VariableKind::Type, ast, ast.child(0).symbol()); // Type name
+                currentScope->add(currentScope->kind == ScopeKind::GenericType ? VariableKind::TypeParameter : VariableKind::Type, ast, ast.child(0).symbol()); // Type name
                 computeScopes(module, imports, currentScope, ast.child(2));
                 break;
             }
@@ -1059,7 +1080,7 @@ namespace clover {
                                 scope->addConstantIndirect(module, ast, defScope, info.constantIndex, k);
                             else if (info.kind == VariableKind::Namespace)
                                 defineNamespace(scope, nullptr, defScope->module->namespaces[info.namespaceIndex], ast);
-                            else
+                            else if (info.kind != VariableKind::TypeParameter)
                                 scope->addIndirect(module, ast, defScope, v, k);
                         }
                     }

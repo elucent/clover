@@ -2048,6 +2048,12 @@ namespace clover {
         }
     }
 
+    enum RefinementResult {
+        RefineSuccess,
+        RefineFailure,
+        NotEnoughInformation
+    };
+
     Type dereferenceIfPointer(Module* module, Type type, bool allowUninit) {
         type = expand(type);
         if (type.kind() == TypeKind::Pointer) {
@@ -2096,7 +2102,7 @@ namespace clover {
         unreachable("");
     }
 
-    bool refinePattern(InferenceContext& ctx, Function* function, Type input, AST pattern) {
+    RefinementResult refinePattern(InferenceContext& ctx, Function* function, Type input, AST pattern) {
         auto unifyOrDereference = [&](Type pattern, Type input, AST ast) {
             // This is basically just unify, but it'll try automatically
             // dereferencing the input if it would otherwise fail.
@@ -2126,26 +2132,26 @@ namespace clover {
         switch (pattern.kind()) {
             case ASTKind::Int:
                 unifyOrDereference(naturalType(module, makeSigned(module, pattern.intConst())), input, pattern);
-                return true;
+                return RefineSuccess;
             case ASTKind::Unsigned:
                 unifyOrDereference(naturalType(module, makeUnsigned(module, pattern.uintConst())), input, pattern);
-                return true;
+                return RefineSuccess;
             case ASTKind::Float:
                 unifyOrDereference(naturalType(module, makeFloat(module, pattern.floatConst())), input, pattern);
-                return true;
+                return RefineSuccess;
             case ASTKind::Bool:
                 unifyOrDereference(module->boolType(), input, pattern);
-                return true;
+                return RefineSuccess;
             case ASTKind::Char:
                 unifyOrDereference(module->charType(), input, pattern);
-                return true;
+                return RefineSuccess;
             case ASTKind::String:
                 unifyOrDereference(module->arrayType(module->i8Type(), (u32)module->str(pattern.stringConst()).size()), input, pattern);
-                return true;
+                return RefineSuccess;
 
             case ASTKind::VarDecl:
                 unifyOrDereference(pattern.type(), input, pattern);
-                return true;
+                return RefineSuccess;
 
             case ASTKind::Splat:
                 return refinePattern(ctx, function, input, pattern.child(0));
@@ -2156,7 +2162,7 @@ namespace clover {
                 // earlier inference. All we need to know at this stage is that
                 // our input actually matches the nominal type.
                 unifyOrDereference(pattern.type(), input, pattern);
-                return true;
+                return RefineSuccess;
 
             case ASTKind::Tuple: {
                 input.concretify();
@@ -2169,11 +2175,11 @@ namespace clover {
                         for (u32 j = i; j < pattern.arity(); j ++)
                             subTuple.push(tupleType.fieldTypeIndex(j));
                         refinePattern(ctx, function, module->tupleType(subTuple), pattern.child(i));
-                        return true;
+                        return RefineSuccess;
                     }
                     refinePattern(ctx, function, tupleType.fieldType(i), pattern.child(i));
                 }
-                return true;
+                return RefineSuccess;
             }
 
             case ASTKind::List: {
@@ -2183,7 +2189,7 @@ namespace clover {
                 // slice type for this pattern and propagated its constraints
                 // down through the case body. So as long as we unify onto the
                 // overall pattern type, we're good.
-                return true;
+                return RefineSuccess;
             }
 
             case ASTKind::Typename:
@@ -2197,10 +2203,10 @@ namespace clover {
             case ASTKind::GenericInst: {
                 Type type = evaluateType(module, function, pattern);
                 if (canUnify(type, input, pattern))
-                    return true;
+                    return RefineSuccess;
                 if (expand(input).is<TypeKind::Pointer>())
-                    return canUnify(type, expand(input).as<TypeKind::Pointer>().elementType(), pattern);
-                return false;
+                    return canUnify(type, expand(input).as<TypeKind::Pointer>().elementType(), pattern) ? RefineSuccess : RefineFailure;
+                return RefineFailure;
             }
 
             default:
@@ -2249,23 +2255,50 @@ namespace clover {
         return module->funType(returnType, parameterTypes);
     }
 
-    Scope* functionDefiningParent(Scope* scope) {
-        Module* module = scope->module;
-        Scope* instParent = nullptr;
-        while (!scope->definesFunctions && scope->kind != ScopeKind::TopLevel) {
-            if (scope->instParent) {
-                if (scope->instParent->module != module)
-                    return scope;
-                else if (!instParent)
-                    instParent = scope->instParent;
+    Scope* functionDefiningParent(Scope* defScope, Scope* scope) {
+        // Kind of unfortunately, we have to add a discriminator to function
+        // instantiations based on the scope they are instantiated from, since
+        // they're allowed to look up method definitions from the caller's
+        // context. To minimize the amount of duplication, we try and keep the
+        // number of distinct scope origins to a minimum.
+
+        // First, we find the lexical parent of the scope the function was
+        // instantiated in.
+        Module* defModule = defScope->module;
+        Scope* defRoot = defScope;
+        while (!defRoot->definesFunctions && defRoot->kind != ScopeKind::TopLevel)
+            defRoot = defRoot->parent;
+
+        // Next, if the caller scope is from the same module, we see if it has
+        // the same root.
+        Scope* instParentScope = nullptr;
+        bool hasMultipleInstParents = false;
+        Scope* root = scope;
+        instParentScope = root->instParent ? root : nullptr;
+        while (!root->definesFunctions && root->kind != ScopeKind::TopLevel) {
+            root = root->parent;
+            if (root->instParent) {
+                if (instParentScope)
+                    hasMultipleInstParents = true;
+                else
+                    instParentScope = root;
             }
-            if (scope == instParent)
-                return scope;
-            scope = scope->parent;
         }
-        if (instParent)
-            return instParent;
-        return scope;
+
+        // If the callee doesn't have a custom instParent, then we should just
+        // use its nearest scope.
+        if (!instParentScope)
+            return root;
+
+        // If our caller and callee have the same root, and there weren't
+        // multiple instParents along the path to the root, then we can just
+        // reuse the same instParent as our caller.
+        if (!hasMultipleInstParents && root == defRoot)
+            return instParentScope->instParent;
+
+        // Otherwise, we have to conservatively use the scope that defined
+        // the instParent.
+        return instParentScope;
     }
 
     void gatherResolvedFunctions(vec<u32>& indices, Function* self, ChangePosition bodyPos) {
@@ -2311,8 +2344,13 @@ namespace clover {
         // instantiated this generic with the same types and in the same scope,
         // then we can safely use the previous version without typechecking a
         // new instantiation.
-        Scope* methodScope = functionDefiningParent(call.scope());
-        SignatureKey key = SignatureKey::create(call.arity() - 1, methodScope);
+        Scope* methodScope = functionDefiningParent(module->node(generic->decl).scope(), call.scope());
+        u32 numNonTypeParameters = 0;
+        for (u32 i = 0; i < call.arity() - 1; i ++) {
+            if (!isTypeParameter(parent, call.child(i + 1)))
+                numNonTypeParameters ++;
+        }
+        SignatureKey key = SignatureKey::create(numNonTypeParameters, methodScope);
 
         // TODO: Add an alternate path for the case that we explicitly specify
         // all type parameters. In that case, we would know all generic types
@@ -2637,7 +2675,7 @@ namespace clover {
             i64 newMaxRank = -1;
 
             if UNLIKELY(config::verboseUnify >= 3) {
-                print("Trying second layer overload refinement with resolved function type ");
+                print("[TYPE]\tTrying second layer overload refinement with resolved function type ");
                 print(newReturnType, '(');
                 for (u32 i = 0; i < newArgumentTypes.size(); i ++) {
                     if (i > 0)
@@ -2645,7 +2683,7 @@ namespace clover {
                     print(types->get(newArgumentTypes[i]));
                 }
                 println(')');
-                print("Candidates are ");
+                print("[TYPE]\tCandidates are ");
                 for (const auto& func : possibleFunctions)
                     print(types->get(func.type), ", ");
                 println();
@@ -2655,12 +2693,12 @@ namespace clover {
                 auto funcType = types->get(func.type).as<TypeKind::Function>();
                 i64 rank = computeOverloadRank(func.function, ast, funcType, newArgumentTypes, newReturnType);
                 if UNLIKELY(config::verboseUnify >= 3)
-                    println("Rank of candidate with type ", funcType, " is ", rank);
+                    println("[TYPE]\tRank of candidate with type ", funcType, " is ", rank);
                 if (rank > newMaxRank)
                     newMaxRank = rank;
                 func.rank = rank;
             }
-            possibleFunctions.removeIf([=](const Overload& overload) -> bool { return overload.rank != maxRank; });
+            possibleFunctions.removeIf([=](const Overload& overload) -> bool { return overload.rank != newMaxRank; });
 
             if (possibleFunctions.size() == 0 || possibleFunctions.size() > 1)
                 type_error("Overloaded call ", ast, " is ambiguous.");
@@ -2721,7 +2759,7 @@ namespace clover {
         return CallResolution((TypeIndex)funcType.index);
     }
 
-    bool refine(InferenceContext& ctx, Function* function, AST ast, Type refinedType) {
+    RefinementResult refine(InferenceContext& ctx, Function* function, AST ast, Type refinedType) {
         Module* module = ast.module;
 
         if UNLIKELY(config::verboseUnify >= 3)
@@ -2732,15 +2770,18 @@ namespace clover {
             case ASTKind::AddrField:
             case ASTKind::EnsureAddrField:
             case ASTKind::SetField: {
-                Type baseType = inferredType(ctx, function, ast.child(0));
+                Type srcType = expand(inferredType(ctx, function, ast.child(0)));
+                Type baseType = dereferenceIfPointer(module, srcType, ast.kind() == ASTKind::SetField);
+                bool didDereference = baseType.index != srcType.index;
 
-                if (baseType.isVar())
-                    baseType = concreteType(module, baseType);
-
-                if (baseType.is<TypeKind::Pointer>()) {
-                    // Implicit dereference is permitted on field access.
-                    baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
+                if (baseType.isVar()) {
+                    baseType = canonicalTypeInBounds(module->types, baseType.asVar().lowerBound(), baseType.asVar().upperBound());
+                    if (!didDereference)
+                        baseType = dereferenceIfPointer(module, baseType, ast.kind() == ASTKind::SetField);
                 }
+
+                if (baseType == Bottom)
+                    return RefineFailure;
 
                 if (baseType.isVar())
                     baseType = concreteType(module, baseType);
@@ -2782,7 +2823,7 @@ namespace clover {
                                     unreachable("Expected a field access.");
                             }
 
-                            return true;
+                            return RefineSuccess;
                         }
                         auto name = module->str(structType.fieldName(i));
                         if (name.size() == 1 || (name.size() < 4 && utf8_length(name.data(), name.size()) == 1)) {
@@ -2839,7 +2880,7 @@ namespace clover {
                             default:
                                 unreachable("Expected a field access.");
                         }
-                        return true;
+                        return RefineSuccess;
                     }
 
                     type_error("Undefined field name '", module->str(field), "'");
@@ -2848,7 +2889,7 @@ namespace clover {
                 } else
                     type_error("Couldn't access field from base of type ", baseType);
 
-                return true;
+                return RefineSuccess;
             }
 
             case ASTKind::GetFields: {
@@ -2892,7 +2933,7 @@ namespace clover {
                         }
                         type_assert(foundField);
                     }
-                    return true;
+                    return RefineSuccess;
                 } else if (baseType.is<TypeKind::Tuple>()) {
                     auto tupleType = baseType.as<TypeKind::Tuple>();
                     unreachable("TODO: Tuple accesses");
@@ -2933,7 +2974,7 @@ namespace clover {
                     default:
                         unreachable("Invalid AST kind.");
                 }
-                return true;
+                return RefineSuccess;
             }
 
             case ASTKind::Call:
@@ -2943,6 +2984,18 @@ namespace clover {
                     resolution = refineOverloadedCall(ctx, function, ast);
                 else
                     resolution = refineCall(ctx, function, ast);
+                if (!resolution && ast.kind() == ASTKind::CallMethod) {
+                    auto arg = inferredType(ctx, function, ast.child(1));
+                    auto dereffed = dereferenceIfPointer(module, arg, false);
+                    AST prev = ast.child(1);
+                    ast.setChild(1, module->add(ASTKind::Deref, ast.pos(), ast.scope(), dereffed, ast.child(1)));
+                    if (isOverloadedFunction(function, ast.child(0)))
+                        resolution = refineOverloadedCall(ctx, function, ast);
+                    else
+                        resolution = refineCall(ctx, function, ast);
+                    if (!resolution)
+                        ast.setChild(1, prev);
+                }
                 if (!resolution && ast.kind() == ASTKind::CallMethod) {
                     auto arg = inferredType(ctx, function, ast.child(1));
                     switch (ast.child(1).kind()) {
@@ -3001,7 +3054,7 @@ namespace clover {
                     ast.setKind(ASTKind::Call); // These will be truly indistinguishable from this point forward.
                     ast.setChild(0, module->add(ASTKind::ResolvedFunction, resolution.intrinsic));
                     ctx.checkLater(ast);
-                    return true;
+                    return RefineSuccess;
                 } else if (resolution.intrinsic) {
                     funcType = module->types->get(resolution.intrinsic->intrinsic.typeFactory(ctx, module)).as<TypeKind::Function>();
                     ast.setChild(0, module->add(ASTKind::ResolvedFunction, resolution.intrinsic));
@@ -3027,17 +3080,20 @@ namespace clover {
                 ast.setArity(1 + nonTypeParameterCount);
                 unify(funcType.as<TypeKind::Function>().returnType(), ast, ctx);
                 ast.setKind(ASTKind::Call); // These will be truly indistinguishable from this point forward.
-                return true;
+                return RefineSuccess;
             }
 
             case ASTKind::Match: {
-                bool result = true;
+                auto result = RefineSuccess;
                 Type baseType = dereferenceIfPointer(module, expand(refinedType), false);
                 for (AST matchCase : ast.children(1)) {
                     AST check = matchCase.child(0);
                     AST body = matchCase.child(1);
-                    if (!check.missing() && !refinePattern(ctx, function, baseType, check))
-                        result = false;
+                    if (!check.missing()) {
+                        auto result = refinePattern(ctx, function, baseType, check);
+                        if (result != RefineSuccess)
+                            return result;
+                    }
                 }
                 return result;
             }
@@ -3054,7 +3110,7 @@ namespace clover {
                 // All other nodes are fine relying on subtype constraints, for
                 // now. So we can just assume there's nothing to refine. Really
                 // we shouldn't even be here, but it probably doesn't matter.
-                return true;
+                return RefineSuccess;
         }
     }
 
@@ -3525,13 +3581,23 @@ namespace clover {
                 // constraints, we know we need to be refined. So we refine()
                 // the owner of this type.
 
-                if (iterations == 0 && constraints.constraints[i].doesNeedRefinement()) {
+                bool preserveOrderingConstraints = false;
+
+                if (constraints.constraints[i].doesNeedRefinement()) {
                     assert(origType.isVar());
                     assert(origType.asVar().hasOwner());
+
                     AST ast = origType.asVar().owner();
                     assert(!ast.isLeaf());
-                    if (!refine(ctx, ast.function(), ast, type))
-                        type_error("Couldn't refine node ", ast, " after inferring type ", type);
+                    switch (refine(ctx, ast.function(), ast, type)) {
+                        case RefineSuccess:
+                            break;
+                        case RefineFailure:
+                            type_error("Couldn't refine node ", ast, " after inferring type ", type);
+                        case NotEnoughInformation:
+                            preserveOrderingConstraints = true;
+                            break;
+                    }
                 }
 
                 // On a similar note, we need to handle the case where this type
@@ -3539,7 +3605,7 @@ namespace clover {
                 // refinement, but another type that does need refinement was
                 // forwarded to it.
 
-                if UNLIKELY(iterations == 0 && constraints.constraints[i].hasRefinementList) {
+                if UNLIKELY(constraints.constraints[i].hasRefinementList) {
                     auto& list = constraints.constraints[i].refinementList(constraints);
 
                     for (ConstraintIndex i : list) {
@@ -3548,11 +3614,19 @@ namespace clover {
                         assert(origType.asVar().hasOwner());
                         AST ast = origType.asVar().owner();
                         assert(!ast.isLeaf());
-                        if (!refine(ctx, ast.function(), ast, type))
-                            type_error("Couldn't refine node ", ast, " after inferring type ", type);
+                        switch (refine(ctx, ast.function(), ast, type)) {
+                            case RefineSuccess:
+                                break;
+                            case RefineFailure:
+                                type_error("Couldn't refine node ", ast, " after inferring type ", type);
+                            case NotEnoughInformation:
+                                preserveOrderingConstraints = true;
+                                break;
+                        }
                     }
 
-                    constraints.constraints[i].dropRefinementList(constraints);
+                    if (!preserveOrderingConstraints)
+                        constraints.constraints[i].dropRefinementList(constraints);
                 }
 
                 // Trim any unnecessary constraints from our list.
@@ -3560,13 +3634,15 @@ namespace clover {
                 type = expand(type);
                 bool isConcrete = type.isConcrete();
                 constraints.constraints[i].removeIf([&](Constraint constraint) -> bool {
-                    if (constraint.kind == Constraint::Order)
+                    if (constraint.kind == Constraint::Order && !preserveOrderingConstraints)
                         return true;
                     Type other = types->get(constraints.constrainedTypes[constraint.index]);
                     if (isConcrete && other.isConcrete())
                         return true;
                     return false;
                 });
+                if (!preserveOrderingConstraints)
+                    constraints.constraints[i].needsRefinement = false;
             }
 
             if (order.size() > initialOrderSize || iterations == 0)
@@ -3817,7 +3893,7 @@ namespace clover {
         generic->instantiations->put(concreteKey, function);
 
         if UNLIKELY(config::printInferredTree && generic->module != callerModule)
-            println(decl, '\n');
+            println(Multiline(decl), '\n');
 
         if UNLIKELY(config::verboseInstantiation)
             println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, function->initialKey }, " and unique concrete signature ", SignatureKeyLogger { module->types, concreteKey });

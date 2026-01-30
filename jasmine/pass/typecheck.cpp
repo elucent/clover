@@ -385,7 +385,8 @@ namespace jasmine {
                 case Opcode::IS_NE:
                     if (!validateArityAndDest(block, node, 3))
                         break;
-                    checkIsNumeric(block, node);
+                    if (!isInt(node.type()) && !isFloat(node.type()) && node.type() != PTR && node.type() != BOOL)
+                        ctx.error(block, node, "Expected numeric or boolean type for node with opcode ", node.opcode(), ", found type ", TypeLogger { fn, node.type() }, '.');
                     unifyCompare(block, node);
                     break;
                 case Opcode::IS_INB:

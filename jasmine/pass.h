@@ -75,7 +75,7 @@ namespace jasmine {
     inline bool shouldPrintFor(Pass pass, Function& fn) {
         auto passName = cstring(PASS_NAMES[(u32)pass]);
         bool passMatches = pass == Pass::NONPASS;
-        if (pass != Pass::NONPASS) for (u32 i = 0; i < passName.size(); i ++) {
+        if (pass != Pass::NONPASS) for (u32 i = 0; i < passName.size() - config::jasminePassFilter.size(); i ++) {
             bool anyMismatch = false;
             for (u32 j = 0; j < config::jasminePassFilter.size(); j ++) {
                 if (passName[i + j] != config::jasminePassFilter[j]) {
@@ -93,7 +93,7 @@ namespace jasmine {
             return false;
 
         auto name = fn.name();
-        for (u32 i = 0; i < name.size(); i ++) {
+        for (u32 i = 0; i < name.size() - config::jasmineFunctionFilter.size(); i ++) {
             bool anyMismatch = false;
             for (u32 j = 0; j < config::jasmineFunctionFilter.size(); j ++) {
                 if (name[i + j] != config::jasmineFunctionFilter[j]) {
