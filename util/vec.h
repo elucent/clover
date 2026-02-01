@@ -3,6 +3,7 @@
 
 #include "rt/def.h"
 #include "util/malloc.h"
+#include "util/ptrhax.h"
 
 template<typename T, typename U = IsTriviallyCopyable<T>>
 struct vec_copier;
@@ -374,5 +375,150 @@ inline vec<T, N> vec_of(const Args&... args) {
     vec_fill(v, args...);
     return v;
 }
+
+template<typename T, u32 N = max<i64>(3, i64(sizeof(void*)) - i64(sizeof(T)))>
+struct tinyvec {
+    using I = bit_int<T>;
+    using U = bit_uint<T>;
+    using P = packed_ptr<u8>;
+
+    U sz;
+    u8 fixed[N * sizeof(T)];
+
+    constexpr static bool CanGoOutOfLine = sizeof(T) * N >= sizeof(P);
+
+    inline tinyvec():
+        sz(0) {}
+
+    inline ~tinyvec() {
+        if constexpr (CanGoOutOfLine) {
+            if (sz > N)
+                free(raw());
+        }
+    }
+
+    inline u8* raw() {
+        if (sz <= N)
+            return fixed;
+        return load<P>(fixed + sizeof(fixed) - sizeof(P)).unpack();
+    }
+
+    inline T* data() {
+        return (T*)raw();
+    }
+
+    inline void free(const void* data) {
+        u32 addedSpace = max<u32>(4, sizeof(T));
+        delete[] ((u8*)data - addedSpace);
+    }
+
+    inline void setRaw(void* ptr) {
+        auto p = P((T*)ptr);
+        store<P>(p, fixed + sizeof(fixed) - sizeof(P));
+    }
+
+    inline u32 capacity(const void* data) {
+        return load<u32>((u8*)data - 4);
+    }
+
+    inline void setCapacity(void* data, u32 capacity) {
+        store<u32>(capacity, (u8*)data - 4);
+    }
+
+    inline void grow() {
+        if constexpr (!CanGoOutOfLine)
+            unreachable("Tried to grow tiny vector that doesn't have room to go out of line!");
+        const T* old = data();
+        u32 capacity = sz <= N ? (N > 4 ? 16 : 8) : this->capacity(old) * 2;
+
+        u32 addedSpace = max<u32>(4, sizeof(T));
+        u8* data = new u8[capacity * sizeof(T) + addedSpace];
+        setCapacity(data + addedSpace, capacity);
+        vec_copier<T>::copy((T*)(data + addedSpace), old, sz);
+        setRaw(data + addedSpace);
+        if (old != (const T*)fixed)
+            free(old);
+    }
+
+    inline void push(const T& t) {
+        if (sz == N || (sz > N && sz >= capacity(data())))
+            grow();
+        sz ++;
+        new (data() + sz - 1) T(t);
+    }
+
+    inline void shrink(T* old) {
+        vec_copier<T>::copy((T*)fixed, old, sz);
+        free(old);
+    }
+
+    inline T pop() {
+        T* dat = data();
+        T result = dat[-- sz];
+        if (sz == N)
+            shrink(dat);
+        return result;
+    }
+
+    inline const T& operator[](u32 i) const {
+        return data()[i];
+    }
+
+    inline T& operator[](u32 i) {
+        return data()[i];
+    }
+
+    inline const T* begin() const {
+        return data();
+    }
+
+    inline T* begin() {
+        return data();
+    }
+
+    inline const T* end() const {
+        return data() + sz;
+    }
+
+    inline T* end() {
+        return data() + sz;
+    }
+
+    inline const T& front() const {
+        return data()[0];
+    }
+
+    inline T& front() {
+        return data()[0];
+    }
+
+    inline const T& back() const {
+        return data()[sz - 1];
+    }
+
+    inline T& back() {
+        return data()[sz - 1];
+    }
+
+    inline u32 size() const {
+        return sz;
+    }
+
+    template<typename Func>
+    inline void removeIf(Func&& func) {
+        T* begin = data();
+        T* writer = begin;
+        T* reader = writer;
+
+        for (u32 i = 0; i < sz; i ++) {
+            if (!func(*reader))
+                *writer ++ = *reader;
+            ++ reader;
+        }
+        sz = writer - begin;
+        if (reader - begin > N && sz <= N)
+            shrink(begin);
+    }
+};
 
 #endif
