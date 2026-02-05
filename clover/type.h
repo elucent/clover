@@ -986,15 +986,20 @@ namespace clover {
 
         inline Type lowerBound() const;
         inline Type upperBound() const;
-        inline UnifyResult setLowerBound(TypeIndex type);
-        inline UnifyResult setUpperBound(TypeIndex type);
+        inline void setLowerBound(TypeIndex type);
+        inline void setUpperBound(TypeIndex type);
+
+        // These variants of setLower/UpperBound not only set the respective
+        // bound, but also inform the opposite bound if possible.
+        inline void setLowerBoundAndDecorate(Type type);
+        inline void setUpperBoundAndDecorate(Type type);
 
         // Kind of a hack, you probably shouldn't call this directly. Used to
         // force a type variable back into its non-equal state, so we can set
         // its lower and upper bounds independently again.
         inline void setNotEqual();
 
-        inline UnifyResult setLowerBound(Type type) {
+        inline void setLowerBound(Type type) {
             assert(!type.isVar());
             #ifndef RELEASE
                 assert(type.index != index);
@@ -1002,10 +1007,10 @@ namespace clover {
                     assert(var.index != type.index);
                 });
             #endif
-            return setLowerBound(type.index);
+            setLowerBound(type.index);
         }
 
-        inline UnifyResult setUpperBound(Type type) {
+        inline void setUpperBound(Type type) {
             assert(!type.isVar());
             #ifndef RELEASE
                 assert(type.index != index);
@@ -1013,7 +1018,7 @@ namespace clover {
                     assert(var.index != type.index);
                 });
             #endif
-            return setUpperBound(type.index);
+            setUpperBound(type.index);
         }
 
         // These methods let us check if this variable has been marked
@@ -2120,6 +2125,8 @@ namespace clover {
     }
 
     inline void Type::concretify() {
+        if (isConcrete())
+            return;
         switch(kind()) {
             case TypeKind::Bottom:
                 as<TypeKind::Bottom>().concretify();
@@ -2174,65 +2181,6 @@ namespace clover {
 
     inline Type leastCommonSupertype(Type, Type, Constraints*, UnifyMode);
     inline Type greatestCommonSubtype(Type, Type, Constraints*, UnifyMode);
-
-    // inline maybe<UnifyResult> tryConstrainLocally(Type sub, Type super, Constraints* constraints, UnifyMode mode) {
-    //     // This function serves as a pretty critical optimization: if we are
-    //     // some variable and can immediately resolve its type bound without any
-    //     // propagative effects, i.e. we know the variable bounds and the types
-    //     // we're refining it with are both concrete, then we can update it
-    //     // right away instead of waiting for constraint reduction. Even more
-    //     // than the fact we're saving more expensive constraint operations is
-    //     // the fact that this often means we can easily refine chains of
-    //     // operations that would otherwise require multiple passes to fully
-    //     // propagate up.
-
-    //     sub = expand(sub);
-    //     super = expand(super);
-    //     Type subl = expand(sub.isVar() ? sub.asVar().lowerBound() : sub), subu = expand(sub.isVar() ? sub.asVar().upperBound() : sub);
-    //     Type superl = expand(super.isVar() ? super.asVar().lowerBound() : super), superu = expand(super.isVar() ? super.asVar().upperBound() : super);
-
-    //     if ((mode & UnifyFlagsMask) == MustBeEqual) {
-    //         auto lb = leastCommonSupertype(subl, superl, constraints, mode);
-    //         if (!lb)
-    //             return some<UnifyResult>(UnifyFailure);
-    //         auto ub = greatestCommonSubtype(subu, superu, constraints, mode);
-    //         if (!ub)
-    //             return some<UnifyResult>(UnifyFailure);
-    //         if (sub.isVar() && super.isVar()) {
-    //             Type result = sub.index < super.index ? sub : super;
-    //             Type other = sub.index < super.index ? super : sub;
-    //             result.asVar().setLowerBound(lb), result.asVar().setUpperBound(ub);
-    //             other.asVar().makeEqual(result);
-    //         } else if (super.isVar())
-    //             super.asVar().makeEqual(sub);
-    //         else if (sub.isVar())
-    //             sub.asVar().makeEqual(super);
-    //         return some<UnifyResult>(UnifySuccess);
-    //     }
-
-    //     if (sub.isVar() && super.isVar())
-    //         return none<UnifyResult>();
-
-    //     if (sub.isVar() && subu.isConcrete() && superu.isConcrete()) {
-    //         auto ub = greatestCommonSubtype(subu, superu, constraints, mode);
-    //         if (!ub)
-    //             return none<UnifyResult>();
-    //         if (config::verboseUnify >= 2)
-    //             println("[TYPE]\tRefined upper bound of ", sub, " from ", subu, " to ", ub);
-    //         sub.asVar().setUpperBound(ub);
-    //         return super.isConcrete() ? some<UnifyResult>(UnifySuccess) : none<UnifyResult>();
-    //     }
-    //     if (super.isVar() && superl.isConcrete() && subl.isConcrete()) {
-    //         auto lb = leastCommonSupertype(subl, superl, constraints, mode);
-    //         if (!lb)
-    //             return none<UnifyResult>();
-    //         if (config::verboseUnify >= 2)
-    //             println("[TYPE]\tRefined lower bound of ", super, " from ", superl, " to ", lb);
-    //         super.asVar().setLowerBound(lb);
-    //         return sub.isConcrete() ? some<UnifyResult>(UnifySuccess) : none<UnifyResult>();
-    //     }
-    //     return none<UnifyResult>();
-    // }
 
     inline bool isNamed(TypeKind kind) {
         constexpr u32 CaseTypeKinds = 0
@@ -2421,8 +2369,8 @@ namespace clover {
                         return UnifySuccess;
                     }
 
-                    asVar().setUpperBound(upper);
-                    other.asVar().setLowerBound(lower);
+                    asVar().setUpperBoundAndDecorate(upper);
+                    other.asVar().setLowerBoundAndDecorate(lower);
                     if (!asVar().lowerBound().unifyOnto(upper, constraints, mode & ModeMask))
                         return UnifyFailure;
                     if (!lower.unifyOnto(other.asVar().upperBound(), constraints, mode & ModeMask))
@@ -2452,7 +2400,7 @@ namespace clover {
                             asVar().makeEqual(other);
                         return UnifySuccess;
                     }
-                    asVar().setUpperBound(upper);
+                    asVar().setUpperBoundAndDecorate(upper);
                     if (asVar().isEqual())
                         return UnifySuccess;
                     if (!asVar().lowerBound().unifyOnto(upper, constraints, mode & ModeMask))
@@ -2480,7 +2428,7 @@ namespace clover {
                             other.asVar().makeEqual(*this);
                         return UnifySuccess;
                     }
-                    other.asVar().setLowerBound(lower);
+                    other.asVar().setLowerBoundAndDecorate(lower);
                     if (other.asVar().isEqual())
                         return UnifySuccess;
                     if (!lower.unifyOnto(other.asVar().upperBound(), constraints, mode & ModeMask))
@@ -2925,7 +2873,10 @@ namespace clover {
 
             // Return a signed integer type with an extra bit, i.e.
             // lcs(u3, i3) is i4.
-            return types->encode<TypeKind::Numeric>(true, false, u32(max(an.bitCount(), bn.bitCount()) + 1));
+            u32 bitCount = max(an.bitCount(), bn.bitCount()) + 1u;
+            if (bitCount > 64)
+                return types->invalidType();
+            return types->encode<TypeKind::Numeric>(true, false, bitCount);
         }
 
         if (ak == TypeKind::Slice && bk == TypeKind::Array) {
@@ -4075,7 +4026,7 @@ namespace clover {
         return types->get(nthWord(1).typeBound);
     }
 
-    inline UnifyResult VarType::setLowerBound(TypeIndex index) {
+    inline void VarType::setLowerBound(TypeIndex index) {
         assert(!isEqual());
         if (firstWord().typeBound != index) {
             if (nthWord(1).typeBound == index)
@@ -4083,10 +4034,9 @@ namespace clover {
             else
                 firstWord().typeBound = index;
         }
-        return UnifySuccess;
     }
 
-    inline UnifyResult VarType::setUpperBound(TypeIndex index) {
+    inline void VarType::setUpperBound(TypeIndex index) {
         assert(!isEqual());
         if (nthWord(1).typeBound != index) {
             if (firstWord().typeBound == index)
@@ -4094,7 +4044,25 @@ namespace clover {
             else
                 nthWord(1).typeBound = index;
         }
-        return UnifySuccess;
+    }
+
+    inline void VarType::setLowerBoundAndDecorate(Type bound) {
+        setLowerBound(bound);
+        if (bound.is<TypeKind::Numeric>() && (upperBound() == TopInteger || upperBound() == Any)) {
+            if (!bound.as<TypeKind::Numeric>().isFloat()) {
+                if (bound.as<TypeKind::Numeric>().isSigned())
+                    return setUpperBound(I64);
+                else if (bound.as<TypeKind::Numeric>().bitCount() == 64)
+                    return setUpperBound(U64);
+            }
+            if (upperBound() == Any)
+                setUpperBound(bound.as<TypeKind::Numeric>().isFloat() ? F64 : TopInteger);
+            return;
+        }
+    }
+
+    inline void VarType::setUpperBoundAndDecorate(Type bound) {
+        setUpperBound(bound);
     }
 
     inline void VarType::setNotEqual() {
