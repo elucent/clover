@@ -2328,8 +2328,7 @@ namespace clover {
             }
 
             case ASTKind::Tuple: {
-                auto baseType = typeOf(ast);
-                auto tupleType = baseType.as<TypeKind::Tuple>();
+                auto tupleType = destType.as<TypeKind::Tuple>();
                 auto loweredTuple = genCtx.lower(tupleType);
                 auto result = genCtx.temp();
                 for (u32 i = 0; i < tupleType.count(); i ++) {
@@ -2435,7 +2434,7 @@ namespace clover {
             case ASTKind::VarDecl:
                 if (ast.child(1).kind() == ASTKind::Local) {
                     // Local variable declaration, a simple move.
-                    if (ast.child(2).missing())
+                    if (ast.child(2).missing() || ast.child(2).kind() == ASTKind::Uninit)
                         jasmine_append_var(builder, genCtx.lower(typeOf(ast)), genCtx.local(ast.child(1).variable()));
                     else {
                         value = generate(genCtx, builder, ast.child(2), typeOf(ast));
