@@ -1717,7 +1717,7 @@ namespace clover {
                 if (ast.arity() == 1)
                     ctx.constraints->constrainOrder(module->voidType(), ast.type());
                 ctx.ensureResolved(ast.type());
-                if (!isOverloadedFunction(function, ast.child(0))) {
+                if (!isOverloadedFunction(function, ast.child(0)) && (ast.child(0).kind() != ASTKind::ResolvedFunction || !ast.child(0).resolvedFunction()->isGeneric)) {
                     auto func = inferChild(ctx, function, ast, 0);
                     auto funcType = toType(module, func).type(module);
                     ctx.constraints->constrainOrder(funcType, ast.type());
@@ -2741,6 +2741,20 @@ namespace clover {
                 return CallResolution();
         }
 
+        // We already rejected if any unification failed, now we need to make
+        // those unifications permanent to inform the future resolution.
+        if (!expand(funcType.returnType()).isVar())
+            unify(expand(funcType.returnType()), returnType, ast, ctx);
+        nonTypeParameters = 0;
+        for (u32 i = 1; i < ast.arity(); i ++) {
+            if (isTypeParameter(function, ast.child(i)))
+                continue;
+            auto arg = inferredType(ctx, function, ast.child(i));
+            auto parameterType = expand(funcType.as<TypeKind::Function>().parameterType(nonTypeParameters ++));
+            if (!parameterType.isVar())
+                unify(arg, parameterType, ast, ctx);
+        }
+
         if (ast.child(0).kind() == ASTKind::ResolvedFunction) {
             Function* callee = ast.child(0).resolvedFunction();
             type_assert(!callee->isConst); // Should have already dealt with such calls.
@@ -2781,7 +2795,7 @@ namespace clover {
                 }
 
                 if (baseType == Bottom)
-                    return RefineFailure;
+                    return NotEnoughInformation;
 
                 if (baseType.isVar())
                     baseType = concreteType(module, baseType);
@@ -2805,6 +2819,7 @@ namespace clover {
                                     break;
                                 case ASTKind::SetField:
                                     unify(inferredType(ctx, function, ast.child(2)), structType.fieldType(i), ast, ctx);
+                                    refinedType.asVar().makeEqual(module->voidType());
                                     break;
                                 case ASTKind::EnsureAddrField: {
                                     refinedType = ast.type();
@@ -2876,6 +2891,7 @@ namespace clover {
                             case ASTKind::SetField:
                                 module->replace(ast, module->add(ASTKind::SetFields, ast.pos(), ast.scope(), module->voidType(), ast.child(0), indices, ast.child(2)));
                                 unify(inferredType(ctx, function, ast.child(2)), result, ast, ctx);
+                                refinedType.asVar().makeEqual(module->voidType());
                                 break;
                             default:
                                 unreachable("Expected a field access.");
@@ -2980,9 +2996,18 @@ namespace clover {
             case ASTKind::Call:
             case ASTKind::CallMethod: {
                 CallResolution resolution;
-                if (isOverloadedFunction(function, ast.child(0)))
+                if (isOverloadedFunction(function, ast.child(0))) {
+                    for (u32 i = 1; i < ast.arity(); i ++) {
+                        if (isTypeParameter(function, ast.child(i)))
+                            continue;
+                        Type type = expand(inferredType(ctx, function, ast.child(i)));
+                        if (type.isVar())
+                            type = canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound());
+                        if (type == Bottom)
+                            return NotEnoughInformation;
+                    }
                     resolution = refineOverloadedCall(ctx, function, ast);
-                else
+                } else
                     resolution = refineCall(ctx, function, ast);
                 if (!resolution && ast.kind() == ASTKind::CallMethod) {
                     auto arg = inferredType(ctx, function, ast.child(1));
@@ -3710,7 +3735,11 @@ namespace clover {
                     assert(types->constraintNodes[t.index].depth() == parent->constraints->depth);
                     outerList = &parent->constraints->constraints[types->constraintNodes[t.index].index()];
                 }
-                for (Constraint constraint : ctx.constraints->constraints[i]) if (constraint.kind != Constraint::Order) {
+                if (ctx.constraints->constraints[i].hasRefinementList) {
+                    auto refinements = outerList->ensureRefinementList(*parent->constraints);
+                    refinements.append(ctx.constraints->constraints[i].refinementList(*ctx.constraints));
+                }
+                for (Constraint constraint : ctx.constraints->constraints[i]) {
                     ConstraintIndex i = constraint.index;
                     Type ct = expand(types->get(ctx.constraints->constrainedTypes[i]));
                     if (t.index == ct.index)
@@ -3727,12 +3756,69 @@ namespace clover {
                         assert(types->constraintNodes[ct.index].depth() == parent->constraints->depth);
                     }
                     outerList->add(Constraint { outerIndex, constraint.kind });
+                    if (constraint.kind == Constraint::Order)
+                        outerList->setNeedsRefinement();
                     if UNLIKELY(config::verboseUnify >= 3)
                         println("[TYPE]\t - Added constraint ", ct, constraint.kind == Constraint::Subtype ? " <: " : " =: ", t, " to parent constraint graph.");
                 }
             }
             for (auto [i, t] : enumerate(ctx.constraints->constrainedTypes)) if (!nonForwarded[i])
                 types->constraintNodes[t] = ctx.constraints->outerIndices[i];
+        } else {
+            // If we're the top-level inference context, then we do one last
+            // pass solidifying each type as we go.
+
+            for (u32 k = 0; k < order.size(); k ++) {
+                ConstraintIndex i = order[k];
+
+                // It's important to remember the original type, since once we
+                // expand, we will potentially have lost any variable provenance.
+                Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+                if UNLIKELY(config::verboseUnify >= 3)
+                    println("[TYPE]\tConsidering constraints on type ", origType);
+                Type type = expand(origType);
+
+                for (Constraint constraint : constraints.constraints[i])
+                    processSubtypeConstraint(type, constraint);
+
+                if (constraints.constraints[i].doesNeedRefinement()) {
+                    assert(origType.isVar());
+                    assert(origType.asVar().hasOwner());
+
+                    AST ast = origType.asVar().owner();
+                    assert(!ast.isLeaf());
+                    switch (refine(ctx, ast.function(), ast, type)) {
+                        case RefineSuccess:
+                            break;
+                        case RefineFailure:
+                        case NotEnoughInformation:
+                            type_error("Couldn't refine node ", ast, " after inferring type ", type);
+                            break;
+                    }
+                }
+
+                if UNLIKELY(constraints.constraints[i].hasRefinementList) {
+                    auto& list = constraints.constraints[i].refinementList(constraints);
+
+                    for (ConstraintIndex i : list) {
+                        Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+                        assert(origType.isVar());
+                        assert(origType.asVar().hasOwner());
+                        AST ast = origType.asVar().owner();
+                        assert(!ast.isLeaf());
+                        switch (refine(ctx, ast.function(), ast, type)) {
+                            case RefineSuccess:
+                                break;
+                            case RefineFailure:
+                            case NotEnoughInformation:
+                                type_error("Couldn't refine node ", ast, " after inferring type ", type);
+                                break;
+                        }
+                    }
+                }
+
+                expand(type).concretify();
+            }
         }
     }
 
