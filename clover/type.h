@@ -3983,8 +3983,11 @@ namespace clover {
 
     inline bool Constraints::constrainOrder(Type beforeType, Type afterType) {
         beforeType = clover::expand(beforeType);
-        afterType = clover::expand(afterType);
+
         assert(afterType.isVar() && afterType.asVar().hasOwner());
+        if UNLIKELY(afterType.asVar().isEqual())
+            afterType = types->encode<TypeKind::Var>(afterType.asVar().lowerBound(), types->get(Any), afterType.asVar().module(), afterType.asVar().ownerIndex());
+        afterType = clover::expand(afterType);
         if (beforeType.index == afterType.index)
             return false;
         if (!beforeType.isVar()) {

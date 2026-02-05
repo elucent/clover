@@ -1717,10 +1717,20 @@ namespace clover {
                 if (ast.arity() == 1)
                     ctx.constraints->constrainOrder(module->voidType(), ast.type());
                 ctx.ensureResolved(ast.type());
-                if (!isOverloadedFunction(function, ast.child(0)) && (ast.child(0).kind() != ASTKind::ResolvedFunction || !ast.child(0).resolvedFunction()->isGeneric)) {
-                    auto func = inferChild(ctx, function, ast, 0);
-                    auto funcType = toType(module, func).type(module);
-                    ctx.constraints->constrainOrder(funcType, ast.type());
+                if (!isOverloadedFunction(function, ast.child(0))) {
+                    if (ast.child(0).kind() != ASTKind::ResolvedFunction || !ast.child(0).resolvedFunction()->isGeneric) {
+                        auto func = inferChild(ctx, function, ast, 0);
+                        auto funcType = toType(module, func).type(module);
+                        ctx.constraints->constrainOrder(funcType, ast.type());
+                    } else {
+                        // If we are calling a known generic function, then we
+                        // shouldn't invite its generic signature into the
+                        // constraint graph. But we also probably shouldn't
+                        // instantiate it this early. So we just add an
+                        // arbitrary constraint to ensure the call is still
+                        // refined.
+                        ctx.constraints->constrainOrder(module->voidType(), ast.type());
+                    }
                 }
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     if (isGenericTypeExpression(ast.child(i)))
@@ -2508,27 +2518,6 @@ namespace clover {
             println(Multiline(newDecl)); println();
         }
 
-        // for (TypeIndex v : *instantiationCtx.lateResolves)
-        //     expand(module->types->get(v)).concretify();
-        // for (NodeIndex node : *instantiationCtx.lateChecks) {
-        //     AST ast = module->node(node);
-        //     assert(!ast.isLeaf());
-        //     check(instantiationCtx, ast.function(), ast);
-        // }
-
-        // instantiationCtx.lateChecks->clear();
-        // instantiationCtx.lateResolves->clear();
-
-        // if UNLIKELY(config::printInferredTreeAfterEachPass) {
-        //     println("| Function ", ASTWithParent { newDecl, newDecl.child(1) }, " after type checking pass: ");
-        //     println("*----------------------------------");
-        //     println(Multiline(newDecl)); printTypeVariableState(module->types); println();
-        // }
-
-        // instantiationCtx.constraints->clear();
-
-        // if UNLIKELY(config::verboseInstantiation)
-            // println("[TYPE]\tInstantiated function ", module->str(newFunction->name), "/", newFunction->index, " with signature ", newFunction->type());
         instantiationCtx.instantiatedFunctions->push(newFunction);
         newFunction->initialKey = move(key);
 
@@ -3101,7 +3090,6 @@ namespace clover {
                     auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterCount ++);
                     unify(arg, parameterType, ast, ctx);
                 }
-
                 ast.setArity(1 + nonTypeParameterCount);
                 unify(funcType.as<TypeKind::Function>().returnType(), ast, ctx);
                 ast.setKind(ASTKind::Call); // These will be truly indistinguishable from this point forward.
