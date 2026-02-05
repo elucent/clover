@@ -1854,7 +1854,12 @@ namespace clover {
                 AST init;
                 if (visitor.peek().token == PunctuatorColon) {
                     visitor.read();
-                    init = parseExpression(module, visitor);
+                    if (visitor.peek().token == KeywordUninit
+                        && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline)) {
+                        visitor.read();
+                        init = module->add(ASTKind::Uninit);
+                    } else
+                        init = parseExpression(module, visitor);
                 } else
                     init = module->add(ASTKind::Missing);
                 if (kind == ASTKind::ConstVarDecl)
