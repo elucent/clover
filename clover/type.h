@@ -4051,15 +4051,14 @@ namespace clover {
 
     inline void VarType::setLowerBoundAndDecorate(Type bound) {
         setLowerBound(bound);
-        if (bound.is<TypeKind::Numeric>() && (upperBound() == TopInteger || upperBound() == Any)) {
-            if (!bound.as<TypeKind::Numeric>().isFloat()) {
+        if (bound.is<TypeKind::Numeric>()) {
+            if (upperBound() == TopInteger) {
                 if (bound.as<TypeKind::Numeric>().isSigned())
-                    return setUpperBound(I64);
+                    setUpperBound(I64);
                 else if (bound.as<TypeKind::Numeric>().bitCount() == 64)
-                    return setUpperBound(U64);
-            }
-            if (upperBound() == Any)
-                setUpperBound(bound.as<TypeKind::Numeric>().isFloat() ? F64 : TopInteger);
+                    setUpperBound(U64);
+            } else if (upperBound() == Any)
+                setUpperBound(F64);
             return;
         }
     }
