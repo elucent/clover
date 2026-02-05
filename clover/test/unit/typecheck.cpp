@@ -1105,3 +1105,39 @@ slice = arr2
     auto slice = topLevel.child(2);
     ASSERT_TYPE_EQUAL(slice.type(), module->sliceType(I64));
 }
+
+TEST(typecheck_generic_constructor_type_parameter) {
+    auto instance = TYPECHECK(R"(
+type Foo(type T):
+    T x
+
+var foo: Foo(i32, 42)
+i32 result: foo.x
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto result = topLevel.child(2);
+    ASSERT_TYPE_EQUAL(result.type(), module->i32Type());
+}
+
+TEST(typecheck_generic_constructor_type_parameter_partial) {
+    auto instance = TYPECHECK(R"(
+type Pair:
+    var first, second
+
+var pair: Pair(i32, 42, 84)
+i32 first: pair.first
+i8 second: pair.second
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto first = topLevel.child(2);
+    ASSERT_TYPE_EQUAL(first.type(), module->i32Type());
+
+    auto second = topLevel.child(3);
+    ASSERT_TYPE_EQUAL(second.type(), module->i8Type());
+}

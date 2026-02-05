@@ -1100,24 +1100,32 @@ namespace clover {
                     hasAnyNonType = true;
             }
             u32 arity = generic->module->node(generic->parameterList).arity();
-            if (types.size() != arity) {
+            if (types.size() < arity) {
                 if (generic->placeholder != InvalidType)
                     call.setType(generic->placeholder);
-                else {
-                    type_assert(types.size() == 0);
+                else if (types.size() == 0) {
                     assert(hasAnyNonType);
                     call.setType(instantiate(ctx, ChangePosition { call, 0 }));
+                } else {
+                    assert(hasAnyNonType);
+                    while (types.size() < arity)
+                        types.push(module->varType().index);
+                    call.setType(instantiate(ctx, ChangePosition { call, 0 }, types));
                 }
-            } else {
+            } else if (types.size() == arity) {
                 if (generic->placeholder != InvalidType)
                     call.setType(generic->placeholder);
                 else
                     call.setType(instantiate(ctx, ChangePosition { call, 0 }, types));
-            }
+            } else
+                type_error("Too many type parameters in type instantiation ", call);
             if (hasAnyNonType) {
-                for (u32 i = 1; i < call.arity(); i ++)
-                    call.setChild(i - 1, call.child(i));
-                call.setArity(call.arity() - 1);
+                u32 nonTypeParameters = 0;
+                for (u32 i = 1; i < call.arity(); i ++) {
+                    if (!isTypeExpression(call.child(i), MayInstantiate))
+                        call.setChild(nonTypeParameters ++, call.child(i));
+                }
+                call.setArity(nonTypeParameters);
                 call.setKind(ASTKind::Construct);
             } else
                 call.setKind(ASTKind::GenericInst);
