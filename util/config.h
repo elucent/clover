@@ -104,6 +104,7 @@ enum class PassTimeUnit {
     macro(verboseInstantiation, verbose-instantiation, bool, false, Clover, "Enables verbose logging for generic type and function instantiation.") \
     macro(reportErrorsImmediately, report-errors-immediately, bool, false, Clover, "Report the first error immediately after it happens and exit.") \
     macro(verboseAnalyze, verbose-analyze, i32, 0, Clover, "Enables verbose logging for the Clover memory safety analysis phase.") \
+    macro(verboseSearchDirectories, verbose-search-directories, bool, false, Clover, "Enables verbose logging when Clover is searching for a file to load/import.") \
     \
     /* Test options. */ \
     macro(printTestNames, print-test-names, bool, false, Test, "Print the name of each test before it runs.") \

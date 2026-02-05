@@ -57,6 +57,9 @@ i32 main(i32 argc, i8** argv, i8** envp) {
                         panic("Unrecognized optimization level '", arg[2], "' (options are 0, 1, 2, 3).");
                 }
                 break;
+            case 'I':
+                compilation.addSearchDirectory(arg.drop(2));
+                break;
             case 'c':
                 parseMultiCharArgument(arg.drop(1));
                 break;

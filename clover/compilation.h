@@ -238,6 +238,7 @@ namespace clover {
         u32 staticDataEntries = 0;
         u32 numFunctions = 0, numScopes = 0;
         vec<Artifact*> topologicalOrder;
+        vec<Directory*> searchDirectories;
         map<Symbol, NamespaceTree*> topLevelNamespaces;
 
         Compilation();
@@ -323,6 +324,7 @@ namespace clover {
 
         JITRuntimeShims* ensureJITRuntimeShims();
         void ensureTopologicalOrder();
+        void addSearchDirectory(const_slice<i8> path);
 
         inline NamespaceTree* ensureNamespace(Symbol name) {
             auto it = topLevelNamespaces.find(name);

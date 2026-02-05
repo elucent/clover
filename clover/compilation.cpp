@@ -131,6 +131,7 @@ namespace clover {
             dir = dir->ensureDirectoryByName(sym(s));
         }
         cwd = dir;
+        searchDirectories.push(cwd);
     }
 
     Compilation::~Compilation() {
@@ -173,6 +174,17 @@ namespace clover {
             if (!(artifact->mark & 1))
                 toposortArtifacts(artifact, topologicalOrder);
         });
+    }
+
+    void Compilation::addSearchDirectory(const_slice<i8> relpath) {
+        Path path = cwdPath;
+        u32 cwdSize = path.segments.size();
+        path.append(relpath);
+        Directory* dir = cwd;
+        for (u32 i = cwdSize; i < path.segments.size(); i ++)
+            dir = dir->ensureDirectoryByName(sym(path.segments[i]));
+        assert(dir != cwd);
+        searchDirectories.push(dir);
     }
 
     void printDirectoryName(Directory* directory) {

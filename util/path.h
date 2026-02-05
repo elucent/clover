@@ -31,6 +31,8 @@ constexpr bool isValidPathSegment(const_slice<i8> segment) {
 struct Path {
     vec<const_slice<i8>, 4> segments;
 
+    inline Path() {}
+
     inline Path(const_slice<i8> base) {
         append(base);
     }
@@ -90,6 +92,23 @@ struct Path {
         }
         assert(writer == result.end());
         return result;
+    }
+
+    inline slice<i8> write_bytes(slice<i8> buffer) const {
+        static_assert(sizeof(OSPathSeparators));
+        rune separator = OSPathSeparators[0];
+        u32 computedLength = 1 + (segments.size() - 1) * separator.bytes();
+        for (auto s : segments) computedLength += s.size();
+        buffer[0] = '/';
+        i8* writer = buffer.data() + 1;
+        for (u32 i = 0; i < segments.size(); i ++) {
+            if (i)
+                writer += utf8_encode(&separator, 1, writer, separator.bytes());
+            memory::copy(writer, segments[i].data(), segments[i].size());
+            writer += segments[i].size();
+        }
+        assert(writer == buffer.begin() + computedLength);
+        return buffer.drop(computedLength);
     }
 
     inline Path subpath(const_slice<i8> name) const {
