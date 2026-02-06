@@ -1916,6 +1916,7 @@ namespace clover {
                 return createStaticInitializer(genCtx, init, destType);
             case ASTKind::Construct: {
                 Type type = typeOf(init);
+                JasmineValue value;
                 if (type.is<TypeKind::Named>()) {
                     JasmineValue values[2];
                     bool isCase = type.as<TypeKind::Named>().isCase();
@@ -1925,10 +1926,10 @@ namespace clover {
                         values[0] = jasmine_integer_value(genCtx.output, genCtx.tagType(), type.as<TypeKind::Named>().typeTag());
                     }
                     if (!isVoid)
-                        values[1] = createStaticInitializer(genCtx, init.child(1), type.as<TypeKind::Named>().innerType());
+                        values[1] = createStaticInitializer(genCtx, init.child(1), expand(type.as<TypeKind::Named>().innerType()));
                     JasmineValue* start = isCase ? values : values + 1;
                     JasmineValue* end = isVoid ? values + 2 : values + 1;
-                    return jasmine_struct_value(genCtx.output, genCtx.lower(type), start, end - start);
+                    value = jasmine_struct_value(genCtx.output, genCtx.lower(type), start, end - start);
                 } else if (type.is<TypeKind::Struct>()) {
                     auto structType = type.as<TypeKind::Struct>();
                     vec<JasmineValue, 8> initValues;
@@ -1937,12 +1938,15 @@ namespace clover {
                         initValues.push(jasmine_integer_value(genCtx.output, genCtx.tagType(), structType.typeTag()));
                     }
                     for (u32 i = 0; i < structType.count(); i ++)
-                        initValues.push(createStaticInitializer(genCtx, init.child(i), structType.fieldType(i)));
-                    return jasmine_struct_value(genCtx.output, genCtx.lower(structType), initValues.begin(), initValues.size());
+                        initValues.push(createStaticInitializer(genCtx, init.child(i), expand(structType.fieldType(i))));
+                    value = jasmine_struct_value(genCtx.output, genCtx.lower(structType), initValues.begin(), initValues.size());
                 } else if (type.is<TypeKind::Union>())
-                    unreachable("TODO: Implement union types.");
+                    unreachable("Union types should not be directly constructed.");
                 else
                     unreachable("Found unsupported type ", type, " for static construction.");
+                if (destType.is<TypeKind::Union>())
+                    value = jasmine_union_value(genCtx.output, genCtx.lower(destType), value);
+                return value;
             }
             case ASTKind::String: {
                 auto text = init.module->str(init.stringConst());
@@ -1967,24 +1971,14 @@ namespace clover {
                     elementType = destType.as<TypeKind::Array>().elementType();
                 Module* module = init.module;
                 JasmineValue value;
-                if (elementType == module->i8Type())
+                if (elementType == module->i8Type() || elementType == module->u8Type())
                     value = createIntArrayValue<int8_t>(genCtx, init, module->i8Type(), jasmine_i8_array_value);
-                else if (elementType == module->u8Type())
-                    value = createIntArrayValue<uint8_t>(genCtx, init, module->u8Type(), jasmine_u8_array_value);
-                else if (elementType == module->i16Type())
+                else if (elementType == module->i16Type() || elementType == module->u16Type())
                     value = createIntArrayValue<int16_t>(genCtx, init, module->i16Type(), jasmine_i16_array_value);
-                else if (elementType == module->u16Type())
-                    value = createIntArrayValue<uint16_t>(genCtx, init, module->u16Type(), jasmine_u16_array_value);
-                else if (elementType == module->i32Type())
+                else if (elementType == module->i32Type() || elementType == module->u32Type() || elementType == module->charType())
                     value = createIntArrayValue<int32_t>(genCtx, init, module->i32Type(), jasmine_i32_array_value);
-                else if (elementType == module->u32Type())
-                    value = createIntArrayValue<uint32_t>(genCtx, init, module->u32Type(), jasmine_u32_array_value);
-                else if (elementType == module->charType())
-                    value = createIntArrayValue<uint32_t>(genCtx, init, module->u32Type(), jasmine_u32_array_value);
-                else if (elementType == module->i64Type())
+                else if (elementType == module->i64Type() || elementType == module->u64Type())
                     value = createIntArrayValue<int64_t>(genCtx, init, module->i64Type(), jasmine_i64_array_value);
-                else if (elementType == module->u64Type())
-                    value = createIntArrayValue<uint64_t>(genCtx, init, module->u64Type(), jasmine_u64_array_value);
                 else if (elementType == module->f32Type()) {
                     vec<f32, 8> initializers;
                     for (u32 i = 0; i < init.arity(); i ++) {
@@ -2026,8 +2020,10 @@ namespace clover {
                     genCtx.ensureTypeTag(type);
                     if (destType.is<TypeKind::Pointer>())
                         return genCtx.atomRefValue(type); // It's a static/data ref, so natively a pointer.
-                    auto val = genCtx.temp();
-                    return jasmine_integer_value(genCtx.output, genCtx.tagType(), type.as<TypeKind::Named>().typeTag());
+                    auto value = jasmine_integer_value(genCtx.output, genCtx.tagType(), type.as<TypeKind::Named>().typeTag());
+                    if (destType.is<TypeKind::Union>())
+                        value = jasmine_union_value(genCtx.output, genCtx.lower(destType), value);
+                    return value;
                 }
                 unreachable("Non-atom typenames are not permitted in value position.");
             }

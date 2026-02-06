@@ -54,19 +54,9 @@ namespace jasmine {
         return makeArray<i8>(type, data);
     }
 
-    Value ValueTable::makeU8Array(TypeIndex type, const_slice<u8> data) {
-        assert(mod->typeContext()[type].elementType() == U8);
-        return makeArray<u8>(type, data);
-    }
-
     Value ValueTable::makeI16Array(TypeIndex type, const_slice<i16> data) {
         assert(mod->typeContext()[type].elementType() == I16);
         return makeArray<i16>(type, data);
-    }
-
-    Value ValueTable::makeU16Array(TypeIndex type, const_slice<u16> data) {
-        assert(mod->typeContext()[type].elementType() == U16);
-        return makeArray<u16>(type, data);
     }
 
     Value ValueTable::makeI32Array(TypeIndex type, const_slice<i32> data) {
@@ -74,19 +64,9 @@ namespace jasmine {
         return makeArray<i32>(type, data);
     }
 
-    Value ValueTable::makeU32Array(TypeIndex type, const_slice<u32> data) {
-        assert(mod->typeContext()[type].elementType() == U32);
-        return makeArray<u32>(type, data);
-    }
-
     Value ValueTable::makeI64Array(TypeIndex type, const_slice<i64> data) {
         assert(mod->typeContext()[type].elementType() == I64);
         return makeArray<i64>(type, data);
-    }
-
-    Value ValueTable::makeU64Array(TypeIndex type, const_slice<u64> data) {
-        assert(mod->typeContext()[type].elementType() == U64);
-        return makeArray<u64>(type, data);
     }
 
     Value ValueTable::makeF32Array(TypeIndex type, const_slice<f32> data) {
@@ -117,6 +97,21 @@ namespace jasmine {
 
         Value ref;
         ref.kind = Value::Struct;
+        ref.ref = result;
+        return ref;
+    }
+
+    Value ValueTable::makeUnion(TypeIndex type, Value member) {
+        u32 result = words.size();
+        Value firstWord;
+        firstWord.kind = Value::Union;
+        firstWord.isSpecialized = 0;
+        firstWord.type = type;
+        words.push(firstWord);
+        words.push(member);
+
+        Value ref;
+        ref.kind = Value::Union;
         ref.ref = result;
         return ref;
     }

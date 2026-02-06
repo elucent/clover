@@ -11,9 +11,9 @@ namespace jasmine {
     struct Value {
         enum Kind : u32 {
             I8, I16, I32, I64,
-            U8, U16, U32, U64,
-            Ptr, F32, F64, Func,
-            Static, Data, Array, Struct
+            Ptr, F32, F64,
+            Func, Static, Data,
+            Array, Struct, Union
         };
 
         union {
@@ -59,7 +59,7 @@ namespace jasmine {
             if (type == PTR || type == REF)
                 word.kind = Value::Kind(~PTR);
             else
-                word.kind = Value::Kind(~type);
+                word.kind = Value::Kind(Value::I8 + ~type % 4);
             if (fitsSigned<27>(i64(t))) {
                 word.isInline = 1;
                 word.payload = i32(i64(t));
@@ -127,18 +127,15 @@ namespace jasmine {
         void defData(Symbol sym, Value word);
 
         Value makeI8Array(TypeIndex type, const_slice<i8> data);
-        Value makeU8Array(TypeIndex type, const_slice<u8> data);
         Value makeI16Array(TypeIndex type, const_slice<i16> data);
-        Value makeU16Array(TypeIndex type, const_slice<u16> data);
         Value makeI32Array(TypeIndex type, const_slice<i32> data);
-        Value makeU32Array(TypeIndex type, const_slice<u32> data);
         Value makeI64Array(TypeIndex type, const_slice<i64> data);
-        Value makeU64Array(TypeIndex type, const_slice<u64> data);
         Value makeF32Array(TypeIndex type, const_slice<f32> data);
         Value makeF64Array(TypeIndex type, const_slice<f64> data);
         Value makeValueArray(TypeIndex type, const_slice<Value> data);
 
         Value makeStruct(TypeIndex type, const_slice<Value> data);
+        Value makeUnion(TypeIndex type, Value member);
 
     private:
         template<typename T>

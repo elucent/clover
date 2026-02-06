@@ -710,29 +710,6 @@ namespace jasmine {
                 buf.write<i64>(with_endian<Target::endianness, i64>(i));
                 break;
             }
-            case Value::U8:
-                if (def) def->def(as);
-                buf.write<u8>(u8(value.payload));
-                break;
-            case Value::U16:
-                alignTo(2);
-                if (def) def->def(as);
-                buf.write<u16>(with_endian<Target::endianness, u16>(value.payload));
-                break;
-            case Value::U32: {
-                alignTo(4);
-                if (def) def->def(as);
-                u32 u = value.isInline ? value.payload : constants[value.payload].i;
-                buf.write<u32>(with_endian<Target::endianness, u32>(u));
-                break;
-            }
-            case Value::U64: {
-                alignTo(8);
-                if (def) def->def(as);
-                u64 i = value.isInline ? value.payload : constants[value.payload].i;
-                buf.write<u64>(with_endian<Target::endianness, u64>(i));
-                break;
-            }
             case Value::F32: {
                 alignTo(4);
                 if (def) def->def(as);
@@ -833,6 +810,16 @@ namespace jasmine {
                 const auto& structType = mod->typeContext()[data[-1].type];
                 for (u32 i = 0; i < structType.fieldCount; i ++)
                     generateDataValue(mod, as, buf, data[i], none<DefInfo>());
+                break;
+            }
+            case Value::Union: {
+                Repr r = repr(words[value.ref].type);
+                alignTo(r.alignment());
+                auto curSize = buf.size();
+                if (def) def->def(as);
+                generateDataValue(mod, as, buf, words[value.ref + 1], none<DefInfo>());
+                while (buf.size() < curSize + r.size()) // Pad out to overall union size.
+                    buf.write<i8>(0);
                 break;
             }
         }

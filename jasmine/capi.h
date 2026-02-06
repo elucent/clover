@@ -299,6 +299,9 @@ JASMINE_EXPORT JasmineValue jasmine_static_ref_value(JasmineModule module, const
 // Creates a new struct value from the provided field values.
 JASMINE_EXPORT JasmineValue jasmine_struct_value(JasmineModule module, JasmineType type, const JasmineValue* fields, size_t field_count);
 
+// Creates a new union value from the value of one of its cases.
+JASMINE_EXPORT JasmineValue jasmine_union_value(JasmineModule module, JasmineType type, JasmineValue member);
+
 // Creates a new array value from the provided element values.
 JASMINE_EXPORT JasmineValue jasmine_i8_array_value(JasmineModule module, const int8_t* elements, size_t element_count);
 JASMINE_EXPORT JasmineValue jasmine_u8_array_value(JasmineModule module, const uint8_t* elements, size_t element_count);

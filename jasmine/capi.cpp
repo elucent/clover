@@ -418,36 +418,24 @@ JASMINE_EXPORT JasmineValue jasmine_struct_value(JasmineModule module, JasmineTy
     return JasmineValue { .bits = M(module).values.makeStruct(type.index, { (Value*)fields, (iword)field_count }).bits };
 }
 
-JASMINE_EXPORT JasmineValue jasmine_i8_array_value(JasmineModule module, const int8_t* elements, size_t element_count) {
-    return { .bits = M(module).values.makeI8Array(M(module).arrayType(I8, element_count), { (const i8*)elements, (iword)element_count }).bits };
+JASMINE_EXPORT JasmineValue jasmine_union_value(JasmineModule module, JasmineType type, JasmineValue member) {
+    return JasmineValue { .bits = M(module).values.makeUnion(type.index, V(member)).bits };
 }
 
-JASMINE_EXPORT JasmineValue jasmine_u8_array_value(JasmineModule module, const uint8_t* elements, size_t element_count) {
-    return { .bits = M(module).values.makeU8Array(M(module).arrayType(U8, element_count), { elements, (iword)element_count }).bits };
+JASMINE_EXPORT JasmineValue jasmine_i8_array_value(JasmineModule module, const int8_t* elements, size_t element_count) {
+    return { .bits = M(module).values.makeI8Array(M(module).arrayType(I8, element_count), { (const i8*)elements, (iword)element_count }).bits };
 }
 
 JASMINE_EXPORT JasmineValue jasmine_i16_array_value(JasmineModule module, const int16_t* elements, size_t element_count) {
     return { .bits = M(module).values.makeI16Array(M(module).arrayType(I16, element_count), { elements, (iword)element_count }).bits };
 }
 
-JASMINE_EXPORT JasmineValue jasmine_u16_array_value(JasmineModule module, const uint16_t* elements, size_t element_count) {
-    return { .bits = M(module).values.makeU16Array(M(module).arrayType(U16, element_count), { elements, (iword)element_count }).bits };
-}
-
 JASMINE_EXPORT JasmineValue jasmine_i32_array_value(JasmineModule module, const int32_t* elements, size_t element_count) {
     return { .bits = M(module).values.makeI32Array(M(module).arrayType(I32, element_count), { elements, (iword)element_count }).bits };
 }
 
-JASMINE_EXPORT JasmineValue jasmine_u32_array_value(JasmineModule module, const uint32_t* elements, size_t element_count) {
-    return { .bits = M(module).values.makeU32Array(M(module).arrayType(U32, element_count), { elements, (iword)element_count }).bits };
-}
-
 JASMINE_EXPORT JasmineValue jasmine_i64_array_value(JasmineModule module, const int64_t* elements, size_t element_count) {
     return { .bits = M(module).values.makeI64Array(M(module).arrayType(I64, element_count), { elements, (iword)element_count }).bits };
-}
-
-JASMINE_EXPORT JasmineValue jasmine_u64_array_value(JasmineModule module, const uint64_t* elements, size_t element_count) {
-    return { .bits = M(module).values.makeU64Array(M(module).arrayType(U64, element_count), { elements, (iword)element_count }).bits };
 }
 
 JASMINE_EXPORT JasmineValue jasmine_f32_array_value(JasmineModule module, const float* elements, size_t element_count) {
