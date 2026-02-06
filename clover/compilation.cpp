@@ -177,6 +177,8 @@ namespace clover {
     }
 
     void Compilation::addSearchDirectory(const_slice<i8> relpath) {
+        if UNLIKELY(config::verboseSearchDirectories)
+            println("[FILE]\tAdded search directory ", cwdPath, "/", relpath);
         Path path = cwdPath;
         u32 cwdSize = path.segments.size();
         path.append(relpath);

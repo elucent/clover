@@ -357,6 +357,22 @@ struct vec {
         return sl;
     }
 
+    inline const_slice<T> drop(u32 n) const {
+        return ((const_slice<T>)*this).drop(n);
+    }
+
+    inline slice<T> drop(u32 n) {
+        return ((slice<T>)*this).drop(n);
+    }
+
+    inline const_slice<T> take(u32 n) const {
+        return ((const_slice<T>)*this).take(n);
+    }
+
+    inline slice<T> take(u32 n) {
+        return ((slice<T>)*this).take(n);
+    }
+
     inline void push() {}
 };
 

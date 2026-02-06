@@ -6,12 +6,39 @@
 
 using namespace clover;
 
+#ifdef RT_LINUX
+#include "unistd.h"
+#endif
+
+Directory* getInstallDirectory(Compilation* compilation) {
+    const_slice<i8> pathstr;
+    #ifdef RT_LINUX
+        i8 buf[4096];
+        auto len = readlink("/proc/self/exe", buf, 4096);
+        if (len <= 0)
+            panic("Failed to locate compiler installation directory.");
+        pathstr = { buf, len };
+    #else
+        #error "Function not implemented for platform: getInstallDirectory"
+    #endif
+
+    if UNLIKELY(config::verboseSearchDirectories)
+        println("[FILE]\tFound compiler install directory ", pathstr);
+    Path path(pathstr);
+    Directory* result = compilation->root;
+    for (auto s : path.segments.take(path.segments.size() - 1))
+        result = result->ensureDirectoryByName(compilation->sym(s));
+    return result;
+}
+
 i32 main(i32 argc, i8** argv, i8** envp) {
     process::init(argc, argv, envp);
 
     parseOptions(argc, argv);
 
     Compilation compilation;
+    compilation.searchDirectories.push(getInstallDirectory(&compilation));
+
     const_slice<i8> firstPath, outputFile = cstring("");
     bool compileToObject = false; // Default to executable
     bool isImmediatelyExecuted = false;
@@ -134,7 +161,6 @@ i32 main(i32 argc, i8** argv, i8** envp) {
         });
         JasmineAssembly combined = jasmine_join_assemblies_in_place(assemblies.data(), assemblies.size());
         jasmine_write_relocatable_elf_object(combined, outputFile.data(), outputFile.size());
-
 
         vec<const_slice<i8>> args;
         args.push(cstring("ld"));
