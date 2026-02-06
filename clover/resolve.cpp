@@ -267,7 +267,7 @@ namespace clover {
                     path.push(base.child(1).symbol()), baseParent = base, base = base.child(0);
                 assert(base.kind() == ASTKind::ResolvedGenericType);
                 GenericType* generic = base.genericType();
-                Type inst = instantiate(generic, parameters..., ctx.isInTypeDecl() ? ctx.typeDecls.back().instantiatedTypes : nullptr, ctx);
+                Type inst = expand(instantiate(generic, parameters..., ctx.isInTypeDecl() ? ctx.typeDecls.back().instantiatedTypes : nullptr, ctx));
                 assert(inst);
                 if constexpr (isSame<Node, ChangePosition> && sizeof...(parameters) == 0) {
                     ChangePosition basePos = baseParent.node == ast.node ? changePos : ChangePosition { baseParent, 0 };

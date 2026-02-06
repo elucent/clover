@@ -191,7 +191,7 @@ namespace clover {
                         elements.push(tagType());
                     }
                     for (u32 i = 0; i < structType.count(); i ++) {
-                        Type field = structType.fieldType(i);
+                        Type field = expand(structType.fieldType(i));
                         if (!isEmptyType(field))
                             elements.push(lower(field));
                     }
@@ -736,6 +736,9 @@ namespace clover {
     JasmineOperand generateGetSlice(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand aggregate, maybe<JasmineOperand> low, maybe<JasmineOperand> high, Type* sliceType = nullptr);
 
     JasmineOperand coerce(GenerationContext& genCtx, JasmineBuilder builder, Type destType, Type srcType, JasmineOperand operand) {
+        destType = expand(destType);
+        srcType = expand(srcType);
+
         if (destType.index == JASMINE_TYPE_VOID.index)
             return operand;
         if (destType != srcType) {
@@ -1527,13 +1530,13 @@ namespace clover {
                                 auto loweredSplat = genCtx.lower(splatType);
                                 JasmineOperand tuple = getLValue(pattern.child(i).child(0));
                                 for (u32 j = i; j < structType.count(); j ++) {
-                                    auto field = generateGetField(genCtx, builder, inputType, input, j, structType.fieldType(j));
+                                    auto field = generateGetField(genCtx, builder, inputType, input, j, expand(structType.fieldType(j)));
                                     jasmine_append_store_field(builder, loweredSplat, tuple, j - i, field);
                                 }
                                 break;
                             }
-                            auto field = generateGetField(genCtx, builder, inputType, input, i, structType.fieldType(i));
-                            generatePattern(genCtx, builder, pattern.child(i), structType.fieldType(i), field, fail);
+                            auto field = generateGetField(genCtx, builder, inputType, input, i, expand(structType.fieldType(i)));
+                            generatePattern(genCtx, builder, pattern.child(i), expand(structType.fieldType(i)), field, fail);
                         }
                         break;
                     }
@@ -2391,7 +2394,7 @@ namespace clover {
                     if (structType.isCase())
                         jasmine_append_set_field(builder, loweredStruct, result, 0, genCtx.imm(structType.typeTag()));
                     for (u32 i = 0; i < structType.count(); i ++) {
-                        JasmineOperand field = generate(genCtx, builder, ast.child(i), structType.fieldType(i));
+                        JasmineOperand field = generate(genCtx, builder, ast.child(i), expand(structType.fieldType(i)));
                         jasmine_append_set_field(builder, loweredStruct, result, structType.isCase() ? i + 1 : i, field);
                     }
                     return coerce(genCtx, builder, destType, type, result);
