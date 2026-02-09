@@ -2462,7 +2462,7 @@ namespace clover {
                         return UnifySuccess;
                     if (!asVar().lowerBound().unifyOnto(upper, constraints, mode & ModeMask))
                         return UnifyFailure;
-                    if ((mode & ModeMask) == Constraining) {
+                    if ((mode & ModeMask) == Constraining && !upper.isConcrete()) {
                         if ((mode & UnifyFlagsMask) == MustSubstitute)
                             constraints->constrainSubstitute(*this, other);
                         else
@@ -2490,7 +2490,7 @@ namespace clover {
                         return UnifySuccess;
                     if (!lower.unifyOnto(other.asVar().upperBound(), constraints, mode & ModeMask))
                         return UnifyFailure;
-                    if ((mode & ModeMask) == Constraining) {
+                    if ((mode & ModeMask) == Constraining && !lower.isConcrete()) {
                         if ((mode & UnifyFlagsMask) == MustSubstitute)
                             constraints->constrainSubstitute(*this, other);
                         else
