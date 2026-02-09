@@ -81,7 +81,8 @@ namespace clover {
             struct { Kind : KindBits; u32 : 2; u32 isCompactArray : 1; TypeIndex compactElement : CompactArrayTypeBits; u32 compactLength : CompactArrayLengthBits; };
             struct { Kind : KindBits; u32 : 1; RefTraits refTraits : 2; u32 : 24; };
             struct { Kind : KindBits; u32 : 3; TypeIndex extElement : 24; };
-            struct { Kind : KindBits; u32 markedEqual : 1; u32 hasOwner : 1; u32 : 1; TypeIndex typeBound : 24; };
+            struct { Kind : KindBits; u32 : 1; u32 hasSlice : 1; u32 hasPtr : 1; TypeIndex typeBound : 24; };
+            struct { Kind : KindBits; u32 markedEqual : 1; u32 hasOwner : 1; u32 hasOwnPtr : 1; TypeIndex : 24; };
             struct { u32 typeParamCount : 8; u32 genericIndex : 24; };
             struct { Kind : KindBits; u32 : 1; u32 isCase : 1; u32 isGenericInst : 1; u32 : 24; };
             struct { u32 extLength; };
@@ -1332,7 +1333,7 @@ namespace clover {
 
             type_assert(encode<TypeKind::Numeric>(true, true, 32u).index == ReservedTypes::F32);
             type_assert(encode<TypeKind::Numeric>(true, true, 64u).index == ReservedTypes::F64);
-            type_assert(encode<TypeKind::Slice>(get(I8)).index == ReservedTypes::String);
+            type_assert(encode<TypeKind::Slice>(NoRefTraits, get(I8)).index == ReservedTypes::String);
 
             type_assert(encode<TypeKind::Numeric>(false, false, 0u).index == ReservedTypes::BottomNumber);
             type_assert(encode<TypeKind::Numeric>(true, true, 0u).index == ReservedTypes::BottomFloat);
@@ -1369,6 +1370,42 @@ namespace clover {
             }
         }
 
+        template<TypeKind Kind>
+        inline bool isFirstPtrOrSliceForVar(Type type) {
+            if (!type.isVar())
+                return false;
+            if (Kind == TypeKind::Slice && !type.firstWord().hasSlice)
+                return type.firstWord().hasSlice = true;
+            if (Kind == TypeKind::Pointer && !type.firstWord().hasPtr)
+                return type.nthWord(1).hasPtr = true;
+            return false;
+        }
+
+        template<TypeKind Kind>
+        inline bool isFirstPtrOrSliceForVar(RefTraits traits, Type type) {
+            if (!type.isVar())
+                return false;
+            if (Kind == TypeKind::Slice && traits == NoRefTraits && !type.firstWord().hasSlice)
+                return type.firstWord().hasSlice = true;
+            if constexpr (Kind == TypeKind::Pointer) {
+                if (traits == Own && !type.nthWord(1).hasOwnPtr)
+                    return type.nthWord(1).hasOwnPtr = true;
+                if (traits == NoRefTraits && !type.firstWord().hasPtr)
+                    return type.nthWord(1).hasPtr = true;
+            }
+            return false;
+        }
+
+        inline constexpr static bool isRefKind(TypeKind kind) {
+            switch (kind) {
+                case TypeKind::Pointer:
+                case TypeKind::Slice:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         template<TypeKind Kind, typename... Args>
         inline auto encode(const Args&... args) -> HandleType<Kind> {
             u32 t = TypeSystemMethods::encode<Kind>(*this, forward<decltype(args)>(args)...);
@@ -1379,6 +1416,13 @@ namespace clover {
             }
             TypeKey::sys = this;
             TypeKey key = TypeKey { typeList.size() - 1 };
+            if constexpr (isRefKind(Kind)) {
+                if (isFirstPtrOrSliceForVar<Kind>(args...)) {
+                    typeSet.insert(key);
+                    constraintNodes.push({});
+                    return HandleType<Kind> { Type(this, typeList.size() - 1, typeList.back()) };
+                }
+            }
             auto it = typeSet.find(key);
             if (it == typeSet.end()) {
                 typeSet.insert(key);
@@ -1736,12 +1780,15 @@ namespace clover {
             word.bits = 0;
             word.kind = TypeKind::Var;
             word.isConcrete = false;
+            word.hasPtr = false;
+            word.hasSlice = false;
             word.typeBound = bottom.index;
             sys.words.push(word);
 
             word.bits = 0;
             word.markedEqual = false;
             word.hasOwner = false;
+            word.hasOwnPtr = false;
             word.typeBound = top.index;
             sys.words.push(word);
 
