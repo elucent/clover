@@ -481,6 +481,13 @@ namespace clover {
     void reportErrors(ArtifactData* data);
     void reportErrorsAndExit(Artifact* artifact);
     void reportErrorsAndExit(ArtifactData* data);
+
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, Directory* const& dir) {
+        if (dir->parent)
+            io = format(io, dir->parent, "/");
+        return format(io, dir->compilation->str(dir->name));
+    }
 }
 
 #endif

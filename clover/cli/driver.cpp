@@ -13,8 +13,8 @@ using namespace clover;
 Directory* getInstallDirectory(Compilation* compilation) {
     const_slice<i8> pathstr;
     #ifdef RT_LINUX
-        i8 buf[4096];
-        auto len = readlink("/proc/self/exe", buf, 4096);
+        i8 buf[1024];
+        auto len = readlink("/proc/self/exe", buf, 1024);
         if (len <= 0)
             panic("Failed to locate compiler installation directory.");
         pathstr = { buf, len };
@@ -37,7 +37,8 @@ i32 main(i32 argc, i8** argv, i8** envp) {
     parseOptions(argc, argv);
 
     Compilation compilation;
-    compilation.searchDirectories.push(getInstallDirectory(&compilation));
+    auto installDir = getInstallDirectory(&compilation);
+    compilation.searchDirectories.push(installDir);
 
     const_slice<i8> firstPath, outputFile = cstring("");
     bool compileToObject = false; // Default to executable
@@ -174,6 +175,11 @@ i32 main(i32 argc, i8** argv, i8** envp) {
         args.push(outputFile);
         args.push(cstring("-o"));
         args.push(outputFile.take(outputFile.size() - 2));
+
+        array<i8, 1024> buf;
+        args.push(prints(buf, "-L", installDir));
+        args.push(cstring("-lclrt"));
+        args.push(cstring("-lc"));
         args.append(linkerArgs);
         process::exec(cstring("/usr/bin/env"), args);
         file::remove(outputFile);
