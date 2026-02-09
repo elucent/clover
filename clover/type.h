@@ -1396,6 +1396,16 @@ namespace clover {
             return false;
         }
 
+        template<TypeKind Kind>
+        inline bool isFirstPtrOrSliceForVar(TypeIndex type) {
+            return isFirstPtrOrSliceForVar<Kind>(get(type));
+        }
+
+        template<TypeKind Kind>
+        inline bool isFirstPtrOrSliceForVar(RefTraits traits, TypeIndex type) {
+            return isFirstPtrOrSliceForVar<Kind>(traits, get(type));
+        }
+
         inline constexpr static bool isRefKind(TypeKind kind) {
             switch (kind) {
                 case TypeKind::Pointer:
