@@ -1068,6 +1068,14 @@ namespace clover {
         u64 computeHash();
     };
 
+    inline Function* expand(Function* function) {
+        if (!function->isInstantiation)
+            return function;
+        if (function->forward)
+            return function->forward;
+        return function;
+    }
+
     struct Overloads {
         struct Member {
             uptr p;

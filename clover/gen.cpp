@@ -2093,7 +2093,7 @@ namespace clover {
             }
 
             case ASTKind::ResolvedFunction: {
-                Function* function = ast.resolvedFunction();
+                Function* function = expand(ast.resolvedFunction());
                 auto name = genCtx.module->str(genCtx.mangledName(module, function));
                 return coerce(genCtx, builder, destType, function->type(), genCtx.funcref(name));
             }
@@ -2245,8 +2245,9 @@ namespace clover {
                 JasmineOperand callee;
                 Type calleeType;
                 if (ast.child(0).kind() == ASTKind::ResolvedFunction) {
-                    auto name = module->str(genCtx.mangledName(module, ast.child(0).resolvedFunction()));
-                    calleeType = ast.child(0).resolvedFunction()->type();
+                    auto func = expand(ast.child(0).resolvedFunction());
+                    auto name = module->str(genCtx.mangledName(module, func));
+                    calleeType = func->type();
                     callee = genCtx.funcref(name);
                 } else {
                     calleeType = typeOf(ast, 0);

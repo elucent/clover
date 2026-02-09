@@ -2334,19 +2334,6 @@ namespace clover {
             gatherResolvedFunctions(indices, self, { body, i });
     }
 
-    void forwardResolvedFunctions(ChangePosition bodyPos) {
-        AST body = bodyPos.current();
-        if (body.kind() == ASTKind::ResolvedFunction) {
-            Function* func = body.resolvedFunction();
-            while (func->isInstantiation && func->forward)
-                func = func->forward;
-            if (func != body.resolvedFunction())
-                bodyPos.replaceWith(body.module->add(ASTKind::ResolvedFunction, func));
-        }
-        if (!body.isLeaf() && body.kind() != ASTKind::GenericFunDecl) for (u32 i : ::indices(body))
-            forwardResolvedFunctions({ body, i });
-    }
-
     Function* instantiate(InferenceContext& ctx, Function* parent, Function* generic, AST call) {
         Module* module = generic->module;
 
@@ -4051,9 +4038,6 @@ namespace clover {
 
         for (Function* function : *globalCtx.instantiatedFunctions)
             finalizeInstantiatedFunction(module, function);
-
-        for (u32 i = 0; i < module->getTopLevel().arity(); i ++)
-            forwardResolvedFunctions({ module->getTopLevel(), i });
 
         if UNLIKELY(config::printInferredTreeAfterEachPass) {
             println("| Module after type checking pass: ");
