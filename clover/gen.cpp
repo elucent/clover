@@ -2475,7 +2475,8 @@ namespace clover {
                     // that here.
                     AST list = ast.child(1);
                     while (list.kind() == ASTKind::Then) {
-                        generate(genCtx, builder, list.child(0), module->voidType());
+                        if (!list.child(0).function()->forward)
+                            generate(genCtx, builder, list.child(0), module->voidType());
                         list = list.child(1);
                     }
                     generate(genCtx, builder, list, module->voidType());
