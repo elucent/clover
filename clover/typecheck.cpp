@@ -3414,6 +3414,111 @@ namespace clover {
         order.trim(reader - writer);
     }
 
+    void tryMarkConcrete(Type type) {
+        if (type.isConcrete())
+            return;
+        switch (type.kind()) {
+            case TypeKind::Var:
+                if (type.asVar().isEqual()) {
+                    Type inner = expand(type);
+                    tryMarkConcrete(inner);
+                    type.firstWord().isConcrete = inner.isConcrete();
+                }
+                break;
+            case TypeKind::Pointer: {
+                Type element = type.as<TypeKind::Pointer>().elementType();
+                tryMarkConcrete(element);
+                type.firstWord().isConcrete = element.isConcrete();
+                break;
+            }
+            case TypeKind::Slice: {
+                Type element = type.as<TypeKind::Slice>().elementType();
+                tryMarkConcrete(element);
+                type.firstWord().isConcrete = element.isConcrete();
+                break;
+            }
+            case TypeKind::Array: {
+                Type element = type.as<TypeKind::Array>().elementType();
+                tryMarkConcrete(element);
+                type.firstWord().isConcrete = element.isConcrete();
+                break;
+            }
+            case TypeKind::Tuple: {
+                auto tupleType = type.as<TypeKind::Tuple>();
+                bool allConcrete = true;
+                for (u32 i = 0; i < tupleType.count(); i ++) {
+                    tryMarkConcrete(tupleType.fieldType(i));
+                    if (!tupleType.fieldType(i).isConcrete()) {
+                        allConcrete = false;
+                        break;
+                    }
+                }
+                type.firstWord().isConcrete = allConcrete;
+                break;
+            }
+            case TypeKind::Function: {
+                auto funcType = type.as<TypeKind::Function>();
+                tryMarkConcrete(funcType.returnType());
+                bool allConcrete = funcType.returnType().isConcrete();
+                if (allConcrete) for (u32 i = 0; i < funcType.parameterCount(); i ++) {
+                    tryMarkConcrete(funcType.parameterType(i));
+                    if (!funcType.parameterType(i).isConcrete()) {
+                        allConcrete = false;
+                        break;
+                    }
+                }
+                type.firstWord().isConcrete = allConcrete;
+            }
+            case TypeKind::Named: {
+                auto namedType = type.as<TypeKind::Named>();
+                if (namedType.isGeneric()) {
+                    bool allConcrete = true;
+                    for (u32 i = 0; i < namedType.typeParameterCount(); i ++) {
+                        tryMarkConcrete(namedType.typeParameter(i));
+                        if (!namedType.typeParameter(i).isConcrete()) {
+                            allConcrete = false;
+                            break;
+                        }
+                    }
+                    type.firstWord().isConcrete = allConcrete;
+                }
+                break;
+            }
+            case TypeKind::Struct: {
+                auto structType = type.as<TypeKind::Struct>();
+                if (structType.isGeneric()) {
+                    bool allConcrete = true;
+                    for (u32 i = 0; i < structType.typeParameterCount(); i ++) {
+                        tryMarkConcrete(structType.typeParameter(i));
+                        if (!structType.typeParameter(i).isConcrete()) {
+                            allConcrete = false;
+                            break;
+                        }
+                    }
+                    type.firstWord().isConcrete = allConcrete;
+                }
+                break;
+            }
+            case TypeKind::Union: {
+                auto unionType = type.as<TypeKind::Union>();
+                if (unionType.isGeneric()) {
+                    bool allConcrete = true;
+                    for (u32 i = 0; i < unionType.typeParameterCount(); i ++) {
+                        tryMarkConcrete(unionType.typeParameter(i));
+                        if (!unionType.typeParameter(i).isConcrete()) {
+                            allConcrete = false;
+                            break;
+                        }
+                    }
+                    type.firstWord().isConcrete = allConcrete;
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
     void refineGraph(Module* module, InferenceContext& ctx, InferenceContext* parent) {
         // This is a beastly function, and contains the bulk of the actual
         // inference algorithm. From infer(), we have a constraint graph
@@ -3480,19 +3585,20 @@ namespace clover {
         // upper bound when concretifying, we can substitute that lower bound
         // for the type variable and simplify the rest of the inference.
 
-        auto processSubtypeConstraint = [&](Type type, Constraint& constraint) {
+        auto processSubtypeConstraint = [&](Type type, Constraint& constraint) -> bool {
             constraint.index = constraints.expand(constraint.index);
             if (constraint.kind == Constraint::Order)
-                return;
+                return false;
 
             auto substituteFlag = constraint.kind == Constraint::Substitute ? MustSubstitute : NoUnifyFlags;
 
             Type other = expand(constraints.types->get(constraints.constrainedTypes[constraint.index]));
+            bool shouldRemove = other.isConcrete() || type.isConcrete();
             if UNLIKELY(config::verboseUnify >= 3)
                 println("[TYPE]\tTrying to apply subtype constraint against ", other, " to constrained type ", type);
 
             if (type.index == other.index)
-                return;
+                return shouldRemove;
 
             bool isVar = type.isVar(), otherVar = other.isVar();
             Type bound = expand(type);
@@ -3504,6 +3610,7 @@ namespace clover {
                 if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
                     type_error("Failed to unify ", type, " onto ", other, " in-place.");
             }
+            return shouldRemove;
         };
 
         vec<ConstraintIndex, 32> order;
@@ -3554,10 +3661,13 @@ namespace clover {
                 // type variables. We don't refine any nodes here, but do as much
                 // unification as we can.
                 Type type = expand(constraints.types->get(constraints.constrainedTypes[i]));
+                tryMarkConcrete(type);
+
                 if UNLIKELY(config::verboseUnify >= 3)
                     println("[TYPE]\tConsidering constraints on type ", type);
-                for (Constraint constraint : constraints.constraints[i])
-                    processSubtypeConstraint(type, constraint);
+                constraints.constraints[i].removeIf([&](Constraint constraint) -> bool {
+                    return processSubtypeConstraint(type, constraint);
+                });
             }
 
             u32 initialOrderSize = order.size();

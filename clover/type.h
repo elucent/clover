@@ -4119,15 +4119,19 @@ namespace clover {
                     setUpperBound(F64);
                 break;
             case TypeKind::Void:
+                type_assert(bound.unifyOnto(upperBound(), nullptr, InPlace));
                 makeEqual(bound);
                 break;
             case TypeKind::Struct:
             case TypeKind::Named:
             case TypeKind::Union:
-                if (!isCase(bound))
+                if (!isCase(bound)) {
+                    type_assert(bound.unifyOnto(upperBound(), nullptr, InPlace));
                     makeEqual(bound);
+                }
                 break;
             case TypeKind::Tuple:
+                type_assert(bound.unifyOnto(upperBound(), nullptr, InPlace));
                 makeEqual(bound);
                 break;
             default:
