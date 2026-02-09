@@ -70,7 +70,7 @@ namespace clover {
 
         constexpr static u32 CompactArrayTypeBits = 11;
         constexpr static u32 CompactArrayLengthBits = 12;
-        constexpr static u32 MaxCompactArrayType = 1u << CompactArrayLengthBits;
+        constexpr static u32 MaxCompactArrayType = 1u << CompactArrayTypeBits;
         constexpr static u32 MaxCompactArrayLength = 1u << CompactArrayLengthBits;
         constexpr static u32 MetaBits = 3;
         constexpr static u32 PayloadBits = 24;
