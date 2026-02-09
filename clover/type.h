@@ -2348,7 +2348,7 @@ namespace clover {
             other = expand(other), otherIsVar = other.isVar();
         bool hasAnyVar = weAreVar || otherIsVar;
 
-        if (index == other.index)
+        if (self.index == other.index)
             return UnifySuccess;
 
         if (self.index != index)
