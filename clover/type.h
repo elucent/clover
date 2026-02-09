@@ -4098,15 +4098,30 @@ namespace clover {
 
     inline void VarType::setLowerBoundAndDecorate(Type bound) {
         setLowerBound(bound);
-        if (bound.is<TypeKind::Numeric>()) {
-            if (upperBound() == TopInteger) {
-                if (bound.as<TypeKind::Numeric>().isSigned())
-                    setUpperBound(I64);
-                else if (bound.as<TypeKind::Numeric>().bitCount() == 64)
-                    setUpperBound(U64);
-            } else if (upperBound() == Any)
-                setUpperBound(F64);
-            return;
+        switch (bound.kind()) {
+            case TypeKind::Numeric:
+                if (upperBound() == TopInteger) {
+                    if (bound.as<TypeKind::Numeric>().isSigned())
+                        setUpperBound(I64);
+                    else if (bound.as<TypeKind::Numeric>().bitCount() == 64)
+                        setUpperBound(U64);
+                } else if (upperBound() == Any)
+                    setUpperBound(F64);
+                break;
+            case TypeKind::Void:
+                makeEqual(bound);
+                break;
+            case TypeKind::Struct:
+            case TypeKind::Named:
+            case TypeKind::Union:
+                if (!isCase(bound))
+                    makeEqual(bound);
+                break;
+            case TypeKind::Tuple:
+                makeEqual(bound);
+                break;
+            default:
+                break;
         }
     }
 
@@ -4144,6 +4159,7 @@ namespace clover {
         TypeWord* ptr = &firstWord();
         ptr[1].markedEqual = true;
         ptr[0].typeBound = ptr[1].typeBound = t.index;
+        ptr[0].isConcrete = t.isConcrete();
     }
 
     inline bool canResolveTypeFromLowerBound(TypeSystem* sys, Type lb) {
