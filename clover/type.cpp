@@ -22,9 +22,9 @@ namespace clover {
     }
 
     void recursivelyForward(Type us, Type them) {
-        for (u32 i = 0; i < us.as<TypeKind::Union>().count(); i ++) {
-            Type caseType = us.as<TypeKind::Union>().caseType(i), other = them.as<TypeKind::Union>().caseType(i);
-            if (caseType.is<TypeKind::Union>())
+        for (u32 i = 0; i < us.asUnion().count(); i ++) {
+            Type caseType = us.asUnion().caseType(i), other = them.asUnion().caseType(i);
+            if (caseType.isUnion())
                 recursivelyForward(caseType, other);
 
             caseType.firstWord().kind = TypeKind::Var;
@@ -70,7 +70,7 @@ namespace clover {
             #ifndef RELEASE
                 for (u32 i = 0; i < type.typeParameterCount(); i ++) {
                     assert(expand(type.typeParameter(i)) == expand(other.as<Kind>().typeParameter(i)));
-                    assert(other.as<Kind>().typeParameter(i).isntVar());
+                    assert(!other.as<Kind>().typeParameter(i).isVar());
                 }
             #endif
 
@@ -79,7 +79,7 @@ namespace clover {
             // to our replacement.
 
             // Actually, first, if we're a union, we do this to all of our cases.
-            if (type.template is<TypeKind::Union>())
+            if (type.isUnion())
                 recursivelyForward(type, other);
 
             type.firstWord().kind = TypeKind::Var;

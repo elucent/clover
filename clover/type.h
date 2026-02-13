@@ -45,17 +45,13 @@ namespace clover {
 
     struct TypeWord {
         enum class Kind : u32 {
-            Bottom,         // Nothing, uninhabited type.
-            Void,           // Single-valued type, generally representing the absence of another value.
-            Bool,           // Boolean, true or false type.
-            Char,           // UTF-32 character/code-point.
+            Primitive,      // Primitive type with no substructure (bottom, void, bool, char, any).
             Numeric,        // Allows numeric coercion.
             Pointer,        // Pointer to some child type.
             Slice,          // Slice of array of some element type.
             Array,          // Contiguous array of elements.
             Tuple,          // Heterogeneous, fixed-length vector of fields.
             Function,       // Function with arguments and a return type.
-            Any,            // Pointer to any value.
             Var,            // Type variable.
             Range,          // Interval of two known type bounds.
             Named,          // Named wrapper around an inner type.
@@ -112,6 +108,15 @@ namespace clover {
     template<TypeKind Kind>
     using BuilderType = typename BuilderTypeStruct<Kind>::Type;
 
+    struct NumericType;
+    struct PointerType;
+    struct SliceType;
+    struct ArrayType;
+    struct TupleType;
+    struct FunctionType;
+    struct NamedType;
+    struct StructType;
+    struct UnionType;
     struct VarType;
     struct RangeType;
 
@@ -227,12 +232,28 @@ namespace clover {
             return HandleType<Kind>{ Type(types, index, word) };
         }
 
+        inline NumericType asNum() const;
+        inline bool isNum() const;
+        inline PointerType asPtr() const;
+        inline bool isPtr() const;
+        inline SliceType asSlice() const;
+        inline bool isSlice() const;
+        inline ArrayType asArray() const;
+        inline bool isArray() const;
+        inline TupleType asTuple() const;
+        inline bool isTuple() const;
+        inline FunctionType asFunc() const;
+        inline bool isFunc() const;
+        inline NamedType asNamed() const;
+        inline bool isNamed() const;
+        inline StructType asStruct() const;
+        inline bool isStruct() const;
+        inline UnionType asUnion() const;
+        inline bool isUnion() const;
         inline VarType asVar() const;
         inline bool isVar() const;
-        inline bool isntVar() const;
         inline RangeType asRange() const;
         inline bool isRange() const;
-        inline bool isntRange() const;
 
         // Reconstructs this type, returning a clone of it with all variables
         // fully expanded.
@@ -367,15 +388,7 @@ namespace clover {
     };
 
     template<>
-    struct HandleTypeStruct<TypeKind::Bottom> { using Type = PrimitiveType; };
-    template<>
-    struct HandleTypeStruct<TypeKind::Void> { using Type = PrimitiveType; };
-    template<>
-    struct HandleTypeStruct<TypeKind::Bool> { using Type = PrimitiveType; };
-    template<>
-    struct HandleTypeStruct<TypeKind::Char> { using Type = PrimitiveType; };
-    template<>
-    struct HandleTypeStruct<TypeKind::Any> { using Type = PrimitiveType; };
+    struct HandleTypeStruct<TypeKind::Primitive> { using Type = PrimitiveType; };
 
     struct NumericType : public Type {
         inline bool isSigned() const;
@@ -1315,11 +1328,11 @@ namespace clover {
             typeList.push(0); // Ext
             constraintNodes.push({});
 
-            type_assert(encode<TypeKind::Bottom>().index == ReservedTypes::Bottom);
-            type_assert(encode<TypeKind::Void>().index == ReservedTypes::Void);
-            type_assert(encode<TypeKind::Bool>().index == ReservedTypes::Bool);
-            type_assert(encode<TypeKind::Char>().index == ReservedTypes::Char);
-            type_assert(encode<TypeKind::Any>().index == ReservedTypes::Any);
+            type_assert(encode<TypeKind::Primitive>().index == ReservedTypes::Bottom);
+            type_assert(encode<TypeKind::Primitive>().index == ReservedTypes::Void);
+            type_assert(encode<TypeKind::Primitive>().index == ReservedTypes::Bool);
+            type_assert(encode<TypeKind::Primitive>().index == ReservedTypes::Char);
+            type_assert(encode<TypeKind::Primitive>().index == ReservedTypes::Any);
 
             type_assert(encode<TypeKind::Numeric>(true, false, 8u).index == ReservedTypes::I8);
             type_assert(encode<TypeKind::Numeric>(true, false, 16u).index == ReservedTypes::I16);
@@ -1533,50 +1546,10 @@ namespace clover {
 
     namespace TypeSystemMethods {
         template<>
-        inline u32 encode<TypeKind::Bottom>(TypeSystem& sys) {
+        inline u32 encode<TypeKind::Primitive>(TypeSystem& sys) {
             TypeWord word;
             word.bits = 0;
-            word.kind = TypeKind::Bottom;
-            word.isConcrete = true;
-            sys.words.push(word);
-            return sys.words.size() - 1;
-        }
-
-        template<>
-        inline u32 encode<TypeKind::Void>(TypeSystem& sys) {
-            TypeWord word;
-            word.bits = 0;
-            word.kind = TypeKind::Void;
-            word.isConcrete = true;
-            sys.words.push(word);
-            return sys.words.size() - 1;
-        }
-
-        template<>
-        inline u32 encode<TypeKind::Bool>(TypeSystem& sys) {
-            TypeWord word;
-            word.bits = 0;
-            word.kind = TypeKind::Bool;
-            word.isConcrete = true;
-            sys.words.push(word);
-            return sys.words.size() - 1;
-        }
-
-        template<>
-        inline u32 encode<TypeKind::Char>(TypeSystem& sys) {
-            TypeWord word;
-            word.bits = 0;
-            word.kind = TypeKind::Char;
-            word.isConcrete = true;
-            sys.words.push(word);
-            return sys.words.size() - 1;
-        }
-
-        template<>
-        inline u32 encode<TypeKind::Any>(TypeSystem& sys) {
-            TypeWord word;
-            word.bits = 0;
-            word.kind = TypeKind::Any;
+            word.kind = TypeKind::Primitive;
             word.isConcrete = true;
             sys.words.push(word);
             return sys.words.size() - 1;
@@ -1925,12 +1898,12 @@ namespace clover {
                 w.fieldType = t.index;
                 sys.words.push(w);
 
-                if (t.is<TypeKind::Named>())
-                    t.as<TypeKind::Named>().setParentType(typeIndex);
-                else if (t.is<TypeKind::Struct>())
-                    t.as<TypeKind::Struct>().setParentType(typeIndex);
-                else if (t.is<TypeKind::Union>())
-                    t.as<TypeKind::Union>().setParentType(typeIndex);
+                if (t.isNamed())
+                    t.asNamed().setParentType(typeIndex);
+                else if (t.isStruct())
+                    t.asStruct().setParentType(typeIndex);
+                else if (t.isUnion())
+                    t.asUnion().setParentType(typeIndex);
                 else
                     unreachable("Tried to set parent type of non-case type ", t);
             }
@@ -1989,41 +1962,35 @@ namespace clover {
             a = expand(a);
         if (b.isVar())
             b = expand(b);
+        if (a.index == b.index)
+            return true;
         if (a.kind() != b.kind())
             return false;
         switch (a.kind()) {
-            case TypeKind::Bottom:
-                return a.as<TypeKind::Bottom>() == b.as<TypeKind::Bottom>();
-            case TypeKind::Void:
-                return a.as<TypeKind::Void>() == b.as<TypeKind::Void>();
-            case TypeKind::Bool:
-                return a.as<TypeKind::Bool>() == b.as<TypeKind::Bool>();
-            case TypeKind::Char:
-                return a.as<TypeKind::Char>() == b.as<TypeKind::Char>();
+            case TypeKind::Primitive:
+                return false; // If the indices weren't the same, we're not the same.
             case TypeKind::Numeric:
-                return a.as<TypeKind::Numeric>() == b.as<TypeKind::Numeric>();
+                return a.asNum() == b.asNum();
             case TypeKind::Pointer:
-                return a.as<TypeKind::Pointer>() == b.as<TypeKind::Pointer>();
+                return a.asPtr() == b.asPtr();
             case TypeKind::Slice:
-                return a.as<TypeKind::Slice>() == b.as<TypeKind::Slice>();
+                return a.asSlice() == b.asSlice();
             case TypeKind::Array:
-                return a.as<TypeKind::Array>() == b.as<TypeKind::Array>();
+                return a.asArray() == b.asArray();
             case TypeKind::Tuple:
-                return a.as<TypeKind::Tuple>() == b.as<TypeKind::Tuple>();
+                return a.asTuple() == b.asTuple();
             case TypeKind::Function:
-                return a.as<TypeKind::Function>() == b.as<TypeKind::Function>();
-            case TypeKind::Any:
-                return a.as<TypeKind::Any>() == b.as<TypeKind::Any>();
+                return a.asFunc() == b.asFunc();
             case TypeKind::Var:
                 return a.asVar() == b.asVar();
             case TypeKind::Range:
-                return a.as<TypeKind::Range>() == b.as<TypeKind::Range>();
+                return a.asRange() == b.asRange();
             case TypeKind::Named:
-                return a.as<TypeKind::Named>() == b.as<TypeKind::Named>();
+                return a.asNamed() == b.asNamed();
             case TypeKind::Struct:
-                return a.as<TypeKind::Struct>() == b.as<TypeKind::Struct>();
+                return a.asStruct() == b.asStruct();
             case TypeKind::Union:
-                return a.as<TypeKind::Union>() == b.as<TypeKind::Union>();
+                return a.asUnion() == b.asUnion();
         }
     }
 
@@ -2033,38 +2000,30 @@ namespace clover {
 
     inline u64 hash(const Type& type) {
         switch (type.kind()) {
-            case TypeKind::Bottom:
-                return type.as<TypeKind::Bottom>().hash();
-            case TypeKind::Void:
-                return type.as<TypeKind::Void>().hash();
-            case TypeKind::Bool:
-                return type.as<TypeKind::Bool>().hash();
-            case TypeKind::Char:
-                return type.as<TypeKind::Char>().hash();
+            case TypeKind::Primitive:
+                return type.as<TypeKind::Primitive>().hash();
             case TypeKind::Numeric:
-                return type.as<TypeKind::Numeric>().hash();
+                return type.asNum().hash();
             case TypeKind::Pointer:
-                return type.as<TypeKind::Pointer>().hash();
+                return type.asPtr().hash();
             case TypeKind::Slice:
-                return type.as<TypeKind::Slice>().hash();
+                return type.asSlice().hash();
             case TypeKind::Array:
-                return type.as<TypeKind::Array>().hash();
+                return type.asArray().hash();
             case TypeKind::Tuple:
-                return type.as<TypeKind::Tuple>().hash();
+                return type.asTuple().hash();
             case TypeKind::Function:
-                return type.as<TypeKind::Function>().hash();
-            case TypeKind::Any:
-                return type.as<TypeKind::Any>().hash();
+                return type.asFunc().hash();
             case TypeKind::Var:
                 return type.asVar().hash();
             case TypeKind::Range:
-                return type.as<TypeKind::Range>().hash();
+                return type.asRange().hash();
             case TypeKind::Named:
-                return type.as<TypeKind::Named>().hash();
+                return type.asNamed().hash();
             case TypeKind::Struct:
-                return type.as<TypeKind::Struct>().hash();
+                return type.asStruct().hash();
             case TypeKind::Union:
-                return type.as<TypeKind::Union>().hash();
+                return type.asUnion().hash();
         }
     }
 
@@ -2115,29 +2074,28 @@ namespace clover {
         return firstWord().isConcrete;
     }
 
-    inline VarType Type::asVar() const {
-        return as<TypeKind::Var>();
-    }
-
-    inline bool Type::isVar() const {
-        return is<TypeKind::Var>();
-    }
-
-    inline bool Type::isntVar() const {
-        return isnt<TypeKind::Var>();
-    }
-
-    inline RangeType Type::asRange() const {
-        return as<TypeKind::Range>();
-    }
-
-    inline bool Type::isRange() const {
-        return is<TypeKind::Range>();
-    }
-
-    inline bool Type::isntRange() const {
-        return isnt<TypeKind::Range>();
-    }
+    inline NumericType Type::asNum() const { return as<TypeKind::Numeric>(); }
+    inline bool Type::isNum() const { return is<TypeKind::Numeric>(); }
+    inline PointerType Type::asPtr() const { return as<TypeKind::Pointer>(); }
+    inline bool Type::isPtr() const { return is<TypeKind::Pointer>(); }
+    inline SliceType Type::asSlice() const { return as<TypeKind::Slice>(); }
+    inline bool Type::isSlice() const { return is<TypeKind::Slice>(); }
+    inline ArrayType Type::asArray() const { return as<TypeKind::Array>(); }
+    inline bool Type::isArray() const { return is<TypeKind::Array>(); }
+    inline TupleType Type::asTuple() const { return as<TypeKind::Tuple>(); }
+    inline bool Type::isTuple() const { return is<TypeKind::Tuple>(); }
+    inline FunctionType Type::asFunc() const { return as<TypeKind::Function>(); }
+    inline bool Type::isFunc() const { return is<TypeKind::Function>(); }
+    inline NamedType Type::asNamed() const { return as<TypeKind::Named>(); }
+    inline bool Type::isNamed() const { return is<TypeKind::Named>(); }
+    inline StructType Type::asStruct() const { return as<TypeKind::Struct>(); }
+    inline bool Type::isStruct() const { return is<TypeKind::Struct>(); }
+    inline UnionType Type::asUnion() const { return as<TypeKind::Union>(); }
+    inline bool Type::isUnion() const { return is<TypeKind::Union>(); }
+    inline VarType Type::asVar() const { return as<TypeKind::Var>(); }
+    inline bool Type::isVar() const { return is<TypeKind::Var>(); }
+    inline RangeType Type::asRange() const { return as<TypeKind::Range>(); }
+    inline bool Type::isRange() const { return is<TypeKind::Range>(); }
 
     inline bool Type::contains(TypeIndex var) const {
         assert(types->get(var).isVar());
@@ -2146,38 +2104,30 @@ namespace clover {
         if (index == var)
             return true;
         switch(kind()) {
-            case TypeKind::Bottom:
-                return as<TypeKind::Bottom>().contains(var);
-            case TypeKind::Void:
-                return as<TypeKind::Void>().contains(var);
-            case TypeKind::Bool:
-                return as<TypeKind::Bool>().contains(var);
-            case TypeKind::Char:
-                return as<TypeKind::Char>().contains(var);
-            case TypeKind::Any:
-                return as<TypeKind::Any>().contains(var);
+            case TypeKind::Primitive:
+                return as<TypeKind::Primitive>().contains(var);
             case TypeKind::Numeric:
-                return as<TypeKind::Numeric>().contains(var);
+                return asNum().contains(var);
             case TypeKind::Pointer:
-                return as<TypeKind::Pointer>().contains(var);
+                return asPtr().contains(var);
             case TypeKind::Slice:
-                return as<TypeKind::Slice>().contains(var);
+                return asSlice().contains(var);
             case TypeKind::Array:
-                return as<TypeKind::Array>().contains(var);
+                return asArray().contains(var);
             case TypeKind::Tuple:
-                return as<TypeKind::Tuple>().contains(var);
+                return asTuple().contains(var);
             case TypeKind::Function:
-                return as<TypeKind::Function>().contains(var);
+                return asFunc().contains(var);
             case TypeKind::Var:
                 return asVar().contains(var);
             case TypeKind::Range:
                 return asRange().contains(var);
             case TypeKind::Named:
-                return as<TypeKind::Named>().contains(var);
+                return asNamed().contains(var);
             case TypeKind::Struct:
-                return as<TypeKind::Struct>().contains(var);
+                return asStruct().contains(var);
             case TypeKind::Union:
-                return as<TypeKind::Union>().contains(var);
+                return asUnion().contains(var);
         }
     }
 
@@ -2185,53 +2135,41 @@ namespace clover {
         if (isConcrete())
             return;
         switch(kind()) {
-            case TypeKind::Bottom:
-                as<TypeKind::Bottom>().concretify();
-                break;
-            case TypeKind::Void:
-                as<TypeKind::Void>().concretify();
-                break;
-            case TypeKind::Bool:
-                as<TypeKind::Bool>().concretify();
-                break;
-            case TypeKind::Char:
-                as<TypeKind::Char>().concretify();
-                break;
-            case TypeKind::Any:
-                as<TypeKind::Any>().concretify();
+            case TypeKind::Primitive:
+                as<TypeKind::Primitive>().concretify();
                 break;
             case TypeKind::Numeric:
-                as<TypeKind::Numeric>().concretify();
+                asNum().concretify();
                 break;
             case TypeKind::Pointer:
-                as<TypeKind::Pointer>().concretify();
+                asPtr().concretify();
                 break;
             case TypeKind::Slice:
-                as<TypeKind::Slice>().concretify();
+                asSlice().concretify();
                 break;
             case TypeKind::Array:
-                as<TypeKind::Array>().concretify();
+                asArray().concretify();
                 break;
             case TypeKind::Tuple:
-                as<TypeKind::Tuple>().concretify();
+                asTuple().concretify();
                 break;
             case TypeKind::Function:
-                as<TypeKind::Function>().concretify();
+                asFunc().concretify();
                 break;
             case TypeKind::Var:
                 asVar().concretify();
                 break;
             case TypeKind::Range:
-                as<TypeKind::Range>().concretify();
+                asRange().concretify();
                 break;
             case TypeKind::Named:
-                as<TypeKind::Named>().concretify();
+                asNamed().concretify();
                 break;
             case TypeKind::Struct:
-                as<TypeKind::Struct>().concretify();
+                asStruct().concretify();
                 break;
             case TypeKind::Union:
-                as<TypeKind::Union>().concretify();
+                asUnion().concretify();
                 break;
         }
     }
@@ -2239,7 +2177,7 @@ namespace clover {
     inline Type leastCommonSupertype(Type, Type, Constraints*, UnifyMode);
     inline Type greatestCommonSubtype(Type, Type, Constraints*, UnifyMode);
 
-    inline bool isNamed(TypeKind kind) {
+    inline bool isNominal(TypeKind kind) {
         constexpr u32 CaseTypeKinds = 0
             | 1u << u32(TypeKind::Named)
             | 1u << u32(TypeKind::Struct)
@@ -2249,7 +2187,7 @@ namespace clover {
     }
 
     inline bool isCase(Type type) {
-        if (!isNamed(type.kind()))
+        if (!isNominal(type.kind()))
             return false;
         return type.firstWord().isCase;
     }
@@ -2257,11 +2195,11 @@ namespace clover {
     inline bool isGenericInst(Type type) {
         switch (type.kind()) {
             case TypeKind::Named:
-                return type.as<TypeKind::Named>().isGeneric();
+                return type.asNamed().isGeneric();
             case TypeKind::Struct:
-                return type.as<TypeKind::Struct>().isGeneric();
+                return type.asStruct().isGeneric();
             case TypeKind::Union:
-                return type.as<TypeKind::Union>().isGeneric();
+                return type.asUnion().isGeneric();
             default:
                 unreachable("Not a possible generic type kind.");
         }
@@ -2270,11 +2208,11 @@ namespace clover {
     inline u32 genericOriginIndexOf(Type type) {
         switch (type.kind()) {
             case TypeKind::Named:
-                return type.as<TypeKind::Named>().genericOriginIndex();
+                return type.asNamed().genericOriginIndex();
             case TypeKind::Struct:
-                return type.as<TypeKind::Struct>().genericOriginIndex();
+                return type.asStruct().genericOriginIndex();
             case TypeKind::Union:
-                return type.as<TypeKind::Union>().genericOriginIndex();
+                return type.asUnion().genericOriginIndex();
             default:
                 unreachable("Not a possible generic type kind.");
         }
@@ -2283,11 +2221,11 @@ namespace clover {
     inline u32 typeParameterCountOf(Type type) {
         switch (type.kind()) {
             case TypeKind::Named:
-                return type.as<TypeKind::Named>().typeParameterCount();
+                return type.asNamed().typeParameterCount();
             case TypeKind::Struct:
-                return type.as<TypeKind::Struct>().typeParameterCount();
+                return type.asStruct().typeParameterCount();
             case TypeKind::Union:
-                return type.as<TypeKind::Union>().typeParameterCount();
+                return type.asUnion().typeParameterCount();
             default:
                 unreachable("Not a possible generic type kind.");
         }
@@ -2298,22 +2236,22 @@ namespace clover {
         type = expand(type);
         switch (type.kind()) {
             case TypeKind::Named:
-                if (!type.as<TypeKind::Named>().isGeneric())
+                if (!type.asNamed().isGeneric())
                     return;
-                for (u32 i = 0; i < type.as<TypeKind::Named>().typeParameterCount(); i ++)
-                    func(type.as<TypeKind::Named>().typeParameter(i));
+                for (u32 i = 0; i < type.asNamed().typeParameterCount(); i ++)
+                    func(type.asNamed().typeParameter(i));
                 return;
             case TypeKind::Struct:
-                if (!type.as<TypeKind::Struct>().isGeneric())
+                if (!type.asStruct().isGeneric())
                     return;
-                for (u32 i = 0; i < type.as<TypeKind::Struct>().typeParameterCount(); i ++)
-                    func(type.as<TypeKind::Struct>().typeParameter(i));
+                for (u32 i = 0; i < type.asStruct().typeParameterCount(); i ++)
+                    func(type.asStruct().typeParameter(i));
                 return;
             case TypeKind::Union:
-                if (!type.as<TypeKind::Union>().isGeneric())
+                if (!type.asUnion().isGeneric())
                     return;
-                for (u32 i = 0; i < type.as<TypeKind::Union>().typeParameterCount(); i ++)
-                    func(type.as<TypeKind::Union>().typeParameter(i));
+                for (u32 i = 0; i < type.asUnion().typeParameterCount(); i ++)
+                    func(type.asUnion().typeParameter(i));
                 return;
             default:
                 unreachable("Not a possible generic type kind.");
@@ -2416,7 +2354,7 @@ namespace clover {
                         println("[TYPE]\tUpdating upper bound of variable ", *this, " to ", upper, " in-place");
                     if UNLIKELY(config::verboseUnify >= 3)
                         println("[TYPE]\tUpdating lower bound of variable ", other, " to ", lower, " in-place");
-                    if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(lower.kind()) && (mode & ModeMask) != Constraining)
+                    if (((mode & UnifyFlagsMask) == MustSubstitute && !isNominal(lower.kind()) && (mode & ModeMask) != Constraining)
                         || (mode & UnifyFlagsMask) == MustBeEqual) {
                         Type result = index < other.index ? *this : other;
                         other = index < other.index ? other : *this;
@@ -2449,7 +2387,7 @@ namespace clover {
                     if UNLIKELY(config::verboseUnify >= 3)
                         println("[TYPE]\tUpdating upper bound of variable ", *this, " to ", upper, " in-place");
 
-                    if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(asVar().lowerBound().kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
+                    if (((mode & UnifyFlagsMask) == MustSubstitute && !isNominal(asVar().lowerBound().kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
                         Type lower = leastCommonSupertype(asVar().lowerBound(), other.isRange() ? other.asRange().lowerBound() : other, constraints, mode & ModeMask);
                         if (!lower)
                             return UnifyFailure;
@@ -2477,7 +2415,7 @@ namespace clover {
                     if UNLIKELY(config::verboseUnify >= 3)
                         println("[TYPE]\tUpdating lower bound of variable ", other, " to ", lower, " in-place");
 
-                    if (((mode & UnifyFlagsMask) == MustSubstitute && !isNamed(lower.kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
+                    if (((mode & UnifyFlagsMask) == MustSubstitute && !isNominal(lower.kind())) || (mode & UnifyFlagsMask) == MustBeEqual) {
                         Type upper = greatestCommonSubtype(other.asVar().upperBound(), isRange() ? asRange().upperBound() : *this, constraints, mode & ModeMask);
                         if (!upper)
                             return UnifyFailure;
@@ -2518,38 +2456,30 @@ namespace clover {
         assert(!other.isVar());
 
         switch(kind()) {
-            case TypeKind::Bottom:
-                return UnifySuccess;
-            case TypeKind::Void:
-                return as<TypeKind::Void>().unifyOnto(other, constraints, mode);
-            case TypeKind::Bool:
-                return as<TypeKind::Bool>().unifyOnto(other, constraints, mode);
-            case TypeKind::Char:
-                return as<TypeKind::Char>().unifyOnto(other, constraints, mode);
-            case TypeKind::Any:
-                return as<TypeKind::Any>().unifyOnto(other, constraints, mode);
+            case TypeKind::Primitive:
+                return as<TypeKind::Primitive>().unifyOnto(other, constraints, mode);
             case TypeKind::Numeric:
-                return as<TypeKind::Numeric>().unifyOnto(other, constraints, mode);
+                return asNum().unifyOnto(other, constraints, mode);
             case TypeKind::Pointer:
-                return as<TypeKind::Pointer>().unifyOnto(other, constraints, mode);
+                return asPtr().unifyOnto(other, constraints, mode);
             case TypeKind::Slice:
-                return as<TypeKind::Slice>().unifyOnto(other, constraints, mode);
+                return asSlice().unifyOnto(other, constraints, mode);
             case TypeKind::Array:
-                return as<TypeKind::Array>().unifyOnto(other, constraints, mode);
+                return asArray().unifyOnto(other, constraints, mode);
             case TypeKind::Tuple:
-                return as<TypeKind::Tuple>().unifyOnto(other, constraints, mode);
+                return asTuple().unifyOnto(other, constraints, mode);
             case TypeKind::Function:
-                return as<TypeKind::Function>().unifyOnto(other, constraints, mode);
+                return asFunc().unifyOnto(other, constraints, mode);
             case TypeKind::Var:
                 unreachable("Should have handled type variable already.");
             case TypeKind::Range:
-                return as<TypeKind::Range>().unifyOnto(other, constraints, mode);
+                return asRange().unifyOnto(other, constraints, mode);
             case TypeKind::Named:
-                return as<TypeKind::Named>().unifyOnto(other, constraints, mode);
+                return asNamed().unifyOnto(other, constraints, mode);
             case TypeKind::Struct:
-                return as<TypeKind::Struct>().unifyOnto(other, constraints, mode);
+                return asStruct().unifyOnto(other, constraints, mode);
             case TypeKind::Union:
-                return as<TypeKind::Union>().unifyOnto(other, constraints, mode);
+                return asUnion().unifyOnto(other, constraints, mode);
         }
     }
 
@@ -2560,43 +2490,35 @@ namespace clover {
             return;
         }
         switch (kind()) {
-            case TypeKind::Bottom:
-            case TypeKind::Void:
-            case TypeKind::Bool:
-            case TypeKind::Char:
-            case TypeKind::Any:
+            case TypeKind::Primitive:
             case TypeKind::Numeric:
                 return;
             case TypeKind::Pointer:
-                return as<TypeKind::Pointer>().forEachVar(func);
+                return asPtr().forEachVar(func);
             case TypeKind::Slice:
-                return as<TypeKind::Slice>().forEachVar(func);
+                return asSlice().forEachVar(func);
             case TypeKind::Array:
-                return as<TypeKind::Array>().forEachVar(func);
+                return asArray().forEachVar(func);
             case TypeKind::Tuple:
-                return as<TypeKind::Tuple>().forEachVar(func);
+                return asTuple().forEachVar(func);
             case TypeKind::Function:
-                return as<TypeKind::Function>().forEachVar(func);
+                return asFunc().forEachVar(func);
             case TypeKind::Var:
                 unreachable("Should have handled type variable already.");
             case TypeKind::Range:
-                return as<TypeKind::Range>().forEachVar(func);
+                return asRange().forEachVar(func);
             case TypeKind::Named:
-                return as<TypeKind::Named>().forEachVar(func);
+                return asNamed().forEachVar(func);
             case TypeKind::Struct:
-                return as<TypeKind::Struct>().forEachVar(func);
+                return asStruct().forEachVar(func);
             case TypeKind::Union:
-                return as<TypeKind::Union>().forEachVar(func);
+                return asUnion().forEachVar(func);
         }
     }
 
     inline u32 Type::numWords() const {
         switch (kind()) {
-            case TypeKind::Bottom:
-            case TypeKind::Any:
-            case TypeKind::Void:
-            case TypeKind::Bool:
-            case TypeKind::Char:
+            case TypeKind::Primitive:
             case TypeKind::Numeric:
             case TypeKind::Pointer:
             case TypeKind::Slice:
@@ -2606,17 +2528,17 @@ namespace clover {
             case TypeKind::Named:
                 return 3 + firstWord().isCase;
             case TypeKind::Tuple:
-                return 1 + as<TypeKind::Tuple>().count();
+                return 1 + asTuple().count();
             case TypeKind::Function:
-                return 2 + as<TypeKind::Function>().parameterCount() * 2;
+                return 2 + asFunc().parameterCount() * 2;
             case TypeKind::Var:
                 return UNLIKELY(config::readableTypeVars) ? 3 : 2;
             case TypeKind::Range:
                 return 2;
             case TypeKind::Struct:
-                return 3 + as<TypeKind::Struct>().count() * 2 + firstWord().isCase;
+                return 3 + asStruct().count() * 2 + firstWord().isCase;
             case TypeKind::Union:
-                return 3 + as<TypeKind::Union>().count() + firstWord().isCase;
+                return 3 + asUnion().count() + firstWord().isCase;
         }
     }
 
@@ -2635,33 +2557,29 @@ namespace clover {
         }
 
         switch (kind()) {
-            case TypeKind::Bottom:
-            case TypeKind::Any:
-            case TypeKind::Void:
-            case TypeKind::Bool:
-            case TypeKind::Char:
+            case TypeKind::Primitive:
             case TypeKind::Numeric:
                 return *this;
 
             case TypeKind::Named:
-                return as<TypeKind::Named>().cloneExpand();
+                return asNamed().cloneExpand();
             case TypeKind::Struct:
-                return as<TypeKind::Struct>().cloneExpand();
+                return asStruct().cloneExpand();
             case TypeKind::Union:
-                return as<TypeKind::Union>().cloneExpand();
+                return asUnion().cloneExpand();
 
             case TypeKind::Pointer:
-                return as<TypeKind::Pointer>().cloneExpand();
+                return asPtr().cloneExpand();
             case TypeKind::Slice:
-                return as<TypeKind::Slice>().cloneExpand();
+                return asSlice().cloneExpand();
             case TypeKind::Array:
-                return as<TypeKind::Array>().cloneExpand();
+                return asArray().cloneExpand();
             case TypeKind::Tuple:
-                return as<TypeKind::Tuple>().cloneExpand();
+                return asTuple().cloneExpand();
             case TypeKind::Function:
-                return as<TypeKind::Function>().cloneExpand();
+                return asFunc().cloneExpand();
             case TypeKind::Range:
-                return as<TypeKind::Range>().cloneExpand();
+                return asRange().cloneExpand();
 
             case TypeKind::Var:
                 unreachable("Should have been handled earlier.");
@@ -2690,11 +2608,11 @@ namespace clover {
         assert(isCase(type));
         switch (type.kind()) {
             case TypeKind::Named:
-                return expand(type.as<TypeKind::Named>().parentType());
+                return expand(type.asNamed().parentType());
             case TypeKind::Struct:
-                return expand(type.as<TypeKind::Struct>().parentType());
+                return expand(type.asStruct().parentType());
             case TypeKind::Union:
-                return expand(type.as<TypeKind::Union>().parentType());
+                return expand(type.asUnion().parentType());
             default:
                 unreachable("Not a case type.");
         }
@@ -2733,7 +2651,7 @@ namespace clover {
         if (ak == TypeKind::Numeric && bk == TypeKind::Numeric && flags == NoUnifyFlags) {
             // This handles the case where we have a signed v.s. unsigned
             // integer type, and need to find a smaller common integer.
-            const auto& an = a.as<TypeKind::Numeric>(), bn = b.as<TypeKind::Numeric>();
+            const auto& an = a.asNum(), bn = b.asNum();
             assert(!an.isFloat());
             assert(!bn.isFloat());
             assert(an.isSigned() != bn.isSigned());
@@ -2923,7 +2841,7 @@ namespace clover {
             // integer type, and need an extra bit to store all possible
             // values. Otherwise, we should be able to rely on normal
             // subtyping rules.
-            const auto& an = a.as<TypeKind::Numeric>(), bn = b.as<TypeKind::Numeric>();
+            const auto& an = a.asNum(), bn = b.asNum();
             assert(!an.isFloat());
             assert(!bn.isFloat());
             assert(an.isSigned() != bn.isSigned());
@@ -2937,7 +2855,7 @@ namespace clover {
         }
 
         if (ak == TypeKind::Slice && bk == TypeKind::Array) {
-            auto ae = a.as<TypeKind::Slice>().elementType(), be = b.as<TypeKind::Array>().elementType();
+            auto ae = a.asSlice().elementType(), be = b.asArray().elementType();
             if (ae.unifyOnto(be, nullptr, Query | flags) && be.unifyOnto(be, nullptr, Query | flags)) {
                 if (mode != Query) {
                     ae.unifyOnto(be, constraints, mode | flags);
@@ -2945,12 +2863,12 @@ namespace clover {
                 }
                 // The result can't be Own, because arrays technically do not
                 // own their memory (at least not in the same way).
-                return types->encode<TypeKind::Slice>(a.as<TypeKind::Slice>().isUninit() ? Uninit : NoRefTraits, ae);
+                return types->encode<TypeKind::Slice>(a.asSlice().isUninit() ? Uninit : NoRefTraits, ae);
             }
         }
 
         if (ak == TypeKind::Array && bk == TypeKind::Slice) {
-            auto ae = a.as<TypeKind::Array>().elementType(), be = b.as<TypeKind::Slice>().elementType();
+            auto ae = a.asArray().elementType(), be = b.asSlice().elementType();
             if (ae.unifyOnto(be, nullptr, Query | flags) && be.unifyOnto(be, nullptr, Query | flags)) {
                 if (mode != Query) {
                     ae.unifyOnto(be, constraints, mode | flags);
@@ -2958,12 +2876,12 @@ namespace clover {
                 }
                 // The result can't be Own, because arrays technically do not
                 // own their memory (at least not in the same way).
-                return types->encode<TypeKind::Slice>(b.as<TypeKind::Slice>().isUninit() ? Uninit : NoRefTraits, ae);
+                return types->encode<TypeKind::Slice>(b.asSlice().isUninit() ? Uninit : NoRefTraits, ae);
             }
         }
 
         if (ak == TypeKind::Array && bk == TypeKind::Array) {
-            auto ae = a.as<TypeKind::Array>().elementType(), be = b.as<TypeKind::Array>().elementType();
+            auto ae = a.asArray().elementType(), be = b.asArray().elementType();
             if (ae.unifyOnto(be, nullptr, Query | flags) && be.unifyOnto(be, nullptr, Query | flags)) {
                 if (mode != Query) {
                     ae.unifyOnto(be, constraints, mode | flags);
@@ -2974,7 +2892,7 @@ namespace clover {
         }
 
         if (ak == TypeKind::Tuple && bk == TypeKind::Tuple) {
-            auto atup = a.as<TypeKind::Tuple>(), btup = b.as<TypeKind::Tuple>();
+            auto atup = a.asTuple(), btup = b.asTuple();
             if (atup.count() == btup.count()) {
                 TupleBuilder lcs(types);
                 for (u32 i = 0; i < atup.count(); i ++) {
@@ -2992,28 +2910,28 @@ namespace clover {
                 return unifyTypesOrOrigins(result, a, b, constraints, mode | flags);
         }
 
-        if (isAtom(a) && b.is<TypeKind::Pointer>()) {
-            if (Type common = leastCommonSupertype(a, b.as<TypeKind::Pointer>().elementType(), constraints, mode | flags))
-                return types->encode<TypeKind::Pointer>(b.as<TypeKind::Pointer>().traits(), common);
+        if (isAtom(a) && b.isPtr()) {
+            if (Type common = leastCommonSupertype(a, b.asPtr().elementType(), constraints, mode | flags))
+                return types->encode<TypeKind::Pointer>(b.asPtr().traits(), common);
         }
 
-        if (isAtom(b) && a.is<TypeKind::Pointer>()) {
-            if (Type common = leastCommonSupertype(b, a.as<TypeKind::Pointer>().elementType(), constraints, mode | flags))
-                return types->encode<TypeKind::Pointer>(a.as<TypeKind::Pointer>().traits(), common);
+        if (isAtom(b) && a.isPtr()) {
+            if (Type common = leastCommonSupertype(b, a.asPtr().elementType(), constraints, mode | flags))
+                return types->encode<TypeKind::Pointer>(a.asPtr().traits(), common);
         }
 
-        if (a.is<TypeKind::Pointer>() && b.is<TypeKind::Pointer>()
-            && isCase(a.as<TypeKind::Pointer>().elementType()) && isCase(b.as<TypeKind::Pointer>().elementType())) {
+        if (a.isPtr() && b.isPtr()
+            && isCase(a.asPtr().elementType()) && isCase(b.asPtr().elementType())) {
             RefTraits traits;
-            if (a.as<TypeKind::Pointer>().traits() <= b.as<TypeKind::Pointer>().traits())
-                traits = b.as<TypeKind::Pointer>().traits();
-            else if (b.as<TypeKind::Pointer>().traits() <= a.as<TypeKind::Pointer>().traits())
-                traits = a.as<TypeKind::Pointer>().traits();
+            if (a.asPtr().traits() <= b.asPtr().traits())
+                traits = b.asPtr().traits();
+            else if (b.asPtr().traits() <= a.asPtr().traits())
+                traits = a.asPtr().traits();
             else
                 return types->invalidType();
 
-            if (TypeOrGenericOrigin result = caseLCA(a.as<TypeKind::Pointer>().elementType(), b.as<TypeKind::Pointer>().elementType()))
-                return types->encode<TypeKind::Pointer>(traits, unifyTypesOrOrigins(result, a.as<TypeKind::Pointer>().elementType(), b.as<TypeKind::Pointer>().elementType(), constraints, mode | flags));
+            if (TypeOrGenericOrigin result = caseLCA(a.asPtr().elementType(), b.asPtr().elementType()))
+                return types->encode<TypeKind::Pointer>(traits, unifyTypesOrOrigins(result, a.asPtr().elementType(), b.asPtr().elementType(), constraints, mode | flags));
         }
 
         return types->invalidType();
@@ -3075,8 +2993,8 @@ namespace clover {
         if ((mode & UnifyFlagsMask) != NoUnifyFlags)
             return *this == other ? UnifySuccess : UnifyFailure;
 
-        if (other.is<TypeKind::Numeric>()) {
-            auto otherNumeric = other.as<TypeKind::Numeric>();
+        if (other.isNum()) {
+            auto otherNumeric = other.asNum();
             if (isFloat() && otherNumeric.isFloat())
                 return otherNumeric.bitCount() >= bitCount() ? UnifySuccess : UnifyFailure;
             else if (otherNumeric.isFloat()) // We are an int, they are a float, even if lossy we always allow this.
@@ -3142,31 +3060,31 @@ namespace clover {
     }
 
     inline UnifyResult ArrayType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
-        if (other.is<TypeKind::Array>()) {
+        if (other.isArray()) {
             if (isBottom())
                 goto pass;
-            if (other.as<TypeKind::Array>().isTop())
+            if (other.asArray().isTop())
                 goto pass;
             if (isTop())
                 return UnifyFailure;
-            if (other.as<TypeKind::Array>().isBottom())
+            if (other.asArray().isBottom())
                 return UnifyFailure;
-            if (length() == other.as<TypeKind::Array>().length())
+            if (length() == other.asArray().length())
                 goto pass;
             return UnifyFailure;
 
         pass:
-            auto otherElement = other.as<TypeKind::Array>().elementType();
+            auto otherElement = other.asArray().elementType();
             return elementType().unifyOnto(otherElement, constraints, mode)
                 & otherElement.unifyOnto(elementType(), constraints, mode);
         }
 
         // Slices and arrays have different representations, so we can't take
         // this path if we are required to substitute.
-        if (other.is<TypeKind::Slice>() && (mode & UnifyFlagsMask) == NoUnifyFlags) {
-            if (other.as<TypeKind::Slice>().isOwn())
+        if (other.isSlice() && (mode & UnifyFlagsMask) == NoUnifyFlags) {
+            if (other.asSlice().isOwn())
                 return isBottom() ? UnifySuccess : UnifyFailure;
-            auto otherElement = other.as<TypeKind::Slice>().elementType();
+            auto otherElement = other.asSlice().elementType();
             return elementType().unifyOnto(otherElement, constraints, mode)
                 & otherElement.unifyOnto(elementType(), constraints, mode);
         }
@@ -3229,10 +3147,10 @@ namespace clover {
     }
 
     inline UnifyResult SliceType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
-        if (other.is<TypeKind::Slice>()) {
-            if (!(traits() <= other.as<TypeKind::Slice>().traits()))
+        if (other.isSlice()) {
+            if (!(traits() <= other.asSlice().traits()))
                 return UnifyFailure;
-            auto otherElement = other.as<TypeKind::Slice>().elementType();
+            auto otherElement = other.asSlice().elementType();
             return elementType().unifyOnto(otherElement, constraints, mode)
                 & otherElement.unifyOnto(elementType(), constraints, mode);
         }
@@ -3289,10 +3207,10 @@ namespace clover {
     }
 
     inline UnifyResult PointerType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
-        if (other.is<TypeKind::Pointer>()) {
-            if (!(traits() <= other.as<TypeKind::Pointer>().traits()))
+        if (other.isPtr()) {
+            if (!(traits() <= other.asPtr().traits()))
                 return UnifyFailure;
-            auto otherElement = other.as<TypeKind::Pointer>().elementType();
+            auto otherElement = other.asPtr().elementType();
             if ((mode & UnifyFlagsMask) == NoUnifyFlags)
                 mode = mode | MustSubstitute;
             return elementType().unifyOnto(otherElement, constraints, mode);
@@ -3300,15 +3218,15 @@ namespace clover {
 
         // Slices and pointers have different representations, so we can't take
         // this path if we are required to substitute.
-        if (other.is<TypeKind::Slice>() && (mode & UnifyFlagsMask) == NoUnifyFlags) {
-            if (!(traits() <= other.as<TypeKind::Slice>().traits()))
+        if (other.isSlice() && (mode & UnifyFlagsMask) == NoUnifyFlags) {
+            if (!(traits() <= other.asSlice().traits()))
                 return UnifyFailure;
 
             // For this to work, we need to be a pointer to an array with the
             // same element type as the slice. We use the special top/bottom
             // array types to construct a range that allows any array type,
             // but won't allow our pointee to promote to a slice.
-            auto otherElement = other.as<TypeKind::Slice>().elementType();
+            auto otherElement = other.asSlice().elementType();
             return ArrayBuilder(otherElement, ArrayType::Bottom).build(types).unifyOnto(elementType(), constraints, mode)
                 & elementType().unifyOnto(other, constraints, mode);
         }
@@ -3379,23 +3297,23 @@ namespace clover {
     inline UnifyResult NamedType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         if (other == *this)
             return UnifySuccess;
-        if (other.is<TypeKind::Pointer>() && innerType() == Void) {
+        if (other.isPtr() && innerType() == Void) {
             // Since instances of atoms are indistinguishable, we can construct
             // a pointer to an atom automatically.
             if ((mode & UnifyFlagsMask) == NoUnifyFlags)
                 mode = mode | MustSubstitute;
-            return Type::unifyOnto(other.as<TypeKind::Pointer>().elementType(), constraints, mode);
+            return Type::unifyOnto(other.asPtr().elementType(), constraints, mode);
         }
         if (isCase()) {
-            if (other.is<TypeKind::Named>() && other.as<TypeKind::Named>().isCase() && other.as<TypeKind::Named>().name() == name()) {
-                return parentType().unifyOnto(other.as<TypeKind::Named>().parentType(), constraints, mode)
-                    & other.as<TypeKind::Named>().parentType().unifyOnto(parentType(), constraints, mode);
+            if (other.isNamed() && other.asNamed().isCase() && other.asNamed().name() == name()) {
+                return parentType().unifyOnto(other.asNamed().parentType(), constraints, mode)
+                    & other.asNamed().parentType().unifyOnto(parentType(), constraints, mode);
             }
             return parentType().unifyOnto(other, constraints, mode);
         }
-        if (isGeneric() && other.is<TypeKind::Named>() && other.as<TypeKind::Named>().isGeneric()) {
-            if (genericOriginIndex() == other.as<TypeKind::Named>().genericOriginIndex())
-                return unifyTypeParameters(*this, other.as<TypeKind::Named>(), constraints, mode);
+        if (isGeneric() && other.isNamed() && other.asNamed().isGeneric()) {
+            if (genericOriginIndex() == other.asNamed().genericOriginIndex())
+                return unifyTypeParameters(*this, other.asNamed(), constraints, mode);
         }
         return UnifyFailure;
     }
@@ -3566,8 +3484,8 @@ namespace clover {
 
     inline UnifyResult TupleType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         UnifyResult result = UnifySuccess;
-        if (other.is<TypeKind::Tuple>()) {
-            const auto& tup = other.as<TypeKind::Tuple>();
+        if (other.isTuple()) {
+            const auto& tup = other.asTuple();
             if (tup.count() != count())
                 return UnifyFailure;
             for (u32 i = 0; i < count(); i ++) {
@@ -3686,8 +3604,8 @@ namespace clover {
 
     inline UnifyResult FunctionType::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
         UnifyResult result = UnifySuccess;
-        if (other.is<TypeKind::Function>()) {
-            const auto& fun = other.as<TypeKind::Function>();
+        if (other.isFunc()) {
+            const auto& fun = other.asFunc();
             if (fun.parameterCount() != parameterCount())
                 return UnifyFailure;
 
@@ -3803,15 +3721,15 @@ namespace clover {
         if (other == *this)
             return UnifySuccess;
         if (isCase()) {
-            if (other.is<TypeKind::Struct>() && other.as<TypeKind::Struct>().isCase() && other.as<TypeKind::Struct>().name() == name()) {
-                return parentType().unifyOnto(other.as<TypeKind::Struct>().parentType(), constraints, mode)
-                    & other.as<TypeKind::Struct>().parentType().unifyOnto(parentType(), constraints, mode);
+            if (other.isStruct() && other.asStruct().isCase() && other.asStruct().name() == name()) {
+                return parentType().unifyOnto(other.asStruct().parentType(), constraints, mode)
+                    & other.asStruct().parentType().unifyOnto(parentType(), constraints, mode);
             }
             return parentType().unifyOnto(other, constraints, mode);
         }
-        if (isGeneric() && other.is<TypeKind::Struct>() && other.as<TypeKind::Struct>().isGeneric()) {
-            if (genericOriginIndex() == other.as<TypeKind::Struct>().genericOriginIndex())
-                return unifyTypeParameters(*this, other.as<TypeKind::Struct>(), constraints, mode);
+        if (isGeneric() && other.isStruct() && other.asStruct().isGeneric()) {
+            if (genericOriginIndex() == other.asStruct().genericOriginIndex())
+                return unifyTypeParameters(*this, other.asStruct(), constraints, mode);
         }
         return UnifyFailure;
     }
@@ -3927,7 +3845,7 @@ namespace clover {
         assert(isGenericInst(type));
         switch (type.kind()) {
             case TypeKind::Named: {
-                const NamedType& named = type.as<TypeKind::Named>();
+                const NamedType& named = type.asNamed();
                 genericIndex = named.genericOriginIndex();
                 if (shouldClone) for (u32 i = 0; i < named.typeParameterCount(); i ++)
                     typeParameters.push(named.typeParameter(i).cloneExpand().index);
@@ -3936,7 +3854,7 @@ namespace clover {
                 break;
             }
             case TypeKind::Struct: {
-                const StructType& str = type.as<TypeKind::Struct>();
+                const StructType& str = type.asStruct();
                 genericIndex = str.genericOriginIndex();
                 if (shouldClone) for (u32 i = 0; i < str.typeParameterCount(); i ++)
                     typeParameters.push(str.typeParameter(i).cloneExpand().index);
@@ -3945,7 +3863,7 @@ namespace clover {
                 break;
             }
             case TypeKind::Union: {
-                const UnionType& uni = type.as<TypeKind::Union>();
+                const UnionType& uni = type.asUnion();
                 genericIndex = uni.genericOriginIndex();
                 if (shouldClone) for (u32 i = 0; i < uni.typeParameterCount(); i ++)
                     typeParameters.push(uni.typeParameter(i).cloneExpand().index);
@@ -4111,16 +4029,18 @@ namespace clover {
         switch (bound.kind()) {
             case TypeKind::Numeric:
                 if (upperBound() == TopInteger) {
-                    if (bound.as<TypeKind::Numeric>().isSigned())
+                    if (bound.asNum().isSigned())
                         setUpperBound(I64);
-                    else if (bound.as<TypeKind::Numeric>().bitCount() == 64)
+                    else if (bound.asNum().bitCount() == 64)
                         setUpperBound(U64);
                 } else if (upperBound() == Any)
                     setUpperBound(F64);
                 break;
-            case TypeKind::Void:
-                type_assert(bound.unifyOnto(upperBound(), nullptr, InPlace));
-                makeEqual(bound);
+            case TypeKind::Primitive:
+                if (bound == Void) {
+                    type_assert(bound.unifyOnto(upperBound(), nullptr, InPlace));
+                    makeEqual(bound);
+                }
                 break;
             case TypeKind::Struct:
             case TypeKind::Named:
@@ -4141,6 +4061,32 @@ namespace clover {
 
     inline void VarType::setUpperBoundAndDecorate(Type bound) {
         setUpperBound(bound);
+        switch (bound.kind()) {
+            case TypeKind::Numeric:
+                if (lowerBound() == Bottom)
+                    setLowerBound(BottomNumber);
+                break;
+            case TypeKind::Primitive:
+                if (bound == Void) {
+                    type_assert(lowerBound().unifyOnto(bound, nullptr, InPlace));
+                    makeEqual(bound);
+                }
+                break;
+            case TypeKind::Struct:
+            case TypeKind::Named:
+            case TypeKind::Union:
+                if (!isCase(bound)) {
+                    type_assert(lowerBound().unifyOnto(bound, nullptr, InPlace));
+                    makeEqual(bound);
+                }
+                break;
+            case TypeKind::Tuple:
+                type_assert(lowerBound().unifyOnto(bound, nullptr, InPlace));
+                makeEqual(bound);
+                break;
+            default:
+                break;
+        }
     }
 
     inline void VarType::setNotEqual() {
@@ -4191,15 +4137,15 @@ namespace clover {
 
         lb = expand(lb);
         switch (lb.kind()) {
-            case TypeKind::Bottom:
+            case TypeKind::Primitive:
                 // If we essentially know nothing about the lower bound, we
                 // can't use it to resolve the type.
-                return false;
+                return lb != Bottom;
             case TypeKind::Numeric:
                 // Numeric types form our main exception to being able to infer
                 // from the lower bound alone, since integer types widen up to
                 // the upper bound to avoid overflow.
-                return lb.as<TypeKind::Numeric>().isFloat() || lb.as<TypeKind::Numeric>().bitCount() == 64;
+                return lb.asNum().isFloat() || lb.asNum().bitCount() == 64;
             case TypeKind::Array:
                 return false;
             default:
@@ -4215,21 +4161,21 @@ namespace clover {
                 // needs to be.
                 return sys->get(I64);
             }
-            if (ub.is<TypeKind::Array>())
-                assert(!ub.as<TypeKind::Array>().isTop());
+            if (ub.isArray())
+                assert(!ub.asArray().isTop());
             return ub;
         }
-        if (lb.is<TypeKind::Numeric>()) {
-            const auto& num = lb.as<TypeKind::Numeric>();
-            u32 numBits = lb.as<TypeKind::Numeric>().bitCount();
+        if (lb.isNum()) {
+            const auto& num = lb.asNum();
+            u32 numBits = lb.asNum().bitCount();
             u32 maxBits = 64;
             bool isSigned = num.bitCount() < 64 || num.isSigned();
-            if (ub.is<TypeKind::Numeric>() && !ub.as<TypeKind::Numeric>().isFloat() && !ub.as<TypeKind::Numeric>().isSigned())
+            if (ub.isNum() && !ub.asNum().isFloat() && !ub.asNum().isSigned())
                 isSigned = false;
             if (num.isFloat() && num.bitCount() <= 32)
                 maxBits = 32;
-            if (!num.isFloat() && ub.is<TypeKind::Numeric>() && !ub.as<TypeKind::Numeric>().isFloat())
-                maxBits = ub.as<TypeKind::Numeric>().bitCount();
+            if (!num.isFloat() && ub.isNum() && !ub.asNum().isFloat())
+                maxBits = ub.asNum().bitCount();
             if (!num.isFloat() && ub == Any)
                 maxBits = 64;
 
@@ -4439,17 +4385,17 @@ namespace clover {
         if (other == *this)
             return UnifySuccess;
         if (isCase()) {
-            if (other.is<TypeKind::Union>() && other.as<TypeKind::Union>().isCase() && other.as<TypeKind::Union>().name() == name()) {
-                if (parentType().unifyOnto(other.as<TypeKind::Union>().parentType(), constraints, Query | (mode & UnifyFlagsMask))
-                    && other.as<TypeKind::Struct>().parentType().unifyOnto(parentType(), constraints, Query | (mode & UnifyFlagsMask)))
-                    return parentType().unifyOnto(other.as<TypeKind::Union>().parentType(), constraints, mode)
-                        & other.as<TypeKind::Struct>().parentType().unifyOnto(parentType(), constraints, mode);
+            if (other.isUnion() && other.asUnion().isCase() && other.asUnion().name() == name()) {
+                if (parentType().unifyOnto(other.asUnion().parentType(), constraints, Query | (mode & UnifyFlagsMask))
+                    && other.asStruct().parentType().unifyOnto(parentType(), constraints, Query | (mode & UnifyFlagsMask)))
+                    return parentType().unifyOnto(other.asUnion().parentType(), constraints, mode)
+                        & other.asStruct().parentType().unifyOnto(parentType(), constraints, mode);
             }
             return parentType().unifyOnto(other, constraints, mode);
         }
-        if (isGeneric() && other.is<TypeKind::Union>() && other.as<TypeKind::Union>().isGeneric()) {
-            if (genericOriginIndex() == other.as<TypeKind::Union>().genericOriginIndex())
-                return unifyTypeParameters(*this, other.as<TypeKind::Union>(), constraints, mode);
+        if (isGeneric() && other.isUnion() && other.asUnion().isGeneric()) {
+            if (genericOriginIndex() == other.asUnion().genericOriginIndex())
+                return unifyTypeParameters(*this, other.asUnion(), constraints, mode);
         }
         return UnifyFailure;
     }
@@ -4553,21 +4499,21 @@ namespace clover {
         assert(isGenericInst(type));
         switch (type.kind()) {
             case TypeKind::Named: {
-                const NamedType& named = type.as<TypeKind::Named>();
+                const NamedType& named = type.asNamed();
                 genericIndex = named.genericOriginIndex();
                 for (u32 i = 0; i < named.typeParameterCount(); i ++)
                     typeParameters.push(named.typeParameterIndex(i));
                 break;
             }
             case TypeKind::Struct: {
-                const StructType& str = type.as<TypeKind::Struct>();
+                const StructType& str = type.asStruct();
                 genericIndex = str.genericOriginIndex();
                 for (u32 i = 0; i < str.typeParameterCount(); i ++)
                     typeParameters.push(str.typeParameterIndex(i));
                 break;
             }
             case TypeKind::Union: {
-                const UnionType& uni = type.as<TypeKind::Union>();
+                const UnionType& uni = type.asUnion();
                 genericIndex = uni.genericOriginIndex();
                 for (u32 i = 0; i < uni.typeParameterCount(); i ++)
                     typeParameters.push(uni.typeParameterIndex(i));
@@ -4582,16 +4528,16 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const PrimitiveType& type) {
-        switch (type.kind()) {
-            case TypeKind::Bottom:
+        switch (type.index) {
+            case Bottom:
                 return format(io, "bottom");
-            case TypeKind::Void:
+            case Void:
                 return format(io, "void");
-            case TypeKind::Bool:
+            case Bool:
                 return format(io, "bool");
-            case TypeKind::Char:
+            case Char:
                 return format(io, "char");
-            case TypeKind::Any:
+            case Any:
                 return format(io, "any");
             default:
                 unreachable("We shouldn't reach here with a non-primitive typekind.");
@@ -4745,38 +4691,30 @@ namespace clover {
         if (type.index == InvalidType)
             return format(io, "INVALID");
         switch (type.kind()) {
-            case TypeKind::Bottom:
-                return format(io, type.as<TypeKind::Bottom>());
-            case TypeKind::Void:
-                return format(io, type.as<TypeKind::Void>());
-            case TypeKind::Bool:
-                return format(io, type.as<TypeKind::Bool>());
-            case TypeKind::Char:
-                return format(io, type.as<TypeKind::Char>());
-            case TypeKind::Any:
-                return format(io, type.as<TypeKind::Any>());
+            case TypeKind::Primitive:
+                return format(io, type.as<TypeKind::Primitive>());
             case TypeKind::Numeric:
-                return format(io, type.as<TypeKind::Numeric>());
+                return format(io, type.asNum());
             case TypeKind::Pointer:
-                return format(io, type.as<TypeKind::Pointer>());
+                return format(io, type.asPtr());
             case TypeKind::Slice:
-                return format(io, type.as<TypeKind::Slice>());
+                return format(io, type.asSlice());
             case TypeKind::Array:
-                return format(io, type.as<TypeKind::Array>());
+                return format(io, type.asArray());
             case TypeKind::Tuple:
-                return format(io, type.as<TypeKind::Tuple>());
+                return format(io, type.asTuple());
             case TypeKind::Function:
-                return format(io, type.as<TypeKind::Function>());
+                return format(io, type.asFunc());
             case TypeKind::Var:
                 return format(io, type.asVar());
             case TypeKind::Range:
                 return format(io, type.asRange());
             case TypeKind::Named:
-                return format(io, type.as<TypeKind::Named>());
+                return format(io, type.asNamed());
             case TypeKind::Struct:
-                return format(io, type.as<TypeKind::Struct>());
+                return format(io, type.asStruct());
             case TypeKind::Union:
-                return format(io, type.as<TypeKind::Union>());
+                return format(io, type.asUnion());
         }
     }
 

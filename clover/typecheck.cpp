@@ -1112,14 +1112,14 @@ namespace clover {
 
             case ASTKind::Tuple: {
                 if (parentType)
-                    type_assert(parentType.is<TypeKind::Tuple>());
+                    type_assert(parentType.isTuple());
                 vec<TypeIndex> overallTypes;
                 for (u32 i = 0; i < pattern.arity(); i ++) {
                     if (pattern.child(i).kind() == ASTKind::Splat) {
                         type_assert(i == pattern.arity() - 1);
                         Type childType = module->invalidType();
                         if (parentType) {
-                            auto tupleType = parentType.as<TypeKind::Tuple>();
+                            auto tupleType = parentType.asTuple();
                             vec<TypeIndex> remainingTypes;
                             for (u32 j = i; j < tupleType.count(); j ++)
                                 remainingTypes.push(tupleType.fieldTypeIndex(j));
@@ -1131,7 +1131,7 @@ namespace clover {
                         inferPattern(ctx, function, childType, pattern.child(i));
                         break;
                     }
-                    overallTypes.push(inferPattern(ctx, function, parentType ? parentType.as<TypeKind::Tuple>().fieldType(i) : module->invalidType(), pattern.child(i)).index);
+                    overallTypes.push(inferPattern(ctx, function, parentType ? parentType.asTuple().fieldType(i) : module->invalidType(), pattern.child(i)).index);
                 }
                 pattern.setType(module->tupleType(overallTypes));
                 return pattern.type();
@@ -1139,14 +1139,14 @@ namespace clover {
 
             case ASTKind::List:
                 pattern.setType(module->sliceType(module->varType()));
-                ctx.ensureResolved(pattern.type().as<TypeKind::Slice>().elementType());
+                ctx.ensureResolved(pattern.type().asSlice().elementType());
                 for (u32 i = 0; i < pattern.arity(); i ++) {
                     if (pattern.child(i).kind() == ASTKind::Splat) {
                         type_assert(i == pattern.arity() - 1
                             || (i < pattern.arity() - 1 && pattern.child(i + 1).kind() != ASTKind::Splat));
                         inferPattern(ctx, function, pattern.type(), pattern.child(i));
                     } else
-                        inferPattern(ctx, function, pattern.type().as<TypeKind::Slice>().elementType(), pattern.child(i));
+                        inferPattern(ctx, function, pattern.type().asSlice().elementType(), pattern.child(i));
                 }
                 return pattern.type();
 
@@ -1154,14 +1154,14 @@ namespace clover {
                 switch (pattern.type().kind()) {
                     case TypeKind::Named:
                         if (pattern.arity() == 0)
-                            type_assert(pattern.type().as<TypeKind::Named>().innerType() == Void);
+                            type_assert(pattern.type().asNamed().innerType() == Void);
                         else {
                             type_assert(pattern.arity() == 1);
-                            inferPattern(ctx, function, pattern.type().as<TypeKind::Named>().innerType(), pattern.child(0));
+                            inferPattern(ctx, function, pattern.type().asNamed().innerType(), pattern.child(0));
                         }
                         return pattern.type();
                     case TypeKind::Struct: {
-                        auto structType = pattern.type().as<TypeKind::Struct>();
+                        auto structType = pattern.type().asStruct();
                         for (u32 i = 0; i < pattern.arity(); i ++) {
                             if (pattern.child(i).kind() == ASTKind::Splat) {
                                 type_assert(i == pattern.arity() - 1);
@@ -1243,7 +1243,7 @@ namespace clover {
             case ASTKind::ResolvedGenericType:
             case ASTKind::Projection: {
                 Type inst = instantiateType(ast);
-                if (inst.is<TypeKind::Named>() && inst.as<TypeKind::Named>().innerType() == Void) {
+                if (inst.isNamed() && inst.asNamed().innerType() == Void) {
                     // It's an atom, so it's allowed to be used in a value position.
                     return fromNode(inst.index, module->add(ASTKind::GenericInst, {}, InvalidScope, inst, ast));
                 }
@@ -1255,7 +1255,7 @@ namespace clover {
             case ASTKind::TypeField:
             case ASTKind::GenericInst: {
                 Type type = evaluateType(module, function, ast);
-                if (type.is<TypeKind::Named>() && type.as<TypeKind::Named>().innerType() == Void) {
+                if (type.isNamed() && type.asNamed().innerType() == Void) {
                     // It's an atom, so it's allowed to be used in a value position.
                     return fromType(type);
                 }
@@ -1671,9 +1671,9 @@ namespace clover {
             case ASTKind::New: {
                 if (ast.child(0).missing()) {
                     // Uninitialized allocation.
-                    assert(ast.type().is<TypeKind::Pointer>());
-                    assert(ast.type().as<TypeKind::Pointer>().isOwn());
-                    assert(ast.type().as<TypeKind::Pointer>().isUninit());
+                    assert(ast.type().isPtr());
+                    assert(ast.type().asPtr().isOwn());
+                    assert(ast.type().asPtr().isUninit());
                     return fromNodeType(ast);
                 }
                 value = inferChild(ctx, function, ast, 0);
@@ -1685,16 +1685,16 @@ namespace clover {
                     ast.setType(module->ptrType(Own, varType = module->varType()));
                     ctx.ensureResolved(ast.type());
                 }
-                unify(valueType, ast.type().as<TypeKind::Pointer>().elementType(), ast, ctx);
+                unify(valueType, ast.type().asPtr().elementType(), ast, ctx);
                 return fromNodeType(ast);
             }
 
             case ASTKind::NewArray: {
                 // Should have been set by resolution pass.
-                assert(ast.type().is<TypeKind::Slice>());
-                assert(ast.type().as<TypeKind::Slice>().isOwn());
-                assert(ast.type().as<TypeKind::Slice>().isUninit());
-                if (ast.type().as<TypeKind::Slice>().elementType().isVar())
+                assert(ast.type().isSlice());
+                assert(ast.type().asSlice().isOwn());
+                assert(ast.type().asSlice().isUninit());
+                if (ast.type().asSlice().elementType().isVar())
                     ctx.ensureResolved(ast.type());
 
                 value = inferChild(ctx, function, ast, 0);
@@ -1770,7 +1770,7 @@ namespace clover {
                 // we did end up with valid arguments when all's said and done
                 // in some particular cases.
 
-                if (type.is<TypeKind::Numeric>() || type.is<TypeKind::Char>()) {
+                if (type.isNum() || type == Char) {
                     // We check later here because we can't unify against
                     // Char | Number.
                     type_assert(ast.arity() == 1);
@@ -1779,7 +1779,7 @@ namespace clover {
                     return fromNodeType(ast);
                 }
 
-                if (type.is<TypeKind::Pointer>() || type.is<TypeKind::Slice>()) {
+                if (type.isPtr() || type.isSlice()) {
                     // We check later here because we don't want to force our
                     // input into any one particular kind of pointer or
                     // slice type too early.
@@ -1789,40 +1789,40 @@ namespace clover {
                     return fromNodeType(ast);
                 }
 
-                if (type.is<TypeKind::Named>()) {
+                if (type.isNamed()) {
                     // Named types can be constructed with a single parameter.
 
                     if (ast.arity() == 0) {
-                        type_assert(type.as<TypeKind::Named>().innerType() == Void);
+                        type_assert(type.asNamed().innerType() == Void);
                         return fromNodeType(ast);
                     }
 
                     type_assert(ast.arity() == 1);
                     value = inferChild(ctx, function, ast, 0);
-                    unify(value, type.as<TypeKind::Named>().innerType(), ast, ctx);
+                    unify(value, type.asNamed().innerType(), ast, ctx);
                     return fromNodeType(ast);
                 }
 
-                if (type.is<TypeKind::Tuple>()) {
+                if (type.isTuple()) {
                     // Tuple types can be constructed with exactly as many
                     // parameters as they have members.
 
-                    type_assert(ast.arity() == type.as<TypeKind::Tuple>().count());
+                    type_assert(ast.arity() == type.asTuple().count());
                     for (u32 i = 0; i < ast.arity(); i ++) {
                         value = inferChild(ctx, function, ast, i);
-                        unify(value, type.as<TypeKind::Tuple>().fieldType(i), ast, ctx);
+                        unify(value, type.asTuple().fieldType(i), ast, ctx);
                     }
                     return fromNodeType(ast);
                 }
 
-                if (type.is<TypeKind::Struct>()) {
+                if (type.isStruct()) {
                     // Struct types can be constructed with exactly as many
                     // parameters as they have members.
 
-                    type_assert(ast.arity() == type.as<TypeKind::Struct>().count());
+                    type_assert(ast.arity() == type.asStruct().count());
                     for (u32 i = 0; i < ast.arity(); i ++) {
                         value = inferChild(ctx, function, ast, i);
-                        unify(value, type.as<TypeKind::Struct>().fieldType(i), ast, ctx);
+                        unify(value, type.asStruct().fieldType(i), ast, ctx);
                     }
                     return fromNodeType(ast);
                 }
@@ -1925,8 +1925,8 @@ namespace clover {
                 Type funType = ast.type();
                 if (!funType.isConcrete())
                     ctx.ensureResolved(ast.type());
-                assert(funType.is<TypeKind::Function>());
-                Type returnType = funType.as<TypeKind::Function>().returnType();
+                assert(funType.isFunc());
+                Type returnType = funType.asFunc().returnType();
                 if (!ast.child(4).missing()) { // If we're a stub function, we don't need to do anything.
                     inferChild(ctx, ast.function(), ast, 4);
                     addImplicitReturns(ctx, returnType, ast, ast.child(4), { ast, 4 });
@@ -1943,9 +1943,9 @@ namespace clover {
             case ASTKind::Return: {
                 ast.setType(module->bottomType());
                 Type funType = function->type();
-                assert(funType.is<TypeKind::Function>());
+                assert(funType.isFunc());
                 valueType = ast.child(0).missing() ? module->voidType() : toType(module, inferChild(ctx, function, ast, 0)).type(module);
-                unify(valueType, funType.as<TypeKind::Function>().returnType(), ast, ctx);
+                unify(valueType, funType.asFunc().returnType(), ast, ctx);
                 return fromType(module->bottomType());
             }
 
@@ -2067,16 +2067,16 @@ namespace clover {
     Type dereferenceIfPointer(Module* module, Type type, bool allowUninit) {
         type = expand(type);
         if (type.kind() == TypeKind::Pointer) {
-            if (type.as<TypeKind::Pointer>().isUninit() && !allowUninit)
+            if (type.asPtr().isUninit() && !allowUninit)
                 type_error("Tried to dereference uninitialized pointer type ", type);
-            return type.as<TypeKind::Pointer>().elementType();
+            return type.asPtr().elementType();
         }
         if (type.isVar()) {
             Type result = expand(canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound()));
             if (result.kind() == TypeKind::Pointer) {
-                if (result.as<TypeKind::Pointer>().isUninit() && !allowUninit)
+                if (result.asPtr().isUninit() && !allowUninit)
                     type_error("Tried to dereference uninitialized pointer type ", result);
-                return expand(result.as<TypeKind::Pointer>().elementType());
+                return expand(result.asPtr().elementType());
             }
         }
         return type;
@@ -2084,28 +2084,28 @@ namespace clover {
 
     Type elementTypeOf(Module* module, Type type, bool allowUninit) {
         if (type.kind() == TypeKind::Array)
-            return expand(type.as<TypeKind::Array>().elementType());
+            return expand(type.asArray().elementType());
         if (type.kind() == TypeKind::Slice) {
-            if (type.as<TypeKind::Slice>().isUninit() && !allowUninit)
+            if (type.asSlice().isUninit() && !allowUninit)
                 type_error("Tried to access uninitialized slice type ", type);
-            return expand(type.as<TypeKind::Slice>().elementType());
+            return expand(type.asSlice().elementType());
         }
         if (type.isVar()) {
             Type result = expand(canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound()));
             if (result.kind() == TypeKind::Array)
-                return expand(result.as<TypeKind::Array>().elementType());
+                return expand(result.asArray().elementType());
             if (result.kind() == TypeKind::Slice) {
-                if (result.as<TypeKind::Slice>().isUninit() && !allowUninit)
+                if (result.asSlice().isUninit() && !allowUninit)
                     type_error("Tried to access uninitialized slice type ", result);
-                return expand(result.as<TypeKind::Slice>().elementType());
+                return expand(result.asSlice().elementType());
             }
             result = concreteType(module, type);
             if (result.kind() == TypeKind::Array)
-                return expand(result.as<TypeKind::Array>().elementType());
+                return expand(result.asArray().elementType());
             if (result.kind() == TypeKind::Slice) {
-                if (result.as<TypeKind::Slice>().isUninit() && !allowUninit)
+                if (result.asSlice().isUninit() && !allowUninit)
                     type_error("Tried to access uninitialized slice type ", result);
-                return expand(result.as<TypeKind::Slice>().elementType());
+                return expand(result.asSlice().elementType());
             }
         }
         type_error("Type ", type, " cannot be indexed.");
@@ -2177,8 +2177,8 @@ namespace clover {
             case ASTKind::Tuple: {
                 input.concretify();
                 input = expand(input);
-                type_assert(input.is<TypeKind::Tuple>());
-                auto tupleType = input.as<TypeKind::Tuple>();
+                type_assert(input.isTuple());
+                auto tupleType = input.asTuple();
                 for (u32 i = 0; i < pattern.arity(); i ++) {
                     if (pattern.child(i).kind() == ASTKind::Splat) {
                         vec<TypeIndex> subTuple;
@@ -2214,8 +2214,8 @@ namespace clover {
                 Type type = evaluateType(module, function, pattern);
                 if (canUnify(type, input, pattern))
                     return RefineSuccess;
-                if (expand(input).is<TypeKind::Pointer>())
-                    return canUnify(type, expand(input).as<TypeKind::Pointer>().elementType(), pattern) ? RefineSuccess : RefineFailure;
+                if (expand(input).isPtr())
+                    return canUnify(type, expand(input).asPtr().elementType(), pattern) ? RefineSuccess : RefineFailure;
                 return RefineFailure;
             }
 
@@ -2417,8 +2417,8 @@ namespace clover {
         newFunction->typeIndex = type.index;
         newDecl.setType(type);
 
-        assert(type.is<TypeKind::Function>());
-        auto funcType = type.as<TypeKind::Function>();
+        assert(type.isFunc());
+        auto funcType = type.asFunc();
         if UNLIKELY(config::verboseInstantiation)
             println("[TYPE]\tInstantiation of ", module->str(generic->name), " has function type ", funcType);
 
@@ -2439,7 +2439,7 @@ namespace clover {
                 unify(passedParam, param, call, ctx);
                 continue;
             }
-            auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterIndex);
+            auto parameterType = funcType.asFunc().parameterType(nonTypeParameterIndex);
             unify(module->types->get(argumentTypes[nonTypeParameterIndex ++]), parameterType, call, ctx);
         }
 
@@ -2482,7 +2482,7 @@ namespace clover {
         }
         if (!funcType.isConcrete())
             instantiationCtx.ensureResolved(newDecl.type());
-        assert(funcType.is<TypeKind::Function>());
+        assert(funcType.isFunc());
         if (!newDecl.child(4).missing()) { // If we're a stub function, we don't need to do anything.
             inferChild(instantiationCtx, newDecl.function(), newDecl, 4);
             addImplicitReturns(instantiationCtx, funcType.returnType(), newDecl, newDecl.child(4), { newDecl, 4 });
@@ -2529,14 +2529,14 @@ namespace clover {
             rank += 1;
         for (u32 i = 0; i < arity; i ++) {
             auto argType = types->get(argumentTypes[i]);
-            auto parameterType = funcType.as<TypeKind::Function>().parameterType(i);
+            auto parameterType = funcType.asFunc().parameterType(i);
             if (canUnify(argType, parameterType, ast)) {
                 if (expand(argType) == expand(parameterType) && !overload->isGeneric)
                     rank += arity; // Prioritize exact matches.
                 else
                     rank += 1;
-            } else if (i == 0 && ast.kind() == ASTKind::CallMethod && expand(argType).is<TypeKind::Pointer>()) {
-                argType = expand(argType).as<TypeKind::Pointer>().elementType();
+            } else if (i == 0 && ast.kind() == ASTKind::CallMethod && expand(argType).isPtr()) {
+                argType = expand(argType).asPtr().elementType();
                 if (!canUnify(argType, parameterType, ast))
                     return -1;
                 if (expand(argType) == expand(parameterType) && !overload->isGeneric)
@@ -2601,9 +2601,9 @@ namespace clover {
             }
 
             auto type = expand(overload->type());
-            type_assert(type.is<TypeKind::Function>());
-            auto funcType = type.as<TypeKind::Function>();
-            if (ast.arity() - 1 != funcType.as<TypeKind::Function>().parameterCount())
+            type_assert(type.isFunc());
+            auto funcType = type.asFunc();
+            if (ast.arity() - 1 != funcType.asFunc().parameterCount())
                 return;
 
             if UNLIKELY(config::verboseUnify >= 3)
@@ -2666,7 +2666,7 @@ namespace clover {
             }
 
             for (auto& func : possibleFunctions) {
-                auto funcType = types->get(func.type).as<TypeKind::Function>();
+                auto funcType = types->get(func.type).asFunc();
                 i64 rank = computeOverloadRank(func.function, ast, funcType, newArgumentTypes, newReturnType);
                 if UNLIKELY(config::verboseUnify >= 3)
                     println("[TYPE]\tRank of candidate with type ", funcType, " is ", rank);
@@ -2699,9 +2699,9 @@ namespace clover {
 
     CallResolution refineCall(InferenceContext& ctx, Function* function, AST ast) {
         auto type = inferredType(ctx, function, ast.child(0));
-        type_assert(type.is<TypeKind::Function>());
-        auto funcType = type.as<TypeKind::Function>();
-        type_assert(ast.arity() - 1 >= funcType.as<TypeKind::Function>().parameterCount());
+        type_assert(type.isFunc());
+        auto funcType = type.asFunc();
+        type_assert(ast.arity() - 1 >= funcType.asFunc().parameterCount());
 
         auto returnType = ast.type();
         if (!canUnify(funcType.returnType(), returnType, ast))
@@ -2711,8 +2711,8 @@ namespace clover {
             if (isTypeParameter(function, ast.child(i)))
                 continue;
             auto arg = inferredType(ctx, function, ast.child(i));
-            type_assert(nonTypeParameters < funcType.as<TypeKind::Function>().parameterCount());
-            auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameters ++);
+            type_assert(nonTypeParameters < funcType.asFunc().parameterCount());
+            auto parameterType = funcType.asFunc().parameterType(nonTypeParameters ++);
             if (!canUnify(arg, parameterType, ast))
                 return CallResolution();
         }
@@ -2726,7 +2726,7 @@ namespace clover {
             if (isTypeParameter(function, ast.child(i)))
                 continue;
             auto arg = inferredType(ctx, function, ast.child(i));
-            auto parameterType = expand(funcType.as<TypeKind::Function>().parameterType(nonTypeParameters ++));
+            auto parameterType = expand(funcType.asFunc().parameterType(nonTypeParameters ++));
             if (!parameterType.isVar())
                 unify(arg, parameterType, ast, ctx);
         }
@@ -2776,11 +2776,11 @@ namespace clover {
                 if (baseType.isVar())
                     baseType = concreteType(module, baseType);
 
-                if (baseType.is<TypeKind::Struct>()) {
+                if (baseType.isStruct()) {
                     assert(ast.child(1).kind() == ASTKind::Ident);
                     Symbol field = ast.child(1).symbol();
 
-                    auto structType = baseType.as<TypeKind::Struct>();
+                    auto structType = baseType.asStruct();
                     vec<pair<rune, u32>> swizzleCandidates;
                     for (u32 i = 0; i < structType.count(); i ++) {
                         if (field == structType.fieldName(i)) {
@@ -2800,12 +2800,12 @@ namespace clover {
                                 case ASTKind::EnsureAddrField: {
                                     refinedType = ast.type();
                                     auto fieldType = expand(structType.fieldType(i));
-                                    if (fieldType.is<TypeKind::Pointer>()) {
+                                    if (fieldType.isPtr()) {
                                         unifySubstituting(fieldType, refinedType, ast, ctx);
                                         ast.setKind(ASTKind::GetField);
                                     } else {
-                                        assert(refinedType.is<TypeKind::Pointer>());
-                                        unifySubstituting(fieldType, refinedType.as<TypeKind::Pointer>().elementType(), ast, ctx);
+                                        assert(refinedType.isPtr());
+                                        unifySubstituting(fieldType, refinedType.asPtr().elementType(), ast, ctx);
                                         ast.setKind(ASTKind::AddrField);
                                     }
                                     break;
@@ -2876,7 +2876,7 @@ namespace clover {
                     }
 
                     type_error("Undefined field name '", module->str(field), "'");
-                } else if (baseType.is<TypeKind::Tuple>()) {
+                } else if (baseType.isTuple()) {
                     unreachable("TODO: Implement tuple access.");
                 } else
                     type_error("Couldn't access field from base of type ", baseType);
@@ -2890,16 +2890,16 @@ namespace clover {
                 if (baseType.isVar())
                     baseType = concreteType(module, baseType);
 
-                if (baseType.is<TypeKind::Pointer>()) {
+                if (baseType.isPtr()) {
                     // Implicit dereference is permitted on field access.
-                    baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
+                    baseType = expand(baseType.asPtr().elementType());
                 }
 
                 if (baseType.isVar())
                     baseType = concreteType(module, baseType);
 
-                if (baseType.is<TypeKind::Struct>()) {
-                    auto structType = baseType.as<TypeKind::Struct>();
+                if (baseType.isStruct()) {
+                    auto structType = baseType.asStruct();
 
                     if (ast.type().isVar()) {
                         vec<Type> types;
@@ -2910,8 +2910,8 @@ namespace clover {
                         if (old.isVar())
                             unify(old, ast, ctx);
                     }
-                    type_assert(ast.type().is<TypeKind::Tuple>());
-                    auto astTuple = ast.type().as<TypeKind::Tuple>();
+                    type_assert(ast.type().isTuple());
+                    auto astTuple = ast.type().asTuple();
 
                     for (u32 i = 1; i < ast.arity(); i ++) {
                         Symbol field = ast.child(i).symbol();
@@ -2926,8 +2926,8 @@ namespace clover {
                         type_assert(foundField);
                     }
                     return RefineSuccess;
-                } else if (baseType.is<TypeKind::Tuple>()) {
-                    auto tupleType = baseType.as<TypeKind::Tuple>();
+                } else if (baseType.isTuple()) {
+                    auto tupleType = baseType.asTuple();
                     unreachable("TODO: Tuple accesses");
                 } else
                     unreachable("Unexpected base type '", baseType, "' in multi-field access.");
@@ -2954,12 +2954,12 @@ namespace clover {
                         break;
                     case ASTKind::EnsureAddrIndex:
                         refinedType = ast.type();
-                        if (elementType.is<TypeKind::Pointer>()) {
+                        if (elementType.isPtr()) {
                             unifyInPlaceSubstituting(elementType, refinedType, ast);
                             ast.setKind(ASTKind::GetIndex);
                         } else {
-                            assert(refinedType.is<TypeKind::Pointer>());
-                            unifyInPlaceSubstituting(elementType, refinedType.as<TypeKind::Pointer>().elementType(), ast);
+                            assert(refinedType.isPtr());
+                            unifyInPlaceSubstituting(elementType, refinedType.asPtr().elementType(), ast);
                             ast.setKind(ASTKind::AddrIndex);
                         }
                         break;
@@ -3042,11 +3042,11 @@ namespace clover {
                             continue;
                         ast.setChild(1 + nonTypeParameterCount, ast.child(i));
                         auto arg = inferredType(ctx, function, ast.child(i));
-                        auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterCount ++);
+                        auto parameterType = funcType.asFunc().parameterType(nonTypeParameterCount ++);
                         unify(arg, parameterType, ast, intrinsicCtx);
                     }
                     ast.setArity(1 + nonTypeParameterCount);
-                    unify(funcType.as<TypeKind::Function>().returnType(), ast, intrinsicCtx);
+                    unify(funcType.asFunc().returnType(), ast, intrinsicCtx);
                     if (!funcType.isConcrete())
                         intrinsicCtx.ensureResolved(funcType);
 
@@ -3057,11 +3057,11 @@ namespace clover {
                     ctx.checkLater(ast);
                     return RefineSuccess;
                 } else if (resolution.intrinsic) {
-                    funcType = module->types->get(resolution.intrinsic->intrinsic.typeFactory(ctx, module)).as<TypeKind::Function>();
+                    funcType = module->types->get(resolution.intrinsic->intrinsic.typeFactory(ctx, module)).asFunc();
                     ast.setChild(0, module->add(ASTKind::ResolvedFunction, resolution.intrinsic));
                     ctx.checkLater(ast);
                 } else
-                    funcType = module->types->get(resolution.type).as<TypeKind::Function>();
+                    funcType = module->types->get(resolution.type).asFunc();
 
 
                 // At this point, if our call passed type parameters, they've
@@ -3074,11 +3074,11 @@ namespace clover {
                         continue; // At this point we're just doing the last unification to set our constraints in stone, we can skip over type parameters.
                     ast.setChild(1 + nonTypeParameterCount, ast.child(i));
                     auto arg = inferredType(ctx, function, ast.child(i));
-                    auto parameterType = funcType.as<TypeKind::Function>().parameterType(nonTypeParameterCount ++);
+                    auto parameterType = funcType.asFunc().parameterType(nonTypeParameterCount ++);
                     unify(arg, parameterType, ast, ctx);
                 }
                 ast.setArity(1 + nonTypeParameterCount);
-                unify(funcType.as<TypeKind::Function>().returnType(), ast, ctx);
+                unify(funcType.asFunc().returnType(), ast, ctx);
                 ast.setKind(ASTKind::Call); // These will be truly indistinguishable from this point forward.
                 return RefineSuccess;
             }
@@ -3426,25 +3426,25 @@ namespace clover {
                 }
                 break;
             case TypeKind::Pointer: {
-                Type element = type.as<TypeKind::Pointer>().elementType();
+                Type element = type.asPtr().elementType();
                 tryMarkConcrete(element);
                 type.firstWord().isConcrete = element.isConcrete();
                 break;
             }
             case TypeKind::Slice: {
-                Type element = type.as<TypeKind::Slice>().elementType();
+                Type element = type.asSlice().elementType();
                 tryMarkConcrete(element);
                 type.firstWord().isConcrete = element.isConcrete();
                 break;
             }
             case TypeKind::Array: {
-                Type element = type.as<TypeKind::Array>().elementType();
+                Type element = type.asArray().elementType();
                 tryMarkConcrete(element);
                 type.firstWord().isConcrete = element.isConcrete();
                 break;
             }
             case TypeKind::Tuple: {
-                auto tupleType = type.as<TypeKind::Tuple>();
+                auto tupleType = type.asTuple();
                 bool allConcrete = true;
                 for (u32 i = 0; i < tupleType.count(); i ++) {
                     tryMarkConcrete(tupleType.fieldType(i));
@@ -3457,7 +3457,7 @@ namespace clover {
                 break;
             }
             case TypeKind::Function: {
-                auto funcType = type.as<TypeKind::Function>();
+                auto funcType = type.asFunc();
                 tryMarkConcrete(funcType.returnType());
                 bool allConcrete = funcType.returnType().isConcrete();
                 if (allConcrete) for (u32 i = 0; i < funcType.parameterCount(); i ++) {
@@ -3470,7 +3470,7 @@ namespace clover {
                 type.firstWord().isConcrete = allConcrete;
             }
             case TypeKind::Named: {
-                auto namedType = type.as<TypeKind::Named>();
+                auto namedType = type.asNamed();
                 if (namedType.isGeneric()) {
                     bool allConcrete = true;
                     for (u32 i = 0; i < namedType.typeParameterCount(); i ++) {
@@ -3485,7 +3485,7 @@ namespace clover {
                 break;
             }
             case TypeKind::Struct: {
-                auto structType = type.as<TypeKind::Struct>();
+                auto structType = type.asStruct();
                 if (structType.isGeneric()) {
                     bool allConcrete = true;
                     for (u32 i = 0; i < structType.typeParameterCount(); i ++) {
@@ -3500,7 +3500,7 @@ namespace clover {
                 break;
             }
             case TypeKind::Union: {
-                auto unionType = type.as<TypeKind::Union>();
+                auto unionType = type.asUnion();
                 if (unionType.isGeneric()) {
                     bool allConcrete = true;
                     for (u32 i = 0; i < unionType.typeParameterCount(); i ++) {
@@ -3606,7 +3606,7 @@ namespace clover {
                 bound = type.asVar().lowerBound();
             if (other.unifyOnto(type, nullptr, InPlace) == UnifyFailure)
                 type_error("Failed to unify ", other, " onto ", type, " in-place.");
-            if (substituteFlag && !isNamed(bound.kind())) {
+            if (substituteFlag && !isNominal(bound.kind())) {
                 if (type.unifyOnto(other, nullptr, InPlace) == UnifyFailure)
                     type_error("Failed to unify ", type, " onto ", other, " in-place.");
             }
@@ -3912,8 +3912,11 @@ namespace clover {
         Type type = ast.type();
         Module* module = ast.module;
         switch (type.kind()) {
-            case TypeKind::Numeric:
-            case TypeKind::Char: {
+            case TypeKind::Primitive:
+                if (type != Char)
+                    break;
+                fallthrough;
+            case TypeKind::Numeric: {
                 // Any Char or number can be cast to any other Char or number.
                 Type operandType = inferredType(ctx, function, ast.child(0));
                 type_assert(operandType.unifyOnto(module->charType(), nullptr, Query) == UnifySuccess
@@ -3922,12 +3925,12 @@ namespace clover {
             }
             case TypeKind::Pointer: {
                 Type operandType = inferredType(ctx, function, ast.child(0));
-                type_assert(operandType.is<TypeKind::Pointer>());
+                type_assert(operandType.isPtr());
                 break;
             }
             case TypeKind::Slice: {
                 Type operandType = inferredType(ctx, function, ast.child(0));
-                type_assert(operandType.is<TypeKind::Slice>());
+                type_assert(operandType.isSlice());
                 break;
             }
             default:
@@ -3974,13 +3977,13 @@ namespace clover {
                 rhsType = inferredType(ctx, function, ast.child(1));
                 operandType = concreteType(module, pickTypeFromEqualPair(lhsType, rhsType));
                 if (ast.kind() == ASTKind::Equal || ast.kind() == ASTKind::NotEqual)
-                    type_assert(operandType.is<TypeKind::Numeric>()
-                        || operandType.is<TypeKind::Function>()
+                    type_assert(operandType.isNum()
+                        || operandType.isFunc()
                         || operandType == Bool
                         || operandType == Char
-                        || operandType.is<TypeKind::Pointer>());
+                        || operandType.isPtr());
                 else
-                    type_assert(operandType.is<TypeKind::Numeric>() || operandType == Char);
+                    type_assert(operandType.isNum() || operandType == Char);
                 break;
 
             case ASTKind::Construct:
@@ -4013,7 +4016,7 @@ namespace clover {
         Module* module = function->generic->module;
         Function* generic = function->generic;
         Type type = function->type();
-        auto funcType = type.as<TypeKind::Function>();
+        auto funcType = type.asFunc();
         AST decl = module->node(function->decl);
         AST genericDecl = module->node(generic->decl);
 
@@ -4024,7 +4027,7 @@ namespace clover {
         // boundaries to see if a structurally identical instantiation already
         // exists.
         funcType.concretify();
-        auto concreteSignature = funcType.cloneExpand().as<TypeKind::Function>();
+        auto concreteSignature = funcType.cloneExpand().asFunc();
         vec<u32> functionIndices;
         gatherResolvedFunctions(functionIndices, function, { decl, 4 });
 

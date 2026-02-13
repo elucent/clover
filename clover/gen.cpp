@@ -85,16 +85,16 @@ namespace clover {
         TypeIndex assignTags(Type type, TypeIndex tag) {
             // Takes the next available tag, returns the next available tag
             // after assigning tags to each of the union cases.
-            assert(type.is<TypeKind::Union>());
-            auto unionType = type.as<TypeKind::Union>();
+            assert(type.isUnion());
+            auto unionType = type.asUnion();
             for (u32 i = 0; i < unionType.count(); i ++) {
                 Type caseType = unionType.caseType(i);
-                if (caseType.is<TypeKind::Union>())
+                if (caseType.isUnion())
                     tag = assignTags(caseType, tag);
-                else if (caseType.is<TypeKind::Struct>())
-                    caseType.as<TypeKind::Struct>().setTypeTag(tag ++);
-                else if (caseType.is<TypeKind::Named>())
-                    caseType.as<TypeKind::Named>().setTypeTag(tag ++);
+                else if (caseType.isStruct())
+                    caseType.asStruct().setTypeTag(tag ++);
+                else if (caseType.isNamed())
+                    caseType.asNamed().setTypeTag(tag ++);
             }
             return tag;
         }
@@ -102,13 +102,13 @@ namespace clover {
         void ensureTypeTag(Type type) {
             type = expand(type);
             bool hasTag = true;
-            if (type.is<TypeKind::Named>())
-                hasTag = type.as<TypeKind::Named>().typeTag() != InvalidType;
-            else if (type.is<TypeKind::Struct>())
-                hasTag = type.as<TypeKind::Struct>().typeTag() != InvalidType;
-            else if (type.is<TypeKind::Union>()) {
-                assert(type.as<TypeKind::Union>().count() > 0);
-                return ensureTypeTag(type.as<TypeKind::Union>().caseType(0));
+            if (type.isNamed())
+                hasTag = type.asNamed().typeTag() != InvalidType;
+            else if (type.isStruct())
+                hasTag = type.asStruct().typeTag() != InvalidType;
+            else if (type.isUnion()) {
+                assert(type.asUnion().count() > 0);
+                return ensureTypeTag(type.asUnion().caseType(0));
             }
             if (!hasTag) {
                 Type parent = parentType(type);
@@ -121,16 +121,16 @@ namespace clover {
         inline bool isEmptyType(Type type) {
             type = expand(type);
             switch (type.kind()) {
-                case TypeKind::Void:
-                    return true;
+                case TypeKind::Primitive:
+                    return type == Void;
                 case TypeKind::Named:
-                    return isEmptyType(type.as<TypeKind::Named>().innerType());
+                    return isEmptyType(type.asNamed().innerType());
                 case TypeKind::Struct:
-                    return type.as<TypeKind::Struct>().count() == 0;
+                    return type.asStruct().count() == 0;
                 case TypeKind::Tuple:
-                    return type.as<TypeKind::Tuple>().count() == 0;
+                    return type.asTuple().count() == 0;
                 case TypeKind::Array:
-                    return type.as<TypeKind::Array>().length() == 0;
+                    return type.asArray().length() == 0;
                 default:
                     return false;
             }
@@ -171,13 +171,13 @@ namespace clover {
                     return jasmine_make_struct_type(output, types, 2);
                 }
                 case TypeKind::Array: {
-                    JasmineType element = lower(type.as<TypeKind::Array>().elementType());
-                    return jasmine_make_array_type(output, element, type.as<TypeKind::Array>().length());
+                    JasmineType element = lower(type.asArray().elementType());
+                    return jasmine_make_array_type(output, element, type.asArray().length());
                 }
                 case TypeKind::Tuple: {
                     vec<JasmineType> elements;
-                    for (u32 i = 0; i < type.as<TypeKind::Tuple>().count(); i ++) {
-                        Type field = type.as<TypeKind::Tuple>().fieldType(i);
+                    for (u32 i = 0; i < type.asTuple().count(); i ++) {
+                        Type field = type.asTuple().fieldType(i);
                         if (!isEmptyType(field))
                             elements.push(lower(field));
                     }
@@ -185,7 +185,7 @@ namespace clover {
                 }
                 case TypeKind::Struct: {
                     vec<JasmineType> elements;
-                    auto structType = type.as<TypeKind::Struct>();
+                    auto structType = type.asStruct();
                     if (structType.isCase()) {
                         ensureTypeTag(type);
                         elements.push(tagType());
@@ -198,7 +198,7 @@ namespace clover {
                     return jasmine_make_struct_type(output, elements.data(), elements.size());
                 }
                 case TypeKind::Named: {
-                    auto namedType = type.as<TypeKind::Named>();
+                    auto namedType = type.asNamed();
                     JasmineType element = lower(namedType.innerType());
                     if (namedType.isCase()) {
                         ensureTypeTag(type);
@@ -212,7 +212,7 @@ namespace clover {
                     return jasmine_make_struct_type(output, &element, 1);
                 }
                 case TypeKind::Union: {
-                    auto unionType = type.as<TypeKind::Union>();
+                    auto unionType = type.asUnion();
                     vec<JasmineType> elements;
                     for (u32 i = 0; i < unionType.count(); i ++) {
                         Type element = unionType.caseType(i);
@@ -223,12 +223,12 @@ namespace clover {
                 }
                 case TypeKind::Function: {
                     vec<JasmineType> elements;
-                    for (u32 i = 0; i < type.as<TypeKind::Function>().parameterCount(); i ++) {
-                        Type parameter = type.as<TypeKind::Function>().parameterType(i);
+                    for (u32 i = 0; i < type.asFunc().parameterCount(); i ++) {
+                        Type parameter = type.asFunc().parameterType(i);
                         if (!isEmptyType(parameter))
                             elements.push(lower(parameter));
                     }
-                    return jasmine_make_function_type(output, elements.data(), elements.size(), lower(type.as<TypeKind::Function>().returnType()));
+                    return jasmine_make_function_type(output, elements.data(), elements.size(), lower(type.asFunc().returnType()));
                 }
                 default:
                     unreachable("Can't lower type ", type);
@@ -426,7 +426,7 @@ namespace clover {
             target = format(target, ".atom.");
             target = mangleType(target, atom);
             auto name = buffer[{0, 256 - target.size()}];
-            jasmine_define_static(output, tagType(), name.data(), name.size(), jasmine_integer_value(output, tagType(), hasTag ? atom.as<TypeKind::Named>().typeTag() : 0));
+            jasmine_define_static(output, tagType(), name.data(), name.size(), jasmine_integer_value(output, tagType(), hasTag ? atom.asNamed().typeTag() : 0));
             auto sym = module->sym(name);
             atoms.put(atom.index, sym);
             return sym;
@@ -494,84 +494,80 @@ namespace clover {
             type = expand(type);
             switch (type.kind()) {
                 case TypeKind::Numeric:
-                case TypeKind::Bool:
-                case TypeKind::Char:
-                case TypeKind::Void:
-                case TypeKind::Any:
-                case TypeKind::Bottom:
+                case TypeKind::Primitive:
                     return format(target, type);
                 case TypeKind::Pointer:
-                    target = format(mangleType(target, type.as<TypeKind::Pointer>().elementType()), "*");
-                    if (type.as<TypeKind::Pointer>().traits() & Own)
+                    target = format(mangleType(target, type.asPtr().elementType()), "*");
+                    if (type.asPtr().traits() & Own)
                         target = format(target, "own");
-                    if (type.as<TypeKind::Pointer>().traits() & Uninit)
+                    if (type.asPtr().traits() & Uninit)
                         target = format(target, "uninit");
                     return target;
                 case TypeKind::Slice:
-                    target = format(mangleType(target, type.as<TypeKind::Slice>().elementType()), "[]");
-                    if (type.as<TypeKind::Slice>().traits() & Own)
+                    target = format(mangleType(target, type.asSlice().elementType()), "[]");
+                    if (type.asSlice().traits() & Own)
                         target = format(target, "own");
-                    if (type.as<TypeKind::Slice>().traits() & Uninit)
+                    if (type.asSlice().traits() & Uninit)
                         target = format(target, "uninit");
                     return target;
                 case TypeKind::Array:
-                    return format(mangleType(target, type.as<TypeKind::Array>().elementType()), "[", type.as<TypeKind::Array>().length(), "]");
+                    return format(mangleType(target, type.asArray().elementType()), "[", type.asArray().length(), "]");
                 case TypeKind::Tuple:
                     target = format(target, "(");
-                    for (u32 i = 0; i < type.as<TypeKind::Tuple>().count(); i ++) {
+                    for (u32 i = 0; i < type.asTuple().count(); i ++) {
                         if (i > 0) target = format(target, ",");
-                        target = mangleType(target, type.as<TypeKind::Tuple>().fieldType(i));
+                        target = mangleType(target, type.asTuple().fieldType(i));
                     }
                     return format(target, ")");
                 case TypeKind::Function:
-                    target = mangleType(target, type.as<TypeKind::Function>().returnType());
+                    target = mangleType(target, type.asFunc().returnType());
                     target = format(target, "(");
-                    for (u32 i = 0; i < type.as<TypeKind::Function>().parameterCount(); i ++) {
+                    for (u32 i = 0; i < type.asFunc().parameterCount(); i ++) {
                         if (i > 0) target = format(target, ",");
-                        target = mangleType(target, type.as<TypeKind::Function>().parameterType(i));
+                        target = mangleType(target, type.asFunc().parameterType(i));
                     }
                     return format(target, ")");
                 case TypeKind::Struct: {
-                    if (type.as<TypeKind::Struct>().isCase()) {
-                        target = mangleType(target, type.as<TypeKind::Struct>().parentType());
+                    if (type.asStruct().isCase()) {
+                        target = mangleType(target, type.asStruct().parentType());
                         // Case types can't have their own type parameters, so
                         // we can safely assume they'll just mangle to their
                         // own names.
-                        return format(target, '.', module->str(type.as<TypeKind::Struct>().name()));
+                        return format(target, '.', module->str(type.asStruct().name()));
                     }
                     vec<TypeIndex> params;
                     forEachTypeParameter(type, [&](Type t) {
                         params.push(t.index);
                     });
-                    return mangleNamedType(target, type.as<TypeKind::Struct>().scope(), type.as<TypeKind::Struct>().name(), type.types, params);
+                    return mangleNamedType(target, type.asStruct().scope(), type.asStruct().name(), type.types, params);
                 }
                 case TypeKind::Named: {
-                    if (type.as<TypeKind::Named>().isCase()) {
-                        target = mangleType(target, type.as<TypeKind::Named>().parentType());
+                    if (type.asNamed().isCase()) {
+                        target = mangleType(target, type.asNamed().parentType());
                         // Case types can't have their own type parameters, so
                         // we can safely assume they'll just mangle to their
                         // own names.
-                        return format(target, '.', module->str(type.as<TypeKind::Named>().name()));
+                        return format(target, '.', module->str(type.asNamed().name()));
                     }
                     vec<TypeIndex> params;
                     forEachTypeParameter(type, [&](Type t) {
                         params.push(t.index);
                     });
-                    return mangleNamedType(target, type.as<TypeKind::Named>().scope(), type.as<TypeKind::Named>().name(), type.types, params);
+                    return mangleNamedType(target, type.asNamed().scope(), type.asNamed().name(), type.types, params);
                 }
                 case TypeKind::Union: {
-                    if (type.as<TypeKind::Union>().isCase()) {
-                        target = mangleType(target, type.as<TypeKind::Union>().parentType());
+                    if (type.asUnion().isCase()) {
+                        target = mangleType(target, type.asUnion().parentType());
                         // Case types can't have their own type parameters, so
                         // we can safely assume they'll just mangle to their
                         // own names.
-                        return format(target, '.', module->str(type.as<TypeKind::Union>().name()));
+                        return format(target, '.', module->str(type.asUnion().name()));
                     }
                     vec<TypeIndex> params;
                     forEachTypeParameter(type, [&](Type t) {
                         params.push(t.index);
                     });
-                    return mangleNamedType(target, type.as<TypeKind::Union>().scope(), type.as<TypeKind::Union>().name(), type.types, params);
+                    return mangleNamedType(target, type.asUnion().scope(), type.asUnion().name(), type.types, params);
                 }
                 default:
                     unreachable("Should not be mangling type ", type);
@@ -642,15 +638,15 @@ namespace clover {
                 // Parameters first.
                 target = format(target, "(");
                 Type type = function->type();
-                assert(type.is<TypeKind::Function>());
-                for (u32 i = 0; i < type.as<TypeKind::Function>().parameterCount(); i ++) {
+                assert(type.isFunc());
+                for (u32 i = 0; i < type.asFunc().parameterCount(); i ++) {
                     if (i > 0) target = format(target, ",");
-                    target = mangleType(target, type.as<TypeKind::Function>().parameterType(i));
+                    target = mangleType(target, type.asFunc().parameterType(i));
                 }
                 target = format(target, ")");
 
                 // Next, and often finally, the return type.
-                target = mangleType(target, type.as<TypeKind::Function>().returnType());
+                target = mangleType(target, type.asFunc().returnType());
 
                 if (function->isInstantiation) {
                     // First we add an annotation indicating where this function
@@ -744,10 +740,6 @@ namespace clover {
         if (destType != srcType) {
             JasmineOperand result;
             switch (destType.kind()) {
-                case TypeKind::Void:
-                    result = operand;
-                    break;
-
                 case TypeKind::Union: {
                     assert(isCase(srcType));
                     result = genCtx.temp();
@@ -764,13 +756,17 @@ namespace clover {
                     break;
 
                 case TypeKind::Slice:
-                    if (srcType.is<TypeKind::Slice>()) {
+                    if (srcType.isSlice()) {
                         result = operand;
                         break;
                     }
                     return generateGetSlice(genCtx, builder, srcType, operand, none<JasmineOperand>(), none<JasmineOperand>());
 
                 default:
+                    if (destType == Void) {
+                        result = operand;
+                        break;
+                    }
                     result = genCtx.temp();
                     jasmine_append_convert(builder, genCtx.lower(destType), result, genCtx.lower(srcType), operand);
                     break;
@@ -811,7 +807,7 @@ namespace clover {
     }
 
     Type typeForExp(Type type) {
-        auto numType = type.as<TypeKind::Numeric>();
+        auto numType = type.asNum();
         if (numType.isFloat())
             return type.types->get(F64);
         if (numType.isSigned())
@@ -826,7 +822,7 @@ namespace clover {
     };
 
     CallExpInfo getCallExpInfo(GenerationContext& genCtx, Type expType) {
-        auto numType = expType.as<TypeKind::Numeric>();
+        auto numType = expType.asNum();
         if (numType.isFloat())
             return { expType.types->get(F64), genCtx.getFpowType(), genCtx.funcref(cstring("math.pow(f64)")) };
         if (numType.isSigned())
@@ -848,8 +844,8 @@ namespace clover {
 
     JasmineOperand generateExpAssignment(GenerationContext& genCtx, JasmineBuilder builder, AST ast) {
         Type pointerType = typeOf(ast, 0);
-        assert(pointerType.is<TypeKind::Pointer>());
-        Type elementType = pointerType.as<TypeKind::Pointer>().elementType();
+        assert(pointerType.isPtr());
+        Type elementType = pointerType.asPtr().elementType();
         JasmineType resultType = genCtx.lower(elementType);
 
         CallExpInfo info = getCallExpInfo(genCtx, elementType);
@@ -890,8 +886,8 @@ namespace clover {
 
     JasmineOperand generateCompoundAssignment(GenerationContext& genCtx, JasmineBuilder builder, AST ast, void (*builder_func)(JasmineBuilder, JasmineType, JasmineOperand, JasmineOperand, JasmineOperand)) {
         Type pointerType = typeOf(ast, 0);
-        assert(pointerType.is<TypeKind::Pointer>());
-        Type elementType = expand(pointerType.as<TypeKind::Pointer>().elementType());
+        assert(pointerType.isPtr());
+        Type elementType = expand(pointerType.asPtr().elementType());
         JasmineType resultType = genCtx.lower(elementType);
 
         if (ast.child(0).kind() == ASTKind::AddressOf && ast.child(0).child(0).kind() == ASTKind::Local) {
@@ -933,7 +929,7 @@ namespace clover {
             }
         } else {
             Type ptrType = typeOf(ast, 0);
-            Type elementType = expand(ptrType.as<TypeKind::Pointer>().elementType());
+            Type elementType = expand(ptrType.asPtr().elementType());
             JasmineType varType = genCtx.lower(elementType);
             JasmineOperand base = generate(genCtx, builder, ast.child(0), ptrType);
             JasmineOperand temp = genCtx.temp();
@@ -1093,8 +1089,8 @@ namespace clover {
     }
 
     triple<Type, JasmineOperand, bool> materializeAggregateBase(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand base) {
-        bool isPointer = baseType.is<TypeKind::Pointer>();
-        Type aggregateType = isPointer ? expand(baseType.as<TypeKind::Pointer>().elementType()) : expand(baseType);
+        bool isPointer = baseType.isPtr();
+        Type aggregateType = isPointer ? expand(baseType.asPtr().elementType()) : expand(baseType);
         if (jasmine_is_static_ref(base)) { // Base is a global, implicitly a pointer.
             if (isPointer) { // Global pointer needs double dereference.
                 JasmineOperand ptr = genCtx.temp();
@@ -1107,22 +1103,22 @@ namespace clover {
     }
 
     triple<JasmineType, Type, u32> computeFieldAccessTypes(GenerationContext& genCtx, Type aggregateType, u32 fieldId) {
-        if (aggregateType.is<TypeKind::Struct>()) {
-            auto structType = aggregateType.as<TypeKind::Struct>();
+        if (aggregateType.isStruct()) {
+            auto structType = aggregateType.asStruct();
             auto fieldType = expand(structType.fieldType(fieldId));
             if (structType.isCase())
                 fieldId ++; // Account for tag field.
             return { genCtx.lower(aggregateType), fieldType, fieldId };
-        } else if (aggregateType.is<TypeKind::Named>()) {
+        } else if (aggregateType.isNamed()) {
             // Invalid in normal GetField, but fine here since we're just using
             // it as a codegen helper.
-            auto namedType = aggregateType.as<TypeKind::Named>();
+            auto namedType = aggregateType.asNamed();
             auto fieldType = expand(namedType.innerType());
             if (namedType.isCase())
                 fieldId ++;
             return { genCtx.lower(aggregateType), fieldType, fieldId };
-        } else if (aggregateType.is<TypeKind::Tuple>()) {
-            auto tupleType = aggregateType.as<TypeKind::Tuple>();
+        } else if (aggregateType.isTuple()) {
+            auto tupleType = aggregateType.asTuple();
             auto fieldType = expand(tupleType.fieldType(fieldId));
             return { genCtx.lower(aggregateType), fieldType, fieldId };
         } else
@@ -1169,14 +1165,14 @@ namespace clover {
     }
 
     Type getFieldType(Type baseType, u32 fieldId) {
-        bool isPointer = baseType.is<TypeKind::Pointer>();
-        Type aggregateType = isPointer ? expand(baseType.as<TypeKind::Pointer>().elementType()) : baseType;
-        if (aggregateType.is<TypeKind::Struct>())
-            return expand(aggregateType.as<TypeKind::Struct>().fieldType(fieldId));
-        else if (aggregateType.is<TypeKind::Named>())
-            return expand(aggregateType.as<TypeKind::Named>().innerType());
-        else if (aggregateType.is<TypeKind::Tuple>())
-            return expand(aggregateType.as<TypeKind::Tuple>().fieldType(fieldId));
+        bool isPointer = baseType.isPtr();
+        Type aggregateType = isPointer ? expand(baseType.asPtr().elementType()) : baseType;
+        if (aggregateType.isStruct())
+            return expand(aggregateType.asStruct().fieldType(fieldId));
+        else if (aggregateType.isNamed())
+            return expand(aggregateType.asNamed().innerType());
+        else if (aggregateType.isTuple())
+            return expand(aggregateType.asTuple().fieldType(fieldId));
         else
             unreachable("Invalid type ", aggregateType, " for field access base.");
     }
@@ -1192,11 +1188,11 @@ namespace clover {
     }
 
     JasmineOperand generateLength(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand base, Type destType) {
-        bool isPointer = baseType.is<TypeKind::Pointer>();
-        Type aggregateType = isPointer ? expand(baseType.as<TypeKind::Pointer>().elementType()) : baseType;
-        if (aggregateType.is<TypeKind::Array>())
-            return genCtx.imm(aggregateType.as<TypeKind::Array>().length());
-        assert(aggregateType.is<TypeKind::Slice>());
+        bool isPointer = baseType.isPtr();
+        Type aggregateType = isPointer ? expand(baseType.asPtr().elementType()) : baseType;
+        if (aggregateType.isArray())
+            return genCtx.imm(aggregateType.asArray().length());
+        assert(aggregateType.isSlice());
 
         if (jasmine_is_static_ref(base)) { // Base is a global, implicitly a pointer.
             if (isPointer) { // Global pointer needs double dereference.
@@ -1218,16 +1214,16 @@ namespace clover {
         const auto [aggregateType, base, isPointer] = materializeAggregateBase(genCtx, builder, baseType, aggregate);
 
         JasmineOperand result = genCtx.temp();
-        if (aggregateType.is<TypeKind::Array>()) {
-            auto elementType = expand(aggregateType.as<TypeKind::Array>().elementType());
+        if (aggregateType.isArray()) {
+            auto elementType = expand(aggregateType.asArray().elementType());
             auto loweredElement = genCtx.lower(elementType);
             if (isPointer)
                 jasmine_append_load_index(builder, loweredElement, result, base, JASMINE_TYPE_U64, index);
             else
                 jasmine_append_get_index(builder, loweredElement, result, base, JASMINE_TYPE_U64, index);
             return coerce(genCtx, builder, destType, elementType, result);
-        } else if (aggregateType.is<TypeKind::Slice>()) {
-            auto elementType = expand(aggregateType.as<TypeKind::Slice>().elementType());
+        } else if (aggregateType.isSlice()) {
+            auto elementType = expand(aggregateType.asSlice().elementType());
             auto loweredElement = genCtx.lower(elementType);
             JasmineOperand ptr = genCtx.temp();
             if (isPointer)
@@ -1244,15 +1240,15 @@ namespace clover {
         const auto [aggregateType, base, isPointer] = materializeAggregateBase(genCtx, builder, baseType, aggregate);
 
         JasmineOperand result = genCtx.temp();
-        if (aggregateType.is<TypeKind::Array>()) {
-            auto loweredElement = genCtx.lower(expand(aggregateType.as<TypeKind::Array>().elementType()));
+        if (aggregateType.isArray()) {
+            auto loweredElement = genCtx.lower(expand(aggregateType.asArray().elementType()));
             if (isPointer)
                 jasmine_append_offset_index(builder, loweredElement, result, base, JASMINE_TYPE_U64, index);
             else
                 jasmine_append_addr_index(builder, loweredElement, result, base, JASMINE_TYPE_U64, index);
             return result;
-        } else if (aggregateType.is<TypeKind::Slice>()) {
-            auto loweredElement = genCtx.lower(expand(aggregateType.as<TypeKind::Slice>().elementType()));
+        } else if (aggregateType.isSlice()) {
+            auto loweredElement = genCtx.lower(expand(aggregateType.asSlice().elementType()));
             JasmineOperand ptr = genCtx.temp();
             if (isPointer)
                 jasmine_append_load_field(builder, genCtx.lower(aggregateType), ptr, base, 0);
@@ -1267,16 +1263,16 @@ namespace clover {
     void generateSetIndex(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand aggregate, JasmineOperand index, AST src) {
         const auto [aggregateType, base, isPointer] = materializeAggregateBase(genCtx, builder, baseType, aggregate);
 
-        if (aggregateType.is<TypeKind::Array>()) {
-            auto elementType = expand(aggregateType.as<TypeKind::Array>().elementType());
+        if (aggregateType.isArray()) {
+            auto elementType = expand(aggregateType.asArray().elementType());
             auto loweredElement = genCtx.lower(elementType);
             JasmineOperand value = generate(genCtx, builder, src, elementType);
             if (isPointer)
                 jasmine_append_store_index(builder, loweredElement, base, JASMINE_TYPE_U64, index, value);
             else
                 jasmine_append_set_index(builder, loweredElement, base, JASMINE_TYPE_U64, index, value);
-        } else if (aggregateType.is<TypeKind::Slice>()) {
-            auto elementType = expand(aggregateType.as<TypeKind::Slice>().elementType());
+        } else if (aggregateType.isSlice()) {
+            auto elementType = expand(aggregateType.asSlice().elementType());
             auto loweredElement = genCtx.lower(elementType);
             JasmineOperand value = generate(genCtx, builder, src, elementType);
             JasmineOperand ptr = genCtx.temp();
@@ -1294,8 +1290,8 @@ namespace clover {
 
         JasmineOperand addr, size;
         JasmineType loweredSlice;
-        if (aggregateType.is<TypeKind::Array>()) {
-            auto arrayType = aggregateType.as<TypeKind::Array>();
+        if (aggregateType.isArray()) {
+            auto arrayType = aggregateType.asArray();
             auto elementType = expand(arrayType.elementType());
             auto loweredElement = genCtx.lower(elementType);
             if (type)
@@ -1331,8 +1327,8 @@ namespace clover {
                     jasmine_append_addr_index(builder, loweredElement, addr, base, genCtx.sizeType(), *low);
                 jasmine_append_sub(builder, genCtx.sizeType(), size, *high, *low);
             }
-        } else if (aggregateType.is<TypeKind::Slice>()) {
-            auto sliceType = aggregateType.as<TypeKind::Slice>();
+        } else if (aggregateType.isSlice()) {
+            auto sliceType = aggregateType.asSlice();
             if (type)
                 *type = sliceType;
             auto elementType = expand(sliceType.elementType());
@@ -1477,8 +1473,8 @@ namespace clover {
                 // We know the input matches this pattern from earlier. But
                 // how we handle it depends on exactly what the input type is.
                 auto baseType = expand(inputType);
-                if (baseType.is<TypeKind::Pointer>())
-                    baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
+                if (baseType.isPtr())
+                    baseType = expand(baseType.asPtr().elementType());
                 switch (baseType.kind()) {
                     case TypeKind::Union: {
                         // Really we want to dispatch to one of our cases. We
@@ -1490,15 +1486,15 @@ namespace clover {
                         JasmineType loweredPattern = genCtx.lower(patternType);
 
                         u32 id;
-                        if (patternType.is<TypeKind::Struct>())
-                            id = patternType.as<TypeKind::Struct>().typeTag();
-                        else if (patternType.is<TypeKind::Named>())
-                            id = patternType.as<TypeKind::Named>().typeTag();
+                        if (patternType.isStruct())
+                            id = patternType.asStruct().typeTag();
+                        else if (patternType.isNamed())
+                            id = patternType.asNamed().typeTag();
                         else
                             unreachable("Unions can only match against specific struct or named type members.");
 
                         JasmineOperand ptr = input;
-                        if (!expand(inputType).is<TypeKind::Pointer>()) {
+                        if (!expand(inputType).isPtr()) {
                             ptr = genCtx.temp();
                             jasmine_append_addr(builder, loweredPattern, ptr, input);
                         }
@@ -1520,11 +1516,11 @@ namespace clover {
                             break;
                         }
 
-                        auto structType = baseType.as<TypeKind::Struct>();
+                        auto structType = baseType.asStruct();
                         for (u32 i = 0; i < structType.count(); i ++) {
                             if (pattern.child(i).kind() == ASTKind::Splat) {
                                 auto splatType = typeOf(pattern.child(i));
-                                if (splatType.is<TypeKind::Void>())
+                                if (splatType == Void)
                                     break;
                                 auto loweredStruct = genCtx.lower(structType);
                                 auto loweredSplat = genCtx.lower(splatType);
@@ -1549,7 +1545,7 @@ namespace clover {
                             break;
                         }
 
-                        auto namedType = baseType.as<TypeKind::Named>();
+                        auto namedType = baseType.asNamed();
                         auto field = generateGetField(genCtx, builder, inputType, input, 0, namedType.innerType());
                         generatePattern(genCtx, builder, pattern.child(0), namedType.innerType(), field, fail);
                         break;
@@ -1569,12 +1565,12 @@ namespace clover {
                 for (u32 i = 0; i < pattern.arity(); i ++) if (pattern.child(i).kind() == ASTKind::Splat)
                     minLength --, maxLength = -1;
                 auto baseType = inputType;
-                if (baseType.is<TypeKind::Pointer>())
-                    baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
+                if (baseType.isPtr())
+                    baseType = expand(baseType.asPtr().elementType());
                 Type elementType;
                 JasmineOperand length;
-                if (baseType.is<TypeKind::Array>()) {
-                    auto arrayType = baseType.as<TypeKind::Array>();
+                if (baseType.isArray()) {
+                    auto arrayType = baseType.asArray();
                     elementType = expand(arrayType.elementType());
                     if (arrayType.length() < minLength || (arrayType.length() > maxLength && maxLength != -1)) {
                         jasmine_append_br(builder, genCtx.addEdgeTo(fail));
@@ -1582,8 +1578,8 @@ namespace clover {
                     }
                     length = genCtx.imm(arrayType.length());
                 } else {
-                    assert(baseType.is<TypeKind::Slice>());
-                    elementType = expand(baseType.as<TypeKind::Slice>().elementType());
+                    assert(baseType.isSlice());
+                    elementType = expand(baseType.asSlice().elementType());
 
                     length = generateLength(genCtx, builder, inputType, input, genCtx.module->u64Type());
                     if (minLength > 0 && maxLength == -1) {
@@ -1662,9 +1658,9 @@ namespace clover {
 
             case ASTKind::Tuple: {
                 auto baseType = inputType;
-                if (baseType.is<TypeKind::Pointer>())
-                    baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
-                auto tupleType = baseType.as<TypeKind::Tuple>();
+                if (baseType.isPtr())
+                    baseType = expand(baseType.asPtr().elementType());
+                auto tupleType = baseType.asTuple();
                 for (u32 i = 0; i < tupleType.count(); i ++) {
                     if (pattern.child(i).kind() == ASTKind::Splat) {
                         auto loweredTuple = genCtx.lower(tupleType);
@@ -1697,9 +1693,9 @@ namespace clover {
                 Type patternType = expand(evaluateType(genCtx.module, genCtx.func(), pattern));
 
                 bool allCases = true;
-                if (patternType.is<TypeKind::Tuple>()) {
+                if (patternType.isTuple()) {
                     bool allCases = true;
-                    auto tup = patternType.as<TypeKind::Tuple>();
+                    auto tup = patternType.asTuple();
                     for (u32 i = 0; i < tup.count(); i ++) if (!isCase(expand(tup.fieldType(i)))) {
                         allCases = false;
                         break;
@@ -1711,41 +1707,41 @@ namespace clover {
                     return; // Simple type matching always passes, as long as typechecking didn't fail.
 
                 auto baseType = expand(inputType);
-                if (baseType.is<TypeKind::Pointer>())
-                    baseType = expand(baseType.as<TypeKind::Pointer>().elementType());
-                if (baseType.is<TypeKind::Tuple>()) {
+                if (baseType.isPtr())
+                    baseType = expand(baseType.asPtr().elementType());
+                if (baseType.isTuple()) {
                     bool nontrivial = false;
-                    for (u32 i = 0; i < baseType.as<TypeKind::Tuple>().count(); i ++) {
-                        Type fieldType = expand(baseType.as<TypeKind::Tuple>().fieldType(i));
-                        if (fieldType.is<TypeKind::Pointer>())
-                            fieldType = expand(fieldType.as<TypeKind::Pointer>().elementType());
-                        if (fieldType.is<TypeKind::Union>()) {
+                    for (u32 i = 0; i < baseType.asTuple().count(); i ++) {
+                        Type fieldType = expand(baseType.asTuple().fieldType(i));
+                        if (fieldType.isPtr())
+                            fieldType = expand(fieldType.asPtr().elementType());
+                        if (fieldType.isUnion()) {
                             nontrivial = true;
                             break;
                         }
                     }
                     if (!nontrivial)
                         return;
-                } else if (!baseType.is<TypeKind::Union>())
+                } else if (!baseType.isUnion())
                     return; // If the base isn't a union, typechecking is similarly tautological.
 
                 JasmineType loweredPattern = genCtx.lower(patternType);
 
-                if (patternType.is<TypeKind::Tuple>()) {
-                    auto tup = patternType.as<TypeKind::Tuple>();
-                    auto inputTuple = baseType.as<TypeKind::Tuple>();
+                if (patternType.isTuple()) {
+                    auto tup = patternType.asTuple();
+                    auto inputTuple = baseType.asTuple();
                     for (u32 i = 0; i < tup.count(); i ++) {
                         auto tag = genCtx.temp();
                         auto fieldType = expand(inputTuple.fieldType(i));
 
                         auto baseFieldType = fieldType;
-                        if (baseFieldType.is<TypeKind::Pointer>())
-                            baseFieldType = expand(baseFieldType.as<TypeKind::Pointer>().elementType());
+                        if (baseFieldType.isPtr())
+                            baseFieldType = expand(baseFieldType.asPtr().elementType());
 
-                        if (!baseFieldType.is<TypeKind::Union>())
+                        if (!baseFieldType.isUnion())
                             continue; // Trivial type match.
 
-                        auto field = fieldType.is<TypeKind::Pointer>()
+                        auto field = fieldType.isPtr()
                             ? generateGetField(genCtx, builder, baseType, input, i, fieldType)
                             : generateAddrField(genCtx, builder, baseType, input, i);
                         jasmine_append_load_field(builder, genCtx.lower(tup.fieldType(i)), tag, field, 0);
@@ -1753,10 +1749,10 @@ namespace clover {
                         continuation = genCtx.addBlock();
                         Type patternFieldType = expand(tup.fieldType(i));
                         u32 id;
-                        if (patternFieldType.is<TypeKind::Struct>())
-                            id = patternFieldType.as<TypeKind::Struct>().typeTag();
-                        else if (patternFieldType.is<TypeKind::Named>())
-                            id = patternFieldType.as<TypeKind::Named>().typeTag();
+                        if (patternFieldType.isStruct())
+                            id = patternFieldType.asStruct().typeTag();
+                        else if (patternFieldType.isNamed())
+                            id = patternFieldType.asNamed().typeTag();
                         else
                             unreachable("Unions can only match against specific struct or named type members.");
                         jasmine_append_br_ne(builder, genCtx.tagType(), tag, genCtx.imm(id), genCtx.addEdgeTo(fail), genCtx.addEdgeTo(continuation));
@@ -1764,15 +1760,15 @@ namespace clover {
                     }
                 } else {
                     u32 id;
-                    if (patternType.is<TypeKind::Struct>())
-                        id = patternType.as<TypeKind::Struct>().typeTag();
-                    else if (patternType.is<TypeKind::Named>())
-                        id = patternType.as<TypeKind::Named>().typeTag();
+                    if (patternType.isStruct())
+                        id = patternType.asStruct().typeTag();
+                    else if (patternType.isNamed())
+                        id = patternType.asNamed().typeTag();
                     else
                         unreachable("Unions can only match against specific struct or named type members.");
 
                     JasmineOperand ptr = input;
-                    if (!expand(inputType).is<TypeKind::Pointer>()) {
+                    if (!expand(inputType).isPtr()) {
                         ptr = genCtx.temp();
                         jasmine_append_addr(builder, loweredPattern, ptr, input);
                     }
@@ -1826,26 +1822,26 @@ namespace clover {
             case ASTKind::Global:
                 return init.module->globals[init.variable()].kind == VariableInfo::Function;
             case ASTKind::AddressOf:
-                return destType.is<TypeKind::Pointer>() && init.child(0).kind() == ASTKind::Global;
+                return destType.isPtr() && init.child(0).kind() == ASTKind::Global;
             case ASTKind::Paren:
                 return canInitializeStatically(init.child(0), destType);
             case ASTKind::Construct: {
                 Type type = typeOf(init);
-                if (type.is<TypeKind::Struct>()) {
+                if (type.isStruct()) {
                     // TODO: Support more than just fieldwise initializers.
-                    assert(init.arity() == type.as<TypeKind::Struct>().count());
+                    assert(init.arity() == type.asStruct().count());
                     for (auto [i, child] : enumerate(init))
-                        if (!canInitializeStatically(child, type.as<TypeKind::Struct>().fieldType(i)))
+                        if (!canInitializeStatically(child, type.asStruct().fieldType(i)))
                             return false;
                     return true;
-                } else if (type.is<TypeKind::Named>()) {
-                    if (type.as<TypeKind::Named>().innerType() == Void)
+                } else if (type.isNamed()) {
+                    if (type.asNamed().innerType() == Void)
                         return true;
                     assert(init.arity() == 1);
-                    if (!canInitializeStatically(init.child(0), type.as<TypeKind::Named>().innerType()))
+                    if (!canInitializeStatically(init.child(0), type.asNamed().innerType()))
                         return false;
                     return true;
-                } else if (type.is<TypeKind::Union>())
+                } else if (type.isUnion())
                     unreachable("TODO: Implement union types.");
                 else
                     return false; // We don't support other constructors/conversions at the moment.
@@ -1853,7 +1849,7 @@ namespace clover {
             case ASTKind::String:
                 return true;
             case ASTKind::List: {
-                auto elementType = typeOf(init).as<TypeKind::Array>().elementType();
+                auto elementType = typeOf(init).asArray().elementType();
                 for (AST child : init)
                     if (!canInitializeStatically(child, elementType))
                         return false;
@@ -1884,14 +1880,14 @@ namespace clover {
     JasmineValue createStaticInitializer(GenerationContext& genCtx, AST init, Type destType) {
         switch (init.kind()) {
             case ASTKind::Int:
-                assert(destType.is<TypeKind::Numeric>());
+                assert(destType.isNum());
                 if (destType == init.module->f32Type())
                     return jasmine_f32_value(genCtx.output, init.intConst());
                 else if (destType == init.module->f64Type())
                     return jasmine_f64_value(genCtx.output, init.intConst());
                 return jasmine_integer_value(genCtx.output, genCtx.lower(destType), init.intConst());
             case ASTKind::Unsigned:
-                assert(destType.is<TypeKind::Numeric>());
+                assert(destType.isNum());
                 if (destType == init.module->f32Type())
                     return jasmine_f32_value(genCtx.output, init.uintConst());
                 else if (destType == init.module->f64Type())
@@ -1909,7 +1905,7 @@ namespace clover {
                 assert(init.module->globals[init.variable()].kind == VariableInfo::Function);
                 return genCtx.funcrefValue(init.module->str(init.module->globals[init.variable()].name));
             case ASTKind::AddressOf:
-                assert(destType.is<TypeKind::Pointer>());
+                assert(destType.isPtr());
                 assert(init.child(0).kind() == ASTKind::Global);
                 return genCtx.globalValue(init.child(0).variable());
             case ASTKind::Paren:
@@ -1917,41 +1913,41 @@ namespace clover {
             case ASTKind::Construct: {
                 Type type = typeOf(init);
                 JasmineValue value;
-                if (type.is<TypeKind::Named>()) {
+                if (type.isNamed()) {
                     JasmineValue values[2];
-                    bool isCase = type.as<TypeKind::Named>().isCase();
-                    bool isVoid = type.as<TypeKind::Named>().innerType() == Void;
+                    bool isCase = type.asNamed().isCase();
+                    bool isVoid = type.asNamed().innerType() == Void;
                     if (isCase) {
                         genCtx.lower(type); // Needed to ensure our type tag has been assigned.
-                        values[0] = jasmine_integer_value(genCtx.output, genCtx.tagType(), type.as<TypeKind::Named>().typeTag());
+                        values[0] = jasmine_integer_value(genCtx.output, genCtx.tagType(), type.asNamed().typeTag());
                     }
                     if (!isVoid)
-                        values[1] = createStaticInitializer(genCtx, init.child(1), expand(type.as<TypeKind::Named>().innerType()));
+                        values[1] = createStaticInitializer(genCtx, init.child(1), expand(type.asNamed().innerType()));
                     JasmineValue* start = isCase ? values : values + 1;
                     JasmineValue* end = isVoid ? values + 2 : values + 1;
                     value = jasmine_struct_value(genCtx.output, genCtx.lower(type), start, end - start);
-                } else if (type.is<TypeKind::Struct>()) {
-                    auto structType = type.as<TypeKind::Struct>();
+                } else if (type.isStruct()) {
+                    auto structType = type.asStruct();
                     vec<JasmineValue, 8> initValues;
-                    if (type.as<TypeKind::Struct>().isCase()) {
+                    if (type.asStruct().isCase()) {
                         genCtx.lower(type); // Needed to ensure our type tag has been assigned.
                         initValues.push(jasmine_integer_value(genCtx.output, genCtx.tagType(), structType.typeTag()));
                     }
                     for (u32 i = 0; i < structType.count(); i ++)
                         initValues.push(createStaticInitializer(genCtx, init.child(i), expand(structType.fieldType(i))));
                     value = jasmine_struct_value(genCtx.output, genCtx.lower(structType), initValues.begin(), initValues.size());
-                } else if (type.is<TypeKind::Union>())
+                } else if (type.isUnion())
                     unreachable("Union types should not be directly constructed.");
                 else
                     unreachable("Found unsupported type ", type, " for static construction.");
-                if (destType.is<TypeKind::Union>())
+                if (destType.isUnion())
                     value = jasmine_union_value(genCtx.output, genCtx.lower(destType), value);
                 return value;
             }
             case ASTKind::String: {
                 auto text = init.module->str(init.stringConst());
                 JasmineValue value = jasmine_i8_array_value(genCtx.output, (const int8_t*)text.data(), text.size());
-                if (destType.is<TypeKind::Slice>()) {
+                if (destType.isSlice()) {
                     array<i8, 64> buf;
                     auto name = prints(buf, ".array ", genCtx.nextAnonArrayId(), '.');
                     jasmine_define_static(genCtx.output, jasmine_make_array_type(genCtx.output, JASMINE_TYPE_I8, init.arity()), name.data(), name.size(), value);
@@ -1965,10 +1961,10 @@ namespace clover {
 
             case ASTKind::List: {
                 Type elementType;
-                if (destType.is<TypeKind::Slice>())
-                    elementType = destType.as<TypeKind::Slice>().elementType();
+                if (destType.isSlice())
+                    elementType = destType.asSlice().elementType();
                 else
-                    elementType = destType.as<TypeKind::Array>().elementType();
+                    elementType = destType.asArray().elementType();
                 Module* module = init.module;
                 JasmineValue value;
                 if (elementType == module->i8Type() || elementType == module->u8Type())
@@ -1999,7 +1995,7 @@ namespace clover {
                         initializers.push(createStaticInitializer(genCtx, init.child(i), elementType));
                     value = jasmine_value_array_value(genCtx.output, genCtx.lower(elementType), initializers.begin(), initializers.size());
                 }
-                if (destType.is<TypeKind::Slice>()) {
+                if (destType.isSlice()) {
                     array<i8, 64> buf;
                     auto name = prints(buf, ".array ", genCtx.nextAnonArrayId(), '.');
                     jasmine_define_static(genCtx.output, jasmine_make_array_type(genCtx.output, genCtx.lower(elementType), init.arity()), name.data(), name.size(), value);
@@ -2018,10 +2014,10 @@ namespace clover {
                 Type type = evaluateType(genCtx.module, genCtx.func(), init);
                 if (isAtom(type)) {
                     genCtx.ensureTypeTag(type);
-                    if (destType.is<TypeKind::Pointer>())
+                    if (destType.isPtr())
                         return genCtx.atomRefValue(type); // It's a static/data ref, so natively a pointer.
-                    auto value = jasmine_integer_value(genCtx.output, genCtx.tagType(), type.as<TypeKind::Named>().typeTag());
-                    if (destType.is<TypeKind::Union>())
+                    auto value = jasmine_integer_value(genCtx.output, genCtx.tagType(), type.asNamed().typeTag());
+                    if (destType.isUnion())
                         value = jasmine_union_value(genCtx.output, genCtx.lower(destType), value);
                     return value;
                 }
@@ -2061,7 +2057,7 @@ namespace clover {
                 return genCtx.imm(ast.charConst());
 
             case ASTKind::Unsigned:
-                assert(destType.is<TypeKind::Numeric>());
+                assert(destType.isNum());
                 if (destType == module->f32Type())
                     return genCtx.f32imm(ast.uintConst());
                 else if (destType == module->f64Type())
@@ -2069,7 +2065,7 @@ namespace clover {
                 return genCtx.imm(bitcast<i64>(ast.uintConst()));
 
             case ASTKind::Int:
-                assert(destType.is<TypeKind::Numeric>());
+                assert(destType.isNum());
                 if (destType == module->f32Type())
                     return genCtx.f32imm(ast.intConst());
                 else if (destType == module->f64Type())
@@ -2113,7 +2109,7 @@ namespace clover {
                 // we have a global array, and want to coerce it to a slice.
                 // Since this is behavior somewhat unique to global variables,
                 // we add special checking for it here.
-                if (expand(destType).is<TypeKind::Slice>() && globalType.is<TypeKind::Array>())
+                if (expand(destType).isSlice() && globalType.isArray())
                     return generateGetSlice(genCtx, builder, globalType, genCtx.staticref(name), none<JasmineOperand>(), none<JasmineOperand>());
 
                 auto dest = genCtx.temp();
@@ -2253,7 +2249,7 @@ namespace clover {
                     calleeType = typeOf(ast, 0);
                     callee = generate(genCtx, builder, ast.child(0), calleeType);
                 }
-                const auto& funType = calleeType.as<TypeKind::Function>();
+                const auto& funType = calleeType.asFunc();
                 vec<JasmineOperand> args;
                 for (auto [i, arg] : enumerate(ast.children(1))) {
                     Type param = expand(funType.parameterType(i));
@@ -2272,7 +2268,7 @@ namespace clover {
 
             case ASTKind::New: {
                 auto type = typeOf(ast);
-                auto elementType = type.as<TypeKind::Pointer>().elementType();
+                auto elementType = type.asPtr().elementType();
                 if (!ast.child(0).missing())
                     value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
                 auto size = genCtx.sizeOf(elementType);
@@ -2285,7 +2281,7 @@ namespace clover {
 
             case ASTKind::NewArray: {
                 auto type = typeOf(ast);
-                auto elementType = type.as<TypeKind::Slice>().elementType();
+                auto elementType = type.asSlice().elementType();
                 value = generate(genCtx, builder, ast.child(0), module->u64Type());
                 auto size = genCtx.temp(), ptr = genCtx.temp(), result = genCtx.temp();
 
@@ -2298,10 +2294,10 @@ namespace clover {
 
             case ASTKind::Del: {
                 Type child = typeOf(ast, 0);
-                if (child.is<TypeKind::Pointer>() && child.as<TypeKind::Pointer>().isOwn()) {
+                if (child.isPtr() && child.asPtr().isOwn()) {
                     value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
                     jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &value, 1);
-                } else if (child.is<TypeKind::Slice>() && child.as<TypeKind::Slice>().isOwn()) {
+                } else if (child.isSlice() && child.asSlice().isOwn()) {
                     auto slice = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
                     value = genCtx.temp();
                     jasmine_append_get_field(builder, genCtx.lower(child), value, slice, 0);
@@ -2315,7 +2311,7 @@ namespace clover {
                 auto value = genCtx.stringRef(sym);
                 result = genCtx.temp();
                 jasmine_append_load(builder, jasmine_make_array_type(genCtx.output, JASMINE_TYPE_I8, module->str(sym).size()), result, value);
-                if (destType.is<TypeKind::Slice>()) {
+                if (destType.isSlice()) {
                     auto tmp = result;
                     auto addr = genCtx.temp();
                     result = genCtx.temp();
@@ -2328,7 +2324,7 @@ namespace clover {
             }
 
             case ASTKind::Tuple: {
-                auto tupleType = destType.as<TypeKind::Tuple>();
+                auto tupleType = destType.asTuple();
                 auto loweredTuple = genCtx.lower(tupleType);
                 auto result = genCtx.temp();
                 for (u32 i = 0; i < tupleType.count(); i ++) {
@@ -2352,10 +2348,10 @@ namespace clover {
                 result = genCtx.temp();
                 auto baseType = typeOf(ast);
                 Type elementType;
-                if (baseType.is<TypeKind::Array>())
-                    elementType = expand(baseType.as<TypeKind::Array>().elementType());
+                if (baseType.isArray())
+                    elementType = expand(baseType.asArray().elementType());
                 else
-                    elementType = expand(baseType.as<TypeKind::Slice>().elementType());
+                    elementType = expand(baseType.asSlice().elementType());
                 auto loweredElement = genCtx.lower(elementType);
 
                 jasmine_append_var(builder, jasmine_make_array_type(genCtx.output, loweredElement, minLength), result);
@@ -2364,7 +2360,7 @@ namespace clover {
                     jasmine_append_set_index(builder, loweredElement, result, genCtx.sizeType(), genCtx.imm(i), element);
                 }
 
-                if (baseType.is<TypeKind::Slice>()) {
+                if (baseType.isSlice()) {
                     auto tmp = result;
                     auto addr = genCtx.temp();
                     result = genCtx.temp();
@@ -2379,13 +2375,13 @@ namespace clover {
 
             case ASTKind::Construct: {
                 auto type = typeOf(ast);
-                if (type.is<TypeKind::Numeric>() || type.is<TypeKind::Char>()) {
+                if (type.isNum() || type == Char) {
                     JasmineOperand result = genCtx.temp();
                     value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
                     jasmine_append_convert(builder, genCtx.lower(type), result, genCtx.lower(typeOf(ast, 0)), value);
                     return coerce(genCtx, builder, destType, type, result);
-                } else if (type.is<TypeKind::Struct>()) {
-                    auto structType = type.as<TypeKind::Struct>();
+                } else if (type.isStruct()) {
+                    auto structType = type.asStruct();
                     auto loweredStruct = genCtx.lower(type);
                     result = genCtx.temp();
                     if (structType.isCase())
@@ -2395,8 +2391,8 @@ namespace clover {
                         jasmine_append_set_field(builder, loweredStruct, result, structType.isCase() ? i + 1 : i, field);
                     }
                     return coerce(genCtx, builder, destType, type, result);
-                } else if (type.is<TypeKind::Named>()) {
-                    auto namedType = type.as<TypeKind::Named>();
+                } else if (type.isNamed()) {
+                    auto namedType = type.asNamed();
                     auto loweredStruct = genCtx.lower(type);
                     result = genCtx.temp();
                     JasmineOperand field = generate(genCtx, builder, ast.child(0), namedType.innerType());
@@ -2404,9 +2400,9 @@ namespace clover {
                         jasmine_append_set_field(builder, loweredStruct, result, 0, genCtx.imm(namedType.typeTag()));
                     jasmine_append_set_field(builder, loweredStruct, result, namedType.isCase() ? 1 : 0, field);
                     return coerce(genCtx, builder, destType, type, result);
-                } else if (type.is<TypeKind::Pointer>()) {
+                } else if (type.isPtr()) {
                     return generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
-                } else if (type.is<TypeKind::Slice>()) {
+                } else if (type.isSlice()) {
                     return generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
                 } else
                     unreachable("Invalid construction ", ast);
@@ -2418,7 +2414,7 @@ namespace clover {
                     jasmine_append_ret_void(builder);
                     return JASMINE_INVALID_OPERAND;
                 }
-                Type returnType = expand(ast.function()->type().as<TypeKind::Function>().returnType());
+                Type returnType = expand(ast.function()->type().asFunc().returnType());
                 value = generate(genCtx, builder, ast.child(0), returnType);
                 genCtx.isUnreachable = true;
                 if (returnType == ast.module->voidType())
@@ -2487,7 +2483,7 @@ namespace clover {
             case ASTKind::FunDecl: {
                 if (ast.child(4).kind() != ASTKind::Missing) {
                     auto name = module->str(genCtx.mangledName(module, ast.function()));
-                    auto funType = typeOf(ast).as<TypeKind::Function>();
+                    auto funType = typeOf(ast).asFunc();
                     auto flags = ast.function()->isInstantiation ? JASMINE_FUNCTION_FLAGS_WEAK : JASMINE_FUNCTION_FLAGS_NONE;
                     JasmineFunction func = jasmine_create_function(genCtx.output, name.data(), name.size(), genCtx.lower(funType.returnType()), flags);
                     genCtx.enter(ast.function(), func);
@@ -2665,7 +2661,7 @@ namespace clover {
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     auto id = ast.child(i).fieldId();
                     if (ast.kind() == ASTKind::GetFields)
-                        value = generateGetField(genCtx, builder, baseType, base, id, resultType.as<TypeKind::Tuple>().fieldType(i - 1));
+                        value = generateGetField(genCtx, builder, baseType, base, id, resultType.asTuple().fieldType(i - 1));
                     else
                         value = generateAddrField(genCtx, builder, baseType, base, id);
                     jasmine_append_set_field(builder, loweredResult, result, i - 1, value);
@@ -2688,7 +2684,7 @@ namespace clover {
                 for (u32 i = 1; i < ast.arity() - 1; i ++) {
                     auto dstId = ast.child(i).fieldId();
                     auto srcId = i - 1;
-                    value = generateGetField(genCtx, builder, inputType, input, srcId, inputType.as<TypeKind::Tuple>().fieldType(srcId));
+                    value = generateGetField(genCtx, builder, inputType, input, srcId, inputType.asTuple().fieldType(srcId));
                     generateSetField(genCtx, builder, baseType, base, dstId, value);
                 }
             }
@@ -2719,9 +2715,9 @@ namespace clover {
                 Type sliceType;
                 auto dest = generateGetSlice(genCtx, builder, baseType, base, low, high, &sliceType);
 
-                assert(sliceType.is<TypeKind::Slice>());
+                assert(sliceType.isSlice());
                 auto loweredSlice = genCtx.lower(sliceType);
-                auto loweredElement = genCtx.lower(expand(sliceType.as<TypeKind::Slice>().elementType()));
+                auto loweredElement = genCtx.lower(expand(sliceType.asSlice().elementType()));
                 auto src = generate(genCtx, builder, ast.child(3), sliceType);
                 auto destPtr = genCtx.temp(), srcPtr = genCtx.temp();
                 auto destLength = genCtx.temp(), srcLength = genCtx.temp();
@@ -2805,7 +2801,7 @@ namespace clover {
 
             case ASTKind::Deref: {
                 auto ptrType = typeOf(ast, 0);
-                auto resultType = ptrType.as<TypeKind::Pointer>().elementType();
+                auto resultType = ptrType.asPtr().elementType();
                 auto src = generate(genCtx, builder, ast.child(0), ptrType);
                 auto dest = genCtx.temp();
                 jasmine_append_load(builder, genCtx.lower(resultType), dest, src);
@@ -2813,7 +2809,7 @@ namespace clover {
             }
 
             case ASTKind::AddressOf: {
-                auto resultType = expand(typeOf(ast).as<TypeKind::Pointer>().elementType());
+                auto resultType = expand(typeOf(ast).asPtr().elementType());
                 auto dest = genCtx.temp();
                 if (ast.child(0).kind() == ASTKind::Local)
                     jasmine_append_addr(builder, JASMINE_TYPE_PTR, dest, genCtx.local(ast.child(0).variable()));
@@ -2826,7 +2822,7 @@ namespace clover {
 
             case ASTKind::Store: {
                 auto ptrType = expand(typeOf(ast, 0));
-                auto resultType = expand(ptrType.as<TypeKind::Pointer>().elementType());
+                auto resultType = expand(ptrType.asPtr().elementType());
                 auto dest = generate(genCtx, builder, ast.child(0), ptrType);
                 auto src = generate(genCtx, builder, ast.child(1), typeOf(ast, 1));
                 jasmine_append_store(builder, genCtx.lower(resultType), dest, src);
@@ -2867,7 +2863,7 @@ namespace clover {
                 Type type = expand(evaluateType(module, genCtx.func(), ast));
                 if (isAtom(type)) {
                     auto impl = genCtx.atomRef(type);
-                    if (destType.is<TypeKind::Pointer>())
+                    if (destType.isPtr())
                         return impl; // It's a static/data ref, so natively a pointer.
                     auto val = genCtx.temp();
                     jasmine_append_load(builder, genCtx.lower(type), val, impl);

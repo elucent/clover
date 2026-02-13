@@ -415,11 +415,11 @@ namespace clover {
         Type type = expand(chain.child(1).type());
         switch (type.kind()) {
             case TypeKind::Struct:
-                return type.as<TypeKind::Struct>().genericOrigin();
+                return type.asStruct().genericOrigin();
             case TypeKind::Named:
-                return type.as<TypeKind::Named>().genericOrigin();
+                return type.asNamed().genericOrigin();
             case TypeKind::Union:
-                return type.as<TypeKind::Union>().genericOrigin();
+                return type.asUnion().genericOrigin();
             default:
                 unreachable("Not a generic type kind.");
         }
@@ -925,13 +925,13 @@ namespace clover {
         Scope* typeScope;
         switch (baseType.kind()) {
             case TypeKind::Named:
-                typeScope = baseType.as<TypeKind::Named>().scope();
+                typeScope = baseType.asNamed().scope();
                 break;
             case TypeKind::Struct:
-                typeScope = baseType.as<TypeKind::Struct>().scope();
+                typeScope = baseType.asStruct().scope();
                 break;
             case TypeKind::Union:
-                typeScope = baseType.as<TypeKind::Union>().scope();
+                typeScope = baseType.asUnion().scope();
                 break;
             default:
                 unreachable("Tried to access field ", module->str(child.symbol()), " of non-named type ", baseType);
@@ -1864,9 +1864,9 @@ namespace clover {
                     ast.scope()->add(VariableKind::Variable, ast, receiverType.index, KeywordThis);
                     argumentTypes.push(receiverType);
 
-                    if (receiverType.is<TypeKind::Pointer>())
-                        receiverType = receiverType.as<TypeKind::Pointer>().elementType();
-                    if (isNamed(receiverType.kind())) {
+                    if (receiverType.isPtr())
+                        receiverType = receiverType.asPtr().elementType();
+                    if (isNominal(receiverType.kind())) {
                         Scope* scope = getScope(receiverType);
                         for (const auto& e : scope->entries)
                             ast.scope()->add(VariableKind::ThisAccess, ast, e.key);
@@ -2211,7 +2211,7 @@ namespace clover {
                 break;
             case ASTKind::FunDecl:
                 assert(ast.typeIndex() != InvalidType);
-                assert(ast.type().is<TypeKind::Function>());
+                assert(ast.type().isFunc());
                 fn = ast.scope()->function;
                 break;
             case ASTKind::Construct:
@@ -2222,27 +2222,27 @@ namespace clover {
                 break;
             case ASTKind::NamedDecl:
                 assert(ast.typeIndex() != InvalidType);
-                assert(ast.type().is<TypeKind::Named>());
+                assert(ast.type().isNamed());
                 for (u32 i = 1; i < ast.arity(); i ++)
                     validateResolution(module, fn, some<AST>(ast), ast.child(i));
                 return;
             case ASTKind::NamedCaseDecl:
                 assert(ast.typeIndex() != InvalidType);
-                assert(ast.type().is<TypeKind::Named>() || ast.type().is<TypeKind::Struct>());
+                assert(ast.type().isNamed() || ast.type().isStruct());
                 for (u32 i = 1; i < ast.arity(); i ++)
                     validateResolution(module, fn, some<AST>(ast), ast.child(i));
                 return;
             case ASTKind::StructDecl:
             case ASTKind::StructCaseDecl:
                 assert(ast.typeIndex() != InvalidType);
-                assert(ast.type().is<TypeKind::Struct>() || isAtom(ast.type()));
+                assert(ast.type().isStruct() || isAtom(ast.type()));
                 for (u32 i = 1; i < ast.arity(); i ++)
                     validateResolution(module, fn, some<AST>(ast), ast.child(i));
                 return;
             case ASTKind::UnionDecl:
             case ASTKind::UnionCaseDecl:
                 assert(ast.typeIndex() != InvalidType);
-                assert(ast.type().is<TypeKind::Union>());
+                assert(ast.type().isUnion());
                 for (u32 i = 1; i < ast.arity(); i ++)
                     validateResolution(module, fn, some<AST>(ast), ast.child(i));
                 return;

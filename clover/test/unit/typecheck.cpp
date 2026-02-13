@@ -141,8 +141,8 @@ str = str[1:2]
     auto topLevel = module->getTopLevel();
 
     AST str = topLevel.child(0);
-    ASSERT(expand(str.type()).is<TypeKind::Slice>());
-    ASSERT(expand(expand(str.type()).as<TypeKind::Slice>().elementType()) == I8);
+    ASSERT(expand(str.type()).isSlice());
+    ASSERT(expand(expand(str.type()).asSlice().elementType()) == I8);
 }
 
 TEST(typecheck_inferred_vardecl) {
@@ -823,9 +823,9 @@ i32 mystery(Foo a, Foo b):
     ASSERT_EQUAL(firstCase.kind(), ASTKind::Case);
 
     auto firstCaseType = firstCase.child(0).type();
-    ASSERT(firstCaseType.is<TypeKind::Tuple>());
-    ASSERT_TYPE_EQUAL(firstCaseType.as<TypeKind::Tuple>().fieldType(0), AType);
-    ASSERT_TYPE_EQUAL(firstCaseType.as<TypeKind::Tuple>().fieldType(1), FooType);
+    ASSERT(firstCaseType.isTuple());
+    ASSERT_TYPE_EQUAL(firstCaseType.asTuple().fieldType(0), AType);
+    ASSERT_TYPE_EQUAL(firstCaseType.asTuple().fieldType(1), FooType);
 }
 
 TEST(typecheck_const_integer) {
@@ -1001,19 +1001,19 @@ b.value
 
     auto a = topLevel.child(1);
     a.setType(expand(a.type()));
-    ASSERT(a.type().is<TypeKind::Struct>());
-    ASSERT(a.type().as<TypeKind::Struct>().isGeneric());
-    ASSERT_TYPE_EQUAL(a.type().as<TypeKind::Struct>().typeParameter(0), module->i32Type());
+    ASSERT(a.type().isStruct());
+    ASSERT(a.type().asStruct().isGeneric());
+    ASSERT_TYPE_EQUAL(a.type().asStruct().typeParameter(0), module->i32Type());
 
     auto aval = topLevel.child(2);
     ASSERT_TYPE_EQUAL(aval.type(), module->i64Type());
 
     auto b = topLevel.child(3);
     b.setType(expand(b.type()));
-    ASSERT(b.type().is<TypeKind::Struct>());
-    ASSERT(b.type().as<TypeKind::Struct>().isGeneric());
-    ASSERT_TYPE_EQUAL(b.type().as<TypeKind::Struct>().typeParameter(0), module->i8Type());
-    ASSERT_EQUAL(a.type().as<TypeKind::Struct>().genericOriginIndex(), b.type().as<TypeKind::Struct>().genericOriginIndex());
+    ASSERT(b.type().isStruct());
+    ASSERT(b.type().asStruct().isGeneric());
+    ASSERT_TYPE_EQUAL(b.type().asStruct().typeParameter(0), module->i8Type());
+    ASSERT_EQUAL(a.type().asStruct().genericOriginIndex(), b.type().asStruct().genericOriginIndex());
 
     auto bval = topLevel.child(4);
     ASSERT_TYPE_EQUAL(bval.type(), module->i64Type());
@@ -1037,19 +1037,19 @@ b.box.value
 
     auto a = topLevel.child(2);
     a.setType(expand(a.type()));
-    ASSERT(a.type().is<TypeKind::Struct>());
-    ASSERT(a.type().as<TypeKind::Struct>().isGeneric());
-    ASSERT_TYPE_EQUAL(a.type().as<TypeKind::Struct>().typeParameter(0), module->i64Type());
+    ASSERT(a.type().isStruct());
+    ASSERT(a.type().asStruct().isGeneric());
+    ASSERT_TYPE_EQUAL(a.type().asStruct().typeParameter(0), module->i64Type());
 
     auto b = topLevel.child(3);
     b.setType(expand(b.type()));
-    ASSERT(b.type().is<TypeKind::Struct>());
-    ASSERT(b.type().as<TypeKind::Struct>().isGeneric());
-    ASSERT_TYPE_EQUAL(b.type().as<TypeKind::Struct>().typeParameter(0), module->i64Type());
-    auto bbox = expand(b.type().as<TypeKind::Struct>().fieldType(0));
-    ASSERT(bbox.is<TypeKind::Struct>());
-    ASSERT(bbox.as<TypeKind::Struct>().isGeneric());
-    ASSERT(bbox.as<TypeKind::Struct>().genericOriginIndex() == a.type().as<TypeKind::Struct>().genericOriginIndex());
+    ASSERT(b.type().isStruct());
+    ASSERT(b.type().asStruct().isGeneric());
+    ASSERT_TYPE_EQUAL(b.type().asStruct().typeParameter(0), module->i64Type());
+    auto bbox = expand(b.type().asStruct().fieldType(0));
+    ASSERT(bbox.isStruct());
+    ASSERT(bbox.asStruct().isGeneric());
+    ASSERT(bbox.asStruct().genericOriginIndex() == a.type().asStruct().genericOriginIndex());
 
     auto bval = topLevel.child(4);
     ASSERT_TYPE_EQUAL(bval.type(), module->i64Type());

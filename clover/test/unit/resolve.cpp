@@ -74,7 +74,7 @@ var w: 3
     auto w = topLevel.child(3);
     ASSERT(w.child(0).missing());
     ASSERT(w.child(1).kind() == ASTKind::Global);
-    ASSERT(w.type().is<TypeKind::Var>());
+    ASSERT(w.type().isVar());
 }
 
 TEST(resolve_ptr_decl) {
@@ -409,20 +409,20 @@ type Baz:
     auto Foo = topLevel.child(0);
     ASSERT(Foo.kind() == ASTKind::NamedDecl);
     auto FooType = Foo.type();
-    ASSERT(FooType.is<TypeKind::Named>());
-    ASSERT_EQUAL(FooType.as<TypeKind::Named>().innerType(), I32);
+    ASSERT(FooType.isNamed());
+    ASSERT_EQUAL(FooType.asNamed().innerType(), I32);
 
     auto Bar = topLevel.child(1);
     ASSERT(Bar.kind() == ASTKind::NamedDecl);
     auto BarType = Bar.type();
-    ASSERT(BarType.is<TypeKind::Named>());
-    ASSERT_EQUAL(BarType.as<TypeKind::Named>().innerType(), Void);
+    ASSERT(BarType.isNamed());
+    ASSERT_EQUAL(BarType.asNamed().innerType(), Void);
 
     auto Baz = topLevel.child(2);
     ASSERT(Baz.kind() == ASTKind::NamedDecl);
     auto BazType = Baz.type();
-    ASSERT(BazType.is<TypeKind::Named>());
-    ASSERT_EQUAL(BazType.as<TypeKind::Named>().innerType(), BarType);
+    ASSERT(BazType.isNamed());
+    ASSERT_EQUAL(BazType.asNamed().innerType(), BarType);
 }
 
 TEST(resolve_struct_type) {
@@ -439,24 +439,24 @@ type Bar:
     auto Foo = topLevel.child(0);
     ASSERT(Foo.kind() == ASTKind::StructDecl);
     auto FooType = Foo.type();
-    ASSERT(FooType.is<TypeKind::Struct>());
-    ASSERT_EQUAL(FooType.as<TypeKind::Struct>().count(), 1);
-    ASSERT(FooType.as<TypeKind::Struct>().fieldName(0) == module->sym("x"));
-    ASSERT_EQUAL(FooType.as<TypeKind::Struct>().fieldType(0), I32);
+    ASSERT(FooType.isStruct());
+    ASSERT_EQUAL(FooType.asStruct().count(), 1);
+    ASSERT(FooType.asStruct().fieldName(0) == module->sym("x"));
+    ASSERT_EQUAL(FooType.asStruct().fieldType(0), I32);
 
     auto Bar = topLevel.child(1);
     ASSERT(Bar.kind() == ASTKind::StructDecl);
     auto BarType = Bar.type();
-    ASSERT(BarType.is<TypeKind::Struct>());
-    ASSERT_EQUAL(BarType.as<TypeKind::Struct>().count(), 4);
-    ASSERT(BarType.as<TypeKind::Struct>().fieldName(0) == module->sym("x"));
-    ASSERT_EQUAL(BarType.as<TypeKind::Struct>().fieldType(0), I32);
-    ASSERT(BarType.as<TypeKind::Struct>().fieldName(1) == module->sym("y"));
-    ASSERT_EQUAL(BarType.as<TypeKind::Struct>().fieldType(1), I32);
-    ASSERT(BarType.as<TypeKind::Struct>().fieldName(2) == module->sym("z"));
-    ASSERT_EQUAL(BarType.as<TypeKind::Struct>().fieldType(2), F32);
-    ASSERT(BarType.as<TypeKind::Struct>().fieldName(3) == module->sym("w"));
-    ASSERT_EQUAL(BarType.as<TypeKind::Struct>().fieldType(3), FooType);
+    ASSERT(BarType.isStruct());
+    ASSERT_EQUAL(BarType.asStruct().count(), 4);
+    ASSERT(BarType.asStruct().fieldName(0) == module->sym("x"));
+    ASSERT_EQUAL(BarType.asStruct().fieldType(0), I32);
+    ASSERT(BarType.asStruct().fieldName(1) == module->sym("y"));
+    ASSERT_EQUAL(BarType.asStruct().fieldType(1), I32);
+    ASSERT(BarType.asStruct().fieldName(2) == module->sym("z"));
+    ASSERT_EQUAL(BarType.asStruct().fieldType(2), F32);
+    ASSERT(BarType.asStruct().fieldName(3) == module->sym("w"));
+    ASSERT_EQUAL(BarType.asStruct().fieldType(3), FooType);
 }
 
 TEST(resolve_union_type) {
@@ -475,55 +475,55 @@ type Foo:
     auto Foo = topLevel.child(0);
     ASSERT(Foo.kind() == ASTKind::UnionDecl);
     auto FooType = Foo.type();
-    ASSERT(FooType.is<TypeKind::Union>());
-    ASSERT_EQUAL(FooType.as<TypeKind::Union>().count(), 4);
+    ASSERT(FooType.isUnion());
+    ASSERT_EQUAL(FooType.asUnion().count(), 4);
 
     auto Bar = Foo.child(2);
     ASSERT(Bar.kind() == ASTKind::NamedCaseDecl);
     auto BarType = Bar.type();
-    ASSERT(BarType.is<TypeKind::Named>());
-    ASSERT(BarType.as<TypeKind::Named>().isCase());
-    ASSERT_EQUAL(BarType.as<TypeKind::Named>().innerType(), Void);
-    ASSERT_EQUAL(FooType.as<TypeKind::Union>().caseType(0), BarType);
+    ASSERT(BarType.isNamed());
+    ASSERT(BarType.asNamed().isCase());
+    ASSERT_EQUAL(BarType.asNamed().innerType(), Void);
+    ASSERT_EQUAL(FooType.asUnion().caseType(0), BarType);
 
     auto Baz = Foo.child(3);
     ASSERT(Baz.kind() == ASTKind::NamedCaseDecl);
     auto BazType = Baz.type();
-    ASSERT(BazType.is<TypeKind::Named>());
-    ASSERT(BazType.as<TypeKind::Named>().isCase());
-    ASSERT_EQUAL(BazType.as<TypeKind::Named>().innerType(), I32);
-    ASSERT_EQUAL(FooType.as<TypeKind::Union>().caseType(1), BazType);
+    ASSERT(BazType.isNamed());
+    ASSERT(BazType.asNamed().isCase());
+    ASSERT_EQUAL(BazType.asNamed().innerType(), I32);
+    ASSERT_EQUAL(FooType.asUnion().caseType(1), BazType);
 
     auto Quux = Foo.child(4);
     ASSERT(Quux.kind() == ASTKind::StructCaseDecl);
     auto QuuxType = Quux.type();
-    ASSERT(QuuxType.is<TypeKind::Struct>());
-    ASSERT(QuuxType.as<TypeKind::Struct>().isCase());
-    ASSERT_EQUAL(QuuxType.as<TypeKind::Struct>().count(), 1);
-    ASSERT_EQUAL(QuuxType.as<TypeKind::Struct>().fieldType(0), I32);
-    ASSERT_EQUAL(FooType.as<TypeKind::Union>().caseType(2), QuuxType);
+    ASSERT(QuuxType.isStruct());
+    ASSERT(QuuxType.asStruct().isCase());
+    ASSERT_EQUAL(QuuxType.asStruct().count(), 1);
+    ASSERT_EQUAL(QuuxType.asStruct().fieldType(0), I32);
+    ASSERT_EQUAL(FooType.asUnion().caseType(2), QuuxType);
 
     auto Xyzzy = Foo.child(5);
     ASSERT(Xyzzy.kind() == ASTKind::UnionCaseDecl);
     auto XyzzyType = Xyzzy.type();
-    ASSERT(XyzzyType.is<TypeKind::Union>());
-    ASSERT(XyzzyType.as<TypeKind::Union>().isCase());
-    ASSERT_EQUAL(XyzzyType.as<TypeKind::Union>().count(), 2);
+    ASSERT(XyzzyType.isUnion());
+    ASSERT(XyzzyType.asUnion().isCase());
+    ASSERT_EQUAL(XyzzyType.asUnion().count(), 2);
     auto A = Xyzzy.child(2);
     ASSERT(A.kind() == ASTKind::NamedCaseDecl);
     auto AType = A.type();
-    ASSERT(AType.is<TypeKind::Named>());
-    ASSERT(AType.as<TypeKind::Named>().isCase());
-    ASSERT_EQUAL(AType.as<TypeKind::Named>().innerType(), Void);
-    ASSERT_EQUAL(XyzzyType.as<TypeKind::Union>().caseType(0), AType);
+    ASSERT(AType.isNamed());
+    ASSERT(AType.asNamed().isCase());
+    ASSERT_EQUAL(AType.asNamed().innerType(), Void);
+    ASSERT_EQUAL(XyzzyType.asUnion().caseType(0), AType);
     auto B = Xyzzy.child(3);
     ASSERT(B.kind() == ASTKind::NamedCaseDecl);
     auto BType = B.type();
-    ASSERT(BType.is<TypeKind::Named>());
-    ASSERT(BType.as<TypeKind::Named>().isCase());
-    ASSERT_EQUAL(BType.as<TypeKind::Named>().innerType(), Void);
-    ASSERT_EQUAL(XyzzyType.as<TypeKind::Union>().caseType(1), BType);
-    ASSERT_EQUAL(FooType.as<TypeKind::Union>().caseType(3), XyzzyType);
+    ASSERT(BType.isNamed());
+    ASSERT(BType.asNamed().isCase());
+    ASSERT_EQUAL(BType.asNamed().innerType(), Void);
+    ASSERT_EQUAL(XyzzyType.asUnion().caseType(1), BType);
+    ASSERT_EQUAL(FooType.asUnion().caseType(3), XyzzyType);
 }
 
 TEST(resolve_nested_type_decl) {
@@ -677,7 +677,7 @@ alias x: i32
     ASSERT(fooParam.child(0).kind() == ASTKind::GlobalTypename);
     ASSERT(fooParam.child(1).missing());
     ASSERT(fooParam.type(module) == module->i32Type());
-    ASSERT(foo.type().as<TypeKind::Function>().parameterType(0) == module->i32Type());
+    ASSERT(foo.type().asFunc().parameterType(0) == module->i32Type());
 
     auto bar = topLevel.child(1);
     auto barParam = bar.child(2).child(0);
@@ -685,7 +685,7 @@ alias x: i32
     ASSERT(barParam.child(0).kind() == ASTKind::GlobalTypename);
     ASSERT(barParam.child(1).missing());
     ASSERT(barParam.type(module) == module->i64Type());
-    ASSERT(bar.type().as<TypeKind::Function>().parameterType(0) == module->i64Type());
+    ASSERT(bar.type().asFunc().parameterType(0) == module->i64Type());
 
     auto baz = topLevel.child(2);
     auto bazParam = baz.child(2).child(0);
@@ -693,7 +693,7 @@ alias x: i32
     ASSERT(bazParam.child(0).kind() == ASTKind::GlobalTypename);
     ASSERT(bazParam.child(1).missing());
     ASSERT(bazParam.type(module) == module->i32Type());
-    ASSERT(baz.type().as<TypeKind::Function>().parameterType(0) == module->i32Type());
+    ASSERT(baz.type().asFunc().parameterType(0) == module->i32Type());
 }
 
 TEST(resolve_new_expression) {
