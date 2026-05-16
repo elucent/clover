@@ -2359,13 +2359,16 @@ namespace clover {
                         Type result = index < other.index ? *this : other;
                         other = index < other.index ? other : *this;
                         result.asVar().setLowerBound(lower);
-                        result.asVar().setUpperBound(upper);
+                        if (!result.asVar().isEqual()) // It's possible the previous bound update made the variable equal already.
+                            result.asVar().setUpperBound(upper);
                         other.asVar().makeEqual(result);
                         return UnifySuccess;
                     }
 
-                    asVar().setUpperBoundAndDecorate(upper);
-                    other.asVar().setLowerBoundAndDecorate(lower);
+                    if (!asVar().isEqual())
+                        asVar().setUpperBoundAndDecorate(upper);
+                    if (!other.asVar().isEqual())
+                        other.asVar().setLowerBoundAndDecorate(lower);
                     if (!asVar().lowerBound().unifyOnto(upper, constraints, mode & ModeMask))
                         return UnifyFailure;
                     if (!lower.unifyOnto(other.asVar().upperBound(), constraints, mode & ModeMask))
@@ -2395,7 +2398,8 @@ namespace clover {
                             asVar().makeEqual(other);
                         return UnifySuccess;
                     }
-                    asVar().setUpperBoundAndDecorate(upper);
+                    if (!asVar().isEqual())
+                        asVar().setUpperBoundAndDecorate(upper);
                     if (asVar().isEqual())
                         return UnifySuccess;
                     if (!asVar().lowerBound().unifyOnto(upper, constraints, mode & ModeMask))
@@ -2423,7 +2427,8 @@ namespace clover {
                             other.asVar().makeEqual(*this);
                         return UnifySuccess;
                     }
-                    other.asVar().setLowerBoundAndDecorate(lower);
+                    if (!other.asVar().isEqual())
+                        other.asVar().setLowerBoundAndDecorate(lower);
                     if (other.asVar().isEqual())
                         return UnifySuccess;
                     if (!lower.unifyOnto(other.asVar().upperBound(), constraints, mode & ModeMask))
@@ -4026,6 +4031,8 @@ namespace clover {
 
     inline void VarType::setLowerBoundAndDecorate(Type bound) {
         setLowerBound(bound);
+        if (isEqual())
+            return;
         switch (bound.kind()) {
             case TypeKind::Numeric:
                 if (upperBound() == TopInteger) {
@@ -4061,6 +4068,8 @@ namespace clover {
 
     inline void VarType::setUpperBoundAndDecorate(Type bound) {
         setUpperBound(bound);
+        if (isEqual())
+            return;
         switch (bound.kind()) {
             case TypeKind::Numeric:
                 if (lowerBound() == Bottom)
