@@ -95,3 +95,15 @@ b = b.transform()
 )");
     ASSERT_NO_ERRORS(instance);
 }
+
+TEST(analyze_alloc_in_loop) {
+    auto instance = ANALYZE(R"(
+i32 foo():
+    var ptr: new 42, sum: 0
+    while sum < 420:
+        sum += *ptr
+        ptr = new 42
+    return sum
+)");
+    ASSERT_NO_ERRORS(instance);
+}
