@@ -2260,16 +2260,16 @@ namespace clover {
 
     inline Scope* getScope(Type type) {
         switch (type.kind()) {
-            case TypeKind::Named: return type.as<TypeKind::Named>().scope();
-            case TypeKind::Struct: return type.as<TypeKind::Struct>().scope();
-            case TypeKind::Union: return type.as<TypeKind::Union>().scope();
+            case TypeKind::Named: return type.asNamed().scope();
+            case TypeKind::Struct: return type.asStruct().scope();
+            case TypeKind::Union: return type.asUnion().scope();
             default:
                 unreachable("Not a named type.");
         }
     }
 
     inline bool isAtom(Type type) {
-        return type.is<TypeKind::Named>() && type.as<TypeKind::Named>().innerType() == Void;
+        return type.isNamed() && type.asNamed().innerType() == Void;
     }
 
     inline Type canonicalTypeInBounds(TypeSystem* sys, Type lb, Type ub);
