@@ -47,23 +47,23 @@ struct vec {
     u32 _size, _capacity;
     u8 fixed[N * sizeof(T)];
 
-    inline void free(u8* array) {
+    inline ALWAYSINLINE void free(u8* array) {
         if (array && array != fixed)
             vec_deleter<T>::free((T*)array, _size);
     }
 
-    inline void init(u32 size) {
+    inline ALWAYSINLINE void init(u32 size) {
         _size = 0, _capacity = size;
         if (_capacity <= N) _data = fixed;
         else _data = new u8[_capacity * sizeof(T)];
     }
 
-    inline void copy(const T* ts, u32 n) {
+    inline ALWAYSINLINE void copy(const T* ts, u32 n) {
         _size = n;
         vec_copier<T>::copy((T*)_data, ts, n);
     }
 
-    inline void destruct(u32 i) {
+    inline ALWAYSINLINE void destruct(u32 i) {
         T* tptr = (T*)_data;
         tptr[i].~T();
     }
