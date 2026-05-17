@@ -878,6 +878,9 @@ namespace jasmine {
             writeln(out, "}");
         }
     };
+
+    // Needed to link Jasmine objects before actually executing the compiler.
+    extern void populateDatabase(ReductionRules& rules) {}
 }
 
 using namespace jasmine;

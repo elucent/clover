@@ -585,7 +585,7 @@ JASMINE_EXPORT void jasmine_perform_inlining(JasminePassContext context, Jasmine
 }
 
 JASMINE_EXPORT void jasmine_perform_loop_unrolling(JasminePassContext context, JasmineFunction function) {
-    unrollLoops(PC(context), F(function));
+    // unrollLoops(PC(context), F(function));
 }
 
 JASMINE_EXPORT void jasmine_perform_strength_reduction(JasminePassContext context, JasmineFunction function) {
