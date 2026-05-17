@@ -967,6 +967,9 @@ namespace clover {
 
         inline ConstraintIndex index(Type type);
         inline ConstraintList& list(Type type);
+        inline ConstraintIndex indexIfPresent(Type type) const;
+        inline bool contains(TypeIndex type) const;
+        inline bool contains(Type type) const;
         inline bool constrainType(Type subType, Type superType);
         inline bool constrainSubstitute(Type subType, Type superType);
         inline bool constrainOrder(Type before, Type after);
@@ -1333,6 +1336,8 @@ namespace clover {
             type_assert(encode<TypeKind::Primitive>().index == ReservedTypes::Bool);
             type_assert(encode<TypeKind::Primitive>().index == ReservedTypes::Char);
             type_assert(encode<TypeKind::Primitive>().index == ReservedTypes::Any);
+            get(Bottom).firstWord().isConcrete = false;
+            get(Any).firstWord().isConcrete = false;
 
             type_assert(encode<TypeKind::Numeric>(true, false, 8u).index == ReservedTypes::I8);
             type_assert(encode<TypeKind::Numeric>(true, false, 16u).index == ReservedTypes::I16);
@@ -3929,6 +3934,26 @@ namespace clover {
         return packed.index();
     }
 
+    inline ConstraintIndex Constraints::indexIfPresent(Type type) const {
+        type = clover::expand(type);
+        auto packed = types->constraintNodes[type.index];
+        if (packed.index() != InvalidConstraint && packed.depth() == depth)
+            return packed.index();
+        return InvalidConstraint;
+    }
+
+    inline bool Constraints::contains(TypeIndex typeIndex) const {
+        Type type = clover::expand(types->get(typeIndex));
+        auto packed = types->constraintNodes[type.index];
+        return packed.index() != InvalidConstraint && packed.depth() == depth;
+    }
+
+    inline bool Constraints::contains(Type type) const {
+        type = clover::expand(type);
+        auto packed = types->constraintNodes[type.index];
+        return packed.index() != InvalidConstraint && packed.depth() == depth;
+    }
+
     inline ConstraintList& Constraints::list(Type type) {
         return constraints[index(type)];
     }
@@ -4626,9 +4651,14 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const VarType& type) {
-        if (type.isEqual() && !config::verboseUnify)
+        if (type.isEqual() && !config::verboseUnify && !config::verboseInstantiation && false)
             return format(io, type.equalType());
         if UNLIKELY(config::readableTypeVars) {
+            if (type.isEqual() && type.equalType().isVar()
+                && UNLIKELY(config::verboseUnify || config::verboseInstantiation)) {
+                return format(io, type.equalType());
+            }
+
             io = format(io, '\'');
             u32 number = type.varNumber();
             u32 p = 1;
@@ -4642,12 +4672,10 @@ namespace clover {
                 p /= 26;
                 io = format(io, i8('a' + c));
             }
-            if UNLIKELY(config::verboseUnify) {
-                if (type.isEqual())
-                    io = format(io, '=', type.equalType());
-                else
-                    io = format(io, '[', type.lowerBound(), ", ", type.upperBound(), ']');
-            }
+            if (type.isEqual())
+                io = format(io, '=', type.equalType());
+            else
+                io = format(io, '[', type.lowerBound(), ", ", type.upperBound(), ']');
             return io;
         }
         return format(io, '@', type.index);

@@ -483,8 +483,10 @@ namespace clover {
             target = format(target, scope->module->str(name));
             if (typeParameters.size()) {
                 target = format(target, '(');
-                for (u32 i = 0; i < typeParameters.size(); i ++)
-                    target = format(target, i > 0 ? ", " : "", expand(types->get(typeParameters[i])));
+                for (u32 i = 0; i < typeParameters.size(); i ++) {
+                    target = format(target, i > 0 ? "," : "");
+                    target = mangleType(target, expand(types->get(typeParameters[i])));
+                }
                 target = format(target, ')');
             }
             return target;

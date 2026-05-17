@@ -3171,6 +3171,20 @@ namespace clover {
     inline IO format_impl(IO io, const Multiline& ast) {
         return format_tree_to(io, AST(), ast.ast, 0, true, -1);
     }
+
+    struct ASTWithPos {
+        const AST& ast;
+
+        inline ASTWithPos(const AST& ast_in): ast(ast_in) {}
+    };
+
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const ASTWithPos& ast) {
+        io = format_tree_to(io, AST(), ast.ast, 0, true, -1);
+        if (!ast.ast.isLeaf())
+            io = format(io, " [", ast.ast.pos().line + 1, ":", ast.ast.pos().column + 1, "]");
+        return io;
+    }
 }
 
 #endif

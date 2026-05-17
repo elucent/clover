@@ -713,6 +713,7 @@ namespace clover {
         vec<ConstraintIndex, 32>* order;
         Value env;
         Constraints* constraints;
+        InferenceContext* parent;
         Function* currentInstantiation;
 
         inline void checkLater(AST ast) {
@@ -796,7 +797,7 @@ namespace clover {
 
     void unify(Type srcType, Type destType, AST ast, InferenceContext& ctx) {
         if UNLIKELY(config::verboseUnify >= 3)
-            println("[TYPE]\tUnifying ", srcType, " onto ", destType, " at ", ast, ", constraining, coercing");
+            println("[TYPE]\tUnifying ", srcType, " onto ", destType, " at ", ASTWithPos(ast), ", constraining, coercing");
         auto result = srcType.unifyOnto(destType, ctx.constraints, Constraining);
 
         if (!result) {
@@ -2175,7 +2176,8 @@ namespace clover {
                 return RefineSuccess;
 
             case ASTKind::Tuple: {
-                input.concretify();
+                if (!input.isTuple())
+                    input.concretify();
                 input = expand(input);
                 type_assert(input.isTuple());
                 auto tupleType = input.asTuple();
@@ -2462,6 +2464,7 @@ namespace clover {
         instantiationCtx.lateResolves = ctx.lateResolves;
         instantiationCtx.instantiatedFunctions = ctx.instantiatedFunctions;
         instantiationCtx.currentInstantiation = newFunction;
+        instantiationCtx.parent = &ctx;
 
         // TODO: It's super icky that we have so much duplication between here,
         // the global inference, and drainFunctions. I bet they can be unified.
@@ -2685,9 +2688,15 @@ namespace clover {
             if (candidate->intrinsic)
                 return CallResolution(candidate);
             if (candidate->isGeneric) {
-                if (ctx.currentInstantiation && ctx.currentInstantiation->generic == candidate)
-                    candidate = ctx.currentInstantiation;
-                else
+                InferenceContext* iter = &ctx;
+                while (true) {
+                    if (iter->currentInstantiation && iter->currentInstantiation->generic == candidate)
+                        candidate = iter->currentInstantiation;
+                    if (!iter->parent)
+                        break;
+                    iter = iter->parent;
+                }
+                if (candidate->isGeneric)
                     candidate = instantiate(ctx, function, candidate, ast);
                 possibleFunctions[0].type = candidate->typeIndex;
             }
@@ -2737,9 +2746,15 @@ namespace clover {
             if (callee->intrinsic)
                 return CallResolution(callee);
             if (callee->isGeneric) {
-                if (ctx.currentInstantiation && ctx.currentInstantiation->generic == callee)
-                    callee = ctx.currentInstantiation;
-                else
+                InferenceContext* iter = &ctx;
+                while (true) {
+                    if (iter->currentInstantiation && iter->currentInstantiation->generic == callee)
+                        callee = iter->currentInstantiation;
+                    if (!iter->parent)
+                        break;
+                    iter = iter->parent;
+                }
+                if (callee->isGeneric)
                     callee = instantiate(ctx, function, callee, ast);
                 ast.setChild(0, ast.module->add(ASTKind::ResolvedFunction, callee));
                 return CallResolution(callee->typeIndex);
@@ -3034,6 +3049,7 @@ namespace clover {
                     intrinsicCtx.lateChecks = ctx.lateChecks;
                     intrinsicCtx.lateResolves = ctx.lateResolves;
                     intrinsicCtx.instantiatedFunctions = ctx.instantiatedFunctions;
+                    intrinsicCtx.parent = &ctx;
 
                     Type funcType = module->types->get(resolution.intrinsic->intrinsic.typeFactory(intrinsicCtx, module));
                     u32 nonTypeParameterCount = 0;
@@ -3381,6 +3397,7 @@ namespace clover {
         }
 
         tempMarks.on(node);
+        Type type = constraints.types->get(constraints.constrainedTypes[node]);
         for (Constraint& other : constraints.constraints[node]) {
             other.index = constraints.expand(other.index);
 
@@ -3850,59 +3867,40 @@ namespace clover {
             for (auto [i, t] : enumerate(ctx.constraints->constrainedTypes)) if (!nonForwarded[i])
                 types->constraintNodes[t] = ctx.constraints->outerIndices[i];
         } else {
-            // If we're the top-level inference context, then we do one last
-            // pass solidifying each type as we go.
+            // If we're the top-level inference context, then we need to wrap
+            // up. This means we drain the remaining order of types,
+            // concretifying any variables that have concrete bounds, until
+            // there are none left.
 
-            for (u32 k = 0; k < order.size(); k ++) {
-                ConstraintIndex i = order[k];
-
-                // It's important to remember the original type, since once we
-                // expand, we will potentially have lost any variable provenance.
-                Type origType = constraints.types->get(constraints.constrainedTypes[i]);
-                if UNLIKELY(config::verboseUnify >= 3)
-                    println("[TYPE]\tConsidering constraints on type ", origType);
-                Type type = expand(origType);
-
-                for (Constraint constraint : constraints.constraints[i])
-                    processSubtypeConstraint(type, constraint);
-
-                if (constraints.constraints[i].doesNeedRefinement()) {
-                    assert(origType.isVar());
-                    assert(origType.asVar().hasOwner());
-
-                    AST ast = origType.asVar().owner();
-                    assert(!ast.isLeaf());
-                    switch (refine(ctx, ast.function(), ast, type)) {
-                        case RefineSuccess:
-                            break;
-                        case RefineFailure:
-                        case NotEnoughInformation:
-                            type_error("Couldn't refine node ", ast, " after inferring type ", type);
-                            break;
-                    }
-                }
-
-                if UNLIKELY(constraints.constraints[i].hasRefinementList) {
-                    auto& list = constraints.constraints[i].refinementList(constraints);
-
-                    for (ConstraintIndex i : list) {
-                        Type origType = constraints.types->get(constraints.constrainedTypes[i]);
-                        assert(origType.isVar());
-                        assert(origType.asVar().hasOwner());
-                        AST ast = origType.asVar().owner();
-                        assert(!ast.isLeaf());
-                        switch (refine(ctx, ast.function(), ast, type)) {
-                            case RefineSuccess:
-                                break;
-                            case RefineFailure:
-                            case NotEnoughInformation:
-                                type_error("Couldn't refine node ", ast, " after inferring type ", type);
-                                break;
+            while (order.size()) {
+                bool madeProgress = false;
+                order.removeIf([&](ConstraintIndex i) {
+                    bool shouldRemove = false;
+                    Type type = constraints.types->get(constraints.constrainedTypes[i]);
+                    if (expand(type).isVar()) {
+                        if (expand(type.asVar().lowerBound()).isConcrete() && expand(type.asVar().upperBound()).isConcrete()) {
+                            type.concretify();
+                            shouldRemove = true;
+                            madeProgress = true;
                         }
-                    }
-                }
+                    } else if (expand(type).isConcrete())
+                        shouldRemove = true;
 
-                expand(type).concretify();
+                    for (Constraint constraint : constraints.constraints[i])
+                        processSubtypeConstraint(type, constraint);
+
+                    return shouldRemove;
+                });
+                if (!madeProgress) {
+                    // If we ever stop being able to make progress, we just concretify everything.
+                    for (ConstraintIndex i : order) {
+                        Type type = constraints.types->get(constraints.constrainedTypes[i]);
+                        type.concretify();
+                        for (Constraint constraint : constraints.constraints[i])
+                            processSubtypeConstraint(type, constraint);
+                    }
+                    order.clear();
+                }
             }
         }
     }
@@ -4110,6 +4108,7 @@ namespace clover {
         globalCtx.instantiatedFunctions = &instantiatedFunctions;
         globalCtx.env = createEnv(module, nullptr);
         globalCtx.currentInstantiation = nullptr;
+        globalCtx.parent = nullptr;
 
         lateResolves.append(module->genericTypesToResolve);
         module->genericTypesToResolve.clear();
