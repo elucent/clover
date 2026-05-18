@@ -382,7 +382,7 @@ void Assembly::writeELFObject(fd file) {
     objectHeader.writeLEUnchecked<u16>(0); // e_phentsize : u16 = 0 (size of program header table entries, we don't have any)
     objectHeader.writeLEUnchecked<u16>(0); // e_phnum : u16 = 0 (number of program header table entries, again we don't have any)
     objectHeader.writeLEUnchecked<u16>(64); // e_shentsize : u16 = 64 (size of section header table entries, fixed for 64-bit binaries)
-    objectHeader.writeLEUnchecked<u16>(10); // e_shnum : u16 = 10 (number of section header table entries, for us that's <null>, .shstrtab, .text, .data, .rodata, .strtab, .symtab, .rel.text, .rel.rodata, .rel.data)
+    objectHeader.writeLEUnchecked<u16>(11); // e_shnum : u16 = 11 (number of section header table entries, for us that's <null>, .shstrtab, .text, .data, .bss, .rodata, .strtab, .symtab, .rel.text, .rel.rodata, .rel.data)
     objectHeader.writeLEUnchecked<u16>(1); // e_shstrndx : u16 = 1 (index of .shstrtab)
     assert(objectHeader.size() == 64);
 
@@ -688,6 +688,11 @@ void Assembly::writeELFObject(fd file) {
             constexpr u8 R_AMD64_PC16 = 13, R_AMD64_PC32 = 2, R_AMD64_PC8 = 15, R_AMD64_PC64 = 24;
             constexpr u8 R_AMD64_16 = 12, R_AMD64_32 = 10, R_AMD64_8 = 14, R_AMD64_64 = 1;
             switch (reloc.kind) {
+                case Reloc::ABS64_LE:
+                    offset -= 8;
+                    type = R_AMD64_64;
+                    addend = 0;
+                    break;
                 case Reloc::REL32_LE_J_AMD64:
                 case Reloc::REL32_LE_M_AMD64:
                     offset -= 4;
