@@ -475,17 +475,6 @@ namespace clover {
         inline IndexedAST reconstituteOrigin();
     };
 
-    template<typename IndexSourceA, typename IndexSourceB>
-    struct IndexPair {
-        IndexSourceA first;
-        IndexSourceB second;
-
-        inline IndexPair() = default;
-
-        inline IndexPair(const IndexSourceA& first_in, const IndexSourceB& second_in):
-            first(first_in), second(second_in) {}
-    };
-
     struct ClonedAST : public AST {
         inline ClonedAST(AST ast_in):
             AST(ast_in) {}
@@ -3250,6 +3239,33 @@ namespace clover {
         return ast.childOrigin(child);
     }
 
+    struct Snippet {
+        Module* module;
+        IndexPair<u32, u32> origin;
+    };
+
+    inline Snippet snippet(AST ast) {
+        assert(!ast.isLeaf());
+        return { ast.module, ast.origin() };
+    }
+
+    inline Snippet snippet(IndexedAST ast) {
+        return { ast.module, { ast.first, ast.last } };
+    }
+
+    inline Snippet snippet(AST ast, u32 i) {
+        assert(!ast.isLeaf());
+        return { ast.module, ast.childOrigin(i) };
+    }
+
+    inline Snippet snippet(ChangePosition pos) {
+        return snippet(pos.ast, pos.child);
+    }
+
+    inline Snippet snippet(Module* module, IndexPair<u32, u32> origin) {
+        return { module, origin };
+    }
+
     inline Type AST::type() const {
         return module->types->get(typeIndex());
     }
@@ -3556,19 +3572,51 @@ namespace clover {
         return io;
     }
 
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const Snippet& snippet) {
+        Module* module = snippet.module;
+        auto tokens = module->ensureTokens();
+        auto source = module->getSource();
+        auto lines = module->getLineOffsets();
+        maybe<Pos> start, end;
+        if (snippet.origin.first < tokens.size())
+            start = some<Pos>(tokens[snippet.origin.first].pos);
+        if (snippet.origin.second < tokens.size()) {
+            end = some<Pos>(tokens[snippet.origin.second].pos);
+            end->column += module->str(tokens[snippet.origin.second].token).size();
+        }
+        assert(start && end);
+        assert(source);
+        const_slice<i8> line;
+        if (start->line == lines->size() - 1)
+            line = source->drop(lines->last());
+        else {
+            u32 firstOffset = (*lines)[start->line];
+            u32 lastOffset = (*lines)[start->line + 1];
+            line = (*source)[{ firstOffset, lastOffset }];
+        }
+        line = line.drop(start->column);
+        line = line.take(end->column - start->column);
+        return format(io, line);
+    }
+
     inline Note::Note(ArtifactData* module_in, AST node_in, const_slice<i8> message_in):
-        module(module_in), node(node_in.node), child(-1), message(message_in), isNode(true) {}
+        module(module_in), node(node_in.node), child(-1), message(message_in), isNode(true), isPos(false) {}
 
     template<typename... Args>
     inline Note::Note(ArtifactData* module_in, AST node_in, const Args&... args):
         Note(module_in, node_in, tostring(args...)) {}
 
     inline Note::Note(ArtifactData* module_in, ChangePosition node_in, const_slice<i8> message_in):
-        module(module_in), node(node_in.ast.node), child(node_in.child), message(message_in), isNode(true) {}
+        module(module_in), node(node_in.ast.node), child(node_in.child), message(message_in), isNode(true), isPos(false) {}
 
     template<typename... Args>
     inline Note::Note(ArtifactData* module_in, ChangePosition node_in, const Args&... args):
         Note(module_in, node_in, tostring(args...)) {}
+
+    inline IndexPair<u32, u32> getOrigin(IndexedAST ast) {
+        return { ast.first, ast.last };
+    }
 
     inline Error::Error(ArtifactData* module_in, AST node_in, const_slice<i8> message_in):
         Note(module_in, node_in, message_in), next(nullptr) {}

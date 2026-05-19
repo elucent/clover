@@ -346,12 +346,12 @@ namespace clover {
                             return module->addInitial(ASTKind::Tuple, origin(), tup);
                         }
                         visitor.read();
-                        Pos beforePos = visitor.peek().pos;
+                        auto beforeToken = visitor.peek();
                         tup.push(parseExpression(module, visitor));
                         if (visitor.peek().token == PunctuatorColon) {
                             Pos pos = visitor.read().pos;
                             if UNLIKELY(tup.back().kind() != ASTKind::Ident && tup.back().kind() != ASTKind::Missing)
-                                error(module, beforePos, "Expected identifier in named tuple field, found '", tup.back(), "'.");
+                                error(module, beforeToken, "Expected identifier in named tuple field, found '", tup.back(), "'.");
                             auto child = parseExpression(module, visitor);
                             tup.back() = module->addInitial(ASTKind::NamedParameter, origin(tup.back(), child), tup.back(), child);
                         }
@@ -370,7 +370,7 @@ namespace clover {
                 if (visitor.done())
                     error(module, visitor.last().pos, "Unexpected end of file in parenthetical expression.");
                 else if (visitor.peek().token != PunctuatorRightParen) {
-                    error(module, visitor.peek().pos, "Expected closing parenthese ')', found '", TokenFormat(module, visitor.peek()), "'.");
+                    error(module, visitor.peek(), "Expected closing parenthese ')', found '", TokenFormat(module, visitor.peek()), "'.");
                     visitor.readUpToAndIncluding(PunctuatorRightParen);
                 } else
                     rparen = visitor.read();
@@ -403,7 +403,7 @@ namespace clover {
                 if (visitor.done())
                     error(module, visitor.last().pos, "Unexpected end of file in list expression.");
                 else if (visitor.peek().token != PunctuatorRightBracket) {
-                    error(module, visitor.peek().pos, "Expected comma or closing bracket ']', found '", TokenFormat(module, visitor.peek()), "'.");
+                    error(module, visitor.peek(), "Expected comma or closing bracket ']', found '", TokenFormat(module, visitor.peek()), "'.");
                     visitor.readUpToAndIncluding(PunctuatorRightBracket);
                 } else
                     rbrack = visitor.read();
@@ -416,7 +416,7 @@ namespace clover {
                 if (visitor.done())
                     error(module, visitor.last().pos, "Unexpected end of file in length expression.");
                 else if (visitor.peek().token != OperatorBitOr)
-                    error(module, visitor.peek().pos, "Expected closing pipe '|', found '", TokenFormat(module, visitor.peek()), "'.");
+                    error(module, visitor.peek(), "Expected closing pipe '|', found '", TokenFormat(module, visitor.peek()), "'.");
                 else
                     rpipe = visitor.read();
                 return module->addInitial(ASTKind::Length, origin(lpipe, rpipe), nextExpr);
@@ -661,7 +661,7 @@ namespace clover {
                             IndexedAST ident = parseIdentifier(module, visitor);
 
                             if (visitor.peek().token == PunctuatorLeftParen) {
-                                error(module, visitor.peek().pos, "Type parameter list not permitted in type parameter declaration.");
+                                error(module, visitor.peek(), "Type parameter list not permitted in type parameter declaration.");
                                 visitor.readUpToAndIncluding(PunctuatorRightParen);
                             }
 
@@ -674,13 +674,12 @@ namespace clover {
                         } else if (token.token == KeywordConst) {
                             // Const parameter.
                             visitor.read();
-                            Pos namePos = visitor.peek().pos;
                             IndexedAST name = parseExpression(module, visitor);
                             IndexedAST type = module->add(ASTKind::Missing).positionless();
                             if (visitor.peek().token != PunctuatorRightParen && visitor.peek().token != PunctuatorComma)
-                                type = name, namePos = visitor.peek().pos, name = parseIdentifier(module, visitor);
+                                type = name, name = parseIdentifier(module, visitor);
                             if (name.kind() != ASTKind::Ident && name.kind() != ASTKind::Missing)
-                                error(module, namePos, "Expected identifier in const parameter declaration, found '", name, "'.");
+                                error(module, name, "Expected identifier in const parameter declaration, found '", name, "'.");
                             IndexedAST init = module->add(ASTKind::Missing).positionless();
                             if (visitor.peek().token == PunctuatorColon) {
                                 visitor.read();
@@ -690,9 +689,9 @@ namespace clover {
                         } else
                             argument = parseExpressionOrJuxtaposition(module, visitor, false, true, true);
                         if (visitor.peek().token == PunctuatorColon) {
-                            Pos pos = visitor.read().pos;
+                            visitor.read();
                             if (argument.kind() != ASTKind::Ident && argument.kind() != ASTKind::Missing)
-                                error(module, pos, "Expected identifier in parameter declaration, found '", argument, "'.");
+                                error(module, argument, "Expected identifier in parameter declaration, found '", argument, "'.");
                             argument = module->addInitial(ASTKind::NamedParameter, origin(), argument, parseExpression(module, visitor));
                         }
                         arguments.push(argument);
@@ -702,7 +701,7 @@ namespace clover {
                     visitor.stopIgnoringWhitespace();
                     IndexedToken rparen;
                     if (visitor.done())
-                        error(module, visitor.last(), "Unexpected end of file in call expression.");
+                        error(module, visitor.last().pos, "Unexpected end of file in call expression.");
                     else if (visitor.peek().token != PunctuatorRightParen) {
                         error(module, visitor.peek(), "Expected closing parenthese ')' in call, found '", TokenFormat(module, visitor.peek()), "'.");
                         visitor.readUpToAndIncluding(PunctuatorRightParen);
@@ -774,7 +773,7 @@ namespace clover {
                     }
                     visitor.stopIgnoringWhitespace();
                     if (visitor.done())
-                        error(module, visitor.last(), "Unexpected end of file in indexing expression.");
+                        error(module, visitor.last().pos, "Unexpected end of file in indexing expression.");
                     else if (visitor.peek().token != PunctuatorRightBracket) {
                         error(module, visitor.peek(), "Expected closing bracket ']', found '", TokenFormat(module, visitor.peek()), "'.");
                         visitor.readUpToAndIncluding(PunctuatorRightBracket);
@@ -789,10 +788,9 @@ namespace clover {
                         visitor.ignoreWhitespace(visitor.peek().pos);
                         visitor.read();
                         while (!visitor.done() && visitor.peek().token != PunctuatorRightParen) {
-                            Pos fieldPos = visitor.peek().pos;
                             IndexedAST field = parsePrimaryNoSuffix(module, visitor);
                             if (field.kind() != ASTKind::Ident && field.kind() != ASTKind::Missing)
-                                error(module, fieldPos, "Expected identifier in field access, found '", field, "'.");
+                                error(module, field, "Expected identifier in field access, found '", field, "'.");
                             fields.push(field);
                             if (visitor.peek().token == PunctuatorComma)
                                 visitor.read();
@@ -800,7 +798,7 @@ namespace clover {
                         visitor.stopIgnoringWhitespace();
                         IndexedToken rparen;
                         if (visitor.done())
-                            error(module, visitor.last(), "Unexpected end of file in multi-field access.");
+                            error(module, visitor.last().pos, "Unexpected end of file in multi-field access.");
                         else if (visitor.peek().token != PunctuatorRightParen) {
                             error(module, visitor.peek(), "Expected closing parenthese ')', found '", TokenFormat(module, visitor.peek()), "'.");
                             visitor.readUpToAndIncluding(PunctuatorRightParen);
@@ -809,11 +807,10 @@ namespace clover {
                         ast = module->addInitial(ASTKind::GetFields, origin(ast, rparen), ast, fields);
                         break;
                     }
-                    Pos fieldPos = visitor.peek().pos;
                     IndexedAST v = parsePrimaryNoSuffix(module, visitor);
                     if (v.kind() != ASTKind::Ident && v.kind() != ASTKind::Missing
                         && v.kind() != ASTKind::OwnType && v.kind() != ASTKind::UninitType)
-                        error(module, fieldPos, "Expected identifier in field access, found '", v, "'.");
+                        error(module, v, "Expected identifier in field access, found '", v, "'.");
                     ast = module->addInitial(ASTKind::GetField, origin(ast, v), ast, v);
                     break;
                 }
@@ -1306,7 +1303,7 @@ namespace clover {
                 IndexedAST name = parseIdentifier(module, visitor);
 
                 if (visitor.peek().token == PunctuatorLeftParen) {
-                    error(module, visitor.peek().pos, "Type parameter list not permitted in type parameter declaration.");
+                    error(module, visitor.peek(), "Type parameter list not permitted in type parameter declaration.");
                     visitor.readUpToAndIncluding(PunctuatorRightParen);
                 }
 
@@ -1321,7 +1318,7 @@ namespace clover {
                 IndexedAST expr = parseExpression(module, visitor);
 
                 if (typeLevel) {
-                    error(module, token.pos, "Expected constant or type parameter in type-level parameter list, found '", TokenFormat(module, token), "'.");
+                    error(module, token, "Expected constant or type parameter in type-level parameter list, found '", TokenFormat(module, token), "'.");
                     visitor.readUpTo(PunctuatorRightParen);
                     break;
                 }
@@ -1336,7 +1333,7 @@ namespace clover {
 
                     IndexedAST name = expr.indexedChild(1);
                     if (name.kind() != ASTKind::Ident)
-                        error(module, (AST)expr, "Expected identifier in parameter declaration, found '", name, "'.");
+                        error(module, name, "Expected identifier in parameter declaration, found '", name, "'.");
 
                     IndexedAST init = module->add(ASTKind::Missing).positionless();
                     if (token.token == PunctuatorColon) {
@@ -1346,10 +1343,9 @@ namespace clover {
                     parameters.push(module->addInitial(ASTKind::VarDecl, origin(lhs, init.missing() ? name : init), lhs, name, init));
                 } else if (visitor.peek().token != PunctuatorRightParen && visitor.peek().token != PunctuatorComma && visitor.peek().token != PunctuatorColon) {
                     // Try to parse a juxtaposition.
-                    Pos pos = visitor.peek().pos;
                     IndexedAST name = parsePrimaryNoSuffix(module, visitor);
                     if (name.kind() != ASTKind::Ident)
-                        error(module, pos, "Expected identifier in parameter declaration, found '", name, "'.");
+                        error(module, name, "Expected identifier in parameter declaration, found '", name, "'.");
                     IndexedAST value = module->add(ASTKind::Missing).positionless();
                     if (visitor.peek().token == PunctuatorColon) {
                         visitor.read();
@@ -1378,7 +1374,7 @@ namespace clover {
         IndexedToken rparen;
         visitor.stopIgnoringWhitespace();
         if UNLIKELY(visitor.done())
-            error(module, visitor.last(), "Unexpected end of file parsing parameter list.");
+            error(module, visitor.last().pos, "Unexpected end of file parsing parameter list.");
         else if UNLIKELY(visitor.peek().token != PunctuatorRightParen) {
             error(module, visitor.peek(), "Expected comma or closing parenthese ')' in parameter list, found '", TokenFormat(module, visitor.peek()), "'.");
             visitor.readUpToAndIncluding(PunctuatorRightParen);
@@ -1486,7 +1482,7 @@ namespace clover {
                             arguments.push(child);
                     }
                     if (rhs.child(0).kind() != ASTKind::Ident)
-                        error(module, (AST)rhs, "Expected identifier in function declaration, found '", rhs.child(0), "'.");
+                        error(module, rhs.indexedChild(0), "Expected identifier in function declaration, found '", rhs.child(0), "'.");
                     IndexedAST lhs = possibleDecl.indexedChild(0);
                     for (u32 i = 2; i < possibleDecl.arity(); i ++) for (u32 j = 0; j < possibleDecl.child(i).uintConst(); j ++)
                         lhs = module->addInitial(ASTKind::PtrType, origin(lhs, possibleDecl.indexedChild(i)), lhs);
@@ -1519,7 +1515,7 @@ namespace clover {
 
                     IndexedAST name = possibleDecl.indexedChild(1);
                     if (name.kind() != ASTKind::Ident)
-                        error(module, (AST)possibleDecl, "Expected identifier in variable declaration, found '", name, "'.");
+                        error(module, name, "Expected identifier in variable declaration, found '", name, "'.");
 
                     IndexedAST init = module->add(ASTKind::Missing).positionless();
                     if (token.token == PunctuatorColon) {
@@ -1647,7 +1643,7 @@ namespace clover {
             parameters = module->add(ASTKind::Missing).positionless();
 
         if (!parameters.missing() && isCase)
-            error(module, token.pos, "Type parameter list not permitted on case type declaration.");
+            error(module, token, "Type parameter list not permitted on case type declaration.");
 
         if (visitor.peek().token != PunctuatorColon) // Stub type, or maybe unit.
             return module->addInitial(isCase ? ASTKind::NamedCaseDecl : ASTKind::NamedDecl, origin(token, parameters.missing() ? name : parameters), name, parameters, Missing);
@@ -1712,7 +1708,7 @@ namespace clover {
         IndexedAST main = parseIdentifier(module, visitor);
         bool isLocal = false;
         while (visitor.peek().token == OperatorDiv || visitor.peek().token == PunctuatorDot) {
-            Token link = visitor.read();
+            auto link = visitor.read();
             if (link.token == PunctuatorDot)
                 isLocal = true;
             if (visitor.done())
@@ -1851,7 +1847,7 @@ namespace clover {
                     visitor.ignoreWhitespace(lparen.pos);
 
                     if (pattern.kind() != ASTKind::Ident)
-                        error(module, namePos, "Expected identifier in const function definition.");
+                        error(module, pattern, "Expected identifier in const function definition, found '", snippet(pattern), "'.");
 
                     vec<IndexedAST> params;
                     while (!visitor.done() && visitor.peek().token != PunctuatorRightParen) {
@@ -1869,7 +1865,7 @@ namespace clover {
                     visitor.stopIgnoringWhitespace();
                     IndexedToken rparen;
                     if UNLIKELY(visitor.done())
-                        error(module, visitor.last(), "Unexpected end of file parsing parameter list.");
+                        error(module, visitor.last().pos, "Unexpected end of file parsing parameter list.");
                     else if UNLIKELY(visitor.peek().token != PunctuatorRightParen) {
                         error(module, visitor.peek(), "Expected comma or closing parenthese ')' in parameter list, found '", TokenFormat(module, visitor.peek()), "'.");
                         visitor.readUpToAndIncluding(PunctuatorRightParen);
@@ -2317,7 +2313,7 @@ namespace clover {
 
     IndexedAST parseCase(Module* module, TokenVisitor& visitor) {
         if (visitor.peek().token != KeywordCase && visitor.peek().token != KeywordElse) {
-            error(module, visitor.peek().pos, "Expected keyword 'case' or 'else' in match case, found '", TokenFormat(module, visitor.peek()), "'.");
+            error(module, visitor.peek(), "Expected keyword 'case' or 'else' in match case, found '", TokenFormat(module, visitor.peek()), "'.");
             return module->add(ASTKind::Missing).positionless();
         }
 
@@ -2464,7 +2460,7 @@ namespace clover {
                 visitor.read();
 
                 if (visitor.peek().token != WhitespaceIndent) {
-                    error(module, visitor.peek().pos, "Expected indented block.");
+                    error(module, visitor.peek(), "Expected indented block.");
                     return module->addInitial(ASTKind::Match, origin(token, cond), cond, cases);
                 }
                 if (visitor.isIgnoringWhitespace()) {

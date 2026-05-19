@@ -96,6 +96,17 @@ namespace clover {
             Token(token_in), index(index_in) {}
     };
 
+    template<typename IndexSourceA, typename IndexSourceB>
+    struct IndexPair {
+        IndexSourceA first;
+        IndexSourceB second;
+
+        inline IndexPair() = default;
+
+        inline IndexPair(const IndexSourceA& first_in, const IndexSourceB& second_in):
+            first(first_in), second(second_in) {}
+    };
+
     struct Tokens : public ArtifactData {
         const_slice<i8> source;
         vec<Token, 32> tokens;

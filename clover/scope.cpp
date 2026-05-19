@@ -161,7 +161,7 @@ namespace clover {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = this->function ? this->function->locals[prev] : module->globals[prev];
-            error(module, Pos(), "Duplicate definition of symbol '", module->str(name), "'.");
+            error(module, IndexedToken(), "Duplicate definition of symbol '", module->str(name), "'.");
             return;
         }
         definesFunctions = true;
@@ -178,7 +178,7 @@ namespace clover {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
-            error(module, Pos(), "Duplicate definition of symbol '", module->str(name), "'.");
+            error(module, IndexedToken(), "Duplicate definition of symbol '", module->str(name), "'.");
             return;
         }
         u32 var;
@@ -1120,7 +1120,7 @@ namespace clover {
                 }
                 Artifact* artifact = addSourceFile(module->compilation, filepath);
                 if (!artifact) {
-                    auto pathstr = filepath.to_bytes();
+                    auto pathstr = filepath.to_bytes().drop(1);
                     error(module, ast, "Could not load module at path '", pathstr, "'.");
                     delete[] pathstr.data();
                     continue;

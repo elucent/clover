@@ -245,14 +245,17 @@ namespace clover {
 
     pair<maybe<Pos>, maybe<Pos>> extractPositions(Note* note) {
         maybe<Pos> start, end;
-        if (note->isNode) {
-            IndexPair<u32, u32> bounds;
+        if (!note->isPos) {
             Module* module = (Module*)note->module;
-            AST node = module->node(note->node);
-            if (note->child != -1)
-                bounds = node.childOrigin(note->child);
-            else
-                bounds = node.origin();
+            IndexPair<u32, u32> bounds;
+            if (note->isNode) {
+                AST node = module->node(note->node);
+                if (note->child != -1)
+                    bounds = node.childOrigin(note->child);
+                else
+                    bounds = node.origin();
+            } else
+                bounds = note->origin;
             auto tokens = module->ensureTokens();
             if (bounds.first < tokens.size())
                 start = some<Pos>(tokens[bounds.first].pos);

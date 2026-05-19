@@ -4,7 +4,7 @@
 #include "rt/def.h"
 
 template<typename T>
-struct maybe {
+struct alignas(T) maybe {
     u8 bytes[sizeof(T)];
     bool exists;
 

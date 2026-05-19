@@ -520,6 +520,10 @@ namespace types {
         }
 
         inline slice<T> dup() const;
+
+        inline explicit operator bool() const {
+            return items;
+        }
     };
 
     template<typename T>
@@ -623,6 +627,10 @@ namespace types {
         }
 
         inline slice<T> dup() const;
+
+        inline explicit operator bool() const {
+            return items;
+        }
     };
 
     // Fixed-size arrays
