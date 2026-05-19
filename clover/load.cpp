@@ -117,7 +117,7 @@ namespace clover {
 
         Artifact* newArtifact = new Artifact(foundDir, artifactName);
         Source* source = new Source(newArtifact, text);
-        newArtifact->filename = path.segments.back();
+        newArtifact->filename = path.segments.back().dup();
         newArtifact->update(source);
         foundDir->addArtifact(artifactName, newArtifact);
 

@@ -1547,7 +1547,7 @@ namespace clover {
                                 init = parseExpression(module, visitor);
                         } else
                             init = module->add(ASTKind::Missing).positionless();
-                        decls.push(module->addInitial(ASTKind::VarDecl, origin(lhs, init.missing() ? name : init), lhs, name, init));
+                        decls.push(module->addInitial(ASTKind::VarDecl, origin(name, init.missing() ? name : init), lhs, name, init));
                     }
                     return decls.size() == 1 ? decls[0] : module->addInitial(ASTKind::Do, origin(decls.front(), decls.back()), decls);
                 }
@@ -1618,7 +1618,7 @@ namespace clover {
                     init = parseExpression(module, visitor);
             } else
                 init = module->add(ASTKind::Missing).positionless();
-            decls.push(module->addInitial(ASTKind::VarDecl, origin(ast, init.missing() ? name : init), ast, name, init));
+            decls.push(module->addInitial(ASTKind::VarDecl, origin(name, init.missing() ? name : init), ast, name, init));
         }
 
         return decls.size() == 1 ? decls[0] : module->addInitial(ASTKind::Do, origin(decls.front(), decls.back()), decls);
@@ -1805,7 +1805,7 @@ namespace clover {
                     visitor.read();
                 IndexedAST init = parseExpression(module, visitor);
 
-                decls.push(module->addInitial(ASTKind::AliasDecl, origin(name, init), name, parameters, init));
+                decls.push(module->addInitial(ASTKind::AliasDecl, origin(token, init), name, parameters, init));
                 while (visitor.peek().token == PunctuatorComma) {
                     visitor.readIgnoringWhitespace();
                     name = parseIdentifier(module, visitor);
@@ -1911,9 +1911,9 @@ namespace clover {
                     } else
                         init = module->add(ASTKind::Missing).positionless();
                     if (kind == ASTKind::ConstVarDecl)
-                        decls.push(module->addInitial(kind, origin(token, init.missing() ? pattern : init), pattern, init));
+                        decls.push(module->addInitial(kind, origin(pattern, init.missing() ? pattern : init), pattern, init));
                     else
-                        decls.push(module->addInitial(kind, origin(token, init.missing() ? pattern : init), type, pattern, init));
+                        decls.push(module->addInitial(kind, origin(pattern, init.missing() ? pattern : init), type, pattern, init));
                 }
                 assert(decls.size() > 0);
                 return decls.size() == 1 ? decls[0] : module->addInitial(ASTKind::Do, origin(token, decls.back()), decls);

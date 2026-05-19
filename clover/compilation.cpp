@@ -210,24 +210,24 @@ namespace clover {
     void printArtifactName(Artifact* artifact) {
         Compilation* compilation = artifact->parent->compilation;
         printRelativeDirectoryName(artifact->parent);
-        if (artifact->parent != compilation->cwd)
-            print('/');
         if (artifact->filename.size())
             print(artifact->filename);
         else
             print(compilation->str(artifact->name));
     }
 
-    void printSourceLine(ArtifactData* data, Pos pos) {
+    void printSourceLine(ArtifactData* data, maybe<Pos> start, maybe<Pos> end) {
+        if (!start || !end)
+            return;
         auto src = data->getSource();
         auto lines = data->getLineOffsets();
         if (src && lines) {
             const_slice<i8> line;
-            if (pos.line == lines->size() - 1)
+            if (start->line == lines->size() - 1)
                 line = src->drop(lines->last());
             else {
-                u32 firstOffset = (*lines)[pos.line];
-                u32 lastOffset = (*lines)[pos.line + 1];
+                u32 firstOffset = (*lines)[start->line];
+                u32 lastOffset = (*lines)[start->line + 1];
                 line = (*src)[{ firstOffset, lastOffset }];
             }
             for (u32 i = 0; i < 4; i ++)
@@ -235,37 +235,80 @@ namespace clover {
             print(line);
             if (line.last() != '\n')
                 println();
-            for (u32 i = 0; i < pos.column + 4; i ++)
+            for (u32 i = 0; i < start->column + 4; i ++)
                 print(' ');
-            println('^');
+            for (u32 i = start->column + 4; i < (end->line > start->line ? line.size() + 4 : end->column + 5); i ++)
+                print('^');
+            println();
         }
+    }
+
+    pair<maybe<Pos>, maybe<Pos>> extractPositions(Note* note) {
+        maybe<Pos> start, end;
+        if (note->isNode) {
+            IndexPair<u32, u32> bounds;
+            AST node = ((Module*)note->module)->node(note->node);
+            if (note->child != -1)
+                bounds = node.childOrigin(note->child);
+            else
+                bounds = node.origin();
+            auto tokens = ((Module*)note->module)->ensureTokens();
+            if (bounds.first < tokens.size())
+                start = some<Pos>(tokens[bounds.first].pos);
+            if (bounds.second < tokens.size())
+                end = some<Pos>(tokens[bounds.second].pos);
+        } else
+            start = end = some<Pos>(note->pos);
+        return { start, end };
     }
 
     void reportNote(Artifact* artifact, Note* note) {
         print("[");
         printArtifactName(note->module->artifact);
-        println(":", note->pos.line + 1, ":", note->pos.column + 1, "] " BOLDGRAY "note" RESET ": ", note->message);
-        printSourceLine(note->module, note->pos);
+        const auto& [start, end] = extractPositions(note);
+        if (start)
+            print(":", start->line + 1, ":", start->column + 1);
+        else
+            print(":--:--");
+        println("] " BOLDGRAY "note" RESET ": ", note->message);
+        printSourceLine(note->module, start, end);
     }
 
     void reportNote(ArtifactData* data, Note* note) {
-        println("[<unknown>:", note->pos.line + 1, ":", note->pos.column + 1, "] " BOLDGRAY "note" RESET ": ", note->message);
-        printSourceLine(note->module, note->pos);
+        print("[<unknown>");
+        const auto& [start, end] = extractPositions(note);
+        if (start)
+            print(":", start->line + 1, ":", start->column + 1);
+        else
+            print(":--:--");
+        println("] " BOLDGRAY "note" RESET ": ", note->message);
+        printSourceLine(note->module, start, end);
     }
 
     void reportError(Artifact* artifact, Error* error) {
         print("[");
         printArtifactName(error->module->artifact);
-        println(":", error->pos.line + 1, ":", error->pos.column + 1, "] " BOLDRED "error" RESET ": ", error->message);
-        printSourceLine(error->module, error->pos);
+        const auto& [start, end] = extractPositions(error);
+        if (start)
+            print(":", start->line + 1, ":", start->column + 1);
+        else
+            print(":--:--");
+        println("] " BOLDRED "error" RESET ": ", error->message);
+        printSourceLine(error->module, start, end);
 
         for (Note* note : error->notes)
             reportNote(artifact, note);
     }
 
     void reportError(ArtifactData* data, Error* error) {
-        println("[<unknown>:", error->pos.line + 1, ":", error->pos.column + 1, "] " BOLDRED "error" RESET ": ", error->message);
-        printSourceLine(error->module, error->pos);
+        print("[<unknown>");
+        const auto& [start, end] = extractPositions(error);
+        if (start)
+            print(":", start->line + 1, ":", start->column + 1);
+        else
+            print(":--:--");
+        println("] " BOLDRED "error" RESET ": ", error->message);
+        printSourceLine(error->module, start, end);
 
         for (Note* note : error->notes)
             reportNote(data, note);

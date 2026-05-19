@@ -564,6 +564,20 @@ namespace clover {
         }
     }
 
+    NOINLINE const_slice<Token> lex(Compilation* compilation, const_slice<i8> source) {
+        vec<u32> lineOffsets;
+        SourceVisitor visitor(source, lineOffsets);
+        vec<Token, 32> tokens;
+        vec<u32, 16> indents;
+        indents.push(0);
+        lex(tokens, indents, compilation->symbols, visitor);
+        while (indents.size() > 1) {
+            tokens.push({ WhitespaceDedent, visitor.pos() });
+            indents.pop();
+        }
+        return tokens.take_slice();
+    }
+
     NOINLINE Artifact* lex(Artifact* artifact) {
         assert(artifact->kind == ArtifactKind::Source);
         const_slice<i8> source = artifact->as<Source>()->takeSource();

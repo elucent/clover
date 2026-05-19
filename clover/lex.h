@@ -111,6 +111,7 @@ namespace clover {
         u64 reportSize() override;
     };
 
+    NOINLINE const_slice<Token> lex(Compilation* compilation, const_slice<i8> source);
     NOINLINE Artifact* lex(Artifact* artifact);
 }
 

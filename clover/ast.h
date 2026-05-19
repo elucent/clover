@@ -2273,13 +2273,9 @@ namespace clover {
 
         template<typename A, typename B, typename... Args>
         inline IndexedAST addInitial(ASTKind kind, const IndexPair<A, B>& bounds, const Args&... args) {
-            AST ast = add(kind, args...);
             auto first = getFirstIndex(bounds);
             auto last = getLastIndex(bounds);
-            nodeOrigins.push(nodeOriginInfo.size());
-            nodeOriginInfo.push({ .isIndex = 1, .index = first });
-            nodeOriginInfo.push({ .isIndex = 1, .index = last });
-            addChildOrigins(args...);
+            AST ast = add(kind, { first, last }, args...);
             return ast.withOrigin(first, last);
         }
 
@@ -2684,6 +2680,12 @@ namespace clover {
         void validateAggressively();
         void validateAggressively(AST ast);
         bool shouldValidate = false;
+
+        inline const_slice<Token> ensureTokens() {
+            if (!tokens)
+                tokens = lex(compilation, source);
+            return tokens;
+        }
     };
 
 
