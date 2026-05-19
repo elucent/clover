@@ -572,12 +572,6 @@ namespace clover {
             node(node_in) {}
     };
 
-    enum class NoOriginTag {
-        NoOrigin
-    };
-
-    using enum NoOriginTag;
-
     template<typename IndexSource>
     inline IndexedAST AST::withOrigin(IndexSource index) {
         return withOrigin(getFirstIndex(index), getLastIndex(index));

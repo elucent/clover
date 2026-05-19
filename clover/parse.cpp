@@ -351,7 +351,7 @@ namespace clover {
                         if (visitor.peek().token == PunctuatorColon) {
                             Pos pos = visitor.read().pos;
                             if UNLIKELY(tup.back().kind() != ASTKind::Ident && tup.back().kind() != ASTKind::Missing)
-                                error(module, beforeToken, "Expected identifier in named tuple field, found '", tup.back(), "'.");
+                                error(module, beforeToken, "Expected identifier in named tuple field, found '", snippet(tup.back()), "'.");
                             auto child = parseExpression(module, visitor);
                             tup.back() = module->addInitial(ASTKind::NamedParameter, origin(tup.back(), child), tup.back(), child);
                         }
@@ -679,7 +679,7 @@ namespace clover {
                             if (visitor.peek().token != PunctuatorRightParen && visitor.peek().token != PunctuatorComma)
                                 type = name, name = parseIdentifier(module, visitor);
                             if (name.kind() != ASTKind::Ident && name.kind() != ASTKind::Missing)
-                                error(module, name, "Expected identifier in const parameter declaration, found '", name, "'.");
+                                error(module, name, "Expected identifier in const parameter declaration, found '", snippet(name), "'.");
                             IndexedAST init = module->add(ASTKind::Missing).positionless();
                             if (visitor.peek().token == PunctuatorColon) {
                                 visitor.read();
@@ -691,7 +691,7 @@ namespace clover {
                         if (visitor.peek().token == PunctuatorColon) {
                             visitor.read();
                             if (argument.kind() != ASTKind::Ident && argument.kind() != ASTKind::Missing)
-                                error(module, argument, "Expected identifier in parameter declaration, found '", argument, "'.");
+                                error(module, argument, "Expected identifier in parameter declaration, found '", snippet(argument), "'.");
                             argument = module->addInitial(ASTKind::NamedParameter, origin(), argument, parseExpression(module, visitor));
                         }
                         arguments.push(argument);
@@ -790,7 +790,7 @@ namespace clover {
                         while (!visitor.done() && visitor.peek().token != PunctuatorRightParen) {
                             IndexedAST field = parsePrimaryNoSuffix(module, visitor);
                             if (field.kind() != ASTKind::Ident && field.kind() != ASTKind::Missing)
-                                error(module, field, "Expected identifier in field access, found '", field, "'.");
+                                error(module, field, "Expected identifier in field access, found '", snippet(field), "'.");
                             fields.push(field);
                             if (visitor.peek().token == PunctuatorComma)
                                 visitor.read();
@@ -810,7 +810,7 @@ namespace clover {
                     IndexedAST v = parsePrimaryNoSuffix(module, visitor);
                     if (v.kind() != ASTKind::Ident && v.kind() != ASTKind::Missing
                         && v.kind() != ASTKind::OwnType && v.kind() != ASTKind::UninitType)
-                        error(module, v, "Expected identifier in field access, found '", v, "'.");
+                        error(module, v, "Expected identifier in field access, found '", snippet(v), "'.");
                     ast = module->addInitial(ASTKind::GetField, origin(ast, v), ast, v);
                     break;
                 }
@@ -1333,7 +1333,7 @@ namespace clover {
 
                     IndexedAST name = expr.indexedChild(1);
                     if (name.kind() != ASTKind::Ident)
-                        error(module, name, "Expected identifier in parameter declaration, found '", name, "'.");
+                        error(module, name, "Expected identifier in parameter declaration, found '", snippet(name), "'.");
 
                     IndexedAST init = module->add(ASTKind::Missing).positionless();
                     if (token.token == PunctuatorColon) {
@@ -1345,7 +1345,7 @@ namespace clover {
                     // Try to parse a juxtaposition.
                     IndexedAST name = parsePrimaryNoSuffix(module, visitor);
                     if (name.kind() != ASTKind::Ident)
-                        error(module, name, "Expected identifier in parameter declaration, found '", name, "'.");
+                        error(module, name, "Expected identifier in parameter declaration, found '", snippet(name), "'.");
                     IndexedAST value = module->add(ASTKind::Missing).positionless();
                     if (visitor.peek().token == PunctuatorColon) {
                         visitor.read();
@@ -1482,7 +1482,7 @@ namespace clover {
                             arguments.push(child);
                     }
                     if (rhs.child(0).kind() != ASTKind::Ident)
-                        error(module, rhs.indexedChild(0), "Expected identifier in function declaration, found '", rhs.child(0), "'.");
+                        error(module, rhs.indexedChild(0), "Expected identifier in function declaration, found '", snippet(rhs, 0), "'.");
                     IndexedAST lhs = possibleDecl.indexedChild(0);
                     for (u32 i = 2; i < possibleDecl.arity(); i ++) for (u32 j = 0; j < possibleDecl.child(i).uintConst(); j ++)
                         lhs = module->addInitial(ASTKind::PtrType, origin(lhs, possibleDecl.indexedChild(i)), lhs);
@@ -1515,7 +1515,7 @@ namespace clover {
 
                     IndexedAST name = possibleDecl.indexedChild(1);
                     if (name.kind() != ASTKind::Ident)
-                        error(module, name, "Expected identifier in variable declaration, found '", name, "'.");
+                        error(module, name, "Expected identifier in variable declaration, found '", snippet(name), "'.");
 
                     IndexedAST init = module->add(ASTKind::Missing).positionless();
                     if (token.token == PunctuatorColon) {

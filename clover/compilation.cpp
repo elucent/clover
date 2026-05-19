@@ -230,9 +230,7 @@ namespace clover {
                 u32 lastOffset = (*lines)[start->line + 1];
                 line = (*src)[{ firstOffset, lastOffset }];
             }
-            for (u32 i = 0; i < 4; i ++)
-                print(' ');
-            print(line);
+            print("    ", line);
             if (line.last() != '\n')
                 println();
             for (u32 i = 0; i < start->column + 4; i ++)
@@ -276,7 +274,7 @@ namespace clover {
         if (start)
             print(":", start->line + 1, ":", start->column + 1);
         else
-            print(":--:--");
+            print(":-:-");
         println("] " BOLDGRAY "note" RESET ": ", note->message);
         printSourceLine(note->module, start, end);
     }
@@ -287,7 +285,7 @@ namespace clover {
         if (start)
             print(":", start->line + 1, ":", start->column + 1);
         else
-            print(":--:--");
+            print(":-:-");
         println("] " BOLDGRAY "note" RESET ": ", note->message);
         printSourceLine(note->module, start, end);
     }
@@ -299,12 +297,14 @@ namespace clover {
         if (start)
             print(":", start->line + 1, ":", start->column + 1);
         else
-            print(":--:--");
+            print(":-:-");
         println("] " BOLDRED "error" RESET ": ", error->message);
         printSourceLine(error->module, start, end);
 
         for (Note* note : error->notes)
             reportNote(artifact, note);
+
+        println();
     }
 
     void reportError(ArtifactData* data, Error* error) {
@@ -313,12 +313,14 @@ namespace clover {
         if (start)
             print(":", start->line + 1, ":", start->column + 1);
         else
-            print(":--:--");
+            print(":-:-");
         println("] " BOLDRED "error" RESET ": ", error->message);
         printSourceLine(error->module, start, end);
 
         for (Note* note : error->notes)
             reportNote(data, note);
+
+        println();
     }
 
     void reportErrorsAndExit(Artifact* artifact) {

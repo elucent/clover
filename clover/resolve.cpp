@@ -262,9 +262,10 @@ namespace clover {
             case ASTKind::Projection: {
                 AST base = ast;
                 vec<Symbol> path;
+                vec<u32> pathPositions;
                 AST baseParent = base;
                 while (base.kind() == ASTKind::Projection)
-                    path.push(base.child(1).symbol()), baseParent = base, base = base.child(0);
+                    path.push(base.child(1).symbol()), pathPositions.push(base.indexedChild(1).first), baseParent = base, base = base.child(0);
                 assert(base.kind() == ASTKind::ResolvedGenericType);
                 GenericType* generic = base.genericType();
                 Type inst = expand(instantiate(generic, parameters..., ctx.isInTypeDecl() ? ctx.typeDecls.back().instantiatedTypes : nullptr, ctx));
@@ -281,9 +282,12 @@ namespace clover {
                 assert(scope);
                 while (path.size()) {
                     Symbol field = path.pop();
+                    u32 pos = pathPositions.pop();
                     auto result = scope->findLocal(field);
                     if (!result) {
-                        error(scope->module, ast, "Couldn't resolve field '", scope->module->str(field), "' within type ", inst);
+                        auto decl = generic->module->node(generic->decl);
+                        error(scope->module, IndexPair { pos, pos }, "Couldn't resolve field '", scope->module->str(field), "' within type ", inst)
+                            .note(generic->module, span(decl.childOrigin(0), decl.childOrigin(1)), generic->module->str(generic->name), " declared here.");
                         break;
                     }
                     VariableInfo info;
@@ -293,7 +297,7 @@ namespace clover {
                         info = scope->function->locals[result.index];
 
                     if (info.kind != VariableKind::Type) {
-                        error(scope->module, ast, "Expected a type expression here, but member '", scope->module->str(field), "' within type ", inst, " is not a type.");
+                        error(scope->module, IndexPair { pos, pos }, "Expected a type expression here, but member '", scope->module->str(field), "' within type ", inst, " is not a type.");
                         break;
                     }
 
@@ -350,7 +354,7 @@ namespace clover {
             case ASTKind::ResolvedGenericType:
                 if (mayInstantiate == ForbidInstantiation) {
                     error(module, changePos, "Generic type '", snippet(changePos), "' is not allowed to be implicitly instantiated here.");
-                    return module->invalidType();
+                    return module->voidType();
                 }
                 return instantiate(ctx, changePos);
             case ASTKind::Projection:
@@ -358,7 +362,7 @@ namespace clover {
                     while (ast.child(0).kind() == ASTKind::Projection)
                         ast = ast.child(0);
                     error(module, changePos, "Generic type '", snippet(ast, 0), "' is not allowed to be implicitly instantiated here.");
-                    return module->invalidType();
+                    return module->voidType();
                 }
                 return instantiate(ctx, changePos);
             default:
@@ -548,7 +552,7 @@ namespace clover {
                 resolveChild(module, ctx, refTraits, ast, 2, ExpectType);
                 if (!isTypeExpression(ast.child(2), MayInstantiate)) {
                     error(module, { ast, 2 }, "Expected type expression in alias declaration, found '", snippet(ast, 2), "'.");
-                    return module->invalidType();
+                    return module->voidType();
                 }
                 ast.setType(evaluateType(module, ctx, ast.scope(), ast.child(2), { ast, 2 }, ForbidInstantiation));
                 resolveChild(module, ctx, refTraits, ast, 0, ExpectType);
@@ -597,7 +601,7 @@ namespace clover {
                 } else {
                     if (!ast.child(2).missing() && !isTypeExpression(ast.child(2), MayInstantiate)) {
                         error(module, { ast, 2 }, "Expected type expression in named type declaration, found '", snippet(ast, 2), "'.");
-                        return module->invalidType();
+                        return module->voidType();
                     }
                     Type type = ast.child(2).missing() ? module->voidType() : evaluateType(module, ctx, ast.scope(), ast.child(2), { ast, 2 }, MayInstantiate);
 
@@ -1054,7 +1058,6 @@ namespace clover {
                     error(module, { call, 0 }, "Expected identifier in generic type constructor.");
                     return module->add(ASTKind::Missing);
                 }
-                type_assert(call.child(0).kind() == ASTKind::Ident);
                 u32 first = base.first, last = call.indexedChild(0).last;
                 call.setChild(0, module->add(ASTKind::Projection, origin(first, last), call.scope(), InvalidType, base, call.indexedChild(0)));
                 for (u32 i = 2; i < call.arity(); i ++)
@@ -1141,14 +1144,14 @@ namespace clover {
                 if (generic->placeholder != InvalidType)
                     call.setType(generic->placeholder);
                 else if (types.size() == 0) {
-                    if (!hasAnyNonType) {
-                        error(module, call, "Expected at least one non-type parameter in generic type constructor.");
-                        return module->add(ASTKind::Missing);
-                    }
+                    assert(hasAnyNonType); // Should otherwise be impossible - this would imply no arguments of any kind, and we'd already have exited.
                     call.setType(instantiate(ctx, ChangePosition { call, 0 }));
                 } else {
                     if (!hasAnyNonType) {
-                        error(module, call, "Expected at least one non-type parameter in generic type constructor.");
+                        auto decl = generic->module->node(generic->decl);
+                        error(module, call, "Not enough parameters for instantiation of generic type '", snippet(func), "'.")
+                            .note(generic->module, span(decl.childOrigin(0), decl.childOrigin(1)), generic->module->str(generic->name), " declared with ", arity, " parameters here.")
+                            .note(module, NoOrigin, "Alternatively, at least one non-type parameter is required to infer the remaining type arguments.");
                         return module->add(ASTKind::Missing);
                     }
                     while (types.size() < arity)
@@ -1161,7 +1164,9 @@ namespace clover {
                 else
                     call.setType(instantiate(ctx, ChangePosition { call, 0 }, types));
             } else {
-                error(module, call, "Too many type parameters in generic type instantiation.");
+                auto decl = generic->module->node(generic->decl);
+                error(module, call, "Too many type parameters in instantiation of generic type '", snippet(func), "'.")
+                    .note(generic->module, span(decl.childOrigin(0), decl.childOrigin(1)), generic->module->str(generic->name), " declared with ", arity, " parameters here.");
                 return module->add(ASTKind::Missing);
             }
             if (hasAnyNonType) {
@@ -1220,8 +1225,8 @@ namespace clover {
                 if (isTypeExpression(call.child(i), ForbidInstantiation)) {
                     Type type = evaluateType(module, ctx, scope, call.child(i), {}, ForbidInstantiation);
                     if (type == Void) {
-                        if (i != firstArg) {
-                            error(module, { call, i }, "Void is only permitted as a return type.");
+                        if (i != firstArg || call.arity() - firstArg > 1) {
+                            error(module, { call, i }, "Void may only appear in a function type's parameters if it is the only parameter type.");
                             return module->add(ASTKind::Missing);
                         }
                     } else
@@ -1350,7 +1355,7 @@ namespace clover {
                     resultType = module->arrayType(ptrType, (u32)size);
                     resultNode = module->add(ASTKind::ArrayType, span(ptrNode.origin(), right.origin()), ast.scope(), resultType, ptrNode, right.indexedChild(0)).reconstituteOrigin();
                 } else {
-                    error(module, { right, 1 }, "Too many indices in array type expression.");
+                    error(module, { right, 1 }, "Too many dimensions in array type expression.");
                     return module->add(ASTKind::Missing);
                 }
                 break;
@@ -1382,7 +1387,7 @@ namespace clover {
                             break;
                         }
                         assert(type != 0xffffffffu);
-                        error(module, { right, type }, "Unexpected type expression in constructor.");
+                        error(module, { right, type }, "Unexpected type expression '", snippet(children[type]), "' in constructor.");
                         return module->add(ASTKind::Missing);
                     }
                     vec<IndexedAST, 1> maybeFirst;
@@ -1611,16 +1616,20 @@ namespace clover {
             case ASTKind::GetIndex: {
                 AST lhs = resolveChild(module, ctx, refTraits, ast, 0, ExpectValue);
                 if (isTypeExpression(lhs, MayInstantiate)) {
-                    assert(ast.child(1).kind() == ASTKind::Unsigned);
+                    if (ast.child(1).kind() != ASTKind::Unsigned || ast.child(1).uintConst() >= 0x100000000ull) {
+                        error(module, { ast, 1 }, "Array type dimension must be a positive 32-bit integer.");
+                        return module->add(ASTKind::Missing);
+                    }
                     auto size = ast.child(1).uintConst();
-                    assert(size >= 0 && size < 1ull << 32ull);
                     ast.setKind(ASTKind::ArrayType);
                     ast.setType(module->arrayType(evaluateType(module, ctx, scope, lhs, { ast, 0 }, MayInstantiate), u32(size)));
                 } else if (lhs.kind() == ASTKind::GetField && isTypeExpression(lhs.child(1), ForbidInstantiation)) {
                     Type fieldType = evaluateType(module, ctx, scope, lhs.child(1), {}, ForbidInstantiation);
-                    assert(ast.child(1).kind() == ASTKind::Unsigned);
+                    if (ast.child(1).kind() != ASTKind::Unsigned || ast.child(1).uintConst() >= 0x100000000ull) {
+                        error(module, { ast, 1 }, "Array type dimension must be a positive 32-bit integer.");
+                        return module->add(ASTKind::Missing);
+                    }
                     auto size = ast.child(1).uintConst();
-                    assert(size >= 0 && size < 1ull << 32ull);
                     lhs.setChild(1, module->add(ASTKind::ArrayType, ast.origin(), ast.scope(), module->arrayType(fieldType, u32(size)), lhs.indexedChild(1), ast.indexedChild(1)));
                     return lhs;
                 } else {
@@ -1658,13 +1667,17 @@ namespace clover {
                     lhs.setChild(1, module->add(ASTKind::SliceType, ast.origin(), ast.scope(), module->sliceType(fieldType), lhs.indexedChild(1)));
                     return lhs;
                 }
-                unreachable("lhs of slice type should be a type.");
+                error(module, { ast, 0 }, "Expected type in slice type expression, found '", snippet(ast, 0), "'.");
+                return module->add(ASTKind::Missing);
             }
             case ASTKind::PtrType: {
                 if (ast.typeIndex() != InvalidType)
                     return ast;
                 resolveChild(module, ctx, NoRefTraits, ast, 0, ExpectType);
-                assert(isTypeExpression(ast.child(0), MayInstantiate));
+                if (!isTypeExpression(ast.child(0), MayInstantiate)) {
+                    error(module, { ast, 0 }, "Expected type in pointer type expression, found '", snippet(ast, 0), "'.");
+                    return module->add(ASTKind::Missing);
+                }
                 ast.setType(module->ptrType(refTraits, evaluateType(module, ctx, scope, ast.child(0), { ast, 0 }, MayInstantiate)));
                 if (refTraits & Own)
                     ast = module->add(ASTKind::OwnType, ast.origin(), ast.scope(), ast.type(), ast.reconstituteOrigin());
@@ -1681,11 +1694,15 @@ namespace clover {
             }
             case ASTKind::ArrayType: {
                 AST base = resolveChild(module, ctx, refTraits, ast, 0, ExpectValue);
-                if (!isTypeExpression(base, MayInstantiate))
-                    type_error("Expected type expression in array type.");
-                assert(ast.child(1).kind() == ASTKind::Unsigned);
+                if (!isTypeExpression(base, MayInstantiate)) {
+                    error(module, { ast, 0 }, "Expected type in array type expression, found '", snippet(ast, 0), "'.");
+                    return module->add(ASTKind::Missing);
+                }
+                if (ast.child(1).kind() != ASTKind::Unsigned || ast.child(1).uintConst() >= 0x100000000ull) {
+                    error(module, { ast, 1 }, "Array type dimension must be a positive 32-bit integer.");
+                    return module->add(ASTKind::Missing);
+                }
                 auto size = ast.child(1).uintConst();
-                assert(size >= 0 && size < 1ull << 32ull);
                 ast.setKind(ASTKind::ArrayType);
                 ast.setType(module->arrayType(evaluateType(module, ctx, scope, base, { ast, 0 }, MayInstantiate), u32(size)));
                 return ast;
@@ -1694,8 +1711,10 @@ namespace clover {
                 vec<Type> types;
                 for (u32 i = 0; i < ast.arity(); i ++) {
                     resolveChild(module, ctx, refTraits, ast, i, ExpectValue);
-                    if (!isTypeExpression(ast.child(i), ForbidInstantiation))
-                        type_error("Expected type expression in tuple type.");
+                    if (!isTypeExpression(ast.child(i), ForbidInstantiation)) {
+                        error(module, { ast, i }, "Expected type in tuple type expression, found '", snippet(ast, i), "'.");
+                        continue;
+                    }
                     types.push(evaluateType(module, ctx, scope, ast.child(i), {}, ForbidInstantiation));
                 }
                 ast.setType(module->tupleType(types));
@@ -1706,8 +1725,10 @@ namespace clover {
                 vec<Type> params;
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     resolveChild(module, ctx, refTraits, ast, i, ExpectValue);
-                    if (!isTypeExpression(ast.child(i), ForbidInstantiation))
-                        type_error("Expected type expression in function type parameter.");
+                    if (!isTypeExpression(ast.child(i), ForbidInstantiation)) {
+                        error(module, { ast, i }, "Expected type in function type expression, found '", snippet(ast, i), "'.");
+                        continue;
+                    }
                     params.push(evaluateType(module, ctx, scope, ast.child(i), {}, ForbidInstantiation));
                 }
                 ast.setType(module->funType(returnType, params));
@@ -1718,12 +1739,19 @@ namespace clover {
                 assert(isGenericTypeExpression(ast.child(0)));
 
                 vec<TypeIndex> types;
+                bool didError = false;
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     resolveChild(module, ctx, NoRefTraits, ast, i, ExpectValue);
-                    assert(isTypeExpression(ast.child(i), ForbidInstantiation));
+                    if (!isTypeExpression(ast.child(i), ForbidInstantiation)) {
+                        error(module, { ast, i }, "Expected type parameter in instantiation of generic type '", snippet(ast, 0), "', found '", snippet(ast, i), "'.");
+                        didError = true;
+                        continue;
+                    }
                     Type type = evaluateType(module, ctx, scope, ast.child(i), {}, ForbidInstantiation);
                     types.push(type.index);
                 }
+                if (didError)
+                    return module->add(ASTKind::Missing);
                 ast.setType(instantiate(ast.child(0).genericType(), types, ctx.isInTypeDecl() ? ctx.typeDecls.back().instantiatedTypes : nullptr, ctx));
                 return ast;
             }
@@ -1732,15 +1760,18 @@ namespace clover {
             case ASTKind::GetField: {
                 resolveChild(module, ctx, refTraits, ast, 0, ExpectValue);
                 if (ast.child(0).kind() == ASTKind::ResolvedNamespace) {
-                    type_assert(ast.child(1).kind() == ASTKind::Ident);
+                    assert(ast.child(1).kind() == ASTKind::Ident);
                     auto result = ast.child(0).resolvedNamespace()->lookup(ast.child(1).symbol());
-                    type_assert(result);
+                    if (!result) {
+                        error(module, { ast, 1 }, "Couldn't resolve member '", snippet(ast, 1), "' within namespace '", snippet(ast, 0), "'.");
+                        return module->add(ASTKind::Missing);
+                    }
                     AST resolved = resolveIdentifier(module, ctx, scope, ast, ast.child(1), module->naturalize({ result.scope, result.index }));
                     return resolved;
                 }
 
                 if (isGenericTypeExpression(ast.child(0))) {
-                    type_assert(ast.child(1).kind() == ASTKind::Ident);
+                    assert(ast.child(1).kind() == ASTKind::Ident);
                     ast.setKind(ASTKind::Projection);
                     return ast;
                 }
@@ -1789,13 +1820,20 @@ namespace clover {
                     AST child = resolveFieldnameChild(module, ctx, ast, i, ExpectValue);
                     if (!isTypeExpression(child, ForbidInstantiation)) {
                         foundAnyNonType = true;
-                        break;
+                        children.push(child.reconstituteOrigin(ast.childOrigin(i)));
+                        continue;
                     }
                     children.push(child.reconstituteOrigin(ast.childOrigin(i)));
                     types.push(evaluateType(module, ctx, scope, child, {}, ForbidInstantiation));
                 }
                 if (foundAnyNonType) {
-                    assert(types.size() == 0); // Should either be all values or all types.
+                    if (types.size() > 0) {
+                        for (u32 i = 0; i < children.size(); i ++) if (isTypeExpression(children[i], ForbidInstantiation)) {
+                            error(module, children[i], "Unexpected type expression '", snippet(children[i]), "' in multi-field access.");
+                            return module->add(ASTKind::Missing);
+                        }
+                        unreachable("Should've found a non-type child and returned.");
+                    }
                     resolveChild(module, ctx, refTraits, ast, 0, ExpectValue);
                     return ast;
                 }
@@ -1847,7 +1885,13 @@ namespace clover {
                     if (ctx.isInTypeDecl())
                         ast.setChild(0, module->add(ASTKind::Ident, Identifier(ctx.reportTypeParameter(ast.type(), ast.childOrigin(0)))));
                 } else {
-                    resolveChild(module, ctx, refTraits, ast, 0, ExpectType);
+                    AST type = resolveChild(module, ctx, refTraits, ast, 0, ExpectType);
+                    if (type.missing())
+                        return type;
+                    if (!isTypeExpression(type, MayInstantiate)) {
+                        error(module, { ast, 0 }, "Expected type expression in variable declaration, found '", snippet(ast, 0), "'.");
+                        return module->add(ASTKind::Missing);
+                    }
                     ast.setType(evaluateType(module, ctx, scope, ast.child(0), { ast, 0 }, MayInstantiate));
                     if (isGenericTypeExpression(ast.child(0)))
                         ctx.reportGenericField({ ast, 0 }, ast.type());
@@ -1987,11 +2031,13 @@ namespace clover {
                             IndexedAST resolvedArg = resolve(module, ctx, refTraits, ast.scope(), some<AST>(ast.child(2)), arg, ExpectType).reconstituteOrigin(ast.child(2).childOrigin(i));
                             if (resolvedArg.kind() == ASTKind::VarDecl)
                                 arg = resolvedArg, alreadyResolved = true;
-                            else if (!isTypeExpression(resolvedArg, MayInstantiate)) {
-                                error(module, { ast.child(2), (u32)i }, "Expected type for anonymous parameter declaration, found non-type expression.");
-                                return module->add(ASTKind::Missing);
-                            } else
+                            else {
+                                // This is an assertion, because if we reach
+                                // here with a non-type singleton, it should
+                                // already have been turned into a vardecl.
+                                assert(isTypeExpression(resolvedArg, MayInstantiate));
                                 arg = module->add(ASTKind::VarDecl, resolvedArg.origin(), resolvedArg.scope(), InvalidType, resolvedArg, Missing, Missing);
+                            }
                         }
                         AST resolvedArg = alreadyResolved ? arg : resolve(module, ctx, refTraits, ast.scope(), some<AST>(ast.child(2)), arg, ExpectValue);
                         ast.child(2).setChild(i, resolvedArg);
@@ -2138,7 +2184,7 @@ namespace clover {
                         break;
                     scope = scope->parent;
                 }
-                error(module, ast, ast.kind() == ASTKind::Break ? "Break" : "Continue", " statement should not appear outside a loop.");
+                error(module, ast, ast.kind() == ASTKind::Break ? "Break" : "Continue", " statement may not appear outside a loop.");
                 return module->add(ASTKind::Missing);
             default:
                 if (ast.isLeaf()) // Nothing to do by default, we handle the necessary leaves above.
@@ -2267,6 +2313,8 @@ namespace clover {
                     module->replace(ast, base);
                     break;
                 default:
+                    if (base.kind() != ASTKind::Local && base.kind() != ASTKind::Global)
+                        error(module, { ast, 0 }, "Can't take the address of non-variable term '", snippet(ast, 0), "'.");
                     break;
             }
         }

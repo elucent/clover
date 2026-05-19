@@ -107,6 +107,12 @@ namespace clover {
             first(first_in), second(second_in) {}
     };
 
+    enum class NoOriginTag {
+        NoOrigin
+    };
+
+    using enum NoOriginTag;
+
     struct Tokens : public ArtifactData {
         const_slice<i8> source;
         vec<Token, 32> tokens;

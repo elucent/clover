@@ -766,7 +766,8 @@ Baz baz: Baz()
 
 TEST(resolve_out_of_order_pointer_function) {
     auto artifact = RESOLVE(R"(
-var x: foo(&42)
+var x: 42
+var y: foo(&x)
 i32* foo(i32* p): p
 )");
 }
@@ -893,4 +894,262 @@ i32***(i32)*** i32***(i32***).mystery()
 i32* Foo.Bar*(i32).quux(type T, i32 x)
 i32*(i32)* i32*[].xyzzy()
 )");
+}
+
+TEST(resolve_bad_undefined_var) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var x: y
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_projection) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+type Foo(type T):
+    case Bar
+    case Baz
+
+Foo.Quux(i32) x
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_implicit_instantiation) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+type Foo(type T):
+    T field
+alias Alias: Foo
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_implicit_projection) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+type Foo(type T):
+    type Bar
+alias Alias: Foo.Bar
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_named_type_member) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+type Foo: 42
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_namespace_method) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+in foo:
+    void bar()
+
+foo.[bar]()
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_generic_inst_method) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+type Foo(type T):
+    case Bar
+
+Foo.[Bar]()
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_generic_inst_not_enough_params) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+type Foo(type T, type U):
+    T item
+
+var foo: Foo(i32)
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_generic_inst_too_many_params) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+type Foo(type T, type U):
+    T item
+
+var foo: Foo(i32, f32, f64)
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_funtype_later_void_param) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+alias Func: void(i32, void)
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_funtype_multiple_void_param) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+alias Func: void(void, i32)
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_array_type_non_const) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var x: 42
+i32[x] array
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_array_type_multi_index) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+i32[1, 2] array
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_ptr_array_type_non_const) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var x: 42
+i32*[x]
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_ptr_array_type_multi_index) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+i32*[1, 2]
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_ptr_constructor) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+i32*(i32, 1)
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_slice_type) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var s32: 0
+s32[] slice: 1
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_ptr_type) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var s32: 0
+s32* slice: 1
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_namespace_field) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+in foo:
+    var bar: 42
+
+foo.bar + foo.baz
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_get_fields) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var tup: (1, 2, 3)
+tup.(x, i32, y)
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_vardecl_type) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var s32: 42
+s32 x: 43
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_vardecl_pattern_init) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var (x, y)
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_vardecl_pattern_uninit) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var (x, y): uninit
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_fundecl_return_type) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var s32: 42
+s32 f(i32 x): x
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_break) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var x: 1
+if 0 <= x < 10:
+    break
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_continue) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+var x: 1
+if 10 > x >= 0:
+    continue
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_assignment_lvalue) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+1 = 2
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
+TEST(resolve_bad_arith_assignment_lvalue) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+1 += 2
+)");
+    ASSERT_DID_ERROR(artifact);
 }

@@ -100,6 +100,10 @@ namespace clover {
         return { token.index, token.index };
     }
 
+    inline IndexPair<u32, u32> getOrigin(NoOriginTag n) {
+        return { IndexedToken::InvalidIndex, IndexedToken::InvalidIndex };
+    }
+
     struct IndexedAST;
 
     inline IndexPair<u32, u32> getOrigin(IndexedAST ast);
@@ -130,7 +134,7 @@ namespace clover {
 
     template<typename OriginLike, typename... Args>
     inline Error& Error::note(ArtifactData* module, OriginLike origin, const Args&... args) {
-        notes.push(new Note(module, origin, args...));
+        notes.push(new Note(module, getOrigin(origin), args...));
         return *this;
     }
 
