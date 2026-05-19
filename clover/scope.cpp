@@ -1025,11 +1025,16 @@ namespace clover {
                 Scope* defScope = scope;
                 Namespace* defNs = nullptr;
                 bool inType = false;
+                bool failed = false;
                 for (u32 i = 0; i < path.size() - 1; i ++) {
                     auto entry = defNs ? defNs->lookup(path[i]) : defScope->find(path[i]);
                     if (!entry) {
-                        error(module, ast, "Couldn't find symbol ", module->str(path[i]), " within ", module->str(path[i]), ".");
-                        return;
+                        if (i == 0)
+                            error(module, ast, "Couldn't find a type or namespace '", module->str(path[i]), "' in the current scope.");
+                        else
+                            error(module, ast, "Couldn't find symbol ", module->str(path[i]), " within ", module->str(path[i]), ".");
+                        failed = true;
+                        break;
                     }
                     if (entry.isGlobal()) {
                         const auto& global = entry.scope->module->globals[entry.index];
@@ -1069,7 +1074,7 @@ namespace clover {
                         }
                     }
                 }
-                if (path.back() == InvalidSymbol) {
+                if (!failed && path.back() == InvalidSymbol) {
                     if (defNs)
                         importNamespace(scope, defNs, ast);
                     else {
@@ -1084,7 +1089,7 @@ namespace clover {
                                 scope->addIndirect(module, ast, defScope, v, k);
                         }
                     }
-                } else {
+                } else if (!failed) {
                     auto entry = defNs ? defNs->lookup(path.back()) : defScope->findLocal(path.back());
                     if (!entry) {
                         error(module, ast, "Couldn't find symbol ", module->str(path.back()), " within ", module->str(path[path.size() - 2]), ".");

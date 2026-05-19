@@ -1749,7 +1749,7 @@ namespace clover {
         groups.push(parseImportGroup(module, visitor, use));
         while (visitor.peek().token == PunctuatorComma) {
             visitor.readIgnoringWhitespace();
-            groups.push(parseImportGroup(module, visitor, use));
+            groups.push(parseImportGroup(module, visitor, visitor.peek()));
         }
         return groups.size() == 1 ? groups[0] : module->addInitial(ASTKind::Do, origin(use, groups.back()), groups);
     }

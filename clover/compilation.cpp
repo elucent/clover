@@ -237,7 +237,7 @@ namespace clover {
                 println();
             for (u32 i = 0; i < start->column + 4; i ++)
                 print(' ');
-            for (u32 i = start->column + 4; i < (end->line > start->line ? line.size() + 4 : end->column + 5); i ++)
+            for (u32 i = start->column + 4; i < (end->line > start->line ? line.size() + 4 : end->column + 4); i ++)
                 print('^');
             println();
         }
@@ -247,16 +247,20 @@ namespace clover {
         maybe<Pos> start, end;
         if (note->isNode) {
             IndexPair<u32, u32> bounds;
-            AST node = ((Module*)note->module)->node(note->node);
+            Module* module = (Module*)note->module;
+            AST node = module->node(note->node);
             if (note->child != -1)
                 bounds = node.childOrigin(note->child);
             else
                 bounds = node.origin();
-            auto tokens = ((Module*)note->module)->ensureTokens();
+            auto tokens = module->ensureTokens();
             if (bounds.first < tokens.size())
                 start = some<Pos>(tokens[bounds.first].pos);
-            if (bounds.second < tokens.size())
-                end = some<Pos>(tokens[bounds.second].pos);
+            if (bounds.second < tokens.size()) {
+                Pos pos = tokens[bounds.second].pos;
+                pos.column += module->str(tokens[bounds.second].token).size();
+                end = some<Pos>(pos);
+            }
         } else
             start = end = some<Pos>(note->pos);
         return { start, end };
