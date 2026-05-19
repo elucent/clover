@@ -1700,7 +1700,6 @@ namespace clover {
         ASTKind kind = sawCase ? ASTKind::UnionDecl : ASTKind::StructDecl;
         if (isCase)
             kind = sawCase ? ASTKind::UnionCaseDecl : ASTKind::StructCaseDecl;
-
         return module->addInitial(kind, origin(token, contents.back()), name, parameters, contents);
     }
 

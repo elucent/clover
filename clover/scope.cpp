@@ -846,6 +846,7 @@ namespace clover {
             case ASTKind::StructDecl:
             case ASTKind::StructCaseDecl: {
                 Symbol name;
+
                 if LIKELY(ast.child(0).kind() == ASTKind::Ident)
                     name = ast.child(0).symbol();
                 else {

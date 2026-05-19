@@ -272,9 +272,9 @@ namespace clover {
         printArtifactName(note->module->artifact);
         const auto& [start, end] = extractPositions(note);
         if (start)
-            print(":", start->line + 1, ":", start->column + 1);
+            print(":", start->line + 1);
         else
-            print(":-:-");
+            print(":-");
         println("] " BOLDGRAY "note" RESET ": ", note->message);
         printSourceLine(note->module, start, end);
     }
@@ -283,9 +283,9 @@ namespace clover {
         print("[<unknown>");
         const auto& [start, end] = extractPositions(note);
         if (start)
-            print(":", start->line + 1, ":", start->column + 1);
+            print(":", start->line + 1);
         else
-            print(":-:-");
+            print(":-");
         println("] " BOLDGRAY "note" RESET ": ", note->message);
         printSourceLine(note->module, start, end);
     }
@@ -295,32 +295,28 @@ namespace clover {
         printArtifactName(error->module->artifact);
         const auto& [start, end] = extractPositions(error);
         if (start)
-            print(":", start->line + 1, ":", start->column + 1);
+            print(":", start->line + 1);
         else
-            print(":-:-");
+            print(":-");
         println("] " BOLDRED "error" RESET ": ", error->message);
         printSourceLine(error->module, start, end);
 
         for (Note* note : error->notes)
             reportNote(artifact, note);
-
-        println();
     }
 
     void reportError(ArtifactData* data, Error* error) {
         print("[<unknown>");
         const auto& [start, end] = extractPositions(error);
         if (start)
-            print(":", start->line + 1, ":", start->column + 1);
+            print(":", start->line + 1);
         else
-            print(":-:-");
+            print(":-");
         println("] " BOLDRED "error" RESET ": ", error->message);
         printSourceLine(error->module, start, end);
 
         for (Note* note : error->notes)
             reportNote(data, note);
-
-        println();
     }
 
     void reportErrorsAndExit(Artifact* artifact) {

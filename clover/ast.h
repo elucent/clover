@@ -3159,14 +3159,12 @@ namespace clover {
 
     inline IndexedAST AST::indexedChild(u32 i) const {
         assert(i < arity());
-        auto n = nthWord(i + HeaderSlots);
-        if (n.isRef()) {
-            auto o = &module->nodeOriginInfo[module->nodeOrigins[n.child]];
-            return AST(module, n.child, module->ast[n.child]).withOrigin(o[0].index, o[1].index);
-        } else {
-            auto o = &module->nodeOriginInfo[module->nodeOrigins[node]];
-            return AST(module, n).withOrigin(o[2 + i].index);
-        }
+        auto p = &module->nodeOriginInfo[module->nodeOrigins[node]];
+        auto o = p[2 + i];
+        if (!o.isIndex)
+            return child(i).reconstituteOrigin();
+        else
+            return child(i).withOrigin(o.index);
     }
 
     inline void AST::setChild(u32 i, AST child) {
@@ -3223,10 +3221,11 @@ namespace clover {
     inline IndexPair<u32, u32> AST::childOrigin(u32 i) const {
         assert(!isLeaf());
         AST ast = child(i);
-        if (!ast.isLeaf())
-            return ast.origin();
         auto info = &module->nodeOriginInfo[module->nodeOrigins[node]];
-        return { info[2 + i].index, info[2 + i].index };
+        auto o = info[2 + i];
+        if (o.isIndex)
+            return { info[2 + i].index, info[2 + i].index };
+        return ast.origin();
     }
 
     inline IndexPair<u32, u32> ChangePosition::origin() const {
