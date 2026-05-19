@@ -40,8 +40,8 @@ namespace clover {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
-            error(decl.module, decl.pos(), "Duplicate definition of symbol '", decl.module->str(name), "'.")
-                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
+            error(decl.module, decl, "Duplicate definition of symbol '", decl.module->str(name), "'.")
+                .note(module, module->node(varInfo.decl), "Previous definition was here.");
             return;
         }
         u32 var;
@@ -125,8 +125,8 @@ namespace clover {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
-            error(decl.module, decl.pos(), "Duplicate definition of symbol '", decl.module->str(name), "'.")
-                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
+            error(decl.module, decl, "Duplicate definition of symbol '", decl.module->str(name), "'.")
+                .note(module, module->node(varInfo.decl), "Previous definition was here.");
             return;
         }
         u32 var;
@@ -142,8 +142,8 @@ namespace clover {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
-            error(decl.module, decl.pos(), "Duplicate definition of symbol '", decl.module->str(name), "'.")
-                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
+            error(decl.module, decl, "Duplicate definition of symbol '", decl.module->str(name), "'.")
+                .note(module, module->node(varInfo.decl), "Previous definition was here.");
             return;
         }
 
@@ -205,8 +205,8 @@ namespace clover {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
-            error(module, ast.pos(), "Duplicate definition of symbol '", module->str(name), "'.")
-                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
+            error(module, ast, "Duplicate definition of symbol '", module->str(name), "'.")
+                .note(module, module->node(varInfo.decl), "Previous definition was here.");
             return;
         }
 
@@ -225,8 +225,8 @@ namespace clover {
         if (entries.find(name) != entries.end()) {
             auto prev = entries.find(name)->value;
             const auto& varInfo = function ? function->locals[prev] : module->globals[prev];
-            error(module, ast.pos(), "Duplicate definition of symbol '", module->str(name), "'.")
-                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
+            error(module, ast, "Duplicate definition of symbol '", module->str(name), "'.")
+                .note(module, module->node(varInfo.decl), "Previous definition was here.");
             return;
         }
 
@@ -245,8 +245,8 @@ namespace clover {
         auto it = entries.find(name);
         if (it != entries.end()) {
             auto& varInfo = function ? function->locals[it->value] : module->globals[it->value];
-            error(module, ast.pos(), "Duplicate definition of symbol '", module->str(name), "'.")
-                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
+            error(module, ast, "Duplicate definition of symbol '", module->str(name), "'.")
+                .note(module, module->node(varInfo.decl), "Previous definition was here.");
             return;
         }
 
@@ -263,8 +263,8 @@ namespace clover {
         auto it = entries.find(genericType->name);
         if (it != entries.end()) {
             auto& varInfo = function ? function->locals[it->value] : module->globals[it->value];
-            error(module, decl.pos(), "Duplicate definition of symbol '", module->str(genericType->name), "'.")
-                .note(module, module->node(varInfo.decl).pos(), "Previous definition was here.");
+            error(module, decl, "Duplicate definition of symbol '", module->str(genericType->name), "'.")
+                .note(module, module->node(varInfo.decl), "Previous definition was here.");
             return;
         }
 
@@ -285,7 +285,7 @@ namespace clover {
         }
     };
 
-    void defineFunctionOrOverloads(Scope* scope, Symbol name, Pos pos, void* ptr, bool isOverloads) {
+    void defineFunctionOrOverloads(Scope* scope, Symbol name, AST origin, void* ptr, bool isOverloads) {
         auto existing = scope->find(name);
         auto module = scope->module;
         if (existing) {
@@ -315,7 +315,7 @@ namespace clover {
                 } else
                     overloads = module->addOverloads(existing.scope->module->overloads[info->overloadsIndex]);
             } else
-                error(scope->module, pos, "Tried to define function '", module->str(name), "' but it was already declared as a ", VariableInfo::KindNamesLower[info->kind], ".");
+                error(scope->module, origin, "Tried to define function '", module->str(name), "' but it was already declared as a ", VariableInfo::KindNamesLower[info->kind], ".");
             if (overloads) {
                 if (isOverloads)
                     overloads->add((Overloads*)ptr);
@@ -331,12 +331,12 @@ namespace clover {
         }
     }
 
-    void defineFunction(Scope* scope, Symbol name, Pos pos, Function* function) {
-        defineFunctionOrOverloads(scope, name, pos, function, false);
+    void defineFunction(Scope* scope, Symbol name, AST origin, Function* function) {
+        defineFunctionOrOverloads(scope, name, origin, function, false);
     }
 
-    void defineOverloads(Scope* scope, Symbol name, Pos pos, Overloads* overloads) {
-        defineFunctionOrOverloads(scope, name, pos, overloads, true);
+    void defineOverloads(Scope* scope, Symbol name, AST origin, Overloads* overloads) {
+        defineFunctionOrOverloads(scope, name, origin, overloads, true);
     }
 
     void defineNamespace(Scope* scope, Namespace* relative, Namespace* ns, AST pos) {
@@ -385,11 +385,11 @@ namespace clover {
                 if (otherModule->namespaces[info.namespaceIndex] != ns)
                     newNs->addParent(otherModule->namespaces[info.namespaceIndex]);
             } else {
-                auto& e = error(module, pos.pos(), "Duplicate definition of symbol '", module->str(info.name), "'.");
+                auto& e = error(module, pos, "Duplicate definition of symbol '", module->str(info.name), "'.");
                 if (!info.isImport) {
                     AST decl = otherModule->node(info.decl);
                     if (!decl.isLeaf())
-                        e.note(otherModule, decl.pos(), "Previous definition was here.");
+                        e.note(otherModule, decl, "Previous definition was here.");
                 }
             }
         }
@@ -406,11 +406,11 @@ namespace clover {
                 case VariableKind::Type: {
                     auto existing = scope->findLocal(info.name);
                     if (existing) {
-                        auto& e = error(module, use.pos(), "Duplicate definition of symbol '", module->str(info.name), "'.");
+                        auto& e = error(module, use, "Duplicate definition of symbol '", module->str(info.name), "'.");
                         if (!info.isImport) {
                             AST decl = otherModule->node(info.decl);
                             if (!decl.isLeaf())
-                                e.note(otherModule, decl.pos(), "Previous definition was here.");
+                                e.note(otherModule, decl, "Previous definition was here.");
                         }
                         break;
                     }
@@ -424,11 +424,11 @@ namespace clover {
                 case VariableKind::Constant: {
                     auto existing = scope->findLocal(info.name);
                     if (existing) {
-                        auto& e = error(module, use.pos(), "Duplicate definition of symbol '", module->str(info.name), "'.");
+                        auto& e = error(module, use, "Duplicate definition of symbol '", module->str(info.name), "'.");
                         if (!info.isImport) {
                             AST decl = otherModule->node(info.decl);
                             if (!decl.isLeaf())
-                                e.note(otherModule, decl.pos(), "Previous definition was here.");
+                                e.note(otherModule, decl, "Previous definition was here.");
                         }
                         break;
                     }
@@ -439,14 +439,14 @@ namespace clover {
                 case VariableKind::Function: {
                     assert(info.isImport);
                     Function* function = otherModule->functions[info.functionIndex];
-                    defineFunction(scope, info.name, use.pos(), function);
+                    defineFunction(scope, info.name, use, function);
                     break;
                 }
 
                 case VariableKind::OverloadedFunction: {
                     assert(info.isImport);
                     Overloads* overloads = otherModule->overloads[info.overloadsIndex];
-                    defineOverloads(scope, info.name, use.pos(), overloads);
+                    defineOverloads(scope, info.name, use, overloads);
                     break;
                 }
 
@@ -750,7 +750,7 @@ namespace clover {
                 Scope* newScope = module->addScope(ScopeKind::Function, ast.node, currentScope, function);
                 ast.setScope(newScope);
 
-                defineFunction(currentScope, name.symbol(), ast.pos(), function);
+                defineFunction(currentScope, name.symbol(), ast, function);
 
                 // No need to skip the parameters like for a normal function -
                 // const function parameters are syntactically required to be
@@ -789,7 +789,7 @@ namespace clover {
                 Function* function = module->addFunction(ast, currentScope->function);
                 Scope* newScope = module->addScope(ScopeKind::Function, ast.node, currentScope, function);
 
-                defineFunction(currentScope, name.symbol(), ast.pos(), function);
+                defineFunction(currentScope, name.symbol(), ast, function);
 
                 ast.setScope(newScope);
                 computeScopes(module, imports, newScope, ast.child(0)); // Return type
@@ -832,7 +832,7 @@ namespace clover {
                         // Unsigned is allowed because we use the 2nd slot as
                         // a bit of a hack to stash the case's parent pointer.
                         if (ast.child(1).kind() != ASTKind::Unsigned)
-                            error(module, ast.pos(), "Type parameters are not allowed in case types.");
+                            error(module, ast, "Type parameters are not allowed in case types.");
                     } else
                         return addGenericType(module, currentScope, ast, name, ASTKind::GenericNamedDecl);
                 }
@@ -861,7 +861,7 @@ namespace clover {
                         // Unsigned is allowed because we use the 2nd slot as
                         // a bit of a hack to stash the case's parent pointer.
                         if (ast.child(1).kind() != ASTKind::Unsigned)
-                            error(module, ast.pos(), "Type parameters are not allowed in case types.");
+                            error(module, ast, "Type parameters are not allowed in case types.");
                     } else
                         return addGenericType(module, currentScope, ast, name, ASTKind::GenericStructDecl);
                 }
@@ -891,7 +891,7 @@ namespace clover {
                         // Unsigned is allowed because we use the 2nd slot as
                         // a bit of a hack to stash the case's parent pointer.
                         if (ast.child(1).kind() != ASTKind::Unsigned)
-                            error(module, ast.pos(), "Type parameters are not allowed in case types.");
+                            error(module, ast, "Type parameters are not allowed in case types.");
                     } else
                         return addGenericType(module, currentScope, ast, name, ASTKind::GenericUnionDecl);
                 }
@@ -938,8 +938,8 @@ namespace clover {
                     if (info.kind == VariableKind::Namespace && module->namespaces[info.namespaceIndex]->node == node)
                         (entry.scope == currentScope ? ns : parentNs) = entry.scope->module->namespaces[info.namespaceIndex];
                     else {
-                        error(module, ast.pos(), "Duplicate definition of symbol '", module->str(name), "'.")
-                            .note(module, module->node(info.decl).pos(), "Previous definition was here.");
+                        error(module, ast, "Duplicate definition of symbol '", module->str(name), "'.")
+                            .note(module, module->node(info.decl), "Previous definition was here.");
                         break;
                     }
                 }
@@ -1028,7 +1028,7 @@ namespace clover {
                 for (u32 i = 0; i < path.size() - 1; i ++) {
                     auto entry = defNs ? defNs->lookup(path[i]) : defScope->find(path[i]);
                     if (!entry) {
-                        error(module, ast.pos(), "Couldn't find symbol ", module->str(path[i]), " within ", module->str(path[i]), ".");
+                        error(module, ast, "Couldn't find symbol ", module->str(path[i]), " within ", module->str(path[i]), ".");
                         return;
                     }
                     if (entry.isGlobal()) {
@@ -1087,7 +1087,7 @@ namespace clover {
                 } else {
                     auto entry = defNs ? defNs->lookup(path.back()) : defScope->findLocal(path.back());
                     if (!entry) {
-                        error(module, ast.pos(), "Couldn't find symbol ", module->str(path.back()), " within ", module->str(path[path.size() - 2]), ".");
+                        error(module, ast, "Couldn't find symbol ", module->str(path.back()), " within ", module->str(path[path.size() - 2]), ".");
                         return;
                     }
                     defScope = entry.scope;
@@ -1116,7 +1116,7 @@ namespace clover {
                 Artifact* artifact = addSourceFile(module->compilation, filepath);
                 if (!artifact) {
                     auto pathstr = filepath.to_bytes();
-                    error(module, ast.pos(), "Could not load module at path '", pathstr, "'.");
+                    error(module, ast, "Could not load module at path '", pathstr, "'.");
                     delete[] pathstr.data();
                     continue;
                 }
@@ -1132,10 +1132,10 @@ namespace clover {
                         defineNamespace(scope, nullptr, ns, ast);
                     } else if (info.kind == VariableKind::Function) {
                         Function* function = otherModule->functions[info.functionIndex];
-                        defineFunction(scope, k, ast.pos(), function);
+                        defineFunction(scope, k, ast, function);
                     } else if (info.kind == VariableKind::OverloadedFunction) {
                         Overloads* overloads = otherModule->overloads[info.overloadsIndex];
-                        defineOverloads(scope, k, ast.pos(), overloads);
+                        defineOverloads(scope, k, ast, overloads);
                     } else if (info.kind == VariableKind::GenericType) {
                         GenericType* genericType = otherModule->genericTypes[info.genericTypeIndex];
                         scope->addGenericType(ast, genericType);
@@ -1144,7 +1144,7 @@ namespace clover {
                         module->scopeIndex(origin); // Do this for the side effects, to ensure we assign the origin scope an index in our module.
                         scope->addIndirect(module, ast, origin, info.index, k);
                     } else if (auto result = scope->findLocal(k)) {
-                        error(module, ast.pos(), "Duplicate symbol definition ", module->str(k), " from module ", module->str(path.back()), ".");
+                        error(module, ast, "Duplicate symbol definition ", module->str(k), " from module ", module->str(path.back()), ".");
                         break;
                     } else
                         scope->addImport(info.kind, expand(module->types->get(info.type)).index, k);

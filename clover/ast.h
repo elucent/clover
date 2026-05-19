@@ -1,6 +1,7 @@
 #ifndef CLOVER_AST_H
 #define CLOVER_AST_H
 
+#include "clover/limits.h"
 #include "rt/def.h"
 #include "util/hash.h"
 #include "util/sym.h"
@@ -10,6 +11,7 @@
 #include "clover/lex.h"
 #include "clover/scope.h"
 #include "clover/value.h"
+#include "clover/error.h"
 
 namespace clover {
     #define FOR_EACH_AST_KIND(macro) \
@@ -287,6 +289,10 @@ namespace clover {
     struct Function;
     struct Namespace;
     struct GenericType;
+    struct IndexedAST;
+
+    template<typename A, typename B>
+    struct IndexPair;
 
     struct AST {
         static constexpr u32 HeaderSlots = 1;
@@ -356,15 +362,16 @@ namespace clover {
         inline Function* function() const;
         inline void setVariable(u32 var);
         inline AST child(u32 i) const;
+        inline IndexedAST indexedChild(u32 i) const;
         inline void setChild(u32 i, AST node);
-        inline Pos pos() const;
-        inline void setPos(Pos pos);
         inline Type type() const;
         inline Type type(Module* module) const;
         inline Type type(Function* function) const;
         inline TypeIndex typeIndex() const;
         inline TypeIndex typeIndex(Module* module) const;
         inline TypeIndex typeIndex(Function* function) const;
+        inline IndexPair<u32, u32> origin() const;
+        inline IndexPair<u32, u32> childOrigin(u32 i) const;
 
         inline explicit operator bool() const {
             return module;
@@ -456,7 +463,163 @@ namespace clover {
 
         template<typename... Args>
         inline void replace(ASTKind kind, const Args&... args);
+
+        template<typename IndexSource>
+        inline IndexedAST withOrigin(IndexSource index);
+        template<typename IndexSourceA, typename IndexSourceB>
+        inline IndexedAST withOrigin(IndexSourceA first, IndexSourceB last);
+        inline IndexedAST positionless();
+
+        inline IndexedAST reconstituteOrigin(IndexPair<u32, u32> leafIndex);
+        inline IndexedAST reconstituteOrigin(u32 leafIndex);
+        inline IndexedAST reconstituteOrigin();
     };
+
+    template<typename IndexSourceA, typename IndexSourceB>
+    struct IndexPair {
+        IndexSourceA first;
+        IndexSourceB second;
+
+        inline IndexPair() = default;
+
+        inline IndexPair(const IndexSourceA& first_in, const IndexSourceB& second_in):
+            first(first_in), second(second_in) {}
+    };
+
+    struct ClonedAST : public AST {
+        inline ClonedAST(AST ast_in):
+            AST(ast_in) {}
+    };
+
+    struct IndexedAST : public AST {
+        // Used to wrap an AST with location information.
+
+        u32 first, last;
+        inline IndexedAST(AST ast, u32 first_in, u32 last_in):
+            AST(ast), first(first_in), last(last_in) {}
+
+        inline IndexedAST():
+            AST(), first(IndexedToken::InvalidIndex), last(IndexedToken::InvalidIndex) {}
+
+        inline IndexPair<u32, u32> origin() {
+            return { first, last };
+        }
+    };
+
+    template<typename IndexSource>
+    inline IndexPair<IndexSource, IndexSource> origin(const IndexSource& only_in) {
+        return IndexPair(only_in, only_in);
+    }
+
+    template<typename IndexSourceA, typename IndexSourceB>
+    inline IndexPair<IndexSourceA, IndexSourceB> origin(const IndexSourceA& first_in, const IndexSourceB& second_in) {
+        return IndexPair(first_in, second_in);
+    }
+
+    inline IndexPair<u32, u32> origin() {
+        return { IndexedToken::InvalidIndex, IndexedToken::InvalidIndex };
+    }
+
+    inline IndexPair<u32, u32> span(IndexPair<u32, u32> a, IndexPair<u32, u32> b) {
+        return { min(a.first, b.first), max(a.second, b.second) };
+    }
+
+    template<typename IndexSource>
+    inline u32 getFirstIndex(const IndexSource& i) {
+        static_assert(false, "Not a valid index source.");
+    }
+    template<typename IndexSource>
+    inline u32 getLastIndex(const IndexSource& i) {
+        static_assert(false, "Not a valid index source.");
+    }
+
+    template<>
+    inline u32 getFirstIndex(const u32& i) {
+        return i;
+    }
+
+    template<>
+    inline u32 getLastIndex(const u32& i) {
+        return i;
+    }
+
+    template<>
+    inline u32 getFirstIndex(const IndexedToken& t) {
+        return t.index;
+    }
+
+    template<>
+    inline u32 getLastIndex(const IndexedToken& t) {
+        return t.index;
+    }
+
+    template<>
+    inline u32 getFirstIndex(const IndexedAST& t) {
+        return t.first;
+    }
+
+    template<>
+    inline u32 getLastIndex(const IndexedAST& t) {
+        return t.last;
+    }
+
+    template<typename A, typename B>
+    inline u32 getFirstIndex(const IndexPair<A, B>& t) {
+        return getFirstIndex(t.first);
+    }
+
+    template<typename A, typename B>
+    inline u32 getLastIndex(const IndexPair<A, B>& t) {
+        return getLastIndex(t.second);
+    }
+
+    struct OriginalNode {
+        NodeIndex node;
+
+        inline OriginalNode(AST ast):
+            node(ast.node) {}
+
+        inline OriginalNode(NodeIndex node_in):
+            node(node_in) {}
+    };
+
+    enum class NoOriginTag {
+        NoOrigin
+    };
+
+    using enum NoOriginTag;
+
+    template<typename IndexSource>
+    inline IndexedAST AST::withOrigin(IndexSource index) {
+        return withOrigin(getFirstIndex(index), getLastIndex(index));
+    }
+
+    template<typename IndexSourceA, typename IndexSourceB>
+    inline IndexedAST AST::withOrigin(IndexSourceA first, IndexSourceB last) {
+        return IndexedAST(*this, getFirstIndex(first), getLastIndex(last));
+    }
+
+    inline IndexedAST AST::positionless() {
+        return IndexedAST(*this, IndexedToken::InvalidIndex, IndexedToken::InvalidIndex);
+    }
+
+    inline IndexedAST AST::reconstituteOrigin(IndexPair<u32, u32> origin) {
+        return reconstituteOrigin(origin.first);
+    }
+
+    inline IndexedAST AST::reconstituteOrigin(u32 leafIndex) {
+        if (!isLeaf()) {
+            auto o = origin();
+            return IndexedAST(*this, o.first, o.second);
+        }
+        return IndexedAST(*this, leafIndex, leafIndex);
+    }
+
+    inline IndexedAST AST::reconstituteOrigin() {
+        assert(!isLeaf());
+        auto o = origin();
+        return IndexedAST(*this, o.first, o.second);
+    }
 
     static_assert(sizeof(ASTWord) == 4);
 
@@ -475,10 +638,17 @@ namespace clover {
             return ast.child(child);
         }
 
+        inline IndexedAST indexedCurrent() {
+            assert(child >= 0);
+            return ast.indexedChild(child);
+        }
+
         inline void replaceWith(AST node) {
             assert(child >= 0);
             ast.setChild(child, node);
         }
+
+        inline IndexPair<u32, u32> origin() const;
     };
 
     struct Identifier {
@@ -934,7 +1104,7 @@ namespace clover {
     struct InferenceContext;
 
     using IntrinsicTypeFactory = TypeIndex(*)(InferenceContext&, Module*);
-    using IntrinsicTransformer = AST(*)(Module*, Pos, Scope*, const_slice<ASTWord>, TypeIndex, const_slice<TypeIndex>);
+    using IntrinsicTransformer = AST(*)(Module*, IndexPair<u32, u32>, Scope*, const_slice<ASTWord>, TypeIndex, const_slice<TypeIndex>);
 
     struct Intrinsic {
         IntrinsicTypeFactory typeFactory;
@@ -1344,6 +1514,11 @@ namespace clover {
 
     using enum MissingTag;
 
+    struct NodeOrigin {
+        u32 isIndex : 1;
+        u32 index : 31;
+    };
+
     struct Module : public ArtifactData {
         Compilation* compilation;
         TypeSystem* types;
@@ -1356,7 +1531,6 @@ namespace clover {
 
         // These vectors store associated data for each non-leaf node, filled
         // in in later passes.
-        vec<Pos, 8> nodePositions;
         vec<TypeIndex, 8> nodeTypes;
         vec<ScopeIndex, 8> nodeScopes;
 
@@ -1417,6 +1591,20 @@ namespace clover {
         // offsets of the start of each line.
         const_slice<i8> source;
         vec<u32> lineOffsets;
+
+        // Optional list of tokens resulting from lexing the source. Typically
+        // not actually present/nulled, but recovered during error reporting.
+        const_slice<Token> tokens;
+
+        // Stores an index per non-leaf node indicating where in
+        // childTokenOffsets the node's origin information can be found.
+        vec<u32, 8> nodeOrigins;
+
+        // Stores token indices per node, starting at nodeOrigins[nodeIndex].
+        // Each node starts with two indices indicating its bounds, then an
+        // index per child encoding either another node index or a single token
+        // index for leaf children.
+        vec<NodeOrigin> nodeOriginInfo;
 
         // Which node is the top-level scope.
         NodeIndex topLevel;
@@ -1693,7 +1881,9 @@ namespace clover {
         template<typename... Args>
         inline u32 computeArity(GenericType* const&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
-        inline u32 computeArity(const AST&, const Args&... args) { return 1 + computeArity(args...); }
+        inline u32 computeArity(const IndexedAST&, const Args&... args) { return 1 + computeArity(args...); }
+        template<typename... Args>
+        inline u32 computeArity(const ClonedAST&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename... Args>
         inline u32 computeArity(const ASTWord&, const Args&... args) { return 1 + computeArity(args...); }
         template<typename T, u32 N, typename... Args>
@@ -1771,7 +1961,17 @@ namespace clover {
             }
         }
 
-        inline void addChild(const AST& ast) {
+        inline void addChild(const IndexedAST& ast) {
+            if (ASTWord::isLeaf(ast.kind()))
+                astWords.pushUnchecked(ast.firstWord());
+            else {
+                ASTWord word;
+                word.makeRef(ast.node);
+                astWords.pushUnchecked(word);
+            }
+        }
+
+        inline void addChild(const ClonedAST& ast) {
             if (ASTWord::isLeaf(ast.kind()))
                 astWords.pushUnchecked(ast.firstWord());
             else {
@@ -1797,26 +1997,67 @@ namespace clover {
         }
 
         template<typename... Args>
-        inline AST addBranch(ASTKind kind, Pos pos, const Args&... args) {
-            assert(kind < ASTKind::NumKinds);
-            ASTWord ast;
-            ast.kind = kind;
-            ast.arity = computeArity(args...);
-            astWords.reserveBy(ast.arity + 1);
-            u32 word = astWords.size();
-            astWords.pushUnchecked(ast);
-            addChildren(args...);
+        inline void setupOrigins(AST result, NoOriginTag origin, const Args&... args) {
+            nodeOrigins.push(nodeOriginInfo.size());
+            nodeOriginInfo.push({ .isIndex = 1, .index = IndexedToken::InvalidIndex });
+            nodeOriginInfo.push({ .isIndex = 1, .index = IndexedToken::InvalidIndex });
+            for (u32 i = 0; i < result.arity(); i ++) {
+                AST child = result.child(i);
+                if (child.isLeaf())
+                    nodeOriginInfo.push({ .isIndex = 1, .index = IndexedToken::InvalidIndex });
+                else
+                    nodeOriginInfo.push({ .isIndex = 0, .index = child.node });
+            }
+        }
 
-            u32 node = this->ast.size();
-            this->ast.push(word);
-            nodePositions.push(pos);
-            assert(!nodeScopes.size());
-            assert(!nodeTypes.size());
-            return AST(this, node, word);
+        inline void writeAdditionalOrigin(NodeOrigin*& ptr, const IndexedAST& ast) {
+            if (ast.isLeaf())
+                *ptr = { .isIndex = 1, .index = ast.first };
+            ptr ++;
+        }
+
+        inline void writeAdditionalOrigin(NodeOrigin*& ptr, const vec<IndexedAST>& asts) {
+            for (const auto& ast : asts)
+                writeAdditionalOrigin(ptr, ast);
+        }
+
+        template<typename T>
+        inline void writeAdditionalOrigin(NodeOrigin*& ptr, const T& t) {
+            ptr ++;
+        }
+
+        inline void writeAdditionalOrigins(NodeOrigin*) {}
+
+        template<typename T, typename... Args>
+        inline void writeAdditionalOrigins(NodeOrigin* ptr, const T& t, const Args&... args) {
+            writeAdditionalOrigin(ptr, t);
+            writeAdditionalOrigins(ptr, args...);
         }
 
         template<typename... Args>
-        inline AST addBranch(ASTKind kind, Pos pos, ScopeIndex scope, const Args&... args) {
+        inline void setupOrigins(AST result, IndexPair<u32, u32> origin, const Args&... args) {
+            nodeOrigins.push(nodeOriginInfo.size());
+            nodeOriginInfo.push({ .isIndex = 1, .index = origin.first });
+            nodeOriginInfo.push({ .isIndex = 1, .index = origin.second });
+            auto size = nodeOriginInfo.size();
+            for (u32 i = 0; i < result.arity(); i ++) {
+                AST child = result.child(i);
+                if (child.isLeaf())
+                    nodeOriginInfo.push({ .isIndex = 1, .index = IndexedToken::InvalidIndex });
+                else
+                    nodeOriginInfo.push({ .isIndex = 0, .index = child.node });
+            }
+            writeAdditionalOrigins(nodeOriginInfo.data() + size, args...);
+        }
+
+        template<typename... Args>
+        inline void setupOrigins(AST result, OriginalNode origin, const Args&... args) {
+            auto prev = nodeOrigins[origin.node];
+            nodeOrigins.push(prev);
+        }
+
+        template<typename... Args>
+        inline AST baseAddBranch(ASTKind kind, const Args&... args) {
             assert(kind < ASTKind::NumKinds);
             ASTWord ast;
             ast.kind = kind;
@@ -1828,32 +2069,37 @@ namespace clover {
 
             u32 node = this->ast.size();
             this->ast.push(word);
-            nodePositions.push(pos);
+            return AST(this, node, word);
+        }
+
+        template<typename Origin, typename... Args>
+        inline AST addBranch(ASTKind kind, Origin origin, const Args&... args) {
+            AST result = baseAddBranch(kind, args...);
+            setupOrigins(result, origin, args...);
+            assert(!nodeScopes.size());
+            assert(!nodeTypes.size());
+            return result;
+        }
+
+        template<typename Origin, typename... Args>
+        inline AST addBranch(ASTKind kind, Origin origin, ScopeIndex scope, const Args&... args) {
+            AST result = baseAddBranch(kind, args...);
+            setupOrigins(result, origin, args...);
             assert(nodeScopes.size());
             nodeScopes.push(scope);
             assert(!nodeTypes.size());
-            return AST(this, node, word);
+            return result;
         }
 
-        template<typename... Args>
-        inline AST addBranch(ASTKind kind, Pos pos, ScopeIndex scope, TypeIndex type, const Args&... args) {
-            assert(kind < ASTKind::NumKinds);
-            ASTWord ast;
-            ast.kind = kind;
-            ast.arity = computeArity(args...);
-            astWords.reserveBy(ast.arity + 1);
-            u32 word = astWords.size();
-            astWords.pushUnchecked(ast);
-            addChildren(args...);
-
-            u32 node = this->ast.size();
-            this->ast.push(word);
-            nodePositions.push(pos);
+        template<typename Origin, typename... Args>
+        inline AST addBranch(ASTKind kind, Origin origin, ScopeIndex scope, TypeIndex type, const Args&... args) {
+            AST result = baseAddBranch(kind, args...);
+            setupOrigins(result, origin, args...);
             assert(nodeScopes.size());
             nodeScopes.push(scope);
             assert(nodeTypes.size());
             nodeTypes.push(type);
-            return AST(this, node, word);
+            return result;
         }
 
         inline AST replace(AST existing, AST node) {
@@ -1884,45 +2130,115 @@ namespace clover {
 
         template<typename... Args>
         inline AST addBranchNoPos(ASTKind kind, const Args&... args) {
-            return addBranch(kind, Pos(0, 0), args...);
+            return addBranch(kind, NoOrigin, args...);
         }
 
         template<typename... Args>
-        inline AST add(ASTKind kind, Pos pos, const Args&... args) {
+        inline AST add(ASTKind kind, ScopeIndex scope, const Args&... args) {
             assert(!ASTWord::isLeaf(kind));
-            return addBranch(kind, pos, args...);
+            return addBranch(kind, NoOrigin, scope, args...);
         }
 
         template<typename... Args>
-        inline AST add(ASTKind kind, Pos pos, ScopeIndex scope, const Args&... args) {
+        inline AST add(ASTKind kind, ScopeIndex scope, TypeIndex type, const Args&... args) {
             assert(!ASTWord::isLeaf(kind));
-            return addBranch(kind, pos, scope, args...);
+            return addBranch(kind, NoOrigin, scope, type, args...);
         }
 
         template<typename... Args>
-        inline AST add(ASTKind kind, Pos pos, ScopeIndex scope, TypeIndex type, const Args&... args) {
+        inline AST add(ASTKind kind, IndexPair<u32, u32> origin, const Args&... args) {
             assert(!ASTWord::isLeaf(kind));
-            return addBranch(kind, pos, scope, type, args...);
+            return addBranch(kind, origin, args...);
         }
 
         template<typename... Args>
-        inline AST add(ASTKind kind, Pos pos, Scope* scope, const Args&... args) {
-            return add(kind, pos, scope->index, args...);
+        inline AST add(ASTKind kind, IndexPair<u32, u32> origin, ScopeIndex scope, const Args&... args) {
+            assert(!ASTWord::isLeaf(kind));
+            return addBranch(kind, origin, scope, args...);
         }
 
         template<typename... Args>
-        inline AST add(ASTKind kind, Pos pos, Scope* scope, TypeIndex type, const Args&... args) {
-            return add(kind, pos, scope->index, type, args...);
+        inline AST add(ASTKind kind, IndexPair<u32, u32> origin, ScopeIndex scope, TypeIndex type, const Args&... args) {
+            assert(!ASTWord::isLeaf(kind));
+            return addBranch(kind, origin, scope, type, args...);
         }
 
         template<typename... Args>
-        inline AST add(ASTKind kind, Pos pos, ScopeIndex scope, Type type, const Args&... args) {
-            return add(kind, pos, scope, type.index, args...);
+        inline AST add(ASTKind kind, OriginalNode origin, const Args&... args) {
+            assert(!ASTWord::isLeaf(kind));
+            return addBranch(kind, origin, args...);
         }
 
         template<typename... Args>
-        inline AST add(ASTKind kind, Pos pos, Scope* scope, Type type, const Args&... args) {
-            return add(kind, pos, scope->index, type.index, args...);
+        inline AST add(ASTKind kind, OriginalNode origin, ScopeIndex scope, const Args&... args) {
+            assert(!ASTWord::isLeaf(kind));
+            return addBranch(kind, origin, scope, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, OriginalNode origin, ScopeIndex scope, TypeIndex type, const Args&... args) {
+            assert(!ASTWord::isLeaf(kind));
+            return addBranch(kind, origin, scope, type, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, Scope* scope, const Args&... args) {
+            return addBranch(kind, NoOrigin, scope->index, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, Scope* scope, TypeIndex type, const Args&... args) {
+            return addBranch(kind, NoOrigin, scope->index, type, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, ScopeIndex scope, Type type, const Args&... args) {
+            return addBranch(kind, NoOrigin, scope, type.index, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, Scope* scope, Type type, const Args&... args) {
+            return addBranch(kind, NoOrigin, scope->index, type.index, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, OriginalNode origin, Scope* scope, const Args&... args) {
+            return addBranch(kind, origin, scope->index, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, OriginalNode origin, Scope* scope, TypeIndex type, const Args&... args) {
+            return addBranch(kind, origin, scope->index, type, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, OriginalNode origin, ScopeIndex scope, Type type, const Args&... args) {
+            return addBranch(kind, origin, scope, type.index, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, OriginalNode origin, Scope* scope, Type type, const Args&... args) {
+            return addBranch(kind, origin, scope->index, type.index, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, IndexPair<u32, u32> origin, Scope* scope, const Args&... args) {
+            return addBranch(kind, origin, scope->index, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, IndexPair<u32, u32> origin, Scope* scope, TypeIndex type, const Args&... args) {
+            return addBranch(kind, origin, scope->index, type, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, IndexPair<u32, u32> origin, ScopeIndex scope, Type type, const Args&... args) {
+            return addBranch(kind, origin, scope, type.index, args...);
+        }
+
+        template<typename... Args>
+        inline AST add(ASTKind kind, IndexPair<u32, u32> origin, Scope* scope, Type type, const Args&... args) {
+            return addBranch(kind, origin, scope->index, type.index, args...);
         }
 
         template<typename... Args>
@@ -1932,6 +2248,39 @@ namespace clover {
                 return addLeaf(kind, args...);
             else
                 return addBranchNoPos(kind, args...);
+        }
+
+        void addChildOrigin(const IndexedAST& ast) {
+            if (ast.isLeaf()) {
+                assert(ast.first == ast.last); // Not really important, but should be true for now.
+                nodeOriginInfo.push({ .isIndex = 1, .index = ast.first });
+            } else
+                nodeOriginInfo.push({ .isIndex = 0, .index = ast.node });
+        }
+
+        template<typename T>
+        void addChildOrigin(const T& t) {
+            static_assert(!isSame<T, AST>, "Non-indexed AST is not allowed in initial addition.");
+        }
+
+        void addChildOrigins() {}
+
+        template<typename T, typename... Args>
+        void addChildOrigins(const T& t, const Args&... args) {
+            addChildOrigin(t);
+            addChildOrigins(args...);
+        }
+
+        template<typename A, typename B, typename... Args>
+        inline IndexedAST addInitial(ASTKind kind, const IndexPair<A, B>& bounds, const Args&... args) {
+            AST ast = add(kind, args...);
+            auto first = getFirstIndex(bounds);
+            auto last = getLastIndex(bounds);
+            nodeOrigins.push(nodeOriginInfo.size());
+            nodeOriginInfo.push({ .isIndex = 1, .index = first });
+            nodeOriginInfo.push({ .isIndex = 1, .index = last });
+            addChildOrigins(args...);
+            return ast.withOrigin(first, last);
         }
 
         inline AST node(NodeIndex index) {
@@ -1950,17 +2299,17 @@ namespace clover {
                 return AST(this, word);
         }
 
-        inline AST clone(AST ast) {
+        inline ClonedAST clone(AST ast) {
             if (ast.isLeaf())
                 return ast;
             assert(ast.module == this);
-            vec<AST, 16> nodes;
+            vec<ClonedAST, 16> nodes;
             for (AST child : ast)
                 nodes.push(clone(child));
             if (nodeTypes.size())
-                return add(ast.kind(), ast.pos(), InvalidScope, InvalidType, nodes);
+                return add(ast.kind(), OriginalNode(ast), InvalidScope, InvalidType, nodes);
             else
-                return add(ast.kind(), ast.pos(), nodes);
+                return add(ast.kind(), OriginalNode(ast), nodes);
         }
 
         template<typename... Args>
@@ -2330,8 +2679,8 @@ namespace clover {
         void printScope(Compilation* compilation, Scope* scope, const vec<vec<Scope*>>& children, u32 indent);
         u64 reportSize() override;
 
-        vec<AST, 32>* tempTopLevel = nullptr; // Used only in aggressive validation.
-        void setTempTopLevel(vec<AST, 32>& topLevel);
+        vec<IndexedAST, 32>* tempTopLevel = nullptr; // Used only in aggressive validation.
+        void setTempTopLevel(vec<IndexedAST, 32>& topLevel);
         void validateAggressively();
         void validateAggressively(AST ast);
         bool shouldValidate = false;
@@ -2823,22 +3172,24 @@ namespace clover {
             return AST(module, n);
     }
 
+    inline IndexedAST AST::indexedChild(u32 i) const {
+        assert(i < arity());
+        auto n = nthWord(i + HeaderSlots);
+        if (n.isRef()) {
+            auto o = &module->nodeOriginInfo[module->nodeOrigins[n.child]];
+            return AST(module, n.child, module->ast[n.child]).withOrigin(o[0].index, o[1].index);
+        } else {
+            auto o = &module->nodeOriginInfo[module->nodeOrigins[node]];
+            return AST(module, n).withOrigin(o[2 + i].index);
+        }
+    }
+
     inline void AST::setChild(u32 i, AST child) {
         assert(i < arity());
         if (child.isLeaf())
             nthWord(i + HeaderSlots) = child.word;
         else
             nthWord(i + HeaderSlots).makeRef(child.node);
-    }
-
-    inline Pos AST::pos() const {
-        assert(!isLeaf());
-        return module->nodePositions[node];
-    }
-
-    inline void AST::setPos(Pos pos) {
-        assert(!isLeaf());
-        module->nodePositions[node] = pos;
     }
 
     inline Scope* AST::scope() const {
@@ -2876,6 +3227,25 @@ namespace clover {
             assert(!isLeaf());
             return typeIndex();
         }
+    }
+
+    inline IndexPair<u32, u32> AST::origin() const {
+        assert(!isLeaf());
+        auto info = &module->nodeOriginInfo[module->nodeOrigins[node]];
+        return { info[0].index, info[1].index };
+    }
+
+    inline IndexPair<u32, u32> AST::childOrigin(u32 i) const {
+        assert(!isLeaf());
+        AST ast = child(i);
+        if (!ast.isLeaf())
+            return ast.origin();
+        auto info = &module->nodeOriginInfo[module->nodeOrigins[node]];
+        return { info[2 + i].index, info[2 + i].index };
+    }
+
+    inline IndexPair<u32, u32> ChangePosition::origin() const {
+        return ast.childOrigin(child);
     }
 
     inline Type AST::type() const {
@@ -3181,9 +3551,65 @@ namespace clover {
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const ASTWithPos& ast) {
         io = format_tree_to(io, AST(), ast.ast, 0, true, -1);
-        if (!ast.ast.isLeaf())
-            io = format(io, " [", ast.ast.pos().line + 1, ":", ast.ast.pos().column + 1, "]");
         return io;
+    }
+
+    inline Note::Note(ArtifactData* module_in, AST node_in, const_slice<i8> message_in):
+        module(module_in), node(node_in.node), child(-1), message(message_in), isNode(true) {}
+
+    template<typename... Args>
+    inline Note::Note(ArtifactData* module_in, AST node_in, const Args&... args):
+        Note(module_in, node_in, tostring(args...)) {}
+
+    inline Note::Note(ArtifactData* module_in, ChangePosition node_in, const_slice<i8> message_in):
+        module(module_in), node(node_in.ast.node), child(node_in.child), message(message_in), isNode(true) {}
+
+    template<typename... Args>
+    inline Note::Note(ArtifactData* module_in, ChangePosition node_in, const Args&... args):
+        Note(module_in, node_in, tostring(args...)) {}
+
+    inline Error::Error(ArtifactData* module_in, AST node_in, const_slice<i8> message_in):
+        Note(module_in, node_in, message_in), next(nullptr) {}
+
+    template<typename... Args>
+    inline Error::Error(ArtifactData* module_in, AST node_in, const Args&... args):
+        Error(module_in, node_in, tostring(args...)) {}
+
+    inline Error::Error(ArtifactData* module_in, ChangePosition node_in, const_slice<i8> message_in):
+        Note(module_in, node_in, message_in), next(nullptr) {}
+
+    template<typename... Args>
+    inline Error::Error(ArtifactData* module_in, ChangePosition node_in, const Args&... args):
+        Error(module_in, node_in, tostring(args...)) {}
+
+    template<typename... Args>
+    inline Error& error(ArtifactData* module, AST ast, const Args&... args) {
+        Error* error = new Error(module, ast, args...);
+        module->addError(error);
+        if UNLIKELY(config::reportErrorsImmediately)
+            reportErrorsAndExit(module);
+        return *error;
+    }
+
+    template<typename... Args>
+    inline Error& Error::note(ArtifactData* module, AST ast, const Args&... args) {
+        notes.push(new Note(module, ast, args...));
+        return *this;
+    }
+
+    template<typename... Args>
+    inline Error& error(ArtifactData* module, ChangePosition ast, const Args&... args) {
+        Error* error = new Error(module, ast, args...);
+        module->addError(error);
+        if UNLIKELY(config::reportErrorsImmediately)
+            reportErrorsAndExit(module);
+        return *error;
+    }
+
+    template<typename... Args>
+    inline Error& Error::note(ArtifactData* module, ChangePosition ast, const Args&... args) {
+        notes.push(new Note(module, ast, args...));
+        return *this;
     }
 }
 

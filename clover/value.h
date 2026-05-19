@@ -238,18 +238,18 @@ namespace clover {
     }
 
     inline IndexedProps* makeIndices(u32 length) {
-        i8* ptr = new i8[sizeof(i64) + sizeof(IndexedProps) + sizeof(Value) * length];
-        *(i64*)ptr = 0;
-        IndexedProps* props = (IndexedProps*)(ptr + sizeof(i64));
+        i8* ptr = new i8[sizeof(IndexedProps) + sizeof(Value) * length];
+        IndexedProps* props = (IndexedProps*)ptr;
+        props->count = 0;
         props->length = length;
         props->isString = false;
         return props;
     }
 
     inline IndexedProps* makeStringIndices(u32 length) {
-        i8* ptr = new i8[sizeof(i64) + sizeof(IndexedProps) + length];
-        *(i64*)ptr = 0;
+        i8* ptr = new i8[sizeof(IndexedProps) + length];
         IndexedProps* props = (IndexedProps*)(ptr + sizeof(i64));
+        props->count = 0;
         props->length = length;
         props->isString = true;
         return props;
@@ -262,9 +262,9 @@ namespace clover {
     }
 
     inline KeyedProps* makeKeys() {
-        i8* ptr = new i8[sizeof(i64) + sizeof(KeyedProps)];
-        *(i64*)ptr = 0;
+        i8* ptr = new i8[sizeof(KeyedProps)];
         KeyedProps* props = (KeyedProps*)(ptr + sizeof(i64));
+        props->count = 0;
         return new (props) KeyedProps();
     }
 

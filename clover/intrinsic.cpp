@@ -13,9 +13,9 @@ namespace clover {
             Type var = module->varType();
             return module->funType(module->sliceType(NoRefTraits, var), module->sliceType(NoRefTraits, var)).index;
         };
-        intrinsic.transform = [](Module* module, Pos pos, Scope* scope, const_slice<ASTWord> params, TypeIndex returnType, const_slice<TypeIndex> paramTypes) -> AST {
+        intrinsic.transform = [](Module* module, IndexPair<u32, u32> origin, Scope* scope, const_slice<ASTWord> params, TypeIndex returnType, const_slice<TypeIndex> paramTypes) -> AST {
             assert(params.size() == 1);
-            return module->add(ASTKind::GetSlice, pos, scope, paramTypes[0], params[0], Constant::IntConst(1), Missing);
+            return module->add(ASTKind::GetSlice, origin, scope, paramTypes[0], params[0], Constant::IntConst(1), Missing);
         };
         return new Function(compilation, type.index, MethodNext, true, intrinsic);
     }
@@ -30,9 +30,9 @@ namespace clover {
             Type var = module->varType();
             return module->funType(var, module->sliceType(NoRefTraits, var)).index;
         };
-        intrinsic.transform = [](Module* module, Pos pos, Scope* scope, const_slice<ASTWord> params, TypeIndex returnType, const_slice<TypeIndex> paramTypes) -> AST {
+        intrinsic.transform = [](Module* module, IndexPair<u32, u32> origin, Scope* scope, const_slice<ASTWord> params, TypeIndex returnType, const_slice<TypeIndex> paramTypes) -> AST {
             assert(params.size() == 1);
-            return module->add(ASTKind::GetIndex, pos, scope, returnType, params[0], Constant::IntConst(0));
+            return module->add(ASTKind::GetIndex, origin, scope, returnType, params[0], Constant::IntConst(0));
         };
         return new Function(compilation, type.index, MethodRead, true, intrinsic);
     }
@@ -47,12 +47,12 @@ namespace clover {
             Type var = module->varType();
             return module->funType(Bool, module->sliceType(NoRefTraits, var)).index;
         };
-        intrinsic.transform = [](Module* module, Pos pos, Scope* scope, const_slice<ASTWord> params, TypeIndex returnType, const_slice<TypeIndex> paramTypes) -> AST {
+        intrinsic.transform = [](Module* module, IndexPair<u32, u32> origin, Scope* scope, const_slice<ASTWord> params, TypeIndex returnType, const_slice<TypeIndex> paramTypes) -> AST {
             assert(params.size() == 1);
             return module->add(
-                ASTKind::Equal, pos, scope, module->boolType(),
+                ASTKind::Equal, scope, module->boolType(),
                 Constant::IntConst(0),
-                module->add(ASTKind::Length, pos, scope, module->u64Type(), params[0])
+                module->add(ASTKind::Length, origin, scope, module->u64Type(), params[0])
             );
         };
         return new Function(compilation, type.index, MethodDone, true, intrinsic);
@@ -68,7 +68,7 @@ namespace clover {
             Type var = module->varType();
             return module->funType(module->sliceType(NoRefTraits, var), module->sliceType(NoRefTraits, var)).index;
         };
-        intrinsic.transform = [](Module* module, Pos pos, Scope* scope, const_slice<ASTWord> params, TypeIndex returnType, const_slice<TypeIndex> paramTypes) -> AST {
+        intrinsic.transform = [](Module* module, IndexPair<u32, u32> origin, Scope* scope, const_slice<ASTWord> params, TypeIndex returnType, const_slice<TypeIndex> paramTypes) -> AST {
             if (params[0].isRef())
                 return module->node(params[0].child);
             else

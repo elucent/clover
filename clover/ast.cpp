@@ -194,7 +194,8 @@ namespace clover {
         u64 size = 0;
         size += sizeof(ASTWord) * astWords.size();
         size += sizeof(NodeIndex) * ast.size();
-        size += sizeof(Pos) * nodePositions.size();
+        size += sizeof(u32) * nodeOrigins.size();
+        size += sizeof(NodeOrigin) * nodeOriginInfo.size();
         size += sizeof(ScopeIndex) * nodeScopes.size();
         size += sizeof(TypeIndex) * nodeTypes.size();
         size += sizeof(Scope*) * scopes.size();
@@ -225,7 +226,7 @@ namespace clover {
             validateAggressively(module, function, ast.child(i));
     }
 
-    void Module::setTempTopLevel(vec<AST, 32>& top) {
+    void Module::setTempTopLevel(vec<IndexedAST, 32>& top) {
         tempTopLevel = &top;
     }
 

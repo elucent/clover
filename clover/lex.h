@@ -81,6 +81,21 @@ namespace clover {
 
     static_assert(sizeof(Token) == 8);
 
+    struct IndexedToken : public Token {
+        static constexpr u32 InvalidIndex = 0x7fffffffu;
+
+        u32 index;
+
+        inline IndexedToken():
+            Token(ReservedSymbols::MetaNone, {}), index(InvalidIndex) {}
+
+        inline IndexedToken(Symbol token_in, Pos pos_in, u32 index_in):
+            Token(token_in, pos_in), index(index_in) {}
+
+        inline IndexedToken(Token token_in, u32 index_in):
+            Token(token_in), index(index_in) {}
+    };
+
     struct Tokens : public ArtifactData {
         const_slice<i8> source;
         vec<Token, 32> tokens;

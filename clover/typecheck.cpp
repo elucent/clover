@@ -1034,11 +1034,11 @@ namespace clover {
                     // append a void return, so we add a `then` expression that
                     // can be easily substituted in place of the previous
                     // expression.
-                    AST voidReturn = module->add(ASTKind::Return, node.isLeaf() ? parent.pos() : node.pos(), parent.scope(), module->voidType(), Missing);
-                    AST result = module->add(ASTKind::Then, voidReturn.pos(), parent.scope(), module->invalidType(), node, voidReturn);
+                    AST voidReturn = module->add(ASTKind::Return, toChange.origin(), parent.scope(), module->voidType(), Missing);
+                    AST result = module->add(ASTKind::Then, voidReturn.origin(), parent.scope(), module->invalidType(), node.reconstituteOrigin(toChange.origin()), voidReturn.reconstituteOrigin());
                     toChange.replaceWith(result);
                 } else {
-                    AST newReturn = module->add(ASTKind::Return, node.isLeaf() ? parent.pos() : node.pos(), parent.scope(), module->voidType(), node);
+                    AST newReturn = module->add(ASTKind::Return, toChange.origin(), parent.scope(), module->voidType(), node.reconstituteOrigin(toChange.origin()));
                     unify(inferredType(ctx, parent.function(), node), returnType, newReturn, ctx);
                     toChange.replaceWith(newReturn);
                 }
@@ -1246,7 +1246,7 @@ namespace clover {
                 Type inst = instantiateType(ast);
                 if (inst.isNamed() && inst.asNamed().innerType() == Void) {
                     // It's an atom, so it's allowed to be used in a value position.
-                    return fromNode(inst.index, module->add(ASTKind::GenericInst, {}, InvalidScope, inst, ast));
+                    return fromNode(inst.index, module->add(ASTKind::GenericInst, origin(), InvalidScope, inst, ast));
                 }
                 unreachable("Type expressions are not allowed in value positions unless they are atoms.");
             }
@@ -2384,7 +2384,7 @@ namespace clover {
         }
 
         AST oldDecl = module->node(generic->decl);
-        AST newDecl = module->add(ASTKind::FunDecl, oldDecl.pos(), InvalidScope, InvalidType, module->clone(oldDecl.child(0)), Missing, module->clone(oldDecl.child(2)), module->clone(oldDecl.child(3)), module->clone(oldDecl.child(4)));
+        AST newDecl = module->add(ASTKind::FunDecl, oldDecl.origin(), InvalidScope, InvalidType, module->clone(oldDecl.child(0)), Missing, module->clone(oldDecl.child(2)), module->clone(oldDecl.child(3)), module->clone(oldDecl.child(4)));
         Function* newFunction = module->addFunction(newDecl, generic->parent, generic->name);
         newFunction->isInstantiation = true;
         newFunction->generic = generic;
@@ -2871,16 +2871,16 @@ namespace clover {
                         AST newAST;
                         switch (ast.kind()) {
                             case ASTKind::GetField:
-                                module->replace(ast, module->add(ASTKind::GetFields, ast.pos(), ast.scope(), result, ast.child(0), indices));
+                                module->replace(ast, module->add(ASTKind::GetFields, ast.origin(), ast.scope(), result, ast.indexedChild(0), indices));
                                 break;
                             case ASTKind::AddrField:
-                                module->replace(ast, module->add(ASTKind::AddrFields, ast.pos(), ast.scope(), result, ast.child(0), indices));
+                                module->replace(ast, module->add(ASTKind::AddrFields, ast.origin(), ast.scope(), result, ast.indexedChild(0), indices));
                                 break;
                             case ASTKind::EnsureAddrField:
                                 unreachable("TODO: Implement swizzling for ensured field.");
                                 break;
                             case ASTKind::SetField:
-                                module->replace(ast, module->add(ASTKind::SetFields, ast.pos(), ast.scope(), module->voidType(), ast.child(0), indices, ast.child(2)));
+                                module->replace(ast, module->add(ASTKind::SetFields, ast.origin(), ast.scope(), module->voidType(), ast.indexedChild(0), indices, ast.indexedChild(2)));
                                 unify(inferredType(ctx, function, ast.child(2)), result, ast, ctx);
                                 refinedType.asVar().makeEqual(module->voidType());
                                 break;
@@ -3004,7 +3004,7 @@ namespace clover {
                     auto arg = inferredType(ctx, function, ast.child(1));
                     auto dereffed = dereferenceIfPointer(module, arg, false);
                     AST prev = ast.child(1);
-                    ast.setChild(1, module->add(ASTKind::Deref, ast.pos(), ast.scope(), dereffed, ast.child(1)));
+                    ast.setChild(1, module->add(ASTKind::Deref, ast.childOrigin(1), ast.scope(), dereffed, ast.indexedChild(1)));
                     if (isOverloadedFunction(function, ast.child(0)))
                         resolution = refineOverloadedCall(ctx, function, ast);
                     else
@@ -3017,7 +3017,7 @@ namespace clover {
                     switch (ast.child(1).kind()) {
                         case ASTKind::Local:
                         case ASTKind::Global:
-                            ast.setChild(1, module->add(ASTKind::AddressOf, ast.pos(), ast.scope(), module->ptrType(eliminateRange(arg)), ast.child(1)));
+                            ast.setChild(1, module->add(ASTKind::AddressOf, ast.childOrigin(1), ast.scope(), module->ptrType(eliminateRange(arg)), ast.indexedChild(1)));
                             break;
                         case ASTKind::GetIndex:
                             ast.child(1).setKind(ASTKind::AddrIndex);
@@ -3957,9 +3957,9 @@ namespace clover {
                         Type paramType = concreteType(module, inferredType(ctx, function, ast.child(i)));
                         types.push(paramType.index);
                     }
-                    AST intrinsicNode = intrinsic.transform(module, ast.pos(), ast.scope(), params, concreteType(module, ast.type()).index, types);
+                    AST intrinsicNode = intrinsic.transform(module, ast.origin(), ast.scope(), params, concreteType(module, ast.type()).index, types);
                     if (intrinsicNode.isLeaf())
-                        intrinsicNode = module->add(ASTKind::Paren, ast.pos(), ast.scope(), inferredType(ctx, function, intrinsicNode), intrinsicNode);
+                        intrinsicNode = module->add(ASTKind::Paren, ast.origin(), ast.scope(), inferredType(ctx, function, intrinsicNode), intrinsicNode);
                     unifyInPlace(intrinsicNode.type(), ast);
                     module->replace(ast, intrinsicNode);
                 }
@@ -4081,7 +4081,7 @@ namespace clover {
         if (genericDecl.child(1).missing())
             genericDecl.setChild(1, decl);
         else
-            genericDecl.setChild(1, module->add(ASTKind::Then, genericDecl.pos(), genericDecl.scope(), module->voidType(), genericDecl.child(1), decl));
+            genericDecl.setChild(1, module->add(ASTKind::Then, genericDecl.origin(), genericDecl.scope(), module->voidType(), genericDecl.child(1), decl));
     }
 
     NOINLINE Artifact* inferAndCheckTypes(Artifact* artifact) {
