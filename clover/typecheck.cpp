@@ -1427,8 +1427,8 @@ namespace clover {
                 // this node reads and writes. And because lhs is both read and
                 // written, we need to unify it onto our node, and vice versa,
                 // resulting in an equality bound.
-                unify(lhs.type(module), module->ptrType(varType), ast, ctx);
-                unify(module->ptrType(varType), lhs.type(module), ast, ctx);
+                unify(lhs.type(module), module->ptrType(Uninit, varType), ast, ctx);
+                unify(module->ptrType(Own, varType), lhs.type(module), ast, ctx);
                 unify(rhs, varType, ast, ctx);
                 ast.setType(module->voidType());
                 return fromType(module->voidType()); // These are still assignments, so they don't currently return a value.
@@ -1455,8 +1455,8 @@ namespace clover {
                 // this node reads and writes. And because lhs is both read and
                 // written, we need to unify it onto our node, and vice versa,
                 // resulting in an equality bound.
-                unify(lhs.type(module), module->ptrType(varType), ast, ctx);
-                unify(module->ptrType(varType), lhs.type(module), ast, ctx);
+                unify(lhs.type(module), module->ptrType(Uninit, varType), ast, ctx);
+                unify(module->ptrType(Own, varType), lhs.type(module), ast, ctx);
                 unify(rhs, varType, ast, ctx);
                 ast.setType(module->voidType());
                 return fromType(module->voidType()); // These are still assignments, so they don't currently return a value.
@@ -1478,8 +1478,8 @@ namespace clover {
                 // this node reads and writes. And because value is both read
                 // and written, we need to unify it onto our node, and vice
                 // versa, resulting in an equality bound.
-                unify(value, module->ptrType(ast.type()), ast, ctx);
-                unify(module->ptrType(ast.type()), value.type(module), ast, ctx);
+                unify(value, module->ptrType(Uninit, ast.type()), ast, ctx);
+                unify(module->ptrType(Own, ast.type()), value.type(module), ast, ctx);
                 return fromNodeType(ast); // Unlike compound assignment, increment/decrements return a value.
             }
 

@@ -4199,6 +4199,8 @@ namespace clover {
                 assert(!ub.asArray().isTop());
             return ub;
         }
+        if (lb.isPtr() && lb.asPtr().isOwn())
+            return lb;
         if (lb.isNum()) {
             const auto& num = lb.asNum();
             u32 numBits = lb.asNum().bitCount();

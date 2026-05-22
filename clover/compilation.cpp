@@ -383,6 +383,12 @@ namespace clover {
                 if (artifact->hasErrors())
                     reportErrorsAndExit(artifact);
                 return artifact;
+            case ArtifactKind::AnalyzedAST:
+                artifact = compileUntil(compilation, ArtifactKind::CheckedAST, artifact);
+                artifact = clover::analyze(artifact);
+                if (artifact->hasErrors())
+                    reportErrorsAndExit(artifact);
+                return artifact;
             case ArtifactKind::FinalizedAST:
                 artifact = compileUntil(compilation, config::finalizeAfterTypechecking ? ArtifactKind::CheckedAST : ArtifactKind::AnalyzedAST, artifact);
                 artifact->update(ArtifactKind::FinalizedAST, artifact->as<Module>());

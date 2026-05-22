@@ -102,6 +102,7 @@ namespace clover {
         macro(New, new, new, false, 1) \
         macro(NewArray, newArray, new_array, false, 1) \
         macro(Del, del, del, false, 1) \
+        macro(DelArray, delArray, del_array, false, 1) \
         \
         /* Aggregates */ \
         macro(Call, call, call, false, -1) \
@@ -613,24 +614,27 @@ namespace clover {
         inline ChangePosition():
             child(-1) {}
 
+        inline ChangePosition(AST ast_in):
+            ast(ast_in), child(-1) {
+            assert(!ast.isLeaf());
+        }
+
         inline ChangePosition(AST ast_in, u32 child_in):
             ast(ast_in), child(child_in) {}
 
         inline AST current() {
-            assert(child >= 0);
+            if (child == -1)
+                return ast;
             return ast.child(child);
         }
 
         inline IndexedAST indexedCurrent() {
-            assert(child >= 0);
+            if (child == -1)
+                return ast.reconstituteOrigin();
             return ast.indexedChild(child);
         }
 
-        inline void replaceWith(AST node) {
-            assert(child >= 0);
-            ast.setChild(child, node);
-        }
-
+        inline void replaceWith(AST node);
         inline IndexPair<u32, u32> origin() const;
     };
 
@@ -688,6 +692,9 @@ namespace clover {
             assert(isModule());
             return (Module*)(bits & ~1ull);
         }
+
+        inline const VariableInfo& varInfo(u32 var) const;
+        inline VariableInfo& varInfo(u32 var);
     };
 
     struct ConstInfo {
@@ -2671,6 +2678,17 @@ namespace clover {
         }
     };
 
+    inline const VariableInfo& ModuleOrFunction::varInfo(u32 var) const {
+        if (isModule())
+            return module()->globals[var];
+        return function()->locals[var];
+    }
+
+    inline VariableInfo& ModuleOrFunction::varInfo(u32 var) {
+        if (isModule())
+            return module()->globals[var];
+        return function()->locals[var];
+    }
 
     template<typename Func>
     void Namespace::forEachDefinition(Func&& func) {
@@ -3162,7 +3180,7 @@ namespace clover {
         auto p = &module->nodeOriginInfo[module->nodeOrigins[node]];
         auto o = p[2 + i];
         if (!o.isIndex)
-            return child(i).reconstituteOrigin();
+            return child(i).reconstituteOrigin(origin());
         else
             return child(i).withOrigin(o.index);
     }
@@ -3225,11 +3243,22 @@ namespace clover {
         auto o = info[2 + i];
         if (o.isIndex)
             return { info[2 + i].index, info[2 + i].index };
-        return ast.origin();
+        if (!ast.isLeaf())
+            return ast.origin();
+        return origin();
     }
 
     inline IndexPair<u32, u32> ChangePosition::origin() const {
         return ast.childOrigin(child);
+    }
+
+    inline void ChangePosition::replaceWith(AST node) {
+        if (child == -1) {
+            assert(!ast.isLeaf());
+            ast.module->replace(ast, node);
+            return;
+        }
+        ast.setChild(child, node);
     }
 
     struct Snippet {

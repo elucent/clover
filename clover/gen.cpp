@@ -2308,6 +2308,31 @@ namespace clover {
                 return JASMINE_INVALID_OPERAND;
             }
 
+            case ASTKind::DelArray: {
+                Type child = typeOf(ast, 0);
+                Type elementType = child.isArray() ? child.asArray().elementType() : child.asSlice().elementType();
+                auto index = genCtx.temp();
+                JasmineOperand size;
+                value = generate(genCtx, builder, ast.child(0), child);
+                if (child.isArray())
+                    size = genCtx.imm(child.asArray().length());
+                else
+                    size = generateLength(genCtx, builder, child, value, module->u64Type());
+                jasmine_append_mov(builder, genCtx.sizeType(), index, genCtx.imm(0));
+
+                auto loop = genCtx.addBlock(), continuation = genCtx.addBlock();
+                jasmine_append_br_ge(builder, genCtx.sizeType(), index, size, genCtx.addEdgeTo(continuation), genCtx.addEdgeTo(loop));
+
+                jasmine_builder_set_block(builder, loop);
+                auto element = generateGetIndex(genCtx, builder, child, value, index, elementType);
+                jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &value, 1);
+                jasmine_append_add(builder, genCtx.sizeType(), index, index, genCtx.imm(1));
+                jasmine_append_br_ge(builder, genCtx.sizeType(), index, size, genCtx.addEdgeTo(continuation), genCtx.addEdgeTo(loop));
+
+                jasmine_builder_set_block(builder, continuation);
+                return JASMINE_INVALID_OPERAND;
+            }
+
             case ASTKind::String: {
                 auto sym = ast.stringConst();
                 auto value = genCtx.stringRef(sym);

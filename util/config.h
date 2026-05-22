@@ -82,7 +82,7 @@ enum class PassTimeUnit {
     macro(lexOnly, lex-only, bool, false, Clover, "Stop Clover compilation at the lexing phase.") \
     macro(parseOnly, parse-only, bool, false, Clover, "Stop Clover compilation at the parsing phase.") \
     macro(typecheckOnly, typecheck-only, bool, false, Clover, "Stop Clover compilation at the typechecking phase.") \
-    macro(finalizeAfterTypechecking, finalize-after-typechecking, bool, true, Clover, "Finalize Clover modules after typechecking, without doing any further safety analysis.") \
+    macro(finalizeAfterTypechecking, finalize-after-typechecking, bool, false, Clover, "Finalize Clover modules after typechecking, without doing any further safety analysis.") \
     macro(compileToJasmine, compile-to-jasmine, bool, false, Clover, "Compile Clover to Jasmine IR and then stop.") \
     macro(jasmineASTComments, jasmine-ast-comments, bool, false, Clover, "Generate Jasmine IR comments for non-leaf AST nodes when compiling.") \
     macro(printSource, print-source, bool, false, Clover, "Print Clover source after loading.") \
@@ -105,6 +105,7 @@ enum class PassTimeUnit {
     macro(reportErrorsImmediately, report-errors-immediately, bool, false, Clover, "Report the first error immediately after it happens and exit.") \
     macro(reportExpectedTestErrors, report-expected-test-errors, bool, false, Clover, "Reports errors to standard output even when they happen in tests expecting them.") \
     macro(verboseAnalyze, verbose-analyze, i32, 0, Clover, "Enables verbose logging for the Clover memory safety analysis phase.") \
+    macro(printAnalyzedTree, print-analyzed-tree, bool, false, Clover, "Print Clover AST after memory analysis.") \
     macro(verboseSearchDirectories, verbose-search-directories, bool, false, Clover, "Enables verbose logging when Clover is searching for a file to load/import.") \
     \
     /* Test options. */ \
