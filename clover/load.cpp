@@ -56,6 +56,11 @@ namespace clover {
         Symbol artifactName = compilation->sym(basename(path.segments.back()));
 
         for (Directory* directory : searchDirectories) {
+            if (parent.segments.size() == 0) if (auto artifact = directory->artifactByName(artifactName)) {
+                if UNLIKELY(config::verboseSearchDirectories)
+                    println("[FILE]\tUsing existing module ", compilation->str(artifact->name), " in directory ", directory);
+                return artifact;
+            }
             bool doesntHave = false;
             for (auto s : parent.segments) {
                 Symbol sym = compilation->sym(s);
@@ -68,8 +73,11 @@ namespace clover {
             if (doesntHave)
                 continue;
 
-            if (auto artifact = directory->artifactByName(artifactName))
+            if (auto artifact = directory->artifactByName(artifactName)) {
+                if UNLIKELY(config::verboseSearchDirectories)
+                    println("[FILE]\tUsing existing module ", compilation->str(artifact->name), " in directory ", directory);
                 return artifact;
+            }
         }
 
         // Otherwise, we see if a satisfying file exists at that relative path
@@ -83,9 +91,10 @@ namespace clover {
         for (Directory* directory : searchDirectories) {
             wippath = buffer;
             vec<Directory*> searchPath;
-            while (directory->parent) {
-                searchPath.push(directory);
-                directory = directory->parent;
+            Directory* iter = directory;
+            while (iter->parent) {
+                searchPath.push(iter);
+                iter = iter->parent;
             }
             for (Directory* dir : reversed(searchPath))
                 wippath = format(wippath, "/", compilation->str(dir->name));

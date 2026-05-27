@@ -21,6 +21,74 @@ i32 bar():
 )");
 }
 
+TEST(scope_import_same_function) {
+    auto artifact = RESOLVE(R"(
+in foo:
+    void bar(): 42
+use foo.*
+use foo.*
+)");
+}
+
+TEST(scope_import_same_variable) {
+    auto artifact = RESOLVE(R"(
+in foo:
+    i32 global: 42
+use foo.*
+use foo.*
+)");
+}
+
+TEST(scope_import_same_namespace) {
+    auto artifact = RESOLVE(R"(
+in foo:
+    in bar:
+        void baz()
+use foo.*
+use foo.*
+)");
+}
+
+TEST(scope_import_same_constant) {
+    auto artifact = RESOLVE(R"(
+in foo:
+    const x: 42
+use foo.*
+use foo.*
+)");
+}
+
+TEST(scope_import_namespace_shadowing) {
+    auto artifact = RESOLVE(R"(
+in foo.bar:
+    i32 global: 42
+
+in bar:
+    i32 global: 42
+
+void baz():
+    use foo.bar
+    bar.global += 1
+)");
+}
+
+TEST(scope_bad_import_namespace_shadowing) {
+    EXPECT_ERRORS;
+    auto artifact = RESOLVE(R"(
+in foo.bar:
+    i32 global: 42
+
+in bar:
+    i32 global: 42
+
+void baz():
+    use foo.bar.*
+    use bar.*
+    global += 1
+)");
+    ASSERT_DID_ERROR(artifact);
+}
+
 TEST(scope_bad_duplicate_global) {
     EXPECT_ERRORS;
     auto dupVars = SCOPE(R"(

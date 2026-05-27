@@ -1253,7 +1253,9 @@ namespace clover {
         // Kind of an inaccurate origin for blocks that very likely span
         // multiple lines, but since error reporting is single-line anyway,
         // there's no point worrying about the origins of the other statements.
-        return module->addInitial(ASTKind::Do, origin(newline), items);
+        if (items.size() == 0)
+            return module->addInitial(ASTKind::Do, origin(newline));
+        return module->addInitial(ASTKind::Do, origin(newline, items.back()), items);
     }
 
     IndexedAST parseExpression(Module* module, TokenVisitor& visitor, u32 minPrecedence) {

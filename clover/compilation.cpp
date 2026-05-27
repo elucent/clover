@@ -235,7 +235,7 @@ namespace clover {
                 println();
             for (u32 i = 0; i < start->column + 4; i ++)
                 print(' ');
-            for (u32 i = start->column + 4; i < (end->line > start->line ? line.size() + 4 : end->column + 4); i ++)
+            for (u32 i = start->column + 4; i < (end->line > start->line ? line.size() + 3 : end->column + 4); i ++)
                 print('^');
             println();
         }
@@ -259,7 +259,8 @@ namespace clover {
                 start = some<Pos>(tokens[bounds.first].pos);
             if (bounds.second < tokens.size()) {
                 Pos pos = tokens[bounds.second].pos;
-                pos.column += module->str(tokens[bounds.second].token).size();
+                if (tokens[bounds.second].token != WhitespaceNewline)
+                    pos.column += module->str(tokens[bounds.second].token).size();
                 end = some<Pos>(pos);
             }
         } else

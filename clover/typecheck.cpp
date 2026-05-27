@@ -2,6 +2,7 @@
 #include "clover/ast.h"
 #include "clover/resolve.h"
 #include "clover/interp.h"
+#include "clover/value.h"
 #include "util/config.h"
 
 namespace clover {
@@ -711,7 +712,6 @@ namespace clover {
         vec<TypeIndex, 16>* lateResolves;
         vec<Function*, 16>* instantiatedFunctions;
         vec<ConstraintIndex, 32>* order;
-        Value env;
         Constraints* constraints;
         InferenceContext* parent;
         Function* currentInstantiation;
@@ -735,19 +735,39 @@ namespace clover {
                 return Value();
             value = makeArrayWithLength(function->constants.size());
             for (const auto& [i, info] : enumerate(function->constants)) {
-                if (info.origin.isFunction() && info.origin.function() == function)
+                Scope* origin = info.origin;
+                if (origin->function == function) {
+                    // Default to undefined.
+                    set(value, boxUnsigned(i), Value());
+                } else if (origin->module == module) {
+                    // Our ConstInfo stores the index of the correct value in
+                    // an outer scope in this module. Since it's an outer
+                    // scope, it should be populated by now.
+                    Value outer = origin->function ? origin->function->constants[info.value.u].value : origin->module->globalConstants[info.value.u].value;
+                    info.value = outer;
+                    set(value, boxUnsigned(i), outer);
+                } else {
+                    // This is a value from some other module, who knows where
+                    // it's from. The one thing we do know is that it should
+                    // already have been initialized to its final value when we
+                    // initially defined this constant, so we can just use it
+                    // directly. None of that "storing the index in the
+                    // constant table" trickery.
                     set(value, boxUnsigned(i), info.value);
-                else if (info.origin.isModule())
-                    set(value, boxUnsigned(i), info.origin.module()->globalConstants[info.value.u].value);
-                else
-                    set(value, boxUnsigned(i), info.origin.function()->constants[info.value.u].value);
+                }
             }
         } else {
             if (!module->globalConstants.size())
                 return Value();
             value = makeArrayWithLength(module->globalConstants.size());
-            for (const auto& [i, info] : enumerate(module->globalConstants))
-                set(value, boxUnsigned(i), info.value);
+            for (const auto& [i, info] : enumerate(module->globalConstants)) {
+                Scope* origin = info.origin;
+                if (origin->module == module) {
+                    // Default to undefined.
+                    set(value, boxUnsigned(i), Value());
+                } else
+                    set(value, boxUnsigned(i), info.value);
+            }
         }
         return value;
     }
@@ -1204,6 +1224,8 @@ namespace clover {
         return ast.kind() == ASTKind::ResolvedOverloads;
     }
 
+    void evaluateConstants(Module* module, Function* function);
+
     Evaluation infer(InferenceContext& ctx, Function* function, AST ast) {
         Module* module = ast.module;
         auto& types = *module->types;
@@ -1235,8 +1257,9 @@ namespace clover {
                 return makeChar(module, ast.charConst());
 
             case ASTKind::Const:
+                return fromValue(module, function->constants[ast.constId()].value);
             case ASTKind::GlobalConst:
-                return fromValue(module, get(ctx.env, boxUnsigned(ast.constId())));
+                return fromValue(module, module->globalConstants[ast.constId()].value);
 
             case ASTKind::ResolvedFunction:
                 return fromType(ast.resolvedFunction()->type());
@@ -1911,8 +1934,7 @@ namespace clover {
             }
 
             case ASTKind::FunDecl: {
-                auto oldEnv = ctx.env;
-                ctx.env = createEnv(module, ast.function());
+                evaluateConstants(module, ast.function());
 
                 auto name = ast.child(1).variable();
                 for (AST param : ast.child(2)) {
@@ -1932,9 +1954,6 @@ namespace clover {
                     inferChild(ctx, ast.function(), ast, 4);
                     addImplicitReturns(ctx, returnType, ast, ast.child(4), { ast, 4 });
                 }
-
-                finalizeConstants(module, ast.function(), ctx.env);
-                ctx.env = oldEnv;
 
                 return fromType(module->voidType());
             }
@@ -2469,10 +2488,11 @@ namespace clover {
         // TODO: It's super icky that we have so much duplication between here,
         // the global inference, and drainFunctions. I bet they can be unified.
 
-        instantiationCtx.env = createEnv(module, newFunction);
-
         instantiationCtx.lateResolves->append(module->genericTypesToResolve);
         module->genericTypesToResolve.clear();
+
+        // Freshly evaluate constant variable declarations.
+        evaluateConstants(module, newFunction);
 
         auto name = newDecl.child(1).variable();
         for (AST param : newDecl.child(2)) {
@@ -2498,8 +2518,6 @@ namespace clover {
             println("*-----------------------------------");
             println(Multiline(newDecl)); println();
         }
-
-        finalizeConstants(module, newDecl.function(), instantiationCtx.env);
 
         refineGraph(module, instantiationCtx, &ctx);
         if UNLIKELY(config::printInferredTreeAfterEachPass) {
@@ -4106,7 +4124,6 @@ namespace clover {
         globalCtx.lateChecks = &lateChecks;
         globalCtx.lateResolves = &lateResolves;
         globalCtx.instantiatedFunctions = &instantiatedFunctions;
-        globalCtx.env = createEnv(module, nullptr);
         globalCtx.currentInstantiation = nullptr;
         globalCtx.parent = nullptr;
 
@@ -4129,8 +4146,6 @@ namespace clover {
             println("*-----------------------------------");
             module->print(module->compilation), println();
         }
-
-        finalizeConstants(module, nullptr, globalCtx.env);
 
         refineGraph(module, globalCtx, nullptr);
         if UNLIKELY(config::printInferredTreeAfterEachPass) {

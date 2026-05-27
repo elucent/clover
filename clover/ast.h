@@ -698,7 +698,7 @@ namespace clover {
     };
 
     struct ConstInfo {
-        ModuleOrFunction origin;
+        Scope* origin;
         Value value;
     };
 
@@ -1177,14 +1177,14 @@ namespace clover {
             locals.push(info);
 
             ConstInfo constInfo;
-            constInfo.origin = ModuleOrFunction(this);
+            constInfo.origin = decl.scope();
             constInfo.value = boxUnsigned(info.constantIndex);
             constants.push(constInfo);
 
             return Local(locals.size() - 1);
         }
 
-        inline Local addConstantIndirect(ScopeIndex scope, u32 constantIndex);
+        inline Local addConstantIndirect(Scope* scope, u32 constantIndex, Symbol name);
         inline Local addLocalFunction(VariableKind kind, Function* function);
         inline Local addLocalNamespace(Namespace* ns);
         inline Local addLocalGenericType(GenericType* genericType);
@@ -1237,50 +1237,26 @@ namespace clover {
     }
 
     struct Overloads {
-        struct Member {
-            uptr p;
-
-            bool isFunction() const {
-                return (p & 1) == 0;
-            }
-
-            bool isOverloads() const {
-                return (p & 1);
-            }
-
-            Function* function() {
-                assert(isFunction());
-                return (Function*)(p & ~1ull);
-            }
-
-            Overloads* overloads() {
-                assert(isOverloads());
-                return (Overloads*)(p & ~1ull);
-            }
-        };
-
         Module* module;
         u32 index;
         Symbol name;
-        vec<Member, 8> functions;
+        ::set<Function*, 8> functions;
 
         inline void add(Function* function) {
             name = function->name;
-            functions.push(Member { uptr(function) });
+            functions.insert(function);
         }
 
         inline void add(Overloads* overloads) {
             name = overloads->name;
-            functions.push(Member { uptr(overloads) | 1ull });
+            for (Function* f : overloads->functions)
+                functions.insert(f);
         }
 
         template<typename Func>
         inline void forEachFunction(Func&& func) {
-            for (Member m : functions) {
-                if (m.isFunction())
-                    func(m.function());
-                else
-                    m.overloads()->forEachFunction(func);
+            for (Function* m : functions) {
+                func(m);
             }
         }
     };
@@ -1308,6 +1284,7 @@ namespace clover {
         Module* module;
         u32 index;
         NamespaceTree* node;
+        Namespace* origin = nullptr;
         vec<Scope*, 4> constituentScopes;
         ::set<Namespace*, 4> parents;
 
@@ -1321,6 +1298,20 @@ namespace clover {
         inline void addParent(Namespace* parent) {
             assert(parent->parents.find(this) == parent->parents.end());
             parents.insert(parent);
+        }
+
+        inline void setOrigin(Namespace* parent) {
+            origin = parent->rootOrigin();
+            addParent(parent);
+        }
+
+        inline Namespace* rootOrigin() {
+            if (!origin)
+                return this;
+            Namespace* result = origin;
+            while (result->origin)
+                result = result->origin;
+            return result;
         }
 
         inline Symbol name() const {
@@ -2387,25 +2378,40 @@ namespace clover {
             info.name = name;
             globals.push(info);
 
+            // This is a really weird setup but I don't really want to refactor
+            // it because it does work. Basically, our local constants (i.e.
+            // those defined in this module) are initialized to their own
+            // constant index. When we hit typechecking, we walk all the
+            // constant info for the module/function, and initialize only the
+            // constants that have a local origin. Otherwise, we assume their
+            // value has already been populated (which should be true for
+            // imports, which have already gone through typechecking).
+
             ConstInfo constInfo;
-            constInfo.origin = ModuleOrFunction(this);
+            constInfo.origin = decl.scope();
             constInfo.value = boxUnsigned(info.constantIndex);
             globalConstants.push(constInfo);
 
             return Global(globals.size() - 1);
         }
 
-        inline Global addConstantIndirect(ScopeIndex scope, u32 constantIndex) {
+        inline Global addConstantIndirect(Scope* scope, u32 constantIndex, Symbol name) {
             VariableInfo info;
             info.type = InvalidType;
             info.scope = VariableInfo::Local;
             info.kind = VariableKind::Constant;
-            info.constantIndex = constants.size();
+            info.name = name;
+            if (scope->module == this) {
+                assert(!scope->function);
+                info.constantIndex = constantIndex;
+            } else
+                info.constantIndex = globalConstants.size();
             globals.push(info);
 
-            Scope* s = scopes[scope];
-            ConstInfo constInfo = (s->function ? s->function->constants : globalConstants)[constantIndex];
-            globalConstants.push(constInfo);
+            if (scope->module != this) {
+                ConstInfo constInfo = (scope->function ? scope->function->constants : scope->module->globalConstants)[constantIndex];
+                globalConstants.push(constInfo);
+            }
             return Global(globals.size() - 1);
         }
 
@@ -2733,16 +2739,20 @@ namespace clover {
         return Local(locals.size() - 1);
     }
 
-    inline Local Function::addConstantIndirect(ScopeIndex scope, u32 constantIndex) {
+    inline Local Function::addConstantIndirect(Scope* scope, u32 constantIndex, Symbol name) {
         VariableInfo info;
         info.type = InvalidType;
         info.scope = VariableInfo::Local;
         info.kind = VariableKind::Constant;
-        info.constantIndex = constants.size();
+        info.name = name;
+        if (scope->function == this) {
+            assert(scope->module == module);
+            info.constantIndex = constantIndex;
+        } else
+            info.constantIndex = constants.size();
         locals.push(info);
 
-        Scope* s = module->scopes[scope];
-        ConstInfo constInfo = (s->function ? s->function->constants : module->globalConstants)[constantIndex];
+        ConstInfo constInfo = (scope->function ? scope->function->constants : scope->module->globalConstants)[constantIndex];
         constants.push(constInfo);
         return Local(locals.size() - 1);
     }
