@@ -1147,9 +1147,6 @@ namespace clover {
                         Scope* origin = otherModule->scopes[info.defScope];
                         module->scopeIndex(origin); // Do this for the side effects, to ensure we assign the origin scope an index in our module.
                         scope->addIndirect(module, ast, origin, info.index, k);
-                    } else if (auto result = scope->findLocal(k)) {
-                        error(module, ast, "Duplicate symbol definition ", module->str(k), " from module ", module->str(path.back()), ".");
-                        break;
                     } else
                         scope->addIndirect(module, ast, topLevelScope, v, k);
                 }
