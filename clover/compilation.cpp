@@ -255,11 +255,15 @@ namespace clover {
             } else
                 bounds = note->origin;
             auto tokens = module->ensureTokens();
-            if (bounds.first < tokens.size())
-                start = some<Pos>(tokens[bounds.first].pos);
+            if (bounds.first < tokens.size()) {
+                Pos pos = tokens[bounds.first].pos;
+                if (tokens[bounds.first].token == WhitespaceIndent)
+                    pos.column -= 4;
+                start = some<Pos>(pos);
+            }
             if (bounds.second < tokens.size()) {
                 Pos pos = tokens[bounds.second].pos;
-                if (tokens[bounds.second].token != WhitespaceNewline)
+                if (tokens[bounds.second].token != WhitespaceNewline && tokens[bounds.second].token != WhitespaceIndent)
                     pos.column += module->str(tokens[bounds.second].token).size();
                 end = some<Pos>(pos);
             }

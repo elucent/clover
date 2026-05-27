@@ -496,6 +496,10 @@ namespace clover {
                 visitor.read();
                 return module->addInitial(ASTKind::Splat, origin(token), module->add(ASTKind::Missing).positionless());
             }
+            case WhitespaceIndent:
+                error(module, token, "Unexpected indentation.");
+                visitor.readUpToAndIncluding(WhitespaceNewline);
+                return module->add(ASTKind::Missing).positionless();
             default:
                 error(module, token, "Unexpected token '", TokenFormat(module, token), "'.");
                 visitor.read();
@@ -926,7 +930,7 @@ namespace clover {
             | 1ull << (KeywordAnd - FirstOperator)
             | 1ull << (KeywordOr - FirstOperator)
             | 1ull << (KeywordIf - FirstOperator);
-        return symbol.symbol >= FirstOperator && symbol.symbol <= LastKeyword && IsBinaryOperatorMask & (1ull << (symbol.symbol - FirstOperator));
+        return symbol.symbol >= FirstOperator && symbol.symbol <= KeywordIf && IsBinaryOperatorMask & (1ull << (symbol.symbol - FirstOperator));
     }
 
     u32 precedenceOf(Symbol op) {
@@ -2505,6 +2509,13 @@ namespace clover {
 
     IndexedAST parsePossibleExport(Module* module, TokenVisitor& visitor) {
         consumeNewlines(visitor);
+        while (visitor.peek().token == WhitespaceDedent) {
+            // The only time this should happen when parsing a top-level
+            // export/statement is if we had an unexpected indent preceding it.
+            // We can safely ignore these since we already reported error(s)
+            // for the indents on our way in.
+            visitor.read();
+        }
         auto token = visitor.peek();
         if (token.token == KeywordExport) {
             visitor.read();
