@@ -367,6 +367,14 @@ namespace clover {
             if (scopes.size())
                 locals.push(var);
         }
+
+        pair<RegionIndex, RegionIndex>& operator[](i32 var) {
+            return variableRegions[var];
+        }
+
+        pair<RegionIndex, RegionIndex> operator[](i32 var) const {
+            return variableRegions[var];
+        }
     };
 
     struct RegionValue {
@@ -414,7 +422,7 @@ namespace clover {
         inline Type type(const State& state) const {
             if (isVar()) {
                 auto type = (state.function ? state.function->locals[variable()] : state.module->globals[variable()]).type;
-                return state.module->types->get(type);
+                return expand(state.module->types->get(type));
             }
             return childOrVar == -1 ? typeOf(state.module->node(owner)) : typeOf(state.module->node(owner), childOrVar);
         }
@@ -443,7 +451,14 @@ namespace clover {
             else
                 decl = state.module->add(ASTKind::Bind, ast.origin(), pos.ast.scope(), type, state.module->addTemp(type.index), ast).reconstituteOrigin();
             pos.replaceWith(decl);
+            state.variableRegions.expandTo(decl.child(0).variable() + 1, pair<u32, u32> { InvalidRegion, InvalidRegion });
             return decl.child(0).variable();
+        }
+
+        inline pair<RegionIndex, RegionIndex> indices(State& state) {
+            if (isVar())
+                return state[variable()];
+            return { selfIndex, refIndex };
         }
     };
 
@@ -459,30 +474,116 @@ namespace clover {
         return RegionValue(pos, region, ref);
     }
 
-    void move(State& state, RegionValue dest, RegionValue src, ChangePosition pos) {
-
-    }
-
-    void consume(State& state, vec<i32>& toDestroy, RegionValue value) {
-        if (!value)
-            return;
-        Type type = value.type(state);
+    void invalidate(State& state, i32 var, ChangePosition pos) {
+        Type type = RegionValue(var).type(state);
         if (!state.regions->hasPointers(type))
             return;
         switch (type.kind()) {
             case TypeKind::Pointer:
-                if (type.asPtr().isOwn())
-                    toDestroy.push(value.ensureVar(state));
-                break;
             case TypeKind::Slice:
-                if (type.asPtr().isOwn())
-                    toDestroy.push(value.ensureVar(state));
+                state[var].second = InvalidRegion;
                 break;
             // case TypeKind::Struct:
             // case TypeKind::Tuple:
             default:
                 unreachable("Unexpected type ", type, " - this type should not be able to contain pointers.");
         }
+    }
+
+    void checkRead(State& state, RegionValue value, ChangePosition pos) {
+        auto indices = value.indices(state);
+        bool didError = false;
+        if (indices.first == InvalidRegion)
+            didError = true;
+        else {
+            Type type = value.type(state);
+            if (!state.regions->hasPointers(type))
+                return;
+            switch (type.kind()) {
+                case TypeKind::Primitive:
+                case TypeKind::Function:
+                    break;
+                case TypeKind::Pointer:
+                case TypeKind::Slice:
+                    if (indices.second == InvalidRegion)
+                        didError = true;
+                    break;
+                // case TypeKind::Struct:
+                // case TypeKind::Tuple:
+                default:
+                    unreachable("Unexpected type ", type, " - this type should not be able to contain pointers.");
+            }
+        }
+        if (didError)
+            error(state.module, value.isVar() ? pos : value.changePos(state), "Tried to read dead value.");
+    }
+
+    void destroy(State& state, vec<i32>& toDestroy, RegionValue value, ChangePosition pos, bool immediately) {
+        Type type = value.type(state);
+        auto indices = value.indices(state);
+        if (!state.regions->hasPointers(type))
+            return;
+        switch (type.kind()) {
+            case TypeKind::Pointer:
+                if (type.asPtr().isOwn() && indices.second != InvalidRegion) {
+                    i32 var = value.ensureVar(state);
+                    if (immediately) {
+                        if (state.function)
+                            pos.replaceWith(state.module->add(ASTKind::DelExpr, pos.origin(), pos.ast.scope(), type, pos.indexedCurrent(), Local(var)));
+                        else 
+                            pos.replaceWith(state.module->add(ASTKind::DelExpr, pos.origin(), pos.ast.scope(), type, pos.indexedCurrent(), Global(var)));
+                    } else
+                        toDestroy.push(value.ensureVar(state));
+                }
+                break;
+            case TypeKind::Slice:
+                if (type.asPtr().isOwn() && indices.second != InvalidRegion) {
+                    i32 var = value.ensureVar(state);
+                    if (immediately) {
+                        if (state.function)
+                            pos.replaceWith(state.module->add(ASTKind::DelExpr, pos.origin(), pos.ast.scope(), type, pos.indexedCurrent(), Local(var)));
+                        else 
+                            pos.replaceWith(state.module->add(ASTKind::DelExpr, pos.origin(), pos.ast.scope(), type, pos.indexedCurrent(), Global(var)));
+                    } else
+                        toDestroy.push(value.ensureVar(state));
+                }
+                break;
+            // case TypeKind::Struct:
+            // case TypeKind::Tuple:
+            default:
+                unreachable("Unexpected type ", type, " - this type should not be able to contain pointers.");
+        }
+    }
+
+    void consume(State& state, vec<i32>& toDestroy, RegionValue value, ChangePosition pos) {
+        if (!value)
+            return;
+        if (value.isVar())
+            return;
+        destroy(state, toDestroy, value, pos, false);
+    }
+
+    void use(State& state, vec<i32>& toDestroy, RegionValue value, ChangePosition pos) {
+        checkRead(state, value, pos);
+        consume(state, toDestroy, value, pos);
+    }
+
+    void move(State& state, vec<i32>& toDestroy, RegionValue dest, RegionValue src, ChangePosition pos, bool initial) {
+        assert(!!dest);
+        assert(!!src);
+
+        if (!initial) {
+            // Unless this is a fresh initialization, we need to destroy the
+            // previous value.
+            destroy(state, toDestroy, dest, pos, true);
+        }
+
+        checkRead(state, src, pos);
+
+        if (dest.isVar())
+            state[dest.variable()] = src.indices(state);
+        if (src.isVar())
+            invalidate(state, src.variable(), pos);
     }
 
     void emitAnyDestructors(State& state, const_slice<i32> toDestroy, ChangePosition pos) {
@@ -503,7 +604,7 @@ namespace clover {
         return emitAnyDestructors(state, (const_slice<i32>)toDestroy, pos);
     }
 
-    void discard(State& state, vec<i32>& toDestroy, RegionValue value) {
+    void discard(State& state, vec<i32>& toDestroy, RegionValue value, ChangePosition pos) {
         // Used when we are consuming something that is discarded. Normally, we
         // want to call consume() first, then collect the results of those
         // calls and move them into a destructor call at the end of the parent
@@ -516,7 +617,7 @@ namespace clover {
             return;
 
         u32 initialSize = toDestroy.size();
-        consume(state, toDestroy, value);
+        consume(state, toDestroy, value, pos);
         emitAnyDestructors(state, toDestroy[{initialSize, toDestroy.size()}], value.changePos(state));
         toDestroy.shrinkBy(toDestroy.size() - initialSize);
     }
@@ -527,12 +628,31 @@ namespace clover {
         vec<i32> toDestroy;
         AST ast = pos.current();
         switch (ast.kind()) {
+            case ASTKind::Global:
+            case ASTKind::Local:
+                return RegionValue(ast.variable());
+
+            case ASTKind::Int:
+            case ASTKind::Unsigned:
+            case ASTKind::Char:
+            case ASTKind::Bool:
+                return RegionValue(pos, Regions::Stack);
+
+            case ASTKind::String:
+                // TODO: Do we need to consider that it's an array here?
+                return RegionValue(pos, Regions::Stack);
+
             case ASTKind::Deref: {
                 auto value = analyze(state, { ast, 0 });
                 auto region = value.deref(state);
+
+                if (!region) {
+                    error(state.module, ast.indexedChild(0), "Tried to dereference dangling pointer.");
+                    return none();
+                }
                 result = RegionValue(pos, Regions::Stack, region.index);
 
-                consume(state, toDestroy, value);
+                use(state, toDestroy, value, pos);
                 emitAnyDestructors(state, toDestroy, pos);
                 return result;
             }
@@ -544,27 +664,38 @@ namespace clover {
             }
 
             case ASTKind::VarDecl:
-                analyze(state, { ast, 2 });
-                if (ast.child(1).isVariable())
-                    state.def(ast.child(1).variable());
-                else
+                if (!ast.child(1).isVariable())
                     unreachable("TODO: Handle patterns.");
+                if (!ast.child(2).missing()) {
+                    auto value = analyze(state, { ast, 2 });
+                    move(state, toDestroy, RegionValue(ast.child(1).variable()), value, { ast, 2 }, true);
+                } else
+                    state[ast.child(1).variable()] = { InvalidRegion, InvalidRegion };
+                emitAnyDestructors(state, toDestroy, pos);
+                state.def(ast.child(1).variable());
                 return none();
+
+            case ASTKind::Assign: {
+                auto value = analyze(state, { ast, 1 });
+                move(state, toDestroy, RegionValue(ast.child(0).variable()), value, { ast, 1 }, false);
+                emitAnyDestructors(state, toDestroy, pos);
+                return none();
+            }
 
             case ASTKind::IfElse:
                 state.beginScope();
 
                 // Condition
-                discard(state, toDestroy, analyze(state, { ast, 0 }));
+                discard(state, toDestroy, analyze(state, { ast, 0 }), { ast, 0 });
 
                 // If-true branch
                 state.beginScope();
-                discard(state, toDestroy, analyze(state, { ast, 1 }));
+                discard(state, toDestroy, analyze(state, { ast, 1 }), { ast, 1 });
                 state.endScope(ast.child(1).scope(), { ast, 1 });
 
                 // If-false branch
                 state.beginScope();
-                discard(state, toDestroy, analyze(state, { ast, 1 }));
+                discard(state, toDestroy, analyze(state, { ast, 1 }), { ast, 1 });
                 state.endScope(ast.child(2).scope(), { ast, 2 });
 
                 state.endScope(ast.scope(), ast);
@@ -573,8 +704,8 @@ namespace clover {
             case ASTKind::If:
             case ASTKind::While:
                 state.beginScope();
-                discard(state, toDestroy, analyze(state, { ast, 0 }));
-                discard(state, toDestroy, analyze(state, { ast, 1 }));
+                discard(state, toDestroy, analyze(state, { ast, 0 }), { ast, 0 });
+                discard(state, toDestroy, analyze(state, { ast, 1 }), { ast, 1 });
                 state.endScope(ast.scope(), { ast });
                 return result;
 
@@ -587,7 +718,7 @@ namespace clover {
                     if (i == ast.arity() - 1)
                         result = analyze(state, { ast, i });
                     else
-                        discard(state, toDestroy, analyze(state, { ast, i }));
+                        discard(state, toDestroy, analyze(state, { ast, i }), { ast, i });
                 }
                 if (ast.kind() != ASTKind::Do)
                     state.endScope(ast.scope(), { ast, ast.arity() - 1 });
@@ -595,7 +726,7 @@ namespace clover {
 
             default:
                 for (u32 i : indices(ast))
-                    consume(state, toDestroy, analyze(state, { ast, i }));
+                    consume(state, toDestroy, analyze(state, { ast, i }), { ast, i });
                 emitAnyDestructors(state, toDestroy, pos);
                 return result;
         }
