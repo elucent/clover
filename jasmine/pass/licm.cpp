@@ -213,7 +213,8 @@ namespace jasmine {
             if (s.empty())
                 continue;
             Block block = fn.block(bi);
-            block.removeIf([&](Node node) -> bool { return s[node.index()]; });
+            auto& set = s;
+            block.removeIf([&](Node node) -> bool { return set[node.index()]; });
         }
 
         ctx.invalidate(EFFECTS); // Effects have now changed, since we've reordered a bunch of nodes.

@@ -452,7 +452,7 @@ namespace jasmine {
         effectsByLoop.init(loops.size());
 
         vec<pair<Effect, Effect>, 16> loopEffects;
-        loopEffects.expandTo(loops.size(), Effect(), Effect());
+        loopEffects.expandTo(loops.size(), pair<Effect, Effect> { Effect(), Effect() });
 
         for (Block block : fn.blocks()) {
             Effect blockReads, blockWrites;

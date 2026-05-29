@@ -3710,7 +3710,7 @@ namespace clover {
             constraints.graphChanged = false;
 
             orderVarTypes.clear();
-            orderVarTypes.expandTo(order.size(), pair { InvalidType, InvalidType });
+            orderVarTypes.expandTo(order.size(), pair<TypeIndex, TypeIndex> { InvalidType, InvalidType });
             for (auto [i, n] : enumerate(order)) {
                 Type type = types->get(constraints.constrainedTypes[i]);
                 if (type.isVar())

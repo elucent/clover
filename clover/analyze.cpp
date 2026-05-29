@@ -276,7 +276,7 @@ namespace clover {
             state.function = nullptr;
             state.regions = regions;
             state.parent = nullptr;
-            state.variableRegions.expandTo(module->globals.size(), pair { InvalidRegion, InvalidRegion });
+            state.variableRegions.expandTo(module->globals.size(), pair<u32, u32> { InvalidRegion, InvalidRegion });
             return state;
         }
 
@@ -286,7 +286,7 @@ namespace clover {
             state.function = function;
             state.regions = regions;
             state.parent = nullptr;
-            state.variableRegions.expandTo(function->locals.size(), pair { InvalidRegion, InvalidRegion });
+            state.variableRegions.expandTo(function->locals.size(), pair<u32, u32> { InvalidRegion, InvalidRegion });
             return state;
         }
 
