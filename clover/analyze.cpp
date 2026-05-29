@@ -1,5 +1,7 @@
 #include "clover/analyze.h"
 #include "clover/ast.h"
+#include "clover/compilation.h"
+#include "clover/typecheck.h"
 #include "clover/error.h"
 #include "clover/limits.h"
 #include "clover/type.h"
@@ -15,6 +17,7 @@ namespace clover {
     struct RegionWord {
         enum Kind : u32 {
             Singleton,
+            Ref,
             Tuple
         };
 
@@ -23,8 +26,8 @@ namespace clover {
         union {
             struct { Kind kind : 2; RegionIndex parent : 30; };
             struct { u32 tupleSize; };
-            struct { u32 isOwn : 1; RegionIndex fieldId : 31; };
-            struct { RegionIndex ref; };
+            struct { RegionIndex fieldId; };
+            struct { u32 isOwn : 1; RegionIndex ref : 31; };
         };
     };
 
@@ -34,6 +37,7 @@ namespace clover {
 
     struct Regions {
         vec<RegionWord> words;
+        biasedset<256> ptrTypes, ptrTypesInited;
 
         static constexpr RegionIndex Heap = 0, Globals = 1, Stack = 2;
 
@@ -43,20 +47,61 @@ namespace clover {
             words.push({ .kind = RegionKind::Singleton, .parent = InvalidRegion }); // Stack
         }
 
+        inline bool hasPointers(Type type) {
+            if (ptrTypesInited[type.index])
+                return ptrTypes[type.index];
+
+            bool hasPtrs = false;
+            switch (type.kind()) {
+                case TypeKind::Pointer:
+                case TypeKind::Slice:
+                    hasPtrs = true;
+                    break;
+                case TypeKind::Struct:
+                    for (u32 i = 0; i < type.asStruct().count(); i ++) if (hasPointers(expand(type.asStruct().fieldType(i)))) {
+                        hasPtrs = true;
+                        break;
+                    }
+                    break;
+                case TypeKind::Tuple:
+                    for (u32 i = 0; i < type.asTuple().count(); i ++) if (hasPointers(expand(type.asTuple().fieldType(i)))) {
+                        hasPtrs = true;
+                        break;
+                    }
+                    break;
+                case TypeKind::Array:
+                case TypeKind::Union:
+                    unreachable("TODO: Implement pointer containing semantics for type ", type);
+                default:
+                    break;
+            }
+            ptrTypesInited.on(type.index);
+            if (hasPtrs)
+                ptrTypes.on(type.index);
+            return hasPtrs;
+        }
+
+        inline Region get(RegionIndex index);
         inline Region def(RegionIndex parent);
+        inline Region ref(RegionIndex parent, RegionIndex target, bool isOwn);
         inline Region tuple(RegionIndex parent, u32 size);
+        inline Region instance(RegionIndex parent, Type type);
     };
 
     struct PointerField {
         Regions* regions;
-        u32 isOwn : 1;
-        u32 fieldId : 31;
-        u32 ref;
+        u32 fieldId;
+        u32 own : 1;
+        u32 ref : 31;
 
-        inline PointerField(Regions* regions_in, u32 isOwn_in, u32 fieldId_in, u32 ref_in):
-            regions(regions_in), isOwn(isOwn_in), fieldId(fieldId_in), ref(ref_in) {}
+        inline PointerField(Regions* regions_in, u32 isOwn, u32 fieldId_in, u32 ref_in):
+            regions(regions_in), fieldId(fieldId_in), own(isOwn), ref(ref_in) {}
 
-        inline Region referent();
+        inline bool owning() const {
+            return own;
+        }
+
+        inline Region deref();
     };
 
     struct Region {
@@ -84,6 +129,10 @@ namespace clover {
             return Region(regions, nthWord(0).parent);
         }
 
+        inline bool isRef() {
+            return nthWord(0).kind == RegionKind::Ref;
+        }
+
         inline bool isTuple() {
             return nthWord(0).kind == RegionKind::Tuple;
         }
@@ -98,20 +147,36 @@ namespace clover {
             return { regions, nthWord(2 + i * 2).isOwn, nthWord(2 + i * 2).fieldId, nthWord(3 + i * 2).ref };
         }
 
+        inline Region deref() {
+            assert(isRef());
+            return { regions, nthWord(1).ref };
+        }
+
+        inline bool isOwn() {
+            assert(isRef());
+            return nthWord(1).isOwn;
+        }
+
         inline void setPtrField(u32 i, bool isOwn, u32 fieldId, RegionIndex ref) {
-            nthWord(2 + i * 2).isOwn = isOwn;
             nthWord(2 + i * 2).fieldId = fieldId;
+            nthWord(3 + i * 2).isOwn = !!isOwn;
             nthWord(3 + i * 2).ref = ref;
         }
     };
 
-    inline Region PointerField::referent() {
+    inline Region PointerField::deref() {
         return Region(regions, ref);
     }
 
     inline Region Regions::def(RegionIndex parent) {
         words.push({ .kind = RegionKind::Singleton, .parent = parent });
         return Region(this, words.size() - 1);
+    }
+
+    inline Region Regions::ref(RegionIndex parent, RegionIndex target, bool isOwn) {
+        words.push({ .kind = RegionKind::Ref, .parent = parent });
+        words.push({ .isOwn = !!isOwn, .ref = target });
+        return Region(this, words.size() - 2);
     }
 
     inline Region Regions::tuple(RegionIndex parent, u32 size) {
@@ -123,6 +188,76 @@ namespace clover {
             words.push({ .ref = InvalidRegion });
         }
         return Region(this, index);
+    }
+
+    inline Region Regions::get(RegionIndex index) {
+        return Region(this, index);
+    }
+
+    inline bool isSomePointer(Type type) {
+        return type.isPtr() || type.isSlice();
+    }
+
+    inline bool isOwn(Type type) {
+        return (type.isPtr() && type.asPtr().isOwn()) || (type.isSlice() && type.asSlice().isOwn());
+    }
+
+    template<typename AggregateType>
+    inline Region instanceAggregate(Regions* regions, RegionIndex parent, AggregateType type) {
+        if (!regions->hasPointers(type))
+            return regions->get(parent);
+        u32 ptrFieldCount = 0;
+        for (u32 i = 0; i < type.count(); i ++)
+            if (regions->hasPointers(expand(type.fieldType(i))))
+                ptrFieldCount ++;
+        Region tup = regions->tuple(parent, ptrFieldCount);
+        ptrFieldCount = 0;
+        for (u32 i = 0; i < type.count(); i ++) {
+            auto member = expand(type.fieldType(i));
+            if (regions->hasPointers(member))
+                tup.setPtrField(ptrFieldCount ++, isOwn(member), i, regions->instance(tup.index, member).index);
+        }
+        return tup;
+    }
+
+    inline Region Regions::instance(RegionIndex parent, Type type) {
+        switch (type.kind()) {
+            case TypeKind::Numeric:
+            case TypeKind::Primitive:
+                return def(parent);
+            case TypeKind::Function:
+                // TODO: Revisit this once closures are a thing.
+                return def(parent);
+            case TypeKind::Named:
+                // Even though we might have a tag field, that tag will never
+                // be a pointer, so we ignore it and just instantiate the inner
+                // type.
+                return instance(parent, expand(type.asNamed().innerType()));
+            case TypeKind::Struct:
+                return instanceAggregate(this, parent, type.asStruct());
+            case TypeKind::Tuple:
+                return instanceAggregate(this, parent, type.asTuple());
+            case TypeKind::Pointer:
+                return ref(parent, instance(parent, expand(type.asPtr().elementType())).index, type.asPtr().isOwn());
+
+            case TypeKind::Array:
+                // Kinda shaky on this!!! We can't generally assume we see
+                // inside an array, but if it contains owning pointers, do we
+                // maybe still want to label its region differently? Hard to
+                // say, maybe this will become a different kind of region in
+                // the future.
+                return def(parent);
+            case TypeKind::Slice:
+                // Likewise, treating slices the same as pointers prevents us
+                // from seeing their interior structure. Which is maybe
+                // desirable? But maybe not.
+                return ref(parent, instance(parent, expand(type.asSlice().elementType())).index, type.asSlice().isOwn());
+            case TypeKind::Union:
+                unreachable("TODO: Implement region instancing for union types.");
+            case TypeKind::Var:
+            case TypeKind::Range:
+                unreachable("Shouldn't try and instance a variable or range type in analysis pass.");
+        }
     }
 
     struct State {
@@ -234,44 +369,235 @@ namespace clover {
         }
     };
 
-    void analyze(State& state, AST ast) {
+    struct RegionValue {
+        NodeIndex owner;
+        i32 childOrVar;
+        RegionIndex selfIndex;
+        RegionIndex refIndex;
+
+        inline RegionValue():
+            owner(InvalidNode), childOrVar(-1), selfIndex(InvalidRegion), refIndex(InvalidRegion) {}
+
+        inline RegionValue(ChangePosition pos, RegionIndex self_in):
+            owner(pos.ast.node), childOrVar(pos.child), selfIndex(self_in), refIndex(InvalidRegion) {}
+
+        inline RegionValue(ChangePosition pos, RegionIndex self_in, RegionIndex ref_in):
+            owner(pos.ast.node), childOrVar(pos.child), selfIndex(self_in), refIndex(ref_in) {}
+
+        inline RegionValue(i32 var):
+            owner(InvalidNode), childOrVar(-2 - var), selfIndex(InvalidRegion), refIndex(InvalidRegion) {}
+
+        inline explicit operator bool() const {
+            return selfIndex != InvalidRegion || childOrVar < -1;
+        }
+
+        inline bool isVar() const {
+            return childOrVar < -1;
+        }
+
+        inline i32 variable() const {
+            return -(childOrVar + 2);
+        }
+
+        inline Region self(State& state) const {
+            if (isVar())
+                return state.regions->get(state.variableRegions[variable()].first);
+            return state.regions->get(selfIndex);
+        }
+
+        inline Region deref(State& state) const {
+            if (isVar())
+                return state.regions->get(state.variableRegions[variable()].second);
+            return state.regions->get(refIndex);
+        }
+
+        inline Type type(const State& state) const {
+            if (isVar()) {
+                auto type = (state.function ? state.function->locals[variable()] : state.module->globals[variable()]).type;
+                return state.module->types->get(type);
+            }
+            return childOrVar == -1 ? typeOf(state.module->node(owner)) : typeOf(state.module->node(owner), childOrVar);
+        }
+
+        inline ChangePosition changePos(const State& state) {
+            assert(!isVar());
+            if (childOrVar == -1)
+                return ChangePosition(state.module->node(owner));
+            return ChangePosition(state.module->node(owner), childOrVar);
+        }
+
+        inline i32 ensureVar(State& state) {
+            if (isVar())
+                return variable();
+
+            auto pos = changePos(state);
+            auto ast = pos.indexedCurrent();
+            if (ast.kind() == ASTKind::Local || ast.kind() == ASTKind::Global)
+                return ast.variable();
+            if (ast.kind() == ASTKind::Bind)
+                return ast.child(0).variable();
+            auto type = typeOf(pos);
+            IndexedAST decl;
+            if (state.function)
+                decl = state.module->add(ASTKind::Bind, ast.origin(), pos.ast.scope(), type, state.function->addTemp(type.index), ast).reconstituteOrigin();
+            else
+                decl = state.module->add(ASTKind::Bind, ast.origin(), pos.ast.scope(), type, state.module->addTemp(type.index), ast).reconstituteOrigin();
+            pos.replaceWith(decl);
+            return decl.child(0).variable();
+        }
+    };
+
+    inline RegionValue none() {
+        return RegionValue();
+    }
+
+    inline RegionValue data(ChangePosition pos, RegionIndex region) {
+        return RegionValue(pos, region);
+    }
+
+    inline RegionValue ref(ChangePosition pos, RegionIndex region, RegionIndex ref) {
+        return RegionValue(pos, region, ref);
+    }
+
+    void move(State& state, RegionValue dest, RegionValue src, ChangePosition pos) {
+
+    }
+
+    void consume(State& state, vec<i32>& toDestroy, RegionValue value) {
+        if (!value)
+            return;
+        Type type = value.type(state);
+        if (!state.regions->hasPointers(type))
+            return;
+        switch (type.kind()) {
+            case TypeKind::Pointer:
+                if (type.asPtr().isOwn())
+                    toDestroy.push(value.ensureVar(state));
+                break;
+            case TypeKind::Slice:
+                if (type.asPtr().isOwn())
+                    toDestroy.push(value.ensureVar(state));
+                break;
+            // case TypeKind::Struct:
+            // case TypeKind::Tuple:
+            default:
+                unreachable("Unexpected type ", type, " - this type should not be able to contain pointers.");
+        }
+    }
+
+    void emitAnyDestructors(State& state, const_slice<i32> toDestroy, ChangePosition pos) {
+        if (toDestroy.size() == 0)
+            return;
+
+        vec<IndexedAST> vars;
+        for (i32 var : toDestroy) {
+            if (state.function)
+                vars.push(state.module->add(ASTKind::Local, Local(var)).positionless());
+            else
+                vars.push(state.module->add(ASTKind::Global, Global(var)).positionless());
+        }
+        pos.replaceWith(state.module->add(ASTKind::DelExpr, pos.origin(), pos.ast.scope(), typeOf(pos), pos.indexedCurrent(), vars));
+    }
+
+    void emitAnyDestructors(State& state, const vec<i32>& toDestroy, ChangePosition pos) {
+        return emitAnyDestructors(state, (const_slice<i32>)toDestroy, pos);
+    }
+
+    void discard(State& state, vec<i32>& toDestroy, RegionValue value) {
+        // Used when we are consuming something that is discarded. Normally, we
+        // want to call consume() first, then collect the results of those
+        // calls and move them into a destructor call at the end of the parent
+        // expression. But often (in statements) there is no real parent
+        // expression and we only care about side effects that already
+        // happened. So we don't need to delay or modify the overall toDestroy
+        // list.
+
+        if (!value)
+            return;
+
+        u32 initialSize = toDestroy.size();
+        consume(state, toDestroy, value);
+        emitAnyDestructors(state, toDestroy[{initialSize, toDestroy.size()}], value.changePos(state));
+        toDestroy.shrinkBy(toDestroy.size() - initialSize);
+    }
+
+    RegionValue analyze(State& state, ChangePosition pos) {
+        Regions* regions = state.regions;
+        RegionValue result;
+        vec<i32> toDestroy;
+        AST ast = pos.current();
         switch (ast.kind()) {
+            case ASTKind::Deref: {
+                auto value = analyze(state, { ast, 0 });
+                auto region = value.deref(state);
+                result = RegionValue(pos, Regions::Stack, region.index);
+
+                consume(state, toDestroy, value);
+                emitAnyDestructors(state, toDestroy, pos);
+                return result;
+            }
+
+            case ASTKind::New: {
+                auto init = analyze(state, { ast, 0 });
+                Region result = regions->instance(Regions::Heap, expand(typeOf(ast).asPtr().elementType()));
+                return RegionValue(pos, Regions::Stack, result.index);
+            }
+
             case ASTKind::VarDecl:
-                analyze(state, ast.child(2));
+                analyze(state, { ast, 2 });
                 if (ast.child(1).isVariable())
                     state.def(ast.child(1).variable());
                 else
                     unreachable("TODO: Handle patterns.");
-                break;
+                return none();
+
             case ASTKind::IfElse:
                 state.beginScope();
-                analyze(state, ast.child(0));
+
+                // Condition
+                discard(state, toDestroy, analyze(state, { ast, 0 }));
+
+                // If-true branch
                 state.beginScope();
-                analyze(state, ast.child(1));
+                discard(state, toDestroy, analyze(state, { ast, 1 }));
                 state.endScope(ast.child(1).scope(), { ast, 1 });
+
+                // If-false branch
                 state.beginScope();
-                analyze(state, ast.child(2));
+                discard(state, toDestroy, analyze(state, { ast, 1 }));
                 state.endScope(ast.child(2).scope(), { ast, 2 });
+
                 state.endScope(ast.scope(), ast);
-                break;
+                return none();
+
             case ASTKind::If:
             case ASTKind::While:
                 state.beginScope();
-                analyze(state, ast.child(0));
-                analyze(state, ast.child(1));
+                discard(state, toDestroy, analyze(state, { ast, 0 }));
+                discard(state, toDestroy, analyze(state, { ast, 1 }));
                 state.endScope(ast.scope(), { ast });
-                break;
+                return result;
+
+            case ASTKind::Do:
             case ASTKind::DoScoped:
             case ASTKind::TopLevel:
-                state.beginScope();
-                for (AST child : ast)
-                    analyze(state, child);
-                state.endScope(ast.scope(), { ast, ast.arity() - 1 });
-                break;
+                if (ast.kind() != ASTKind::Do)
+                    state.beginScope();
+                for (u32 i : indices(ast)) {
+                    if (i == ast.arity() - 1)
+                        result = analyze(state, { ast, i });
+                    else
+                        discard(state, toDestroy, analyze(state, { ast, i }));
+                }
+                if (ast.kind() != ASTKind::Do)
+                    state.endScope(ast.scope(), { ast, ast.arity() - 1 });
+                return result;
+
             default:
-                for (AST child : ast)
-                    analyze(state, child);
-                break;
+                for (u32 i : indices(ast))
+                    consume(state, toDestroy, analyze(state, { ast, i }));
+                emitAnyDestructors(state, toDestroy, pos);
+                return result;
         }
     }
 

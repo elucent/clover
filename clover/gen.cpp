@@ -279,7 +279,7 @@ namespace clover {
             if (callStack.size())
                 callStack.back().block = jasmine_current_block(builder);
             callStack.push({ function, output, JASMINE_INVALID_BLOCK, locals.size() });
-            locals.expandBy(function ? function->locals.size() : 0, JASMINE_INVALID_OPERAND);
+            locals.expandBy(function ? function->locals.size() : module->globals.size(), JASMINE_INVALID_OPERAND);
             jasmine_builder_set_function(builder, output);
         }
 
@@ -337,7 +337,7 @@ namespace clover {
         JasmineOperand local(u32 i) {
             if (locals[callStack.back().firstLocal + i].bits == JASMINE_INVALID_OPERAND.bits) {
                 #ifndef RELEASE
-                    auto name = module->str(func()->locals[i].name);
+                    auto name = module->str(func() ? func()->locals[i].name : module->globals[i].name);
                     i8 buffer[64];
                     auto fmt = prints({ buffer, 64 }, name, '_', i);
                     return locals[callStack.back().firstLocal + i] = jasmine_variable_with_name(jasmine_current_function(builder), fmt.data(), fmt.size());
@@ -689,47 +689,6 @@ namespace clover {
                 ctx.expressionDepth --;
         }
     };
-
-    Type typeOf(AST ast) {
-        assert(!ast.isLeaf());
-        return expand(ast.type(ast.function()));
-    }
-
-    constexpr static u64 ConstantNodeMask = 1ull << u64(ASTKind::Int)
-        | 1ull << u64(ASTKind::Unsigned)
-        | 1ull << u64(ASTKind::Float)
-        | 1ull << u64(ASTKind::Char)
-        | 1ull << u64(ASTKind::Bool);
-
-    Type naturalType(AST ast) {
-        Module* module = ast.module;
-        switch (ast.kind()) {
-            case ASTKind::Int:
-                return naturalSignedType(module, ast.intConst());
-            case ASTKind::Unsigned:
-                return naturalUnsignedType(module, ast.uintConst());
-            case ASTKind::Float:
-                return module->f64Type();
-            case ASTKind::Char:
-                return module->charType();
-            case ASTKind::Bool:
-                return module->boolType();
-            default:
-                unreachable("Invalid AST node ", ast, " to compute late natural type.");
-        }
-    }
-
-    Type typeOf(Function* function, AST ast) {
-        if UNLIKELY(u64(ast.kind()) < 64 && (1ull << u64(ast.kind()) & ConstantNodeMask))
-            return naturalType(ast);
-        return expand(ast.type(function));
-    }
-
-    Type typeOf(AST ast, u32 i) {
-        if UNLIKELY(u64(ast.child(i).kind()) < 64 && (1ull << u64(ast.child(i).kind()) & ConstantNodeMask))
-            return naturalType(ast.child(i));
-        return expand(ast.child(i).type(ast.function()));
-    }
 
     JasmineOperand generateGetSlice(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand aggregate, maybe<JasmineOperand> low, maybe<JasmineOperand> high, Type* sliceType = nullptr);
 
@@ -2106,6 +2065,10 @@ namespace clover {
                     auto name = genCtx.module->str(genCtx.mangledName(module, module->node(varInfo.decl).function()));
                     return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.funcref(name));
                 }
+
+                if (varInfo.kind == VariableKind::Temp)
+                    return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.local(ast.variable()));
+
                 // We need to maintain lvalue semantics if the destination is
                 // also a reference type. Loading eagerly won't work - imagine
                 // we have a global array, and want to coerce it to a slice.
@@ -2308,6 +2271,26 @@ namespace clover {
                 return JASMINE_INVALID_OPERAND;
             }
 
+            case ASTKind::DelExpr: {
+                // This is the expression we're wrapping - don't do anything about it.
+                value = generate(genCtx, builder, ast.child(0), destType);
+
+                // Everything else is stuff we're gonna destroy.
+                for (u32 i = 1; i < ast.arity(); i ++) {
+                    Type child = typeOf(ast, i);
+                    if (child.isPtr() && child.asPtr().isOwn()) {
+                        auto ptr = generate(genCtx, builder, ast.child(i), typeOf(ast, i));
+                        jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &ptr, 1);
+                    } else if (child.isSlice() && child.asSlice().isOwn()) {
+                        auto slice = generate(genCtx, builder, ast.child(i), typeOf(ast, i));
+                        auto ptr = genCtx.temp();
+                        jasmine_append_get_field(builder, genCtx.lower(child), value, slice, 0);
+                        jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &ptr, 1);
+                    }
+                }
+                return value;
+            }
+
             case ASTKind::DelArray: {
                 Type child = typeOf(ast, 0);
                 Type elementType = child.isArray() ? child.asArray().elementType() : child.asSlice().elementType();
@@ -2490,6 +2473,17 @@ namespace clover {
                     jasmine_builder_set_block(builder, current);
                 }
                 return JASMINE_INVALID_OPERAND;
+
+            case ASTKind::Bind: {
+                // Always a simple move, even for globals, because we know
+                // bind is only used with temp vars and temp vars aren't
+                // visible in linking. Counterintuitively we still use
+                // genCtx.local() to get the value for this reason.
+                value = generate(genCtx, builder, ast.child(1), typeOf(ast));
+                auto dest = genCtx.local(ast.child(0).variable());
+                jasmine_append_mov(builder, genCtx.lower(typeOf(ast)), genCtx.local(ast.child(0).variable()), value);
+                return coerce(genCtx, builder, destType, typeOf(ast), dest);
+            }
 
             case ASTKind::GenericFunDecl: {
                 if (!ast.child(1).missing()) {

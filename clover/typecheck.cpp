@@ -234,6 +234,51 @@ namespace clover {
         }
     }
 
+    constexpr static u64 ConstantNodeMask = 1ull << u64(ASTKind::Int)
+        | 1ull << u64(ASTKind::Unsigned)
+        | 1ull << u64(ASTKind::Float)
+        | 1ull << u64(ASTKind::Char)
+        | 1ull << u64(ASTKind::Bool);
+
+    Type naturalType(AST ast) {
+        Module* module = ast.module;
+        switch (ast.kind()) {
+            case ASTKind::Int:
+                return naturalSignedType(module, ast.intConst());
+            case ASTKind::Unsigned:
+                return naturalUnsignedType(module, ast.uintConst());
+            case ASTKind::Float:
+                return module->f64Type();
+            case ASTKind::Char:
+                return module->charType();
+            case ASTKind::Bool:
+                return module->boolType();
+            default:
+                unreachable("Invalid AST node ", ast, " to compute late natural type.");
+        }
+    }
+
+    Type typeOf(Function* function, AST ast) {
+        if UNLIKELY(u64(ast.kind()) < 64 && (1ull << u64(ast.kind()) & ConstantNodeMask))
+            return naturalType(ast);
+        return expand(ast.type(function));
+    }
+
+    Type typeOf(AST ast, u32 i) {
+        if UNLIKELY(u64(ast.child(i).kind()) < 64 && (1ull << u64(ast.child(i).kind()) & ConstantNodeMask))
+            return naturalType(ast.child(i));
+        return expand(ast.child(i).type(ast.function()));
+    }
+
+    Type typeOf(AST ast) {
+        assert(!ast.isLeaf());
+        return expand(ast.type(ast.function()));
+    }
+
+    Type typeOf(ChangePosition pos) {
+        return pos.child == -1 ? typeOf(pos.ast) : typeOf(pos.ast, pos.child);
+    }
+
     inline Type naturalType(Module* module, Evaluation evaluation) {
         if (evaluation.isKnownValue()) {
             if (evaluation.isKnownFloat())

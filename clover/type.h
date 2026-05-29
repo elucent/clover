@@ -4653,7 +4653,7 @@ namespace clover {
 
     template<typename IO, typename Format = Formatter<IO>>
     inline IO format_impl(IO io, const VarType& type) {
-        if (type.isEqual() && !config::verboseUnify && !config::verboseInstantiation && false)
+        if (type.isEqual() && !config::verboseUnify && !config::verboseInstantiation)
             return format(io, type.equalType());
         if UNLIKELY(config::readableTypeVars) {
             if (type.isEqual() && type.equalType().isVar()

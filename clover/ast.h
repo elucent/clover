@@ -103,6 +103,7 @@ namespace clover {
         macro(NewArray, newArray, new_array, false, 1) \
         macro(Del, del, del, false, 1) \
         macro(DelArray, delArray, del_array, false, 1) \
+        macro(DelExpr, delExpr, del_expr, false, -1) /* Returns its first operand, but additionally deletes a variadic number of additional variables. */ \
         \
         /* Aggregates */ \
         macro(Call, call, call, false, -1) \
@@ -165,6 +166,7 @@ namespace clover {
         macro(UseLocal, useLocal, use_local, false, 1) \
         macro(As, as, as, false, 2) \
         macro(Export, export, export, false, 1) \
+        macro(Bind, bind, bind, false, 2) /* Name Value */ \
         \
         /* Control */ \
         macro(Do, do, do, false, -1) \
@@ -215,9 +217,6 @@ namespace clover {
             LastLocal = Typename,
             LastGlobal = GlobalTypename,
             LastTerminal = Missing,
-            FirstScoped = VarDecl,
-            FirstDecl = VarDecl,
-            LastDecl = FunDecl,
             Ref = 255
         };
         #undef DEFINE_ENUM
@@ -1874,6 +1873,13 @@ namespace clover {
                 arity += computeArity(i);
             return arity;
         }
+        template<typename T, typename... Args>
+        inline u32 computeArity(const const_slice<T>& slice, Args... args) {
+            u32 arity = computeArity(args...);
+            for (const auto& i : slice)
+                arity += computeArity(i);
+            return arity;
+        }
 
         inline void addChild(const ASTWord& word) {
             astWords.pushUnchecked(word);
@@ -1973,6 +1979,13 @@ namespace clover {
         template<typename T, u32 N, typename... Args>
         inline void addChildren(const vec<T, N>& vec, const Args&... args) {
             for (auto child : vec)
+                addChild(child);
+            addChildren(args...);
+        }
+
+        template<typename T, typename... Args>
+        inline void addChildren(const const_slice<T>& slice, const Args&... args) {
+            for (auto child : slice)
                 addChild(child);
             addChildren(args...);
         }
@@ -3425,6 +3438,7 @@ namespace clover {
         bool isDOT = config::printTypeConstraintsAsDOT || config::jasmineASTComments;
         if (isDOT)
             typeColor = typeReset = "";
+        bool shouldPrintType = ast.module->nodeTypes.size();
 
         if ((remainingDepth == 0 && !ast.isLeaf())
             || (remainingDepth >= 0 && (ast.kind() == ASTKind::Do || ast.kind() == ASTKind::TopLevel)))
@@ -3455,13 +3469,13 @@ namespace clover {
             case ASTKind::Capture:
             case ASTKind::Typename:
                 io = format(io, module->str(ast.varInfo(parent.scope()->function).name));
-                if (module->nodeTypes.size())
+                if (shouldPrintType)
                     io = format(io, typeColor, ":", module->types->get(ast.varInfo(parent.scope()->function).type), typeReset);
                 return io;
             case ASTKind::Global:
             case ASTKind::GlobalTypename:
                 io = format(io, module->str(ast.varInfo().name));
-                if (ast.module->nodeTypes.size())
+                if (shouldPrintType)
                     io = format(io, typeColor, ":", module->types->get(ast.varInfo().type), typeReset);
                 return io;
             case ASTKind::Field:
@@ -3472,7 +3486,7 @@ namespace clover {
             case ASTKind::ResolvedFunction:
                 io = format(io, module->str(ast.resolvedFunction()->name));
                 io = format(io, '/', ast.module->functionIndex(ast.resolvedFunction()));
-                if (module->nodeTypes.size() && ast.resolvedFunction()->typeIndex != InvalidType)
+                if (shouldPrintType && ast.resolvedFunction()->typeIndex != InvalidType)
                     io = format(io, typeColor, ":", ast.resolvedFunction()->type(), typeReset);
                 return io;
             case ASTKind::ResolvedOverloads: {
@@ -3484,7 +3498,7 @@ namespace clover {
                 return io;
             case ASTKind::ResolvedGenericType:
                 io = format(io, module->str(ast.genericType()->name));
-                if (ast.module->nodeTypes.size())
+                if (shouldPrintType)
                     io = format(io, typeColor, ":", module->str(ast.genericType()->name), typeReset);
                 return io;
             case ASTKind::Wildcard:
@@ -3539,7 +3553,7 @@ namespace clover {
                     io = format_tree_to(io, ast, child, indentAmount, allowMultiline, remainingDepth);
                 }
                 io = format(io, ')');
-                if (ast.module->nodeTypes.size() && ast.typeIndex() != InvalidType)
+                if (shouldPrintType && ast.typeIndex() != InvalidType)
                     io = format(io, typeColor, ":", ast.type(), typeReset);
                 return io;
         }
