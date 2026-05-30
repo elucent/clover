@@ -375,6 +375,26 @@ namespace clover {
         pair<RegionIndex, RegionIndex> operator[](i32 var) const {
             return variableRegions[var];
         }
+
+        pair<RegionIndex, RegionIndex> unify(Type type, pair<RegionIndex, RegionIndex> a, pair<RegionIndex, RegionIndex> b) {
+            if (a.first == InvalidRegion || b.first == InvalidRegion)
+                return { InvalidRegion, InvalidRegion };
+            if (a.first != b.first) switch (type.kind()) {
+            }
+            if (a.second != b.second) switch (type.kind()) {
+            }
+            return a;
+        }
+
+        void unify(State& other) {
+            variableRegions.expandTo(other.variableRegions.size(), pair<RegionIndex, RegionIndex> { InvalidRegion, InvalidRegion });
+            other.variableRegions.expandTo(variableRegions.size(), pair<RegionIndex, RegionIndex> { InvalidRegion, InvalidRegion });
+
+            for (u32 i = 0; i < variableRegions.size(); i ++) {
+                TypeIndex type = function ? function->locals[i].type : module->globals[i].type;
+                variableRegions[i] = unify(module->types->get(type), variableRegions[i], other.variableRegions[i]);
+            }
+        }
     };
 
     struct RegionValue {
