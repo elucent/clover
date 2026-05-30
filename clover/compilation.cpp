@@ -84,9 +84,47 @@ namespace clover {
         ::println();
     }
 
+    u32 ArtifactData::errorCount() const {
+        return numErrors;
+    }
+
+    void printDirectoryName(Directory* directory) {
+        if (directory->parent) {
+            printDirectoryName(directory->parent);
+            print('/', directory->compilation->str(directory->name));
+        }
+    }
+
+    void printRelativeDirectoryName(Directory* directory) {
+        if (directory == directory->compilation->cwd)
+            return;
+        if (directory->parent) {
+            printRelativeDirectoryName(directory->parent);
+            if (directory->parent != directory->compilation->cwd)
+                print('/');
+            print(directory->compilation->str(directory->name));
+        }
+    }
+
+    void printArtifactName(Artifact* artifact) {
+        Compilation* compilation = artifact->parent->compilation;
+        printRelativeDirectoryName(artifact->parent);
+        if (artifact->filename.size())
+            print(artifact->filename);
+        else
+            print(compilation->str(artifact->name));
+    }
+
     void ArtifactData::addError(Error* error) {
         error->next = errors;
         errors = error;
+        if (++ numErrors >= 20) {
+            reportErrors(artifact);
+            ::print("[");
+            printArtifactName(error->module->artifact);
+            ::println(":-] " BOLDRED "error" RESET ": Too many errors reported; exiting now.");
+            process::exit(1);
+        }
     }
 
     void ArtifactData::takeErrors(vec<Error*>& collector) {
@@ -104,6 +142,7 @@ namespace clover {
             errors = node->next;
             delete node;
         }
+        numErrors = 0;
     }
 
     Compilation::Compilation() {
@@ -187,33 +226,6 @@ namespace clover {
             dir = dir->ensureDirectoryByName(sym(path.segments[i]));
         assert(dir != cwd);
         searchDirectories.push(dir);
-    }
-
-    void printDirectoryName(Directory* directory) {
-        if (directory->parent) {
-            printDirectoryName(directory->parent);
-            print('/', directory->compilation->str(directory->name));
-        }
-    }
-
-    void printRelativeDirectoryName(Directory* directory) {
-        if (directory == directory->compilation->cwd)
-            return;
-        if (directory->parent) {
-            printRelativeDirectoryName(directory->parent);
-            if (directory->parent != directory->compilation->cwd)
-                print('/');
-            print(directory->compilation->str(directory->name));
-        }
-    }
-
-    void printArtifactName(Artifact* artifact) {
-        Compilation* compilation = artifact->parent->compilation;
-        printRelativeDirectoryName(artifact->parent);
-        if (artifact->filename.size())
-            print(artifact->filename);
-        else
-            print(compilation->str(artifact->name));
     }
 
     void printSourceLine(ArtifactData* data, maybe<Pos> start, maybe<Pos> end) {

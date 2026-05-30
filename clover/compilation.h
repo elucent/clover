@@ -74,6 +74,7 @@ namespace clover {
     struct ArtifactData {
         Error* errors = nullptr;
         Artifact* artifact = nullptr;
+        u32 numErrors = 0;
 
         inline ArtifactData(Artifact* artifact_in):
             artifact(artifact_in) {}
@@ -87,6 +88,7 @@ namespace clover {
             return errors;
         }
 
+        u32 errorCount() const;
         void addError(Error* error);
         void takeErrors(vec<Error*>& collector);
         void clearErrors();

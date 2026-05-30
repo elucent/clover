@@ -377,12 +377,12 @@ namespace clover {
         }
 
         pair<RegionIndex, RegionIndex> unify(Type type, pair<RegionIndex, RegionIndex> a, pair<RegionIndex, RegionIndex> b) {
-            if (a.first == InvalidRegion || b.first == InvalidRegion)
-                return { InvalidRegion, InvalidRegion };
-            if (a.first != b.first) switch (type.kind()) {
-            }
-            if (a.second != b.second) switch (type.kind()) {
-            }
+            // if (a.first == InvalidRegion || b.first == InvalidRegion)
+            //     return { InvalidRegion, InvalidRegion };
+            // if (a.first != b.first) switch (type.kind()) {
+            // }
+            // if (a.second != b.second) switch (type.kind()) {
+            // }
             return a;
         }
 
@@ -550,7 +550,7 @@ namespace clover {
                     if (immediately) {
                         if (state.function)
                             pos.replaceWith(state.module->add(ASTKind::DelExpr, pos.origin(), pos.ast.scope(), type, pos.indexedCurrent(), Local(var)));
-                        else 
+                        else
                             pos.replaceWith(state.module->add(ASTKind::DelExpr, pos.origin(), pos.ast.scope(), type, pos.indexedCurrent(), Global(var)));
                     } else
                         toDestroy.push(value.ensureVar(state));
@@ -562,7 +562,7 @@ namespace clover {
                     if (immediately) {
                         if (state.function)
                             pos.replaceWith(state.module->add(ASTKind::DelExpr, pos.origin(), pos.ast.scope(), type, pos.indexedCurrent(), Local(var)));
-                        else 
+                        else
                             pos.replaceWith(state.module->add(ASTKind::DelExpr, pos.origin(), pos.ast.scope(), type, pos.indexedCurrent(), Global(var)));
                     } else
                         toDestroy.push(value.ensureVar(state));

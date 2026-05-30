@@ -32,7 +32,7 @@ TEST(parse_terminals) {
     ASSERT(list.child(5).kind() == ASTKind::String);
     ASSERT_EQUAL(STR(list.child(5).stringConst()), cstring("abc"));
 
-    ASSERT(list.child(6).kind() == ASTKind::Ident);
+    ASSERT(list.child(6).kind() == ASTKind::Literal);
     ASSERT_EQUAL(STR(list.child(6).symbol()), cstring("abc"));
 
     ASSERT(list.child(7).kind() == ASTKind::Ident);

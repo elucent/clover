@@ -249,9 +249,9 @@ namespace clover {
         inTable.add(name.symbol);
     }
 
-    void Scope::addNamespace(const AST& ast, Symbol name, Namespace* ns) {
+    void Scope::addNamespace(const AST& ast, Symbol name, Namespace* ns, bool checkDuplicates) {
         auto it = entries.find(name);
-        if (it != entries.end()) {
+        if (it != entries.end() && checkDuplicates) {
             auto& varInfo = function ? function->locals[it->value] : module->globals[it->value];
             if (varInfo.kind != VariableKind::Namespace || module->namespaces[varInfo.namespaceIndex] != ns)
                 error(module, ast, "Duplicate definition of symbol '", module->str(name), "'.")
@@ -401,6 +401,10 @@ namespace clover {
                 auto otherNs = otherModule->namespaces[info.namespaceIndex];
                 if (existing.scope == scope && newNs->origin == otherNs->rootOrigin())
                     return; // We have already imported the same namespace into this exact scope. Just leave.
+                if (otherNs->module == scope->module) {
+                    otherNs->addParent(ns);
+                    return; // A more local namespace already exists in this scope, so let's just add ourselves to it.
+                }
                 if (otherModule->namespaces[info.namespaceIndex] != ns)
                     newNs->addParent(otherModule->namespaces[info.namespaceIndex]);
             } else {
@@ -413,7 +417,7 @@ namespace clover {
             }
         }
 
-        scope->addNamespace(pos, ns->name(), newNs);
+        scope->addNamespace(pos, ns->name(), newNs, false);
     }
 
     void importNamespace(Scope* scope, Namespace* ns, AST use) {
@@ -532,6 +536,7 @@ namespace clover {
                 // We're revisiting an already-resolved node.
                 break;
             case ASTKind::Ident:
+            case ASTKind::Literal:
             case ASTKind::Int:
             case ASTKind::Unsigned:
             case ASTKind::Float:
@@ -539,6 +544,7 @@ namespace clover {
             case ASTKind::Char:
             case ASTKind::String:
             case ASTKind::Missing:
+            case ASTKind::Error:
                 break;
             case ASTKind::Stars:
                 // We have just two expressions as children, which shouldn't
@@ -733,7 +739,7 @@ namespace clover {
             case ASTKind::ConstVarDecl: {
                 ast.setScope(currentScope);
                 AST name = ast.child(0);
-                assert(name.kind() == ASTKind::Ident);
+                assert(isIdentifier(name));
                 currentScope->addConstant(VariableKind::Constant, ast, name.symbol());
                 computeScopes(module, imports, currentScope, ast.child(1));
                 (currentScope->function ? currentScope->function->constDeclOrder : module->constDeclOrder).push(ast.node);
@@ -741,7 +747,7 @@ namespace clover {
             }
             case ASTKind::ConstFunDecl: {
                 AST name = ast.child(0);
-                assert(name.kind() == ASTKind::Ident);
+                assert(isIdentifier(name));
                 Function* function = module->addFunction(ast, currentScope->function);
                 Scope* newScope = module->addScope(ScopeKind::Function, ast.node, currentScope, function);
                 ast.setScope(newScope);
@@ -761,7 +767,7 @@ namespace clover {
             case ASTKind::VarDecl: {
                 ast.setScope(currentScope);
                 AST pattern = ast.child(1);
-                if (pattern.kind() == ASTKind::Ident) {
+                if (isIdentifier(pattern)) {
                     VariableKind kind;
                     if (currentScope->kind == Scope::Kind::Type)
                         currentScope->add(VariableKind::Member, ast, pattern.symbol());
@@ -780,10 +786,11 @@ namespace clover {
                 AST name = ast.child(1);
                 if (name.kind() == ASTKind::GetField) // Method-style function declaration. We don't worry about it in this pass.
                     name = name.child(1);
-                assert(name.kind() == ASTKind::Ident);
+                assert(isIdentifier(name));
                 computeScopes(module, imports, currentScope, ast.child(3)); // Raises decl (should be independent of function, and can't reference it)
                 Function* function = module->addFunction(ast, currentScope->function);
                 Scope* newScope = module->addScope(ScopeKind::Function, ast.node, currentScope, function);
+                function->noMangling = name.kind() == ASTKind::Literal;
 
                 defineFunction(currentScope, name.symbol(), ast, function);
 
@@ -805,7 +812,7 @@ namespace clover {
             }
             case ASTKind::AliasDecl: {
                 ast.setScope(currentScope);
-                assert(ast.child(0).kind() == ASTKind::Ident);
+                assert(isIdentifier(ast.child(0)));
                 currentScope->add(currentScope->kind == ScopeKind::GenericType ? VariableKind::TypeParameter : VariableKind::Type, ast, ast.child(0).symbol()); // Type name
                 computeScopes(module, imports, currentScope, ast.child(2));
                 break;
@@ -813,7 +820,7 @@ namespace clover {
             case ASTKind::NamedDecl:
             case ASTKind::NamedCaseDecl: {
                 Symbol name;
-                if LIKELY(ast.child(0).kind() == ASTKind::Ident)
+                if LIKELY(isIdentifier(ast.child(0)))
                     name = ast.child(0).symbol();
                 else {
                     // This can happen in the case that we instantiate a
@@ -843,7 +850,7 @@ namespace clover {
             case ASTKind::StructCaseDecl: {
                 Symbol name;
 
-                if LIKELY(ast.child(0).kind() == ASTKind::Ident)
+                if LIKELY(isIdentifier(ast.child(0)))
                     name = ast.child(0).symbol();
                 else {
                     // This can happen in the case that we instantiate a
@@ -873,7 +880,7 @@ namespace clover {
             case ASTKind::UnionDecl:
             case ASTKind::UnionCaseDecl: {
                 Symbol name;
-                if LIKELY(ast.child(0).kind() == ASTKind::Ident)
+                if LIKELY(isIdentifier(ast.child(0)))
                     name = ast.child(0).symbol();
                 else {
                     // This can happen in the case that we instantiate a
@@ -911,7 +918,7 @@ namespace clover {
                 break;
             }
             case ASTKind::Namespace: {
-                assert(ast.child(0).kind() == ASTKind::Ident);
+                assert(isIdentifier(ast.child(0)));
                 Symbol name = ast.child(0).symbol();
 
                 // We need to see if we are inside a namespace. Only our
@@ -944,7 +951,7 @@ namespace clover {
                     ns = module->addNamespace(node);
                     if (parentNs)
                         ns->addParent(parentNs);
-                    currentScope->addNamespace(ast, ast.child(0).symbol(), ns);
+                    currentScope->addNamespace(ast, ast.child(0).symbol(), ns, true);
                 }
                 ast.setChild(0, module->add(ASTKind::ResolvedNamespace, ns));
 
@@ -1013,7 +1020,7 @@ namespace clover {
                     path.push(spec.child(1).symbol());
                 spec = spec.child(0);
             }
-            assert(spec.kind() == ASTKind::Ident);
+            assert(isIdentifier(spec));
             path.push(spec.symbol());
             for (u32 i = 0; i < path.size() / 2; i ++)
                 swap(path[i], path[path.size() - i - 1]);

@@ -1008,12 +1008,12 @@ namespace clover {
 
     bool isSingleFieldUnresolved(AST ast) {
         assert(ast.kind() == ASTKind::GetField || ast.kind() == ASTKind::SetField || ast.kind() == ASTKind::AddrField);
-        return ast.child(1).kind() == ASTKind::Ident;
+        return isIdentifier(ast.child(1));
     }
 
     bool areMultipleFieldsUnresolved(AST ast) {
         assert(ast.kind() == ASTKind::GetFields || ast.kind() == ASTKind::SetFields || ast.kind() == ASTKind::AddrFields);
-        return ast.child(1).kind() == ASTKind::Ident;
+        return isIdentifier(ast.child(1));
     }
 
     Type eliminateRange(Type type) {
@@ -2855,7 +2855,7 @@ namespace clover {
                     baseType = concreteType(module, baseType);
 
                 if (baseType.isStruct()) {
-                    assert(ast.child(1).kind() == ASTKind::Ident);
+                    assert(isIdentifier(ast.child(1)));
                     Symbol field = ast.child(1).symbol();
 
                     auto structType = baseType.asStruct();

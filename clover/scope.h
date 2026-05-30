@@ -157,7 +157,7 @@ namespace clover {
         void addOverloadedFunction(Overloads* overloads);
         void addIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
         void addConstantIndirect(Module* module, const AST& import, Scope* defScope, u32 index, Symbol name);
-        void addNamespace(const AST& decl, Symbol name, Namespace* ns);
+        void addNamespace(const AST& decl, Symbol name, Namespace* ns, bool checkDuplicates);
         void addGenericType(const AST& decl, GenericType* type);
 
         struct FindResult {

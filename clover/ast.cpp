@@ -64,6 +64,7 @@ namespace clover {
             case ASTKind::Float:
                 return mixHash(kh, intHash(bitcast<u64>(ast.floatConst())));
             case ASTKind::Ident:
+            case ASTKind::Literal:
                 return mixHash(kh, ::hash(ast.module->str(ast.symbol())));
             case ASTKind::String:
                 return mixHash(kh, ::hash(ast.module->str(ast.stringConst())));
@@ -76,6 +77,7 @@ namespace clover {
             case ASTKind::ResolvedFunction:
             case ASTKind::ResolvedOverloads:
             case ASTKind::ResolvedGenericType:
+            case ASTKind::Error:
             case ASTKind::Missing:
             case ASTKind::AnyType:
             case ASTKind::Wildcard:

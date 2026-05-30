@@ -25,7 +25,7 @@ namespace clover {
 
     struct Value {
         enum Kind : u8 {
-            Int, Unsigned, Undefined, Float, Char, Bool, Obj
+            Int, Unsigned, Error, Undefined, Float, Char, Bool, Obj
         };
         union {
             i64 i;
@@ -97,6 +97,10 @@ namespace clover {
 
         inline void setKind(Kind kind) {
             kindAndPointer.setExtra(kind);
+        }
+
+        inline bool isError() const {
+            return kind() == Error;
         }
 
         inline bool isObj() const {
@@ -218,6 +222,12 @@ namespace clover {
         Value value;
         value.setKind(Value::Float);
         value.f = f;
+        return value;
+    }
+
+    inline Value boxError() {
+        Value value;
+        value.setKind(Value::Error);
         return value;
     }
 
@@ -412,6 +422,8 @@ namespace clover {
         switch (value.kind()) {
             case Value::Undefined:
                 return format(io, "undefined");
+            case Value::Error:
+                return format(io, "error");
             case Value::Int:
                 return format(io, value.i);
             case Value::Unsigned:

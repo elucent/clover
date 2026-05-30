@@ -26,6 +26,7 @@ namespace clover {
         macro(GlobalConst, globalConst, _, true, 0) \
         macro(GlobalTypename, globalTypename, _, true, 0) \
         macro(Ident, ident, _, true, 0) \
+        macro(Literal, literal, _, true, 0) \
         macro(Field, field, _, true, 0) \
         macro(Uninit, uninit, _, true, 0) \
         macro(Int, int, _, true, 0) \
@@ -40,6 +41,7 @@ namespace clover {
         macro(ResolvedOverloads, resolvedOverloads, resolved_overloads, true, 0) /* Encodes overloads index in symbol. */ \
         macro(ResolvedGenericType, resolvedGenericType, _, true, 0) /* Encodes generic type index in symbol. */ \
         macro(ResolvedNamespace, resolvedNamespace, resolved_namespace, true, 0) /* Encodes namespace index in symbol. */ \
+        macro(Error, error, error, true, 0) /* Used to mark where an error was reported. */ \
         macro(Missing, missing, missing, true, 0) /* Used to mark missing expressions in nodes where some children are optional. */ \
         \
         /* Expressions */ \
@@ -1688,7 +1690,7 @@ namespace clover {
         }
 
         inline AST addLeaf(ASTKind kind, const Identifier& identifier) {
-            assert(kind == ASTKind::Ident);
+            assert(kind == ASTKind::Ident || kind == ASTKind::Literal);
             ASTWord ast;
             ast.kind = kind;
             ast.symbol = identifier.name.symbol;
@@ -2780,12 +2782,16 @@ namespace clover {
         globalIndex = compilation->numFunctions ++;
     }
 
+    inline bool isIdentifier(AST ast) {
+        return ast.kind() == ASTKind::Ident || ast.kind() == ASTKind::Literal;
+    }
+
     inline Function::Function(Module* module_in, Function* parent_in, NodeIndex decl_in):
         compilation(module_in->compilation), module(module_in), parent(parent_in), decl(decl_in) {
         AST nameNode = module->node(decl).child(1);
         if (nameNode.kind() == ASTKind::GetField)
             nameNode = nameNode.child(1);
-        assert(nameNode.kind() == ASTKind::Ident);
+        assert(isIdentifier(nameNode));
         name = nameNode.symbol();
         isConst = module->node(decl).kind() == ASTKind::ConstFunDecl;
         globalIndex = module->compilation->numFunctions ++;
@@ -3465,6 +3471,8 @@ namespace clover {
                 return format(io, "uninit");
             case ASTKind::Ident:
                 return format(io, module->str(ast.symbol()));
+            case ASTKind::Literal:
+                return format(io, '`', module->str(ast.symbol()), '`');
             case ASTKind::Local:
             case ASTKind::Capture:
             case ASTKind::Typename:
@@ -3503,6 +3511,8 @@ namespace clover {
                 return io;
             case ASTKind::Wildcard:
                 return format(io, "...");
+            case ASTKind::Error:
+                return format(io, "#error");
             case ASTKind::Missing:
                 return format(io, "?");
             case ASTKind::AnyType:

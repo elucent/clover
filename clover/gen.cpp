@@ -618,7 +618,7 @@ namespace clover {
             slice<i8> target = { buffer, 1024 };
 
             Scope* scope = function->module->node(function->decl).scope();
-            while (scope->parent) {
+            if (!module->noMangling && !function->noMangling) while (scope->parent) {
                 if (scope->kind == ScopeKind::Namespace) {
                     Namespace* ns = scope->module->node(scope->owner).child(0).resolvedNamespace();
                     NamespaceTree* node = ns->node;

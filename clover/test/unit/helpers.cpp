@@ -25,6 +25,7 @@ bool sameAST(ArtifactKind kind, Function* function, AST a, AST b, ShouldCompareP
                     result = bits_equal(a.floatConst(), b.floatConst()) && result;
                     break;
                 case ASTKind::Ident:
+                case ASTKind::Literal:
                     result = a.module->str(a.symbol()) == b.module->str(b.symbol()) && result;
                     break;
                 case ASTKind::Local:
@@ -52,6 +53,7 @@ bool sameAST(ArtifactKind kind, Function* function, AST a, AST b, ShouldCompareP
                     break;
                 case ASTKind::Wildcard:
                 case ASTKind::Missing:
+                case ASTKind::Error:
                 case ASTKind::Uninit:
                     break;
                 default:
