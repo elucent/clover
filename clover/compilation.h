@@ -242,6 +242,7 @@ namespace clover {
         vec<Artifact*> topologicalOrder;
         vec<Directory*> searchDirectories;
         map<Symbol, NamespaceTree*> topLevelNamespaces;
+        map<TypeIndex, Symbol> constructors, destructors;
 
         Compilation();
         ~Compilation();

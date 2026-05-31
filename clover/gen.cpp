@@ -1,6 +1,7 @@
 #include "clover/gen.h"
 #include "clover/ast.h"
 #include "clover/jitruntime.h"
+#include "clover/limits.h"
 #include "clover/typecheck.h"
 #include "jasmine/capi.h"
 #include "jasmine/mod.h"
@@ -68,6 +69,10 @@ namespace clover {
 
         JasmineEdge addEdge(JasmineBlock from, JasmineBlock to) {
             return jasmine_add_edge(callStack.back().output, from, to);
+        }
+
+        JasmineEdge addEdgeTo(JasmineBuilder builder, JasmineBlock to) {
+            return jasmine_add_edge(jasmine_current_function(builder), jasmine_current_block(builder), to);
         }
 
         JasmineEdge addEdgeTo(JasmineBlock to) {
@@ -1772,6 +1777,685 @@ namespace clover {
             jasmine_append_trap(builder);
     }
 
+    bool needsConstructor(Module* module, Type type);
+    bool needsDestructor(Module* module, Type type);
+
+    pair<bool, bool> populateNeedsConstructorDestructor(Module* module, Type type) {
+        bool ctor = false, dtor = false;
+
+        type = expand(type);
+        switch (type.kind()) {
+            case TypeKind::Primitive:
+            case TypeKind::Numeric:
+            case TypeKind::Function:
+                break;
+            case TypeKind::Pointer:
+                ctor = dtor = type.asPtr().isOwn();
+                break;
+            case TypeKind::Slice:
+                ctor = dtor = type.asSlice().isOwn();
+                break;
+            case TypeKind::Array:
+                ctor = needsConstructor(module, type.asArray().elementType());
+                dtor = needsDestructor(module, type.asArray().elementType());
+                break;
+            case TypeKind::Named:
+                ctor = needsConstructor(module, type.asNamed().innerType());
+                dtor = needsDestructor(module, type.asNamed().innerType());
+                break;
+            case TypeKind::Tuple: {
+                for (u32 i = 0; i < type.asTuple().count(); i ++) {
+                    if (needsConstructor(module, type.asTuple().fieldType(i)))
+                        ctor = true;
+                    if (needsDestructor(module, type.asTuple().fieldType(i)))
+                        dtor = true;
+                    if (ctor && dtor)
+                        break;
+                }
+                break;
+            }
+            case TypeKind::Struct: {
+                for (u32 i = 0; i < type.asStruct().count(); i ++) {
+                    if (needsConstructor(module, type.asStruct().fieldType(i)))
+                        ctor = true;
+                    if (needsDestructor(module, type.asStruct().fieldType(i)))
+                        dtor = true;
+                    if (ctor && dtor)
+                        break;
+                }
+                break;
+            }
+            case TypeKind::Union: {
+                for (u32 i = 0; i < type.asUnion().count(); i ++) {
+                    if (needsConstructor(module, type.asUnion().caseType(i)))
+                        ctor = true;
+                    if (needsDestructor(module, type.asUnion().caseType(i)))
+                        dtor = true;
+                    if (ctor && dtor)
+                        break;
+                }
+                break;
+            }
+            case TypeKind::Range:
+            case TypeKind::Var:
+                unreachable("Shouldn't see these types after expanding.");
+        }
+
+        module->constructorDestructorInited.on(type.index);
+        if (ctor)
+            module->needsConstructor.on(type.index);
+        if (dtor)
+            module->needsDestructor.on(type.index);
+
+        return { ctor, dtor };
+    }
+
+    bool needsConstructor(Module* module, Type type) {
+        type = expand(type);
+        if (module->constructorDestructorInited[type.index])
+            return module->needsConstructor[type.index];
+
+        return populateNeedsConstructorDestructor(module, type).first;
+    }
+
+    bool needsDestructor(Module* module, Type type) {
+        type = expand(type);
+        if (module->constructorDestructorInited[type.index])
+            return module->needsDestructor[type.index];
+
+        return populateNeedsConstructorDestructor(module, type).second;
+    }
+
+    u32 maxTag(Type type) {
+        if (type.isNamed())
+            return type.asNamed().typeTag();
+        if (type.isStruct())
+            return type.asStruct().typeTag();
+        assert(type.isUnion());
+        #ifndef RELEASE
+            u32 max = 0;
+            for (u32 i = 0; i < type.asUnion().count(); i ++)
+                max = ::max(max, maxTag(type.asUnion().caseType(i)));
+        #endif
+
+        // We assume the rightmost case gets the last tag. Otherwise we'd have
+        // to search the whole union tree which would suck. But we assert that
+        // this is truly the minimum on debug builds.
+        while (type.isUnion())
+            type = type.asUnion().caseType(type.asUnion().count() - 1);
+        u32 tag = maxTag(type);
+
+        assert(max == tag);
+        return tag;
+    }
+
+    u32 invalidTagFor(Type type) {
+        return maxTag(type) + 1;
+    }
+
+    u32 bitsNeededForTag(Module* module, Type type) {
+        u32 max = needsConstructor(module, type) ? invalidTagFor(type) : maxTag(type);
+        return intLog2(max + 1);
+    }
+
+    struct RecursionChecker {
+        vec<Type> trace;
+        bitset<128> recursive;
+
+        inline bool contains(Type type) {
+            for (u32 i = 0; i < trace.size(); i ++)
+                if (trace[i].index == type.index)
+                    return true;
+            return false;
+        }
+
+        inline void markRecursive(Type type) {
+            for (u32 i = 0; i < trace.size(); i ++)
+                if (trace[i].index == type.index)
+                    recursive.on(i);
+        }
+
+        inline bool isRecursiveRoot() {
+            return recursive[trace.size() - 1];
+        }
+
+        inline void push(Type type) {
+            trace.push(type);
+        }
+
+        inline void pop() {
+            trace.pop();
+        }
+    };
+
+    struct RecursionCheckerScope {
+        RecursionChecker& checker;
+
+        RecursionCheckerScope(RecursionChecker& checker_in, Type type):
+            checker(checker_in) {
+            if (type)
+                checker.push(type);
+        }
+
+        ~RecursionCheckerScope() {
+            checker.pop();
+        }
+    };
+
+    u32 constructorComplexity(RecursionChecker& trace, Module* module, Type type) {
+        if (!needsConstructor(module, type))
+            return 0;
+
+        type = expand(type);
+        if (trace.contains(type)) {
+            if (isNominal(type.kind()))
+                trace.markRecursive(type); // Try to avoid inlining any recursive named types.
+            return 1;
+        }
+
+        RecursionCheckerScope scope(trace, type);
+
+        switch (type.kind()) {
+            case TypeKind::Primitive:
+            case TypeKind::Numeric:
+            case TypeKind::Function:
+                unreachable("Shouldn't have reached here - none of these types should ever need a constructor.");
+            case TypeKind::Pointer:
+                return type.asPtr().isOwn() ? 1 : 0;
+            case TypeKind::Slice:
+                return type.asSlice().isOwn() ? 1 : 0;
+            case TypeKind::Array:
+                return constructorComplexity(trace, module, type.asArray().elementType());
+            case TypeKind::Named: {
+                auto complexity = constructorComplexity(trace, module, type.asNamed().innerType());
+                if (trace.isRecursiveRoot())
+                    return 1;
+                return complexity;
+            }
+            case TypeKind::Tuple: {
+                u32 total = 0;
+                for (u32 i = 0; i < type.asTuple().count(); i ++)
+                    total += constructorComplexity(trace, module, type.asTuple().fieldType(i));
+                return total;
+            }
+            case TypeKind::Struct: {
+                u32 total = 0;
+                for (u32 i = 0; i < type.asStruct().count(); i ++)
+                    total += constructorComplexity(trace, module, type.asStruct().fieldType(i));
+                if (trace.isRecursiveRoot())
+                    return 1;
+                return total;
+            }
+            case TypeKind::Union: {
+                // The only step we need here is setting an invalid tag, to
+                // know if this instance was initialized or not.
+                for (u32 i = 0; i < type.asUnion().count(); i ++)
+                    if (needsConstructor(module, type.asUnion().caseType(i)))
+                        return 1;
+                return 0;
+            }
+            case TypeKind::Range:
+            case TypeKind::Var:
+                unreachable("Shouldn't see these types after expanding.");
+        }
+    }
+
+    u32 destructorComplexity(RecursionChecker& trace, Module* module, Type type) {
+        if (!needsDestructor(module, type))
+            return 0;
+
+        type = expand(type);
+        if (trace.contains(type)) {
+            if (isNominal(type.kind()))
+                trace.markRecursive(type);
+            return 1;
+        }
+
+        RecursionCheckerScope scope(trace, type);
+
+        switch (type.kind()) {
+            case TypeKind::Primitive:
+            case TypeKind::Numeric:
+            case TypeKind::Function:
+                unreachable("Shouldn't have reached here - none of these types should ever need a destructor.");
+            case TypeKind::Pointer:
+                return type.asPtr().isOwn() ? 1 + destructorComplexity(trace, module, type.asPtr().elementType()) : 0;
+            case TypeKind::Slice:
+                return type.asSlice().isOwn() ? 1 + destructorComplexity(trace, module, type.asSlice().elementType()) : 0;
+            case TypeKind::Array:
+                return destructorComplexity(trace, module, type.asArray().elementType());
+            case TypeKind::Named: {
+                auto complexity = destructorComplexity(trace, module, type.asNamed().innerType());
+                if (trace.isRecursiveRoot())
+                    return 1;
+                return complexity;
+            }
+            case TypeKind::Tuple: {
+                u32 total = 0;
+                for (u32 i = 0; i < type.asTuple().count(); i ++)
+                    total += destructorComplexity(trace, module, type.asTuple().fieldType(i));
+                return total;
+            }
+            case TypeKind::Struct: {
+                u32 total = 0;
+                for (u32 i = 0; i < type.asStruct().count(); i ++)
+                    total += destructorComplexity(trace, module, type.asStruct().fieldType(i));
+                if (trace.isRecursiveRoot())
+                    return 1;
+                return total;
+            }
+            case TypeKind::Union: {
+                u32 max = 0;
+                for (u32 i = 0; i < type.asUnion().count(); i ++)
+                    max = ::max(max, destructorComplexity(trace, module, type.asUnion().caseType(i)));
+                return max;
+            }
+            case TypeKind::Range:
+            case TypeKind::Var:
+                unreachable("Shouldn't see these types after expanding.");
+        }
+    }
+
+    bool shouldGenerateInline(Module* module, Type type, bool isConstructor, bool inDedicatedFunction) {
+        if (inDedicatedFunction)
+            return true; // We can revisit this later if destructors for nested fields get way too big.
+
+        constexpr u32 InlineLimit = 8;
+
+        type = expand(type);
+        switch (type.kind()) {
+            case TypeKind::Primitive:
+            case TypeKind::Numeric:
+            case TypeKind::Function:
+                return true;
+            case TypeKind::Pointer:
+                return true;
+            case TypeKind::Slice:
+                return true;
+            case TypeKind::Array:
+                return shouldGenerateInline(module, type.asArray().elementType(), isConstructor, inDedicatedFunction);
+            case TypeKind::Named: {
+                RecursionChecker checker;
+                RecursionCheckerScope scope(checker, type);
+                return shouldGenerateInline(module, type.asNamed().innerType(), isConstructor, inDedicatedFunction) && !checker.isRecursiveRoot();
+            }
+            case TypeKind::Tuple:
+            case TypeKind::Struct: {
+                RecursionChecker checker;
+                RecursionCheckerScope scope(checker, type);
+                return (isConstructor ? constructorComplexity(checker, module, type) : destructorComplexity(checker, module, type)) <= InlineLimit && !checker.isRecursiveRoot();
+            }
+            case TypeKind::Union: {
+                if (isConstructor)
+                    return true;
+                RecursionChecker checker;
+                RecursionCheckerScope scope(checker, type);
+                u32 max = 0;
+                for (u32 i = 0; i < type.asUnion().count(); i ++) {
+                    max = ::max(destructorComplexity(checker, module, type.asUnion().caseType(i)), max);
+                    if (max > InlineLimit)
+                        return false;
+                }
+                return !checker.isRecursiveRoot();
+            }
+
+            case TypeKind::Var:
+            case TypeKind::Range:
+                unreachable("Shouldn't see these type kinds at this phase.");
+        }
+    }
+
+    JasmineType getNonUnionCase(GenerationContext& genCtx, Type type) {
+        while (type.isUnion())
+            type = type.asUnion().caseType(0);
+        return genCtx.lower(type);
+    }
+
+    void generateConstructor(GenerationContext& genCtx, JasmineBuilder builder, Type type, JasmineOperand dst) {
+        auto module = genCtx.module;
+        if (!needsConstructor(module, type))
+            return;
+
+        auto func = jasmine_current_function(builder);
+        type = expand(type);
+        switch (type.kind()) {
+            case TypeKind::Primitive:
+            case TypeKind::Numeric:
+            case TypeKind::Function:
+                unreachable("Shouldn't have reached here - none of these types should ever need a destructor.");
+
+            case TypeKind::Pointer:
+                // Uninit own pointers must be initialized to null.
+                if (type.asPtr().isOwn())
+                    jasmine_append_store(builder, genCtx.lowerType(type), dst, jasmine_imm(func, 0));
+                break;
+
+            case TypeKind::Slice:
+                // Ditto for the data fields in uninit own slices.
+                if (type.asSlice().isOwn())
+                    jasmine_append_store_field(builder, genCtx.lowerType(type), dst, 0, jasmine_imm(func, 0));
+                break;
+
+            case TypeKind::Array: {
+                JasmineOperand length = jasmine_imm(jasmine_current_function(builder), type.asArray().length());
+                JasmineOperand i = jasmine_variable(jasmine_current_function(builder));
+
+                JasmineBlock loop = jasmine_add_block(func), continuation = jasmine_add_block(func);
+                jasmine_append_br_ge(builder, genCtx.sizeType(), i, length, genCtx.addEdgeTo(builder, continuation), genCtx.addEdgeTo(builder, loop));
+
+                jasmine_builder_set_block(builder, loop);
+                assert(needsConstructor(module, type.asArray().elementType()));
+                JasmineOperand element = jasmine_variable(func);
+                jasmine_append_offset_index(builder, genCtx.lower(type.asArray().elementType()), element, dst, genCtx.sizeType(), i);
+                generateConstructor(genCtx, builder, type.asArray().elementType(), element);
+                jasmine_append_add(builder, genCtx.sizeType(), i, i, jasmine_imm(func, 1));
+                jasmine_append_br_ge(builder, genCtx.sizeType(), i, length, genCtx.addEdgeTo(builder, continuation), genCtx.addEdgeTo(builder, loop));
+
+                jasmine_builder_set_block(builder, continuation);
+                break;
+            }
+
+            case TypeKind::Named: {
+                JasmineOperand field = jasmine_variable(func);
+                jasmine_append_offset_field(builder, genCtx.lower(type), field, dst, type.asNamed().isCase() ? 1 : 0);
+                generateConstructor(genCtx, builder, type.asNamed().innerType(), field);
+                break;
+            }
+
+            case TypeKind::Tuple:
+                for (u32 i = 0; i < type.asTuple().count(); i ++) if (needsConstructor(module, type.asTuple().fieldType(i))) {
+                    JasmineOperand field = jasmine_variable(func);
+                    jasmine_append_offset_field(builder, genCtx.lower(type), field, dst, i);
+                    generateConstructor(genCtx, builder, type.asTuple().fieldType(i), field);
+                }
+                break;
+
+            case TypeKind::Struct:
+                for (u32 i = 0; i < type.asStruct().count(); i ++) if (needsConstructor(module, type.asStruct().fieldType(i))) {
+                    JasmineOperand field = jasmine_variable(func);
+                    jasmine_append_offset_field(builder, genCtx.lower(type), field, dst, isCase(type) ? i + 1 : i);
+                    generateConstructor(genCtx, builder, type.asStruct().fieldType(i), field);
+                }
+                break;
+
+            case TypeKind::Union: {
+                jasmine_append_store_field(builder, getNonUnionCase(genCtx, type), dst, 0, jasmine_imm(func, invalidTagFor(type)));
+                break;
+            }
+
+            case TypeKind::Var:
+            case TypeKind::Range:
+                unreachable("Shouldn't see these type kinds at this phase.");
+        }
+    }
+
+    Symbol ensureConstructor(GenerationContext& genCtx, Type type) {
+        auto module = genCtx.module;
+        auto existing = module->compilation->constructors.find(type.index);
+        if (existing != module->compilation->constructors.end())
+            return existing->value;
+
+        array<i8, 256> buffer;
+        slice<i8> iter = format((slice<i8>)buffer, ".new.");
+        iter = genCtx.mangleType(iter, type);
+        auto namestr = buffer[{0, 256 - iter.size()}];
+        Symbol name = module->sym(namestr);
+
+        JasmineFunction ctor = jasmine_create_function(genCtx.output, namestr.data(), namestr.size(), JASMINE_TYPE_VOID, JASMINE_FUNCTION_FLAGS_WEAK);
+        jasmine_add_parameter(ctor, JASMINE_TYPE_PTR, "this", 4);
+        JasmineOperand x = jasmine_add_parameter(ctor, JASMINE_TYPE_PTR, "x", 1);
+
+        JasmineBuilder builder = jasmine_create_builder(genCtx.output);
+        jasmine_builder_set_function(builder, ctor);
+        jasmine_builder_set_block(builder, jasmine_add_block(ctor));
+
+        generateConstructor(genCtx, builder, type, x);
+
+        jasmine_append_ret_void(builder);
+
+        if (genCtx.assembly)
+            jasmine_compile_function_only(*genCtx.assembly, ctor, module->compilation->optimizationLevel, true);
+
+        module->compilation->destructors.put(type.index, name);
+        return name;
+    }
+
+    Symbol ensureDestructor(GenerationContext& genCtx, Type type);
+
+    void generateDestructor(RecursionChecker& trace, GenerationContext& genCtx, JasmineBuilder builder, Type type, JasmineOperand src, bool inDedicatedFunction);
+
+    void generateUnionDestructor(RecursionChecker& trace, GenerationContext& genCtx, JasmineBuilder builder, Type type, JasmineOperand src, JasmineOperand tag, bool inDedicatedFunction) {
+        Module* module = genCtx.module;
+        JasmineFunction func = jasmine_current_function(builder);
+        for (u32 i = 0; i < type.asUnion().count(); i ++) if (needsDestructor(module, type.asUnion().caseType(i))) {
+            Type caseType = expand(type.asUnion().caseType(i));
+            if (caseType.isUnion()) {
+                // Since unions just check if we're one of their
+                // concrete cases, we don't have to do a typecheck
+                // here, we just want to recursively have it generate
+                // its own cases. But we don't want to have to reload
+                // the tag, so we pass it along.
+                generateUnionDestructor(trace, genCtx, builder, caseType, src, tag, inDedicatedFunction);
+                continue;
+            }
+
+            if (!needsDestructor(module, caseType))
+                continue;
+
+            u32 tagValue = caseType.isNamed() ? caseType.asNamed().typeTag() : caseType.asStruct().typeTag();
+            JasmineBlock ifMatch = jasmine_add_block(func), continuation = jasmine_add_block(func);
+
+            jasmine_append_br_ne(builder, genCtx.tagType(), tag, jasmine_imm(func, tagValue), genCtx.addEdgeTo(builder, continuation), genCtx.addEdgeTo(builder, ifMatch));
+
+            jasmine_builder_set_block(builder, ifMatch);
+            generateDestructor(trace, genCtx, builder, caseType, src, inDedicatedFunction);
+            jasmine_append_br(builder, genCtx.addEdgeTo(builder, continuation));
+
+            jasmine_builder_set_block(builder, continuation);
+        }
+    }
+
+    void generateUnionPointerDestructor(RecursionChecker& trace, GenerationContext& genCtx, JasmineBuilder builder, Type type, JasmineOperand src, JasmineOperand tag, JasmineBlock ifAtom, bool inDedicatedFunction) {
+        Module* module = genCtx.module;
+        JasmineFunction func = jasmine_current_function(builder);
+        for (u32 i = 0; i < type.asUnion().count(); i ++) {
+            Type caseType = expand(type.asUnion().caseType(i));
+            if (caseType.isUnion()) {
+                generateUnionPointerDestructor(trace, genCtx, builder, caseType, src, tag, ifAtom, inDedicatedFunction);
+                continue;
+            }
+
+            if (isAtom(caseType)) {
+                JasmineBlock continuation = jasmine_add_block(func);
+                jasmine_append_br_eq(builder, genCtx.tagType(), tag, jasmine_imm(func, caseType.asNamed().typeTag()), genCtx.addEdgeTo(builder, ifAtom), genCtx.addEdgeTo(builder, continuation));
+                jasmine_builder_set_block(builder, continuation);
+                continue;
+            }
+            if (!needsDestructor(module, caseType))
+                continue;
+
+            u32 tagValue = caseType.isNamed() ? caseType.asNamed().typeTag() : caseType.asStruct().typeTag();
+            JasmineBlock ifMatch = jasmine_add_block(func), continuation = jasmine_add_block(func);
+
+            jasmine_append_br_ne(builder, genCtx.tagType(), tag, jasmine_imm(func, tagValue), genCtx.addEdgeTo(builder, continuation), genCtx.addEdgeTo(builder, ifMatch));
+
+            jasmine_builder_set_block(builder, ifMatch);
+            generateDestructor(trace, genCtx, builder, caseType, src, inDedicatedFunction);
+            jasmine_append_br(builder, genCtx.addEdgeTo(builder, continuation));
+
+            jasmine_builder_set_block(builder, continuation);
+        }
+    }
+
+    void generateDestructor(RecursionChecker& trace, GenerationContext& genCtx, JasmineBuilder builder, Type type, JasmineOperand src, bool inDedicatedFunction) {
+        auto module = genCtx.module;
+        if (!needsDestructor(module, type))
+            return;
+
+        auto func = jasmine_current_function(builder);
+        type = expand(type);
+
+        if (!shouldGenerateInline(module, type, false, inDedicatedFunction)
+            || trace.contains(type)) {
+            Symbol calleeSym = ensureDestructor(genCtx, type);
+            auto calleeName = module->str(calleeSym);
+            auto callee = jasmine_function_ref(func, calleeName.data(), calleeName.size());
+            auto functype = jasmine_make_function_type(genCtx.output, &JASMINE_TYPE_PTR, 1, JASMINE_TYPE_VOID);
+            jasmine_append_call_void(builder, functype, callee, &src, 1);
+            return;
+        }
+
+        RecursionCheckerScope scope(trace, type);
+
+        switch (type.kind()) {
+            case TypeKind::Primitive:
+            case TypeKind::Numeric:
+            case TypeKind::Function:
+                unreachable("Shouldn't have reached here - none of these types should ever need a destructor.");
+
+            case TypeKind::Pointer:
+                if (type.asPtr().isOwn()) {
+                    JasmineBlock free = jasmine_add_block(func), continuation = jasmine_add_block(func);
+                    JasmineOperand ptrval = jasmine_variable(func);
+                    jasmine_append_load(builder, genCtx.lower(type), ptrval, src);
+                    jasmine_append_br_eq(builder, genCtx.lower(type), ptrval, jasmine_imm(func, 0), genCtx.addEdgeTo(builder, continuation), genCtx.addEdgeTo(builder, free));
+
+                    jasmine_builder_set_block(builder, free);
+
+                    if (expand(type.asPtr().elementType()).isUnion()) {
+                        JasmineOperand tag = jasmine_variable(func);
+                        jasmine_append_load_field(builder, getNonUnionCase(genCtx, expand(type.asPtr().elementType())), tag, ptrval, 0);
+                        generateUnionPointerDestructor(trace, genCtx, builder, expand(type.asPtr().elementType()), ptrval, tag, continuation, inDedicatedFunction);
+                    } else
+                        generateDestructor(trace, genCtx, builder, type.asPtr().elementType(), ptrval, inDedicatedFunction);
+                    jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), jasmine_function_ref(func, "memory.free", 11), &ptrval, 1);
+                    jasmine_append_br(builder, genCtx.addEdgeTo(builder, continuation));
+
+                    jasmine_builder_set_block(builder, continuation);
+                }
+                break;
+
+            case TypeKind::Slice:
+                // Ditto for the data fields in uninit own slices.
+                if (type.asSlice().isOwn()) {
+                    JasmineBlock free = jasmine_add_block(func), continuation = jasmine_add_block(func);
+                    JasmineOperand data = jasmine_variable(func);
+                    jasmine_append_load_field(builder, genCtx.lower(type), data, src, 0);
+                    jasmine_append_br_eq(builder, JASMINE_TYPE_PTR, data, jasmine_imm(func, 0), genCtx.addEdgeTo(builder, continuation), genCtx.addEdgeTo(builder, free));
+
+                    jasmine_builder_set_block(builder, free);
+
+                    if (needsDestructor(module, type.asSlice().elementType())) {
+                        // We want to actually iterate through every element.
+                        JasmineBlock loop = jasmine_add_block(func), freeContinuation = jasmine_add_block(func);
+                        JasmineOperand size = jasmine_variable(func), i = jasmine_variable(func);
+                        jasmine_append_load_field(builder, genCtx.lower(type), size, src, 1);
+                        jasmine_append_mov(builder, genCtx.sizeType(), i, jasmine_imm(func, 0));
+                        jasmine_append_br_ge(builder, genCtx.sizeType(), i, size, genCtx.addEdgeTo(builder, freeContinuation), genCtx.addEdgeTo(builder, loop));
+
+                        jasmine_builder_set_block(builder, loop);
+                        JasmineOperand element = jasmine_variable(func);
+                        jasmine_append_offset_index(builder, genCtx.lower(type.asSlice().elementType()), element, data, genCtx.sizeType(), i);
+                        generateDestructor(trace, genCtx, builder, type.asSlice().elementType(), element, inDedicatedFunction);
+                        jasmine_append_add(builder, genCtx.sizeType(), i, i, jasmine_imm(func, 1));
+                        jasmine_append_br_ge(builder, genCtx.sizeType(), i, size, genCtx.addEdgeTo(builder, freeContinuation), genCtx.addEdgeTo(builder, loop));
+
+                        jasmine_builder_set_block(builder, freeContinuation);
+                    }
+
+                    jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), jasmine_function_ref(func, "memory.free", 11), &data, 1);
+                    jasmine_append_br(builder, genCtx.addEdgeTo(builder, continuation));
+
+                    jasmine_builder_set_block(builder, continuation);
+                }
+                break;
+
+            case TypeKind::Array: {
+                JasmineOperand length = jasmine_imm(jasmine_current_function(builder), type.asArray().length());
+                JasmineOperand i = jasmine_variable(jasmine_current_function(builder));
+
+                JasmineBlock loop = jasmine_add_block(func), continuation = jasmine_add_block(func);
+                jasmine_append_br_ge(builder, genCtx.sizeType(), i, length, genCtx.addEdgeTo(builder, continuation), genCtx.addEdgeTo(builder, loop));
+
+                jasmine_builder_set_block(builder, loop);
+                assert(needsDestructor(module, type.asArray().elementType()));
+                JasmineOperand element = jasmine_variable(func);
+                jasmine_append_offset_index(builder, genCtx.lower(type.asArray().elementType()), element, src, genCtx.sizeType(), i);
+                generateDestructor(trace, genCtx, builder, type.asArray().elementType(), element, inDedicatedFunction);
+                jasmine_append_add(builder, genCtx.sizeType(), i, i, jasmine_imm(func, 1));
+                jasmine_append_br_ge(builder, genCtx.sizeType(), i, length, genCtx.addEdgeTo(builder, continuation), genCtx.addEdgeTo(builder, loop));
+
+                jasmine_builder_set_block(builder, continuation);
+                break;
+            }
+
+            case TypeKind::Named: {
+                JasmineOperand field = jasmine_variable(func);
+                jasmine_append_offset_field(builder, genCtx.lower(type), field, src, type.asNamed().isCase() ? 1 : 0);
+                generateDestructor(trace, genCtx, builder, type.asNamed().innerType(), field, inDedicatedFunction);
+                break;
+            }
+
+            case TypeKind::Tuple:
+                for (u32 i = 0; i < type.asTuple().count(); i ++) if (needsDestructor(module, type.asTuple().fieldType(i))) {
+                    JasmineOperand field = jasmine_variable(func);
+                    jasmine_append_offset_field(builder, genCtx.lower(type), field, src, i);
+                    generateDestructor(trace, genCtx, builder, type.asTuple().fieldType(i), field, inDedicatedFunction);
+                }
+                break;
+
+            case TypeKind::Struct:
+                for (u32 i = 0; i < type.asStruct().count(); i ++) if (needsDestructor(module, type.asStruct().fieldType(i))) {
+                    JasmineOperand field = jasmine_variable(func);
+                    jasmine_append_offset_field(builder, genCtx.lower(type), field, src, isCase(type) ? i + 1 : i);
+                    generateDestructor(trace, genCtx, builder, type.asStruct().fieldType(i), field, inDedicatedFunction);
+                }
+                break;
+
+            case TypeKind::Union: {
+                JasmineOperand tag = jasmine_variable(func);
+                jasmine_append_load_field(builder, getNonUnionCase(genCtx, type), tag, src, 0);
+                generateUnionDestructor(trace, genCtx, builder, type, src, tag, inDedicatedFunction);
+                break;
+            }
+
+            case TypeKind::Var:
+            case TypeKind::Range:
+                unreachable("Shouldn't see these type kinds at this phase.");
+        }
+    }
+
+    Symbol ensureDestructor(GenerationContext& genCtx, Type type) {
+        auto module = genCtx.module;
+        auto existing = module->compilation->destructors.find(type.index);
+        if (existing != module->compilation->destructors.end())
+            return existing->value;
+
+        array<i8, 256> buffer;
+        slice<i8> iter = format((slice<i8>)buffer, ".del.");
+        iter = genCtx.mangleType(iter, type);
+        auto namestr = buffer[{0, 256 - iter.size()}];
+        Symbol name = module->sym(namestr);
+        JasmineFunction dtor = jasmine_create_function(genCtx.output, namestr.data(), namestr.size(), JASMINE_TYPE_VOID, JASMINE_FUNCTION_FLAGS_WEAK);
+        JasmineOperand x = jasmine_add_parameter(dtor, JASMINE_TYPE_PTR, "x", 1);
+
+        JasmineBuilder builder = jasmine_create_builder(genCtx.output);
+        jasmine_builder_set_function(builder, dtor);
+        jasmine_builder_set_block(builder, jasmine_add_block(dtor));
+
+        module->compilation->destructors.put(type.index, name);
+
+        RecursionChecker checker;
+        generateDestructor(checker, genCtx, builder, type, x, true);
+
+        jasmine_append_ret_void(builder);
+
+        if (genCtx.assembly)
+            jasmine_compile_function_only(*genCtx.assembly, dtor, module->compilation->optimizationLevel, true);
+
+        return name;
+    }
+
     bool canInitializeStatically(AST init, Type destType) {
         switch (init.kind()) {
             case ASTKind::Int:
@@ -2259,15 +2943,11 @@ namespace clover {
 
             case ASTKind::Del: {
                 Type child = typeOf(ast, 0);
-                if (child.isPtr() && child.asPtr().isOwn()) {
-                    value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
-                    jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &value, 1);
-                } else if (child.isSlice() && child.asSlice().isOwn()) {
-                    auto slice = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
-                    value = genCtx.temp();
-                    jasmine_append_get_field(builder, genCtx.lower(child), value, slice, 0);
-                    jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &value, 1);
-                }
+                value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
+                JasmineOperand addr = genCtx.temp();
+                jasmine_append_addr(builder, JASMINE_TYPE_PTR, addr, value);
+                RecursionChecker checker;
+                generateDestructor(checker, genCtx, builder, child, addr, false);
                 return JASMINE_INVALID_OPERAND;
             }
 
@@ -2278,42 +2958,13 @@ namespace clover {
                 // Everything else is stuff we're gonna destroy.
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     Type child = typeOf(ast, i);
-                    if (child.isPtr() && child.asPtr().isOwn()) {
-                        auto ptr = generate(genCtx, builder, ast.child(i), typeOf(ast, i));
-                        jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &ptr, 1);
-                    } else if (child.isSlice() && child.asSlice().isOwn()) {
-                        auto slice = generate(genCtx, builder, ast.child(i), typeOf(ast, i));
-                        auto ptr = genCtx.temp();
-                        jasmine_append_get_field(builder, genCtx.lower(child), value, slice, 0);
-                        jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &ptr, 1);
-                    }
+                    auto var = generate(genCtx, builder, ast.child(i), typeOf(ast, i));
+                    JasmineOperand addr = genCtx.temp();
+                    jasmine_append_addr(builder, JASMINE_TYPE_PTR, addr, var);
+                    RecursionChecker checker;
+                    generateDestructor(checker, genCtx, builder, child, addr, false);
                 }
                 return value;
-            }
-
-            case ASTKind::DelArray: {
-                Type child = typeOf(ast, 0);
-                Type elementType = child.isArray() ? child.asArray().elementType() : child.asSlice().elementType();
-                auto index = genCtx.temp();
-                JasmineOperand size;
-                value = generate(genCtx, builder, ast.child(0), child);
-                if (child.isArray())
-                    size = genCtx.imm(child.asArray().length());
-                else
-                    size = generateLength(genCtx, builder, child, value, module->u64Type());
-                jasmine_append_mov(builder, genCtx.sizeType(), index, genCtx.imm(0));
-
-                auto loop = genCtx.addBlock(), continuation = genCtx.addBlock();
-                jasmine_append_br_ge(builder, genCtx.sizeType(), index, size, genCtx.addEdgeTo(continuation), genCtx.addEdgeTo(loop));
-
-                jasmine_builder_set_block(builder, loop);
-                auto element = generateGetIndex(genCtx, builder, child, value, index, elementType);
-                jasmine_append_call_void(builder, genCtx.getMemoryFreeType(), genCtx.funcref(cstring("memory.free")), &value, 1);
-                jasmine_append_add(builder, genCtx.sizeType(), index, index, genCtx.imm(1));
-                jasmine_append_br_ge(builder, genCtx.sizeType(), index, size, genCtx.addEdgeTo(continuation), genCtx.addEdgeTo(loop));
-
-                jasmine_builder_set_block(builder, continuation);
-                return JASMINE_INVALID_OPERAND;
             }
 
             case ASTKind::String: {
