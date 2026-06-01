@@ -7,6 +7,8 @@
 #include "util/math.h"
 
 #define SLOW_GUARD_MALLOC 0
+#define USE_MIMALLOC 0
+#define USE_LIBCMALLOC 0
 #define USE_ELUMALLOC 1
 
 #if SLOW_GUARD_MALLOC
@@ -55,6 +57,19 @@ inline NOINLINE void free(void* ptr) {
     slice<memory::page> alloc = { alloc_base, size };
     memory::unmap(alloc);
 }
+#elif USE_MIMALLOC
+
+#include "util/mimalloc.h"
+inline NOINLINE void* malloc(uword bytes) {
+    return mi_malloc(bytes);
+}
+
+inline NOINLINE void free(void* ptr) {
+    return mi_free(ptr);
+}
+#elif USE_LIBCMALLOC
+extern "C" void* malloc(size_t);
+extern "C" void free(void*);
 #elif USE_ELUMALLOC
 #include "util/elumalloc.h"
 inline NOINLINE void* malloc(uword bytes) {
