@@ -3055,6 +3055,16 @@ namespace clover {
                 } else if (type.isNamed()) {
                     auto namedType = type.asNamed();
                     auto loweredStruct = genCtx.lower(type);
+
+                    if (isAtom(type)) {
+                        auto impl = genCtx.atomRef(type);
+                        if (destType.isPtr())
+                            return impl; // It's a static/data ref, so natively a pointer.
+                        auto val = genCtx.temp();
+                        jasmine_append_load(builder, genCtx.lower(type), val, impl);
+                        return coerce(genCtx, builder, destType, type, val);
+                    }
+
                     result = genCtx.temp();
                     JasmineOperand field = generate(genCtx, builder, ast.child(0), namedType.innerType());
                     if (namedType.isCase())
