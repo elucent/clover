@@ -536,6 +536,7 @@ namespace clover {
             case ASTKind::ResolvedOverloads:
             case ASTKind::ResolvedNamespace:
             case ASTKind::ResolvedGenericType:
+            case ASTKind::Projection:
                 // We're revisiting an already-resolved node.
                 break;
             case ASTKind::Ident:

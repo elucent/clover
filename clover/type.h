@@ -2329,15 +2329,13 @@ namespace clover {
             case Query: {
                 Type al = lowerBound(*this), au = upperBound(*this);
                 Type bl = lowerBound(other), bu = upperBound(other);
-
-                auto result = al.unifyOnto(bu, constraints, Query);
-                if (result && ((mode & UnifyFlagsMask) == MustBeEqual
-                    || (mode & UnifyFlagsMask) == MustSubstitute)) {
-                    // We know that two types can be equal to each other if they
-                    // can unify bidirectionally.
-                    return bl.unifyOnto(au, constraints, Query);
-                }
-                return result;
+                Type l = leastCommonSupertype(al, bl, constraints, mode & ModeMask);
+                if (!l)
+                    return UnifyFailure;
+                Type u = greatestCommonSubtype(au, bu, constraints, mode & ModeMask);
+                if (!u)
+                    return UnifyFailure;
+                return UnifySuccess;
             }
             case InPlace:
             case Constraining: {
@@ -2930,8 +2928,7 @@ namespace clover {
                 return types->encode<TypeKind::Pointer>(a.asPtr().traits(), common);
         }
 
-        if (a.isPtr() && b.isPtr()
-            && isCase(a.asPtr().elementType()) && isCase(b.asPtr().elementType())) {
+        if (a.isPtr() && b.isPtr()) {
             RefTraits traits;
             if (a.asPtr().traits() <= b.asPtr().traits())
                 traits = b.asPtr().traits();
@@ -2942,6 +2939,8 @@ namespace clover {
 
             if (TypeOrGenericOrigin result = caseLCA(a.asPtr().elementType(), b.asPtr().elementType()))
                 return types->encode<TypeKind::Pointer>(traits, unifyTypesOrOrigins(result, a.asPtr().elementType(), b.asPtr().elementType(), constraints, mode | flags));
+            else if (Type other = leastCommonSupertype(a.asPtr().elementType(), b.asPtr().elementType(), constraints, mode | flags | MustSubstitute))
+                return types->encode<TypeKind::Pointer>(traits, other);
         }
 
         return types->invalidType();
