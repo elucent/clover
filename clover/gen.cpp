@@ -1418,8 +1418,46 @@ namespace clover {
                 break;
 
             case ASTKind::VarDecl: {
-                auto varType = genCtx.lower(typeOf(pattern));
-                auto coercedInput = coerce(genCtx, builder, typeOf(pattern), inputType, input);
+                auto baseType = expand(inputType);
+                if (baseType.isPtr())
+                    baseType = expand(baseType.asPtr().elementType());
+                auto patternType = typeOf(pattern);
+                Type caseType = patternType.isPtr() ? expand(patternType.asPtr().elementType()) : patternType;
+                JasmineType loweredPattern = genCtx.lower(patternType);
+                if (baseType.isUnion() && !caseType.isUnion()) {
+                    // Really we want to dispatch to one of our cases. We
+                    // implement this by recursively calling
+                    // generatePattern again once we've isolated the right
+                    // subtype.
+
+                    genCtx.ensureTypeTag(caseType);
+                    u32 id;
+                    if (caseType.isStruct())
+                        id = caseType.asStruct().typeTag();
+                    else if (caseType.isNamed())
+                        id = caseType.asNamed().typeTag();
+                    else
+                        unreachable("Unions can only match against specific struct or named type members.");
+
+                    auto tag = genCtx.temp();
+                    JasmineType loweredCase = genCtx.lower(caseType);
+                    if (expand(inputType).isPtr())
+                        jasmine_append_load_field(builder, loweredCase, tag, input, 0); // Tag is always the first field.
+                    else
+                        jasmine_append_get_field(builder, loweredCase, tag, input, 0);
+                    continuation = genCtx.addBlock();
+                    jasmine_append_br_ne(builder, genCtx.tagType(), tag, genCtx.imm(id), genCtx.addEdgeTo(fail), genCtx.addEdgeTo(continuation));
+                    jasmine_builder_set_block(builder, continuation);
+                }
+
+                auto varType = loweredPattern;
+                if (baseType.isPtr() && !patternType.isPtr()) {
+                    JasmineOperand value = genCtx.temp();
+                    jasmine_append_load(builder, varType, value, input);
+                    input = value;
+                }
+
+                auto coercedInput = coerce(genCtx, builder, patternType, inputType, input);
                 if (pattern.child(1).kind() == ASTKind::Local)
                     jasmine_append_mov(builder, varType, genCtx.local(pattern.child(1).variable()), coercedInput);
                 else {
@@ -1451,6 +1489,7 @@ namespace clover {
                         Type patternType = expand(typeOf(pattern));
                         JasmineType loweredPattern = genCtx.lower(patternType);
 
+                        genCtx.ensureTypeTag(patternType);
                         u32 id;
                         if (patternType.isStruct())
                             id = patternType.asStruct().typeTag();

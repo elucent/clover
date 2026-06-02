@@ -3164,7 +3164,7 @@ namespace clover {
 
             case ASTKind::Match: {
                 auto result = RefineSuccess;
-                Type baseType = dereferenceIfPointer(module, expand(refinedType), false);
+                Type baseType = expand(refinedType);
                 for (AST matchCase : ast.children(1)) {
                     AST check = matchCase.child(0);
                     AST body = matchCase.child(1);
@@ -3179,7 +3179,7 @@ namespace clover {
 
             case ASTKind::Is:
             case ASTKind::VarDecl: {
-                Type baseType = dereferenceIfPointer(module, expand(refinedType), false);
+                Type baseType = expand(refinedType);
 
                 AST pattern = ast.child(1);
                 return refinePattern(ctx, function, baseType, pattern);
