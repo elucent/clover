@@ -18,6 +18,9 @@ void push(type T, Vec(T)* vec, T item):
     vec.grow() if vec.size + 1 > |vec.items|
     vec.items[vec.size ++] = item
 
+u64 size(type T, Vec(T)* vec):
+    vec.size
+
 T pop(type T, Vec(T)* vec):
     vec.items[vec.size --]
 
@@ -42,7 +45,6 @@ T last(type T, Vec(T)* vec):
 
 void removeIf(type T, Vec(T)* vec, bool(T) predicate):
     var writer: 0, reader: 0
-    vec[writer] = vec[reader] if predicate(vec.items[reader]) while reader < vec.size:
-    del vec.items[i] for writer <= i < reader
+    vec[writer] = vec[reader] if predicate(vec.items[reader]) while reader < vec.size
     vec.size = writer
 

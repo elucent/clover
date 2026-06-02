@@ -3889,19 +3889,19 @@ namespace clover {
                 Type t = expand(types->get(ctx.constraints->constrainedTypes[i]));
                 bool tConcrete = t.isConcrete();
                 ConstraintIndex outer = ctx.constraints->outerIndices[i].index();
-                ConstraintList* outerList;
+                ConstraintIndex outerList;
                 if (outer == InvalidConstraint || ctx.constraints->outerIndices[i].depth() != parent->constraints->depth) {
                     types->constraintNodes[t.index] = {};
                     outer = parent->constraints->index(t);
                     ctx.constraints->outerIndices[i] = PackedConstraintNode(parent->constraints, outer);
-                    outerList = &parent->constraints->constraints[outer];
+                    outerList = outer;
                 } else {
                     types->constraintNodes[t.index] = ctx.constraints->outerIndices[i];
                     assert(types->constraintNodes[t.index].depth() == parent->constraints->depth);
-                    outerList = &parent->constraints->constraints[types->constraintNodes[t.index].index()];
+                    outerList = types->constraintNodes[t.index].index();
                 }
                 if (ctx.constraints->constraints[i].hasRefinementList) {
-                    auto refinements = outerList->ensureRefinementList(*parent->constraints);
+                    auto refinements = parent->constraints->constraints[outerList].ensureRefinementList(*parent->constraints);
                     refinements.append(ctx.constraints->constraints[i].refinementList(*ctx.constraints));
                 }
                 for (Constraint constraint : ctx.constraints->constraints[i]) {
@@ -3920,9 +3920,9 @@ namespace clover {
                         outerIndex = (types->constraintNodes[ct.index] = ctx.constraints->outerIndices[i]).index();
                         assert(types->constraintNodes[ct.index].depth() == parent->constraints->depth);
                     }
-                    outerList->add(Constraint { outerIndex, constraint.kind });
+                    parent->constraints->constraints[outerList].add(Constraint { outerIndex, constraint.kind });
                     if (constraint.kind == Constraint::Order)
-                        outerList->setNeedsRefinement();
+                        parent->constraints->constraints[outerList].setNeedsRefinement();
                     if UNLIKELY(config::verboseUnify >= 3)
                         println("[TYPE]\t - Added constraint ", ct, constraint.kind == Constraint::Subtype ? " <: " : " =: ", t, " to parent constraint graph.");
                 }

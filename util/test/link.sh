@@ -26,7 +26,7 @@ for obj in ${@:2:$#-1}; do
         trimmed=${test%_fn}
         trimmed=${trimmed#test_}
         echo "extern \"C\" void $test(TestResults&);" >> $HDR
-        echo "    if (!spawned) test_map.put(cstring(\"$trimmed\"), $test);" >> $SRC
+        echo "    test_map.put(cstring(\"$trimmed\"), $test);" >> $SRC
     done
 done
 echo "
@@ -37,7 +37,7 @@ echo "
         TestResults results(summary, test_list[0].key);
         test_list[0].value(results);
         results.finish(summary);
-        return 0;
+        return results.results.size() ? 1 : 0;
     } else for (const auto& test : test_list) {
         vec<const_slice<i8>> subArgv;
         subArgv.push(cstring(\"--spawned\"));

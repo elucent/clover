@@ -2376,9 +2376,18 @@ namespace clover {
                     base.setKind(ASTKind::AddrFields);
                     module->replace(ast, base);
                     break;
+                case ASTKind::AddrIndex:
+                case ASTKind::AddrIndices:
+                case ASTKind::AddrField:
+                case ASTKind::AddrFields:
+                case ASTKind::EnsureAddrIndex:
+                case ASTKind::EnsureAddrIndices:
+                case ASTKind::EnsureAddrField:
+                case ASTKind::EnsureAddrFields:
+                    break; // Assume these are meant to be here.
                 default:
                     if (base.kind() != ASTKind::Local && base.kind() != ASTKind::Global)
-                        error(module, { ast, 0 }, "Can't take the address of non-variable term '", snippet(ast, 0), "'.");
+                        error(module, { ast, 0 }, "Can't take the address of non-variable term '", snippet(ast, 0), "' with kind ", ast, ".");
                     break;
             }
         }

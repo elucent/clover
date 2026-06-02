@@ -47,8 +47,8 @@ RT_DIRS_RELEASE := \
 	$(RELEASE_BUILD)/$(RT_SRC_ROOT) \
 	$(RELEASE_BUILD)/include/$(RT_SRC_ROOT)
 
-$(DEBUG_BUILD)/include/%.h: %.h
+$(DEBUG_BUILD)/include/%.h: %.h $(DEBUG_MANIFEST)
 	cp $< $@
 
-$(RELEASE_BUILD)/include/%.h: %.h
+$(RELEASE_BUILD)/include/%.h: %.h $(RELEASE_MANIFEST)
 	cp $< $@

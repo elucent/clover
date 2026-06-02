@@ -95,20 +95,24 @@ namespace clover {
         }
     }
 
-    void printRelativeDirectoryName(Directory* directory) {
+    bool printRelativeDirectoryName(Directory* directory) {
         if (directory == directory->compilation->cwd)
-            return;
+            return false;
+        bool printedAnything = false;
         if (directory->parent) {
             printRelativeDirectoryName(directory->parent);
             if (directory->parent != directory->compilation->cwd)
                 print('/');
             print(directory->compilation->str(directory->name));
+            printedAnything = true;
         }
+        return printedAnything;
     }
 
     void printArtifactName(Artifact* artifact) {
         Compilation* compilation = artifact->parent->compilation;
-        printRelativeDirectoryName(artifact->parent);
+        if (printRelativeDirectoryName(artifact->parent))
+            print('/');
         if (artifact->filename.size())
             print(artifact->filename);
         else

@@ -110,10 +110,12 @@ i32 main(i32 argc, i8** argv, i8** envp) {
     if UNLIKELY(config::printProducts)
         compilation.forEachArtifact([](Artifact* artifact) { artifact->print(); });
 
-    if (isImmediatelyExecuted && outputFile.size() == 0)
-        outputFile = cstring("a.out");
-    else if (outputFile.size() > 0)
+    if (outputFile.size() > 0)
         isImmediatelyExecuted = false;
+    else {
+        outputFile = cstring("a.out");
+        isImmediatelyExecuted = true;
+    }
 
     if (compileToObject) {
         if (outputFile.size() == 0) { // Implicitly use modified name of first source as object.
