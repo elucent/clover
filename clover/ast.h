@@ -2339,6 +2339,7 @@ namespace clover {
         inline Type signedType(u32 bits) { return types->signedType(bits); }
         inline Type unsignedType(u32 bits) { return types->unsignedType(bits); }
 
+        inline Type type(TypeIndex i) { return types->get(i); }
         inline Type invalidType() { return types->invalidType(); }
         inline Type bottomType() { return types->get(Bottom); }
         inline Type voidType() { return types->get(Void); }
@@ -3323,17 +3324,17 @@ namespace clover {
     }
 
     inline Type AST::type() const {
-        return module->types->get(typeIndex());
+        return module->type(typeIndex());
     }
 
     inline Type AST::type(Function* function) const {
         if (!function)
             return type(module);
-        return function->module->types->get(typeIndex(function));
+        return function->module->type(typeIndex(function));
     }
 
     inline Type AST::type(Module* module) const {
-        return module->types->get(typeIndex(module));
+        return module->type(typeIndex(module));
     }
 
     inline void AST::setType(TypeIndex t) {
@@ -3483,13 +3484,13 @@ namespace clover {
             case ASTKind::Typename:
                 io = format(io, module->str(ast.varInfo(parent.scope()->function).name));
                 if (shouldPrintType)
-                    io = format(io, typeColor, ":", module->types->get(ast.varInfo(parent.scope()->function).type), typeReset);
+                    io = format(io, typeColor, ":", module->type(ast.varInfo(parent.scope()->function).type), typeReset);
                 return io;
             case ASTKind::Global:
             case ASTKind::GlobalTypename:
                 io = format(io, module->str(ast.varInfo().name));
                 if (shouldPrintType)
-                    io = format(io, typeColor, ":", module->types->get(ast.varInfo().type), typeReset);
+                    io = format(io, typeColor, ":", module->type(ast.varInfo().type), typeReset);
                 return io;
             case ASTKind::Field:
                 return format(io, ".", ast.fieldId());

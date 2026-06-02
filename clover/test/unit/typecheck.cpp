@@ -63,7 +63,7 @@ inline Type testableType(Module* mod, TypeIndex t) {
 
 #define TYPEOF_GLOBAL(var) \
     [&]() -> Type { \
-        Type t = module->types->get(module->globals[var .variable()].type); \
+        Type t = module->type(module->globals[var .variable()].type); \
         t.concretify(); \
         return expand(t); \
     }()
@@ -728,7 +728,7 @@ foo = Foo.Baz()
 
     auto foo = module->lookup(topLevel.scope(), module->sym("foo"));
     auto fooType = foo.type();
-    ASSERT_TYPE_EQUAL(module->types->get(fooType), topLevel.child(0).type());
+    ASSERT_TYPE_EQUAL(module->type(fooType), topLevel.child(0).type());
 }
 
 TEST(typecheck_union_lca_ptr) {
@@ -746,7 +746,7 @@ foo = new Foo.Baz()
     auto foo = module->lookup(topLevel.scope(), module->sym("foo"));
     auto fooType = foo.type();
     auto Foo = topLevel.child(0).type();
-    ASSERT_TYPE_EQUAL(module->types->get(fooType), module->ptrType(Own, Foo));
+    ASSERT_TYPE_EQUAL(module->type(fooType), module->ptrType(Own, Foo));
 }
 
 TEST(typecheck_match_scalar) {

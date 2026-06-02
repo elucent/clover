@@ -24,7 +24,7 @@ namespace clover {
     Type Function::cloneGenericType() {
         assert(isGeneric);
         assert(genericType != InvalidType);
-        Type type = module->types->get(genericType);
+        Type type = module->type(genericType);
 
         type.forEachVar([&](Type varType) {
             if (!varType.asVar().isEqual())

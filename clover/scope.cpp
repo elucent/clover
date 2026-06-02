@@ -532,6 +532,9 @@ namespace clover {
             case ASTKind::Exp:
             case ASTKind::ArrayType:
             case ASTKind::FunType:
+            case ASTKind::ResolvedFunction:
+            case ASTKind::ResolvedOverloads:
+            case ASTKind::ResolvedNamespace:
             case ASTKind::ResolvedGenericType:
                 // We're revisiting an already-resolved node.
                 break;

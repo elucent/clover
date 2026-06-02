@@ -2728,9 +2728,9 @@ namespace clover {
                 if (varInfo.decl != InvalidNode && genCtx.module->node(varInfo.decl).kind() == ASTKind::FunDecl) {
                     // Function with known def - we should reference its symbol directly.
                     auto name = genCtx.module->str(genCtx.mangledName(module, module->node(varInfo.decl).function()));
-                    return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.funcref(name));
+                    return coerce(genCtx, builder, destType, ast.module->type(varInfo.type), genCtx.funcref(name));
                 }
-                return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.local(ast.variable()));
+                return coerce(genCtx, builder, destType, ast.module->type(varInfo.type), genCtx.local(ast.variable()));
             }
 
             case ASTKind::ResolvedFunction: {
@@ -2742,16 +2742,16 @@ namespace clover {
             case ASTKind::Global: {
                 const auto& varInfo = ast.varInfo(genCtx.func());
                 auto name = genCtx.module->str(varInfo.name);
-                auto globalType = expand(ast.module->types->get(varInfo.type));
+                auto globalType = expand(ast.module->type(varInfo.type));
                 auto loweredType = genCtx.lower(globalType);
                 if (varInfo.decl != InvalidNode && genCtx.module->node(varInfo.decl).kind() == ASTKind::FunDecl) {
                     // Function with known def - we should reference its symbol directly.
                     auto name = genCtx.module->str(genCtx.mangledName(module, module->node(varInfo.decl).function()));
-                    return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.funcref(name));
+                    return coerce(genCtx, builder, destType, ast.module->type(varInfo.type), genCtx.funcref(name));
                 }
 
                 if (varInfo.kind == VariableKind::Temp)
-                    return coerce(genCtx, builder, destType, ast.module->types->get(varInfo.type), genCtx.local(ast.variable()));
+                    return coerce(genCtx, builder, destType, ast.module->type(varInfo.type), genCtx.local(ast.variable()));
 
                 // We need to maintain lvalue semantics if the destination is
                 // also a reference type. Loading eagerly won't work - imagine

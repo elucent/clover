@@ -282,7 +282,7 @@ namespace clover {
     inline Type naturalType(Module* module, Evaluation evaluation) {
         if (evaluation.isKnownValue()) {
             if (evaluation.isKnownFloat())
-                return module->types->get(ReservedTypes::RangeF32F64); // Optimistically assume f32.
+                return module->type(ReservedTypes::RangeF32F64); // Optimistically assume f32.
             if (evaluation.isKnownUnsigned() || (evaluation.isKnownSigned() && evaluation.asSigned(module) >= 0)) {
                 u64 value = evaluation.isKnownSigned() ? (u64)evaluation.asSigned(module) : evaluation.asUnsigned(module);
                 u64 bits = 64 - clz64(value);
@@ -1113,9 +1113,9 @@ namespace clover {
 
     Type evaluateType(Module* module, Function* function, AST ast) {
         if (ast.kind() == ASTKind::GlobalTypename)
-            return module->types->get(ast.varInfo().type);
+            return module->type(ast.varInfo().type);
         if (ast.kind() == ASTKind::Typename)
-            return module->types->get(ast.varInfo(function).type);
+            return module->type(ast.varInfo(function).type);
         return ast.type();
     }
 
@@ -2429,7 +2429,7 @@ namespace clover {
             Type type = expand(inferredType(ctx, parent, call.child(i + 1)));
             argumentTypes.push(type.index);
             if (type.isVar())
-                key.setParameterType(nonTypeParameterIndex ++, packedBoundsFor(module->types->get(argumentTypes.back())));
+                key.setParameterType(nonTypeParameterIndex ++, packedBoundsFor(module->type(argumentTypes.back())));
             else
                 key.setParameterType(nonTypeParameterIndex ++, packedBoundsFor(type.cloneExpand()));
         }
@@ -2506,7 +2506,7 @@ namespace clover {
                 continue;
             }
             auto parameterType = funcType.asFunc().parameterType(nonTypeParameterIndex);
-            unify(module->types->get(argumentTypes[nonTypeParameterIndex ++]), parameterType, call, ctx);
+            unify(module->type(argumentTypes[nonTypeParameterIndex ++]), parameterType, call, ctx);
         }
 
         // Now we can finally explore the function body.
@@ -3105,7 +3105,7 @@ namespace clover {
 
                 if (resolution.isIntrinsic() && resolution.intrinsic->isGeneric) {
                     if UNLIKELY(config::verboseInstantiation)
-                        println("[TYPE]\tInstantiated intrinsic ", module->str(resolution.intrinsic->name), " in call ", ast, " with type ", module->types->get(resolution.type));
+                        println("[TYPE]\tInstantiated intrinsic ", module->str(resolution.intrinsic->name), " in call ", ast, " with type ", module->type(resolution.type));
                     Constraints constraints(module, module->types, ctx.constraints->depth + 1);
                     InferenceContext intrinsicCtx;
                     intrinsicCtx.constraints = &constraints;
@@ -3114,7 +3114,7 @@ namespace clover {
                     intrinsicCtx.instantiatedFunctions = ctx.instantiatedFunctions;
                     intrinsicCtx.parent = &ctx;
 
-                    Type funcType = module->types->get(resolution.intrinsic->intrinsic.typeFactory(intrinsicCtx, module));
+                    Type funcType = module->type(resolution.intrinsic->intrinsic.typeFactory(intrinsicCtx, module));
                     u32 nonTypeParameterCount = 0;
                     for (u32 i = 1; i < ast.arity(); i ++) {
                         if (isTypeParameter(function, ast.child(i)))
@@ -3136,11 +3136,11 @@ namespace clover {
                     ctx.checkLater(ast);
                     return RefineSuccess;
                 } else if (resolution.intrinsic) {
-                    funcType = module->types->get(resolution.intrinsic->intrinsic.typeFactory(ctx, module)).asFunc();
+                    funcType = module->type(resolution.intrinsic->intrinsic.typeFactory(ctx, module)).asFunc();
                     ast.setChild(0, module->add(ASTKind::ResolvedFunction, resolution.intrinsic));
                     ctx.checkLater(ast);
                 } else
-                    funcType = module->types->get(resolution.type).asFunc();
+                    funcType = module->type(resolution.type).asFunc();
 
 
                 // At this point, if our call passed type parameters, they've
@@ -4200,7 +4200,7 @@ namespace clover {
         }
 
         for (TypeIndex v : *globalCtx.lateResolves)
-            expand(module->types->get(v)).concretify();
+            expand(module->type(v)).concretify();
         for (AST ast : *globalCtx.lateChecks) {
             assert(!ast.isLeaf());
             check(globalCtx, ast.function(), ast);
