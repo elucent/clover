@@ -2215,3 +2215,69 @@ i32 test():
 
     ASSERT_EQUAL(test(), 15);
 }
+
+TEST(codegen_generic_doubly_linked_list) {
+    auto instance = COMPILE(R"(
+type Node:
+    case Nil
+    case Cell:
+        var item
+        Node* prev
+        own Node* next
+use Node.*
+
+type DoublyLinkedList(type T):
+    own Node(T)* head
+    Node(T)* tail
+
+DoublyLinkedList empty():
+    DoublyLinkedList(Nil(), Nil())
+
+void prepend(DoublyLinkedList* list, x):
+    if list.head is Nil:
+        list.head = new Cell(x, Nil, Nil)
+        list.tail = list.head
+        return
+    list.head = new Cell(x, Nil, list.head)
+
+void insert(DoublyLinkedList* list, Node* position, x):
+    var next: n if position is Cell(i, p, n) else Nil
+    var newNode: new Cell(x, position, next)
+    if next is Cell* cell:
+        cell.prev = newNode
+    if position is Cell* cell:
+        cell.next = newNode
+        if position == list.tail:
+            list.tail = cell.next
+
+void append(DoublyLinkedList* list, x):
+    if list.head is Nil:
+        list.head = new Cell(x, Nil, Nil)
+        list.tail = list.head
+        return
+    insert(list, list.tail, x)
+
+i64 test():
+    var list: empty()
+    list.append(3)
+    list.append(4)
+    list.append(5)
+    list.prepend(1)
+    list.prepend(2)
+
+    Node* it: list.head
+    var total: 0
+    while it is Cell(item, p, n):
+        total += item
+        it = n
+    return total
+)");
+
+    auto exec = load(instance.artifact);
+    auto toplevel = lookup<void()>("<toplevel0>", exec);
+    toplevel();
+
+    auto test = lookup<i64()>("test()i64", exec);
+
+    ASSERT_EQUAL(test(), 15);
+}
