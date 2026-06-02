@@ -29,24 +29,29 @@ inline bool lexicographic_less(const const_slice<i8>& a, const const_slice<i8>& 
 
 struct OverallResultList {
     i32 n_tests = 0, n_passed = 0, total_tests = 0;
+    bool was_spawned = false;
     vec<const_slice<i8>> failing_tests;
 
     inline void pass() {
         n_tests ++;
         n_passed ++;
-        if (config::printTestNames)
+        if (config::printTestNames && !was_spawned)
             println(BOLDGREEN "✓ " RESET);
     }
 
     inline void fail(const_slice<i8> failed) {
         n_tests ++;
         failing_tests.push(failed);
-        if (config::printTestNames)
+        if (config::printTestNames && !was_spawned)
             println(BOLDRED "✘ " RESET);
     }
 
     inline void summarize() {
+        if (was_spawned)
+            return;
         bool failing = n_passed < n_tests;
+        if (!config::printTestNames)
+            print("\33[2K\r");
         println("[RESULT] Passed ", failing ? "\e[0;91m" : "\e[0;92m", n_passed, " / ", n_tests, "\e[0m");
         sort(failing_tests.begin(), failing_tests.end(), lexicographic_less);
         for (auto failure : failing_tests) {
@@ -62,16 +67,18 @@ struct TestResults {
 
     inline TestResults(OverallResultList& summary, const_slice<i8> name) {
         current_test_name = name;
-        print("[TEST]   (", summary.n_tests + 1, " / ", summary.total_tests);
-        if (summary.n_passed < summary.n_tests)
-            print(", ", summary.n_tests - summary.n_passed, " failures) ", current_test_name);
-        else
-            print(") ", current_test_name);
-        if (config::printTestNames)
-            print(" ... ");
-        else
-            print("\33[2K\r");
-        flush(file::stdout);
+        if (!summary.was_spawned) {
+            if (!config::printTestNames)
+                print("\33[2K\r");
+            print("[TEST]   (", summary.n_tests + 1, " / ", summary.total_tests);
+            if (summary.n_passed < summary.n_tests)
+                print(", ", summary.n_tests - summary.n_passed, " failures) ", current_test_name);
+            else
+                print(") ", current_test_name);
+            if (config::printTestNames)
+                print(" ... ");
+            flush(file::stdout);
+        }
     }
 
     inline void finish(OverallResultList& summary) {
@@ -103,13 +110,13 @@ inline void sort_tests() {
     sort(test_list.begin(), test_list.end(), [](const entry<const_slice<i8>, void(*)(TestResults&)>& lhs, const entry<const_slice<i8>, void(*)(TestResults&)>& rhs) -> bool { return lexicographic_less(lhs.key, rhs.key); });
 }
 
-inline void parse_arguments_in_harness(i32 argc, char** argv) {
+inline void parse_arguments_in_harness(i32& argc, char**& argv) {
     parseOptions(argc, argv);
     bool sawRealTestSpecifier = false;
     for (i32 i = 1; i < argc; i ++) {
         i32 globPos = -1;
         if (argv[i][0] == '-') {
-            if (findc(argv[i], 0) >= 6 && !memory::compare(argv[i], "--list", 6)) {
+            if (findc(argv[i], 0) == 6 && !memory::compare(argv[i], "--list", 6)) {
                 for (const auto& test : test_map)
                     println(test.key);
                 process::exit(0);

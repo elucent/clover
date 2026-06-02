@@ -86,17 +86,17 @@ void parseOptions(i32& argc, i8** argv) {
         #undef CHECK_FOR_OPTION
     }
 
-    map<const i8*, vec<void(*)()>> optionsByCategory;
-    #define ADD_CATEGORY_LIST(cat) optionsByCategory.put(#cat, {});
-    FOR_EACH_CATEGORY(ADD_CATEGORY_LIST)
-    #undef ADD_CATEGORY_LIST
-
-    #define ADD_OPTION_TO_CATEGORY(name, optname, type, value, category, desc) \
-        optionsByCategory[#category].push([]() { println("  --" BOLDCYAN #optname RESET ": ", desc); });
-    FOR_EACH_OPTION(ADD_OPTION_TO_CATEGORY)
-    #undef ADD_OPTION_TO_CATEGORY
-
     if (config::listOptions || config::help) {
+        map<const i8*, vec<void(*)()>> optionsByCategory;
+        #define ADD_CATEGORY_LIST(cat) optionsByCategory.put(#cat, {});
+        FOR_EACH_CATEGORY(ADD_CATEGORY_LIST)
+        #undef ADD_CATEGORY_LIST
+
+        #define ADD_OPTION_TO_CATEGORY(name, optname, type, value, category, desc) \
+            optionsByCategory[#category].push([]() { println("  --" BOLDCYAN #optname RESET ": ", desc); });
+        FOR_EACH_OPTION(ADD_OPTION_TO_CATEGORY)
+        #undef ADD_OPTION_TO_CATEGORY
+
         for (const auto& p : optionsByCategory) {
             println(p.key, " options:");
             for (const auto& f : p.value) f();

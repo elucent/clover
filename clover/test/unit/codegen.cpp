@@ -2257,7 +2257,7 @@ void append(DoublyLinkedList* list, x):
         return
     insert(list, list.tail, x)
 
-i64 test():
+i32 test():
     var list: empty()
     list.append(3)
     list.append(4)
@@ -2274,10 +2274,7 @@ i64 test():
 )");
 
     auto exec = load(instance.artifact);
-    auto toplevel = lookup<void()>("<toplevel0>", exec);
-    toplevel();
-
-    auto test = lookup<i64()>("test()i64", exec);
+    auto test = lookup<i64()>("test()i32", exec);
 
     ASSERT_EQUAL(test(), 15);
 }

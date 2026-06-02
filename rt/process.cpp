@@ -4,6 +4,7 @@
 #include "sched.h"
 #include "signal.h"
 #include "unistd.h"
+#include "spawn.h"
 #include "sys/wait.h"
 #endif
 
@@ -144,17 +145,15 @@ namespace process {
         argvPointers[argv.size() + 1] = nullptr;
 
         #ifdef RT_LINUX
-            i32 forkResult = fork();
-            if (!forkResult) {
-                // In child.
-                execve(pathBuffer, argvPointers, envp);
-                return -1; // Shouldn't return.
-            } else {
-                // In parent.
-                i32 result;
-                waitpid(forkResult, &result, 0);
-                return result;
-            }
+            pid_t pid;
+            posix_spawn_file_actions_t actions;
+            posix_spawnattr_t attr;
+            posix_spawn_file_actions_init(&actions);
+            posix_spawnattr_init(&attr);
+            posix_spawn(&pid, pathBuffer, &actions, &attr, argvPointers, envp);
+            i32 result;
+            waitpid(pid, &result, 0);
+            return result;
         #else
             #error "Unimplemented syscall for platform: fork"
         #endif
