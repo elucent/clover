@@ -87,7 +87,7 @@ i32 compile(const_slice<i8> src, const_slice<i8> outpath) {{
         return result;
 
     const i8* outpath_cstr = tostring(outpath, i8(0)).data();
-    fd nativeout = open(outpath_cstr, O_WRONLY);
+    fd nativeout = open(outpath_cstr, O_RDWR | O_CREAT | O_TRUNC, 0666);
 
     pid_t pid;
     posix_spawn_file_actions_t actions;
