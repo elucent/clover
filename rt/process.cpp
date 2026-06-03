@@ -17,9 +17,9 @@ namespace process {
     extern "C" void thread_init();
     extern "C" void thread_deinit();
 
-    static i8* const* envp;
-    static i8* const* argv;
-    static i32 argc;
+    i8* const* envp;
+    i8* const* argv;
+    i32 argc;
 
     void init(i32 argc, i8** argv, i8** envp) ASMLABEL("process.init");
     void init(i32 argc, i8** argv, i8** envp) {

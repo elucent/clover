@@ -107,6 +107,7 @@ enum class PassTimeUnit {
     macro(verboseAnalyze, verbose-analyze, i32, 0, Clover, "Enables verbose logging for the Clover memory safety analysis phase.") \
     macro(printAnalyzedTree, print-analyzed-tree, bool, false, Clover, "Print Clover AST after memory analysis.") \
     macro(verboseSearchDirectories, verbose-search-directories, bool, false, Clover, "Enables verbose logging when Clover is searching for a file to load/import.") \
+    macro(noSkipAnalyze, no-skip-analyze, bool, false, Clover, "Actually runs analysis pass instead of skipping it. This is a stopgap until the memory analysis pass works with all tests.") \
     \
     /* Test options. */ \
     macro(printTestNames, print-test-names, bool, false, Test, "Print the name of each test before it runs.") \

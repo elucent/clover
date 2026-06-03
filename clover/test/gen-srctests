@@ -60,19 +60,46 @@ cpptest = []
 isdebug = 'debug' in output
 cloverc = 'bin/debug/clover/clover' if isdebug else 'bin/release/clover/clover'
 libpath = 'bin/debug/clover/test' if isdebug else 'bin/release/clover/test'
+binarypath = 'bin/debug/clover/test/a.out' if isdebug else 'bin/release/clover/test/a.out'
 prelude = f"""
 #include "util/io.h"
 #include "util/str.h"
 #include "util/test/harness.h"
+#include "spawn.h"
+#include "fcntl.h"
+#include "unistd.h"
+#include "sys/wait.h"
+
+namespace process {{
+    extern i8* const* envp;
+}}
 
 i32 compile(const_slice<i8> src, const_slice<i8> outpath) {{
     vec<const_slice<i8>> argv;
-    argv.push(cstring("bash"));
-    argv.push(cstring("-c"));
-    auto cmd = tostring("{cloverc} -L{libpath} -lsrctest ", src, " &> ", outpath);
-    argv.push(cmd);
-    i32 result = process::exec(cstring("/usr/bin/env"), argv);
-    delete[] cmd.data();
+    argv.push(cstring("-L{libpath}"));
+    argv.push(cstring("-lsrctest"));
+    argv.push(src);
+    argv.push(cstring("-o"));
+    argv.push(cstring("{binarypath}"));
+
+    i32 result = process::exec(cstring("{cloverc}"), argv);
+    if (result != 0)
+        return result;
+
+    const i8* outpath_cstr = tostring(outpath, i8(0)).data();
+    fd nativeout = open(outpath_cstr, O_WRONLY);
+
+    pid_t pid;
+    posix_spawn_file_actions_t actions;
+    posix_spawnattr_t attr;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, nativeout, 1);
+    posix_spawnattr_init(&attr);
+    i8* ptr = nullptr;
+    posix_spawn(&pid, "{binarypath}", &actions, &attr, &ptr, process::envp);
+    waitpid(pid, &result, 0);
+    delete[] outpath_cstr;
+    close(nativeout);
     return result;
 }}
 
