@@ -12,24 +12,28 @@
 
 namespace clover {
     using RegionIndex = u32;
-    constexpr RegionIndex InvalidRegion = 0x3fffffffu;
+    constexpr RegionIndex InvalidRegion = 0xfffffffu;
 
     struct RegionWord {
         enum Kind : u32 {
             Singleton,
             Ref,
-            Tuple
+            Tuple,
+            Var
         };
 
         constexpr static RegionIndex ExtParent = 0xffffu;
 
         union {
-            struct { Kind kind : 2; RegionIndex parent : 30; };
+            struct { Kind kind : 3; u32 : 1; RegionIndex parent : 28; };
             struct { u32 tupleSize; };
             struct { RegionIndex fieldId; };
-            struct { u32 isOwn : 1; u32 isTuple : 1; RegionIndex ref : 30; };
+            struct { Kind : 3; u32 isFwd : 1; RegionIndex variable : 28; };
+            struct { u32 : 2; u32 isOwn : 1; u32 isTuple : 1; RegionIndex ref : 28; };
         };
     };
+
+    static_assert(sizeof(RegionWord) == 4);
 
     using RegionKind = RegionWord::Kind;
 
@@ -37,6 +41,7 @@ namespace clover {
 
     struct Regions {
         vec<RegionWord> words;
+        vec<RegionIndex> vars;
         biasedset<256> ownPtrTypes, ptrTypes, ptrTypesInited;
 
         static constexpr RegionIndex Heap = 0, Globals = 1, Stack = 2, Atoms = 3, MaxBuiltinRegion = Atoms;
@@ -117,6 +122,7 @@ namespace clover {
 
         inline Region get(RegionIndex index);
         inline Region def(RegionIndex parent);
+        inline Region var(u32 variable);
         inline Region ref(RegionIndex parent, RegionIndex target, bool isOwn);
         inline Region tuple(RegionIndex parent, u32 size);
         inline Region instance(RegionIndex parent, Type type);
@@ -170,8 +176,17 @@ namespace clover {
             return regions->words[index + i];
         }
 
+        inline RegionIndex parentIndex() const {
+            assert(!isVar());
+            return nthWord(0).parent;
+        }
+
         inline Region parent() const {
-            return Region(regions, nthWord(0).parent);
+            return Region(regions, parentIndex());
+        }
+
+        inline RegionKind kind() const {
+            return nthWord(0).kind;
         }
 
         inline bool isRef() const {
@@ -180,6 +195,54 @@ namespace clover {
 
         inline bool isTuple() const {
             return nthWord(0).kind == RegionKind::Tuple;
+        }
+
+        inline bool isVar() const {
+            return nthWord(0).kind == RegionKind::Var;
+        }
+
+        inline bool isForwarded() const {
+            return isVar() && nthWord(0).isFwd;
+        }
+
+        inline u32 var() const {
+            assert(isVar());
+            assert(!isForwarded());
+            return nthWord(0).variable;
+        }
+
+        inline RegionIndex forwardedIndex() const {
+            assert(isForwarded());
+            return nthWord(0).variable;
+        }
+
+        inline RegionIndex expandIndex() const {
+            if (!isForwarded())
+                return index;
+            Region r = regions->get(nthWord(0).variable);
+            while (r.isForwarded())
+                r = regions->get(r.forwardedIndex());
+
+            // We want to act as if this method is const, but install a shorter
+            // path whenever we can.
+            auto mut = const_cast<Region*>(this);
+            mut->forwardTo(r.index);
+
+            return r.index;
+        }
+
+        inline Region expand() const {
+            return Region(regions, expandIndex());
+        }
+
+        inline void forwardTo(RegionIndex index) {
+            assert(isVar());
+            nthWord(0).isFwd = 1;
+            nthWord(0).variable = index;
+        }
+
+        inline void forwardTo(Region region) {
+            forwardTo(region.index);
         }
 
         inline u32 size() const {
@@ -247,6 +310,19 @@ namespace clover {
         return Region(this, words.size() - 1);
     }
 
+    inline Region Regions::var(u32 variable) {
+        if (variable < vars.size() && vars[variable] != InvalidRegion)
+            return Region(this, vars[variable]);
+        RegionWord word;
+        word.kind = RegionKind::Var;
+        word.isFwd = 0;
+        word.variable = variable;
+        words.push(word);
+        vars.expandTo(variable + 1, InvalidRegion);
+        vars[variable] = words.size() - 1;
+        return Region(this, words.size() - 1);
+    }
+
     inline Region Regions::ref(RegionIndex parent, RegionIndex target, bool isOwn) {
         words.push({ .kind = RegionKind::Ref, .parent = parent });
         words.push({ .isOwn = isOwn, .ref = target });
@@ -274,6 +350,25 @@ namespace clover {
 
     inline bool isOwn(Type type) {
         return (type.isPtr() && type.asPtr().isOwn()) || (type.isSlice() && type.asSlice().isOwn());
+    }
+
+    inline RegionIndex regionLCA(Regions* regions, RegionIndex a, RegionIndex b) {
+        if (a == b)
+            return a;
+        if (regions->get(a).parentIndex() == regions->get(b).parentIndex())
+            return regions->get(a).parentIndex();
+        ::set<RegionIndex> indices;
+        while (regions->get(a).parentIndex() != InvalidRegion) {
+            a = regions->get(a).parentIndex();
+            indices.insert(a);
+        }
+        b = regions->get(b).parentIndex();
+        while (regions->get(b).parentIndex() != InvalidRegion) {
+            b = regions->get(b).parentIndex();
+            if (indices.contains(b))
+                return b;
+        }
+        return InvalidRegion;
     }
 
     template<typename AggregateType>
@@ -336,6 +431,80 @@ namespace clover {
         }
     }
 
+    struct RegionState {
+        // This type exists as a bit of an implementation detail - to avoid
+        // needing to allocate whole Regions (which can't be easily freed) for
+        // temporary values, we support this alternative "mini" representation
+        // of a region assignment. The three types of regions are encoded
+        // thusly:
+        //
+        //  - A singleton region stores the parent in the self field, and has
+        //    an invalid ref field.
+        //
+        //  - A tuple region stores the tuple's region index in the self field
+        //    and has an invalid ref field.
+        //
+        //  - A ref is anything that has a non-invalid ref field.
+
+        RegionIndex self, ref;
+
+        inline RegionState():
+            self(InvalidRegion), ref(InvalidRegion) {}
+
+        inline RegionState(RegionIndex self_in):
+            self(self_in), ref(InvalidRegion) {}
+
+        inline RegionState(RegionIndex self_in, RegionIndex ref_in):
+            self(self_in), ref(ref_in) {}
+
+        inline RegionState(Region region) {
+            if (!region)
+                self = ref = InvalidRegion;
+            else if (region.isRef()) {
+                self = region.index;
+                ref = region.deref().index;
+            } else {
+                self = region.index;
+                ref = InvalidRegion;
+            }
+        }
+
+        inline explicit operator bool() const {
+            return self != InvalidRegion;
+        }
+
+        inline bool isTuple(Regions* regions) const {
+            return self != InvalidRegion && regions->get(self).isTuple();
+        }
+
+        inline bool isRef(Regions* regions) const {
+            return self != InvalidRegion && ref != InvalidRegion;
+        }
+
+        inline Region get(Regions* regions) const {
+            return regions->get(self);
+        }
+
+        inline Region deref(Regions* regions) const {
+            assert(isRef(regions));
+            return regions->get(ref);
+        }
+
+        inline bool operator==(const RegionState& other) const {
+            return self == other.self && ref == other.ref;
+        }
+
+        inline bool operator!=(const RegionState& other) const {
+            return self != other.self || ref != other.ref;
+        }
+    };
+
+    RegionIndex expand(Regions* regions, RegionIndex possibleVar) {
+        if (regions->get(possibleVar).isForwarded())
+            return regions->get(possibleVar).expandIndex();
+        return possibleVar;
+    }
+
     struct State {
         Module* module;
         Function* function;
@@ -343,7 +512,8 @@ namespace clover {
         State* parent;
         vec<u32> scopes;
         vec<u32> locals;
-        vec<pair<u32, u32>> variableRegions;
+        vec<RegionState> variableRegions;
+        vec<RegionIndex> heapVariables;
         bitset<256> regionLiveness;
 
         static State initial(Regions* regions, Module* module) {
@@ -352,7 +522,7 @@ namespace clover {
             state.function = nullptr;
             state.regions = regions;
             state.parent = nullptr;
-            state.variableRegions.expandTo(module->globals.size(), pair<u32, u32> { InvalidRegion, InvalidRegion });
+            state.variableRegions.expandTo(module->globals.size(), RegionState());
             return state;
         }
 
@@ -362,7 +532,7 @@ namespace clover {
             state.function = function;
             state.regions = regions;
             state.parent = nullptr;
-            state.variableRegions.expandTo(function->locals.size(), pair<u32, u32> { InvalidRegion, InvalidRegion });
+            state.variableRegions.expandTo(function->locals.size(), RegionState());
             return state;
         }
 
@@ -374,11 +544,11 @@ namespace clover {
             scopes.push(locals.size());
         }
 
-        void createDestructor(vec<IndexedAST>& nodes, Scope* scope, Type type, IndexedAST expr, u32 self, u32 ref) {
+        void createDestructor(vec<IndexedAST>& nodes, Scope* scope, Type type, IndexedAST expr, RegionState state) {
             switch (type.kind()) {
                 case TypeKind::Pointer:
                     if (type.asPtr().isOwn()) {
-                        createDestructor(nodes, scope, type.asPtr().elementType(), module->add(ASTKind::Deref, scope, type.asPtr().elementType(), expr).positionless(), ref, InvalidRegion);
+                        createDestructor(nodes, scope, type.asPtr().elementType(), module->add(ASTKind::Deref, scope, type.asPtr().elementType(), expr).positionless(), state.deref(regions));
                         nodes.push(module->add(ASTKind::Del, scope, type, expr).positionless());
                     }
                     break;
@@ -392,13 +562,43 @@ namespace clover {
             }
         }
 
+        Region newHeapVar() {
+            Region var = regions->var(heapVariables.size());
+            heapVariables.push(InvalidRegion);
+            return var;
+        }
+
+        Region readHeapVar(u32 var) {
+            return regions->get(heapVariables[var]);
+        }
+
+        Region readHeapVar(Region var) {
+            return readHeapVar(var.expand().var());
+        }
+
+        void assignHeapVar(u32 var, RegionIndex assignment) {
+            heapVariables[var] = assignment;
+        }
+
+        void assignHeapVar(Region var, RegionIndex assignment) {
+            assignHeapVar(var.expand().var(), assignment);
+        }
+
+        void assignHeapVar(u32 var, Region assignment) {
+            assignHeapVar(var, assignment.index);
+        }
+
+        void assignHeapVar(Region var, Region assignment) {
+            assignHeapVar(var.expand().var(), assignment.index);
+        }
+
         void destroy(vec<IndexedAST>& nodes, Scope* scope, u32 var) {
             const auto& info = function ? function->locals[var] : module->globals[var];
             if (info.kind != VariableInfo::Variable)
                 return;
-            Type type = expand(module->types->get(info.type));
+            Type type = expand(module->type(info.type));
             AST expr = function ? module->add(ASTKind::Local, Local(var)) : module->add(ASTKind::Global, Global(var));
-            createDestructor(nodes, scope, type, expr.positionless(), variableRegions[var].first, variableRegions[var].second);
+            createDestructor(nodes, scope, type, expr.positionless(), variableRegions[var]);
         }
 
         void endScope(Scope* scope, ChangePosition location) {
@@ -414,91 +614,235 @@ namespace clover {
             scopes.pop();
         }
 
-        u32 initialize(RegionIndex parent, Type type, u32 var) {
-            switch (type.kind()) {
-                case TypeKind::Pointer:
-                    if (type.asPtr().isOwn())
-                        variableRegions[var] = { parent, regions->def(Regions::Heap).index };
-                    else
-                        variableRegions[var] = { parent, InvalidRegion };
-                    return parent;
-                case TypeKind::Slice:
-                    if (type.asSlice().isOwn())
-                        variableRegions[var] = { parent, regions->def(Regions::Heap).index };
-                    else
-                        variableRegions[var] = { parent, InvalidRegion };
-                    return parent;
-                default:
-                    variableRegions[var] = { parent, InvalidRegion };
-                    return parent;
-            }
-        }
-
         void def(u32 var) {
             const auto& info = function ? function->locals[var] : module->globals[var];
             if (info.kind != VariableInfo::Variable)
                 return;
-            Type type = expand(module->types->get(info.type));
-            initialize(Regions::Stack, type, var);
+            Type type = expand(module->type(info.type));
             if (scopes.size())
                 locals.push(var);
         }
 
-        pair<RegionIndex, RegionIndex>& operator[](i32 var) {
+        RegionState& operator[](i32 var) {
             return variableRegions[var];
         }
 
-        pair<RegionIndex, RegionIndex> operator[](i32 var) const {
+        RegionState operator[](i32 var) const {
             return variableRegions[var];
         }
 
-        pair<RegionIndex, RegionIndex> unify(Type type, pair<RegionIndex, RegionIndex> a, pair<RegionIndex, RegionIndex> b) {
-            // if (a.first == InvalidRegion || b.first == InvalidRegion)
-            //     return { InvalidRegion, InvalidRegion };
-            // if (a.first != b.first) switch (type.kind()) {
-            // }
-            // if (a.second != b.second) switch (type.kind()) {
-            // }
+        RegionIndex isSub(Regions* regions, RegionIndex a, RegionIndex b) {
+            // TODO: I wonder if we can do something like witness tables here?
+            // Would it be worthwhile?
+
+            if (a == b)
+                return true;
+            RegionIndex parent = regions->get(a).parentIndex();
+            while (parent != InvalidRegion) {
+                if (parent == b)
+                    return true;
+                parent = regions->get(parent).parentIndex();
+            }
+            return false;
+        }
+
+        RegionIndex phi(State& resultState, State& aState, State& bState, RegionIndex ai, RegionIndex bi, bool isOwn) {
+            // This function unifies two incoming regions on either side of
+            // some previously branching control flow. Our goal here is to be
+            // left with some region that conservatively encapsulates both of
+            // the predecessors, such that any event that invalidates either
+            // predecessor is observed by this successor.
+
+            // Our first case is trivial - if the regions are equal, we don't
+            // have to do anything.
+
+            auto verboseLogResult = [&](RegionIndex a, RegionIndex b, RegionIndex c) {
+                if UNLIKELY(config::verboseAnalyze)
+                    println("[ANA]\tUnified regions ", regions->get(a), " and ", regions->get(b), " to ", regions->get(c));
+            };
+
+            auto verboseLogFailure = [&](RegionIndex a, RegionIndex b) {
+                if UNLIKELY(config::verboseAnalyze)
+                    println("[ANA]\tFailed to unify regions ", regions->get(a), " and ", regions->get(b));
+            };
+
+            if (ai == InvalidRegion || bi == InvalidRegion)
+                return InvalidRegion;
+
+            if (ai == bi) {
+                verboseLogResult(ai, bi, ai);
+                return ai;
+            }
+
+            Region a = regions->get(ai).expand(), b = regions->get(bi).expand();
+            if (a.isVar() || b.isVar()) {
+                Region avar, bvar;
+
+                if (a.isVar())
+                    avar = a, a = aState.readHeapVar(a.var());
+                if (b.isVar())
+                    bvar = b, b = bState.readHeapVar(b.var());
+
+                RegionIndex result = phi(resultState, aState, bState, a.index, b.index, isOwn);
+
+                if (avar && bvar) {
+                    Region c = resultState.newHeapVar();
+                    resultState.assignHeapVar(c.var(), result);
+                    verboseLogResult(ai, bi, c.index);
+                    // avar.forwardTo(c);
+                    // bvar.forwardTo(c);
+                    return c.index;
+                } else if (avar) {
+                    resultState.assignHeapVar(avar.var(), result);
+                    verboseLogResult(ai, bi, avar.index);
+                    return avar.index;
+                } else if (bvar) {
+                    resultState.assignHeapVar(bvar.var(), result);
+                    verboseLogResult(ai, bi, bvar.index);
+                    return bvar.index;
+                }
+            }
+
+            if (isSub(resultState.regions, ai, bi))
+                return ai;
+            if (isSub(resultState.regions, bi, ai))
+                return bi;
+
+            Region result;
+            RegionIndex parent = phi(resultState, aState, bState, a.parentIndex(), b.parentIndex(), isOwn);
+            if (parent == InvalidRegion)
+                return InvalidRegion;
+            if (a.isTuple() && b.isTuple()) {
+                assert(a.size() == b.size()); // I think otherwise we'd have a type error.
+                result = regions->tuple(parent, a.size());
+                for (u32 i = 0; i < a.size(); i ++) {
+                    auto af = a.field(i), bf = b.field(i);
+                    RegionIndex f = phi(resultState, aState, bState, af.ref, bf.ref, af.isOwn());
+                    if (f == InvalidRegion)
+                        return InvalidRegion;
+                    result.setField(i, af.isOwn(), af.isTuple(), af.fieldId, f);
+                }
+            } else if (a.isRef() && b.isRef()) {
+                auto target = phi(resultState, aState, bState, a.deref().expandIndex(), b.deref().expandIndex(), a.isOwn());
+                if (target == InvalidRegion)
+                    return InvalidRegion;
+                result = regions->ref(parent, target, a.isOwn());
+            } else if (a.kind() == RegionKind::Singleton && b.kind() == RegionKind::Singleton)
+                result = regions->def(parent);
+
+            verboseLogResult(ai, bi, result.index);
+            return result.index;
+        }
+
+        RegionState unify(State& resultState, State& aState, State& bState, Type type, RegionState a, RegionState b) {
+            if (!a || !b) {
+                // If either of the reaching values could be dead, assume we
+                // are dead in the successor.
+                return {};
+            }
+
+            if (a == b) {
+                // If the reaching values are equal, then just return one.
+                return a;
+            }
+
+            type = expand(type);
+            if (!regions->hasPointers(type)) {
+                // It shouldn't really possible for the same plain-old-data
+                // variable to have meaningfully distinct regions - either it's
+                // dead, in which case we already exited; or it is the same
+                // region we assigned it when it was initialized, in which case
+                // we also already exited. Let's treat this as an error for now
+                // and see if there are any places it can actually happen.
+                unreachable("Unexpected divergence of plain-old-data type ", type);
+            }
+
+            // At this point, we know the type is either a pointer, or some
+            // aggregate containing pointers.
+
+            switch (type.kind()) {
+                case TypeKind::Primitive:
+                case TypeKind::Numeric:
+                case TypeKind::Function:
+                    unreachable("Unexpected non-pointer-containing type ", type);
+                case TypeKind::Var:
+                case TypeKind::Range:
+                    unreachable("Shouldn't see these types at this phase.");
+
+                case TypeKind::Pointer:
+                    // By a similar token to plain-old-data types, we currently
+                    // expect the first region of the two pointers to be equal.
+                    assert(expand(regions, a.self) == expand(regions, b.self));
+
+                    if (expand(regions, a.ref) == InvalidRegion || expand(regions, b.ref) == InvalidRegion) {
+                        // If either pointer is dangling, assume the result is
+                        // dangling.
+                        a.ref = InvalidRegion;
+                        return a;
+                    }
+
+                    // Because we assume the first region is the same at the
+                    // moment, we can assume here that the second region is not
+                    // the same between the two pointers, or we would have
+                    // exited earlier. We define a fresh region in place of the
+                    // two.
+                    a.ref = phi(resultState, aState, bState, a.ref, b.ref, type.asPtr().isOwn());
+                    return a;
+
+                default:
+                    unreachable("TODO: Implement region unification for type ", type);
+            }
+
             return a;
         }
 
-        void unify(State& other) {
-            variableRegions.expandTo(other.variableRegions.size(), pair<RegionIndex, RegionIndex> { InvalidRegion, InvalidRegion });
-            other.variableRegions.expandTo(variableRegions.size(), pair<RegionIndex, RegionIndex> { InvalidRegion, InvalidRegion });
+        void unifyFrom(State& other) {
+            if UNLIKELY(config::verboseAnalyze)
+                print("[ANA]\tUnifying state...\n", other, "[ANA]\t...onto state...\n", *this);
+
+            variableRegions.expandTo(other.variableRegions.size(), RegionState());
+            other.variableRegions.expandTo(variableRegions.size(), RegionState());
+
+            u32 numHeapVars = max(heapVariables.size(), other.heapVariables.size());
+            heapVariables.expandTo(numHeapVars, InvalidRegion);
 
             for (u32 i = 0; i < variableRegions.size(); i ++) {
                 TypeIndex type = function ? function->locals[i].type : module->globals[i].type;
-                variableRegions[i] = unify(module->types->get(type), variableRegions[i], other.variableRegions[i]);
+                variableRegions[i] = unify(*this, *this, other, module->type(type), variableRegions[i], other.variableRegions[i]);
             }
+
+            for (u32 i = 0; i < numHeapVars; i ++) {
+                RegionIndex aa = i >= heapVariables.size() ? InvalidRegion : heapVariables[i];
+                RegionIndex ba = i >= other.heapVariables.size() ? InvalidRegion : other.heapVariables[i];
+                assignHeapVar(i, phi(*this, *this, other, aa, ba, false));
+            }
+            if UNLIKELY(config::verboseAnalyze)
+                print("[ANA]\t...and got resulting state\n", *this);
         }
     };
 
     struct RegionValue {
         NodeIndex owner;
         i32 childOrVar;
-        RegionIndex selfIndex;
-        RegionIndex refIndex;
+        RegionState indices;
 
         inline RegionValue():
-            owner(InvalidNode), childOrVar(-1), selfIndex(InvalidRegion), refIndex(InvalidRegion) {}
+            owner(InvalidNode), childOrVar(-1) {}
 
         inline RegionValue(ChangePosition pos, Region region):
-            owner(pos.ast.node), childOrVar(pos.child) {
-            selfIndex = region.index;
-            refIndex = region.isRef() ? region.deref().index : InvalidRegion;
-        }
+            owner(pos.ast.node), childOrVar(pos.child), indices(region) {}
 
-        inline RegionValue(ChangePosition pos, RegionIndex self_in):
-            owner(pos.ast.node), childOrVar(pos.child), selfIndex(self_in), refIndex(InvalidRegion) {}
+        inline RegionValue(ChangePosition pos, RegionIndex self):
+            owner(pos.ast.node), childOrVar(pos.child), indices(self) {}
 
-        inline RegionValue(ChangePosition pos, RegionIndex self_in, RegionIndex ref_in):
-            owner(pos.ast.node), childOrVar(pos.child), selfIndex(self_in), refIndex(ref_in) {}
+        inline RegionValue(ChangePosition pos, RegionIndex self, RegionIndex ref):
+            owner(pos.ast.node), childOrVar(pos.child), indices(self, ref) {}
 
         inline RegionValue(i32 var):
-            owner(InvalidNode), childOrVar(-2 - var), selfIndex(InvalidRegion), refIndex(InvalidRegion) {}
+            owner(InvalidNode), childOrVar(-2 - var), indices() {}
 
         inline explicit operator bool() const {
-            return selfIndex != InvalidRegion || childOrVar < -1;
+            return indices || childOrVar < -1;
         }
 
         inline bool isVar() const {
@@ -511,20 +855,20 @@ namespace clover {
 
         inline Region self(State& state) const {
             if (isVar())
-                return state.regions->get(state.variableRegions[variable()].first);
-            return state.regions->get(selfIndex);
+                return state.regions->get(state.variableRegions[variable()].self);
+            return state.regions->get(indices.self);
         }
 
         inline Region deref(State& state) const {
             if (isVar())
-                return state.regions->get(state.variableRegions[variable()].second);
-            return state.regions->get(refIndex);
+                return state.regions->get(state.variableRegions[variable()].ref);
+            return state.regions->get(indices.ref);
         }
 
         inline Type type(const State& state) const {
             if (isVar()) {
                 auto type = (state.function ? state.function->locals[variable()] : state.module->globals[variable()]).type;
-                return expand(state.module->types->get(type));
+                return expand(state.module->type(type));
             }
             return childOrVar == -1 ? typeOf(state.module->node(owner)) : typeOf(state.module->node(owner), childOrVar);
         }
@@ -553,7 +897,7 @@ namespace clover {
             else
                 decl = state.module->add(ASTKind::Bind, ast.origin(), pos.ast.scope(), type, state.module->addTemp(type.index), ast).reconstituteOrigin();
             pos.replaceWith(decl);
-            state.variableRegions.expandTo(decl.child(0).variable() + 1, pair<u32, u32> { InvalidRegion, InvalidRegion });
+            state.variableRegions.expandTo(decl.child(0).variable() + 1, RegionState());
             return decl.child(0).variable();
         }
 
@@ -564,29 +908,24 @@ namespace clover {
             return state.module->add(ASTKind::Global, Global(var)).positionless();
         }
 
-        inline pair<RegionIndex, RegionIndex> indices(State& state) const {
+        inline RegionState state(const State& s) const {
             if (isVar())
-                return state[variable()];
-            return { selfIndex, refIndex };
+                return s[variable()];
+            return indices;
         }
 
-        inline void setIndices(State& state, pair<RegionIndex, RegionIndex> indices) {
+        inline void setState(State& state, RegionState indices_in) {
             if (isVar())
-                state[variable()] = indices;
-            else {
-                selfIndex = indices.first;
-                refIndex = indices.second;
-            }
+                state[variable()] = indices_in;
+            else
+                indices = indices_in;
         }
 
         inline void setRegion(State& state, Region region) {
-            if (isVar()) {
-                state[variable()].first = region.index;
-                state[variable()].second = region.isRef() ? region.deref().index : InvalidRegion;
-            } else {
-                selfIndex = region.index;
-                refIndex = region.isRef() ? region.deref().index : InvalidRegion;
-            }
+            if (isVar())
+                state[variable()] = RegionState(region);
+            else
+                indices = RegionState(region);
         }
     };
 
@@ -602,8 +941,24 @@ namespace clover {
         return RegionValue(pos, region, ref);
     }
 
+    struct RegionStateLogger {
+        Regions* regions;
+        RegionState state;
+    };
+
     template<typename IO, typename Format = Formatter<IO>>
-    inline IO format_impl(IO io, const Region& region) {
+    inline IO format_impl(IO io, const RegionStateLogger& r) {
+        io = format(io, r.regions->get(r.state.self));
+        if (r.state.ref != InvalidRegion) {
+            Region referent = r.regions->get(r.state.ref);
+            io = format(io, " -> ", "& ", referent);
+        }
+        return io;
+    }
+
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const Region& r) {
+        Region region = r.expand();
         if (region.index <= Regions::MaxBuiltinRegion) switch (region.index) {
             case Regions::Stack:
                 return format(io, "Stack");
@@ -616,6 +971,8 @@ namespace clover {
             default:
                 unreachable("That should be all the built-in regions.");
         }
+        if (region.isVar())
+            return format(io, '$', region.var());
         io = format(io, '@', region.index);
         if (region.isRef())
             return format(io, '[', region.isOwn() ? "&own @" : "& @", region.deref().index, ']');
@@ -635,19 +992,35 @@ namespace clover {
         return io;
     }
 
-    void printState(State& state) {
-        println("[ANA]\tCurrent analysis state is:");
+    template<typename IO, typename Format = Formatter<IO>>
+    inline IO format_impl(IO io, const State& state) {
         for (u32 i = 0; i < state.variableRegions.size(); i ++) {
-            if (state.variableRegions[i].first == InvalidRegion)
+            if (state.variableRegions[i].self == InvalidRegion)
                 continue;
             const auto& info = state.function ? state.function->locals[i] : state.module->globals[i];
-            print("[ANA]\t - ", state.module->str(info.name), " = ", state.regions->get(state.variableRegions[i].first));
-            if (state.variableRegions[i].second != InvalidRegion) {
+            io = format(io, "[ANA]\t - ", state.module->str(info.name), " = ", state.regions->get(state.variableRegions[i].self));
+            if (state.variableRegions[i].isRef(state.regions)) {
                 RegionValue value(i);
-                print("\t with ", isOwn(value.type(state)) ? "&own @" : "& @", value.indices(state).second);
+                Region referent = state.regions->get(value.state(state).ref);
+                io = format(io, " -> ", isOwn(value.type(state)) ? "&own " : "& ", referent);
             }
-            println();
+            io = format(io, '\n');
         }
+        for (u32 i = 0; i < state.heapVariables.size(); i ++) {
+            Region var = state.regions->get(state.regions->vars[i]);
+            if (var.isForwarded()) {
+                var = var.expand();
+                Region assignment = state.regions->get(state.heapVariables[var.var()]);
+                if (assignment)
+                    io = format(io, "[ANA]\t - $", i, " = $", var.expand().var(), '\n');
+                continue;
+            }
+            Region assignment = state.regions->get(state.heapVariables[i]);
+            if (!assignment)
+                continue;
+            io = format(io, "[ANA]\t - $", i, " = ", assignment, '\n');
+        }
+        return io;
     }
 
     bool invalidated(Region region) {
@@ -675,11 +1048,11 @@ namespace clover {
         switch (type.kind()) {
             case TypeKind::Pointer:
             case TypeKind::Slice:
-                state[var].second = InvalidRegion;
+                state[var].ref = InvalidRegion;
                 break;
             case TypeKind::Struct:
             case TypeKind::Tuple: {
-                Region region = state.regions->get(state[var].first);
+                Region region = state.regions->get(state[var].self);
                 if (invalidated(region))
                     return;
                 for (u32 i = 0; i < region.size(); i ++) {
@@ -695,9 +1068,9 @@ namespace clover {
     }
 
     void checkRead(State& state, RegionValue value, ChangePosition pos) {
-        auto indices = value.indices(state);
+        auto indices = value.state(state);
         bool didError = false;
-        if (indices.first == InvalidRegion)
+        if (indices.self == InvalidRegion)
             didError = true;
         else {
             Type type = value.type(state);
@@ -709,7 +1082,7 @@ namespace clover {
                     break;
                 case TypeKind::Pointer:
                 case TypeKind::Slice:
-                    if (indices.second == InvalidRegion)
+                    if (indices.ref == InvalidRegion)
                         didError = true;
                     break;
                 // case TypeKind::Struct:
@@ -722,13 +1095,44 @@ namespace clover {
             error(state.module, value.isVar() ? pos : value.changePos(state), "Tried to read dead value.");
     }
 
+    void destroyRegion(State& state, Region region) {
+        if (!region)
+            return;
+        switch (region.kind()) {
+            case RegionKind::Singleton:
+                return;
+            case RegionKind::Ref:
+                if (region.isOwn())
+                    destroyRegion(state, region.deref());
+                return;
+            case RegionKind::Tuple:
+                for (u32 i = 0; i < region.size(); i ++) {
+                    auto field = region.field(i);
+                    if (field.isTuple())
+                        destroyRegion(state, region.regions->get(field.tup));
+                    else if (field.isOwn())
+                        destroyRegion(state, region.regions->get(field.ref));
+                }
+                return;
+            case RegionKind::Var:
+                region = region.expand();
+                state.assignHeapVar(region.var(), InvalidRegion);
+                return;
+        }
+    }
+
     void destroy(State& state, vec<IndexedAST>& toDestroy, RegionValue value, ChangePosition pos, bool immediately) {
         Type type = value.type(state);
-        auto indices = value.indices(state);
+        auto indices = value.state(state);
         if (!state.regions->hasOwnPointers(type))
             return;
-        if (invalidated(state, indices.first) || (isSomePointer(type) && invalidated(state, indices.second)))
+        if (invalidated(state, indices.self) || (isSomePointer(type) && invalidated(state, indices.ref)))
             return;
+        if UNLIKELY(config::verboseAnalyze)
+            println("[ANA]\tDestroying region ", RegionStateLogger { state.regions, value.state(state) });
+
+        destroyRegion(state, state.regions->get(indices.ref));
+
         i32 var = value.ensureVar(state);
         if (immediately) {
             if (state.function)
@@ -777,7 +1181,8 @@ namespace clover {
         Type srcType = src.type(state);
 
         if (!state.regions->hasPointers(destType) && !state.regions->hasPointers(srcType)) {
-            // Trivial copy. We can just return.
+            // Trivial copy. We can safely overwrite the old value.
+            state.variableRegions[var] = src.state(state);
             return;
         }
 
@@ -786,22 +1191,19 @@ namespace clover {
         switch (destType.kind()) {
             case TypeKind::Pointer: {
                 assert(srcType.isPtr() || isAtom(srcType));
+                state.variableRegions[var].self = src.state(state).self;
                 if (isAtom(srcType)) {
                     if (destType.asPtr().isOwn())
                         destroy(state, toDestroy, RegionValue(var), beforePos, true);
-                    state.variableRegions[var].second = Regions::Atoms;
+                    state.variableRegions[var].ref = Regions::Atoms;
                 } else if (destType.asPtr().isOwn() && srcType.asPtr().isOwn()) {
                     destroy(state, toDestroy, RegionValue(var), beforePos, true);
-                    state.variableRegions[var].second = src.indices(state).second;
+                    state.variableRegions[var].ref = src.state(state).ref;
                     invalidate(state, src, beforePos);
-                } else if (srcType.asPtr().isOwn()) {
-                    // Downcast. This is basically always wrong...maybe we
-                    // should do something more aggressive about this in the
-                    // future.
+                } else {
+                    state.variableRegions[var].ref = src.state(state).ref;
                     consume(state, toDestroy, src, beforePos);
-                    state.variableRegions[var].second = InvalidRegion;
-                } else
-                    state.variableRegions[var].second = src.indices(state).second;
+                }
                 break;
             }
 
@@ -811,20 +1213,18 @@ namespace clover {
                 // from a borrow checking perspective, so the behavior is
                 // essentially the same.
 
+                state.variableRegions[var].self = src.state(state).self;
+
                 assert(srcType.isSlice() || srcType.isPtr() && (expand(srcType.asPtr().elementType()).isArray()));
                 bool srcOwn = srcType.isSlice() ? srcType.asSlice().isOwn() : srcType.asPtr().isOwn();
                 if (destType.asSlice().isOwn() && srcOwn) {
                     destroy(state, toDestroy, RegionValue(var), beforePos, true);
-                    state.variableRegions[var].second = src.indices(state).second;
+                    state.variableRegions[var].ref = src.state(state).ref;
                     invalidate(state, src, beforePos);
-                } else if (srcOwn) {
-                    // Downcast. This is basically always wrong...maybe we
-                    // should do something more aggressive about this in the
-                    // future.
+                } else {
+                    state.variableRegions[var].ref = src.state(state).ref;
                     consume(state, toDestroy, src, beforePos);
-                    state.variableRegions[var].second = InvalidRegion;
-                } else
-                    state.variableRegions[var].second = src.indices(state).second;
+                }
                 break;
             }
 
@@ -836,7 +1236,7 @@ namespace clover {
             case TypeKind::Struct: {
                 assert(destType == srcType);
                 destroy(state, toDestroy, RegionValue(var), beforePos, true);
-                state.variableRegions[var].first = src.indices(state).first;
+                state.variableRegions[var].self = src.state(state).self;
                 invalidate(state, src, beforePos);
                 break;
             }
@@ -858,7 +1258,7 @@ namespace clover {
             return;
         }
 
-        Region tuple = state.regions->get(dest.selfIndex);
+        Region tuple = dest.self(state);
         assert(tuple.isTuple());
 
         i32 ptrFieldIndex = tuple.byFieldId(field);
@@ -877,16 +1277,12 @@ namespace clover {
                     tuple.setField(ptrFieldIndex, true, false, field, Regions::Atoms);
                 } else if (destType.asPtr().isOwn() && srcType.asPtr().isOwn()) {
                     destroyField(state, toDestroy, dest, field, fieldIndices, beforePos, true);
-                    tuple.setField(ptrFieldIndex, true, false, field, src.refIndex);
+                    tuple.setField(ptrFieldIndex, true, false, field, src.state(state).ref);
                     invalidate(state, src, beforePos);
-                } else if (srcType.asPtr().isOwn()) {
-                    // Downcast. This is basically always wrong...maybe we
-                    // should do something more aggressive about this in the
-                    // future.
+                } else {
+                    tuple.setField(ptrFieldIndex, false, false, field, src.state(state).ref);
                     consume(state, toDestroy, src, beforePos);
-                    tuple.setField(ptrFieldIndex, false, false, field, InvalidRegion);
-                } else
-                    tuple.setField(ptrFieldIndex, false, false, field, src.indices(state).second);
+                }
                 break;
             }
 
@@ -900,17 +1296,12 @@ namespace clover {
                 bool srcOwn = srcType.isSlice() ? srcType.asSlice().isOwn() : srcType.asPtr().isOwn();
                 if (destType.asSlice().isOwn() && srcOwn) {
                     destroyField(state, toDestroy, dest, field, fieldIndices, beforePos, true);
-                    tuple.setField(ptrFieldIndex, true, false, field, src.refIndex);
+                    tuple.setField(ptrFieldIndex, true, false, field, src.state(state).ref);
                     invalidate(state, src, beforePos);
-                } else if (srcType.asPtr().isOwn()) {
-                    // Downcast. This is basically always wrong...maybe we
-                    // should do something more aggressive about this in the
-                    // future.
+                } else {
+                    tuple.setField(ptrFieldIndex, false, false, field, src.state(state).ref);
                     consume(state, toDestroy, src, beforePos);
-                    tuple.setField(ptrFieldIndex, false, false, field, InvalidRegion);
-                } else
-                    tuple.setField(ptrFieldIndex, false, false, field, src.indices(state).second);
-
+                }
                 break;
             }
 
@@ -922,7 +1313,7 @@ namespace clover {
             case TypeKind::Struct: {
                 assert(destType == srcType);
                 destroyField(state, toDestroy, dest, field, fieldIndices, beforePos, true);
-                tuple.setField(ptrFieldIndex, false, true, field, src.indices(state).first);
+                tuple.setField(ptrFieldIndex, false, true, field, src.state(state).self);
                 invalidate(state, src, beforePos);
                 break;
             }
@@ -986,9 +1377,11 @@ namespace clover {
             case ASTKind::Deref: {
                 auto value = analyze(state, { ast, 0 });
                 auto region = value.deref(state);
+                if (region.isVar())
+                    region = state.readHeapVar(region.expand().var());
 
                 if (!region) {
-                    error(state.module, ast.indexedChild(0), "Tried to dereference dangling pointer.");
+                    error(state.module, ast.indexedChild(0), "Tried to dereference possibly dangling pointer.");
                     return none();
                 }
                 result = RegionValue(pos, Regions::Stack, region.index);
@@ -1000,8 +1393,12 @@ namespace clover {
 
             case ASTKind::New: {
                 auto init = analyze(state, { ast, 0 });
+                Region var = state.newHeapVar();
                 Region result = regions->instance(Regions::Heap, expand(typeOf(ast).asPtr().elementType()));
-                return RegionValue(pos, Regions::Stack, result.index);
+                state.assignHeapVar(var, result);
+                if UNLIKELY(config::verboseAnalyze)
+                    println("[ANA]\tCreated new heap variable ", var, " at ", ast);
+                return RegionValue(pos, Regions::Stack, var.index);
             }
 
             case ASTKind::Construct: {
@@ -1013,6 +1410,8 @@ namespace clover {
                             auto init = analyze(state, { ast, i });
                             setField(state, toDestroy, RegionValue(pos, region), i, init, { ast, i });
                         }
+                        if UNLIKELY(config::verboseAnalyze)
+                            println("[ANA]\tCreated new tuple region ", region, " at ", ast);
                         return RegionValue(pos, region);
                     }
                     default:
@@ -1059,10 +1458,24 @@ namespace clover {
                 state.endScope(ast.scope(), ast);
                 return none();
 
-            case ASTKind::If:
+            case ASTKind::If: {
+                state.beginScope();
+                discard(state, toDestroy, analyze(state, { ast, 0 }), { ast, 0 });
+
+                State body = state.fork();
+                body.beginScope();
+                discard(body, toDestroy, analyze(body, { ast, 1 }), { ast, 1 });
+                body.endScope(ast.scope(), { ast, 1 });
+
+                state.unifyFrom(body);
+                state.endScope(ast.scope(), { ast });
+                return result;
+            }
+
             case ASTKind::While:
                 state.beginScope();
                 discard(state, toDestroy, analyze(state, { ast, 0 }), { ast, 0 });
+
                 discard(state, toDestroy, analyze(state, { ast, 1 }), { ast, 1 });
                 state.endScope(ast.scope(), { ast });
                 return result;
@@ -1073,6 +1486,8 @@ namespace clover {
                 if (ast.kind() != ASTKind::Do)
                     state.beginScope();
                 for (u32 i : indices(ast)) {
+                    if UNLIKELY(config::verboseAnalyze)
+                        print("[ANA]\tAnalyzing node ", ast.child(i), " with state:\n", state);
                     if (i == ast.arity() - 1 && ast.kind() != ASTKind::TopLevel)
                         result = analyze(state, { ast, i });
                     else
@@ -1120,13 +1535,15 @@ namespace clover {
 
         Module* module = artifact->as<Module>();
 
-        Regions regions;
-        auto state = State::initial(&regions, module);
-        analyze(state, module->getTopLevel());
+        if (config::noSkipAnalyze) {
+            Regions regions;
+            auto state = State::initial(&regions, module);
+            analyze(state, module->getTopLevel());
 
-        module->needsDestructor |= regions.ownPtrTypes;
-        module->needsConstructor |= regions.ownPtrTypes;
-        module->constructorDestructorInited |= regions.ptrTypesInited;
+            module->needsDestructor |= regions.ownPtrTypes;
+            module->needsConstructor |= regions.ownPtrTypes;
+            module->constructorDestructorInited |= regions.ptrTypesInited;
+        }
 
         if UNLIKELY(config::printAnalyzedTree)
             println(Multiline(module->getTopLevel()));
