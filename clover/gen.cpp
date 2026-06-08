@@ -2561,6 +2561,19 @@ namespace clover {
         return func(genCtx.output, initializers.begin(), initializers.size());
     }
 
+    inline bool isAddrExpr(AST ast) {
+        switch (ast.kind()) {
+            case ASTKind::AddrIndex:
+            case ASTKind::EnsureAddrIndex:
+            case ASTKind::AddrField:
+            case ASTKind::EnsureAddrField:
+            case ASTKind::AddressOf:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     JasmineValue createStaticInitializer(GenerationContext& genCtx, AST init, Type destType) {
         switch (init.kind()) {
             case ASTKind::Int:
@@ -2983,10 +2996,13 @@ namespace clover {
             case ASTKind::Del: {
                 Type child = typeOf(ast, 0);
                 value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
-                JasmineOperand addr = genCtx.temp();
-                jasmine_append_addr(builder, JASMINE_TYPE_PTR, addr, value);
+                if (!isAddrExpr(ast.child(0))) {
+                    JasmineOperand addr = genCtx.temp();
+                    jasmine_append_addr(builder, JASMINE_TYPE_PTR, addr, value);
+                    value = addr;
+                }
                 RecursionChecker checker;
-                generateDestructor(checker, genCtx, builder, child, addr, false);
+                generateDestructor(checker, genCtx, builder, child, value, false);
                 return JASMINE_INVALID_OPERAND;
             }
 
@@ -2998,10 +3014,13 @@ namespace clover {
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     Type child = typeOf(ast, i);
                     auto var = generate(genCtx, builder, ast.child(i), typeOf(ast, i));
-                    JasmineOperand addr = genCtx.temp();
-                    jasmine_append_addr(builder, JASMINE_TYPE_PTR, addr, var);
+                    if (!isAddrExpr(ast.child(i))) {
+                        JasmineOperand addr = genCtx.temp();
+                        jasmine_append_addr(builder, JASMINE_TYPE_PTR, addr, var);
+                        var = addr;
+                    }
                     RecursionChecker checker;
-                    generateDestructor(checker, genCtx, builder, child, addr, false);
+                    generateDestructor(checker, genCtx, builder, child, var, false);
                 }
                 return value;
             }

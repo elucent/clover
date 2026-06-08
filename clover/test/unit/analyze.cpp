@@ -22,6 +22,70 @@ if x < y:
 )");
 }
 
+TEST(analyze_freed_in_branch) {
+    auto instance = ANALYZE(R"(
+var ptr: new 42
+var x: 0
+if x < 10:
+    own i32* local: ptr
+    *local
+)");
+}
+
+TEST(analyze_access_uninit) {
+    auto instance = ANALYZE(R"(
+i32 i: uninit
+i = 42
+i + 1
+)");
+}
+
+TEST(analyze_bad_access_uninit) {
+    EXPECT_ERRORS;
+    auto instance = ANALYZE(R"(
+i32 i: uninit
+i + 1
+)");
+    ASSERT_DID_ERROR(instance);
+}
+
+TEST(analyze_access_uninit_after_if_else) {
+    auto instance = ANALYZE(R"(
+i32 i: uninit
+i32 j: 0
+if j < 10:
+    i = 42
+else:
+    i = 43
+i + 1
+)");
+}
+
+TEST(analyze_bad_access_uninit_in_branch) {
+    EXPECT_ERRORS;
+    auto instance = ANALYZE(R"(
+i32 i: uninit
+i32 j: 0
+if j < 10:
+    i = 42
+i + 1
+)");
+    ASSERT_DID_ERROR(instance);
+}
+
+TEST(analyze_bad_freed_in_branch) {
+    EXPECT_ERRORS;
+    auto instance = ANALYZE(R"(
+var ptr: new 42
+var x: 0
+if x < 10:
+    own i32* local: ptr
+    *local
+*ptr
+)");
+    ASSERT_DID_ERROR(instance);
+}
+
 TEST(analyze_bad_dangle_after_branch) {
     EXPECT_ERRORS;
     auto instance = ANALYZE(R"(
@@ -54,6 +118,45 @@ var sum: 0
 for i < 10:
     sum += *ptr
     ptr = new 42
+)");
+}
+
+TEST(analyze_alloc_in_loop_uninit) {
+    auto instance = ANALYZE(R"(
+var ptr: uninit
+var sum: 0
+for i < 10:
+    ptr = new i
+    sum += *ptr
+sum
+)");
+}
+
+TEST(analyze_bad_alloc_in_loop_uninit) {
+    EXPECT_ERRORS;
+    auto instance = ANALYZE(R"(
+var ptr: uninit
+var sum: 0
+for i < 10:
+    ptr = new i
+    sum += *ptr
+sum + *ptr
+)");
+    ASSERT_DID_ERROR(instance);
+}
+
+TEST(analyze_make_linked_list) {
+    auto instance = ANALYZE(R"(
+type List:
+    case Nil
+    case Cons:
+        i32 car
+        own List* cdr
+use List.Nil, List.Cons
+
+own List* list: Nil
+for i < 10:
+    list = new Cons(i, list)
 )");
 }
 
