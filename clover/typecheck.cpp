@@ -2533,9 +2533,6 @@ namespace clover {
         // TODO: It's super icky that we have so much duplication between here,
         // the global inference, and drainFunctions. I bet they can be unified.
 
-        instantiationCtx.lateResolves->append(module->genericTypesToResolve);
-        module->genericTypesToResolve.clear();
-
         // Freshly evaluate constant variable declarations.
         evaluateConstants(module, newFunction);
 
@@ -4171,9 +4168,6 @@ namespace clover {
         globalCtx.instantiatedFunctions = &instantiatedFunctions;
         globalCtx.currentInstantiation = nullptr;
         globalCtx.parent = nullptr;
-
-        lateResolves.append(module->genericTypesToResolve);
-        module->genericTypesToResolve.clear();
 
         Evaluation inference = infer(globalCtx, nullptr, module->getTopLevel());
         if UNLIKELY(config::printTypeConstraintsAsDOT) {

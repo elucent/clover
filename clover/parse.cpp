@@ -164,8 +164,13 @@ namespace clover {
         return 10 + c - 'a';
     }
 
+    enum PermittedSuffixes {
+        ForbidField,
+        AllowAnySuffix
+    };
+
     IndexedAST parsePrimaryNoSuffix(Module* module, TokenVisitor& visitor);
-    IndexedAST parsePrimary(Module* module, TokenVisitor& visitor);
+    IndexedAST parsePrimary(Module* module, TokenVisitor& visitor, PermittedSuffixes suffixes);
     IndexedAST parseExpression(Module* module, TokenVisitor& visitor, u32 minPrecedence = 0);
     IndexedAST parseExpressionOrJuxtaposition(Module* module, TokenVisitor& visitor, bool allowMultiple, bool allowFunction, bool allowInitializer);
     IndexedAST parseStatementInitial(Module* module, TokenVisitor& visitor);
@@ -412,7 +417,7 @@ namespace clover {
             case OperatorBitOr: {
                 auto lpipe = visitor.read();
                 IndexedToken rpipe;
-                auto nextExpr = parsePrimary(module, visitor);
+                auto nextExpr = parsePrimary(module, visitor, AllowAnySuffix);
                 if (visitor.done())
                     error(module, visitor.last().pos, "Unexpected end of file in length expression.");
                 else if (visitor.peek().token != OperatorBitOr)
@@ -423,42 +428,42 @@ namespace clover {
             }
             case OperatorIncr: {
                 visitor.read();
-                auto child = parsePrimary(module, visitor);
+                auto child = parsePrimary(module, visitor, AllowAnySuffix);
                 return module->addInitial(ASTKind::PreIncr, origin(token, child), child);
             }
             case OperatorDecr: {
                 visitor.read();
-                auto child = parsePrimary(module, visitor);
+                auto child = parsePrimary(module, visitor, AllowAnySuffix);
                 return module->addInitial(ASTKind::PreDecr, origin(token, child), child);
             }
             case OperatorAdd: {
                 visitor.read();
-                auto child = parsePrimary(module, visitor);
+                auto child = parsePrimary(module, visitor, AllowAnySuffix);
                 return module->addInitial(ASTKind::Plus, origin(token, child), child);
             }
             case OperatorSub: {
                 visitor.read();
-                auto child = parsePrimary(module, visitor);
+                auto child = parsePrimary(module, visitor, AllowAnySuffix);
                 return module->addInitial(ASTKind::Minus, origin(token, child), child);
             }
             case OperatorMul: {
                 visitor.read();
-                auto child = parsePrimary(module, visitor);
+                auto child = parsePrimary(module, visitor, AllowAnySuffix);
                 return module->addInitial(ASTKind::Deref, origin(token, child), child);
             }
             case OperatorBitNot: {
                 visitor.read();
-                auto child = parsePrimary(module, visitor);
+                auto child = parsePrimary(module, visitor, AllowAnySuffix);
                 return module->addInitial(ASTKind::BitNot, origin(token, child), child);
             }
             case KeywordNot: {
                 visitor.read();
-                auto child = parsePrimary(module, visitor);
+                auto child = parsePrimary(module, visitor, AllowAnySuffix);
                 return module->addInitial(ASTKind::Not, origin(token, child), child);
             }
             case OperatorBitAnd: {
                 visitor.read();
-                auto child = parsePrimary(module, visitor);
+                auto child = parsePrimary(module, visitor, AllowAnySuffix);
                 return module->addInitial(ASTKind::AddressOf, origin(token, child), child);
             }
             case KeywordTrue: {
@@ -605,7 +610,7 @@ namespace clover {
         }
     }
 
-    IndexedAST parsePrimarySuffix(Module* module, TokenVisitor& visitor, IndexedAST ast) {
+    IndexedAST parsePrimarySuffix(Module* module, TokenVisitor& visitor, IndexedAST ast, PermittedSuffixes suffixes) {
         while (!visitor.done()) {
             // Tracks whether we've already seen a non-decimal constant. We
             // detect these here as a special case of integer coefficients,
@@ -644,7 +649,7 @@ namespace clover {
                     if (visitor.peek().token == PunctuatorRightParen) {
                         visitor.stopIgnoringWhitespace();
                         auto rparen = visitor.read();
-                        ast = module->addInitial(callKind, origin(function, rparen), function, arguments);
+                        ast = module->addInitial(callKind, origin(callKind == ASTKind::CallMethod ? arguments[0] : function, rparen), function, arguments);
                         break;
                     }
                     while (!visitor.done() && visitor.peek().token != PunctuatorRightParen) {
@@ -854,13 +859,13 @@ namespace clover {
         return ast;
     }
 
-    IndexedAST parsePrimary(Module* module, TokenVisitor& visitor) {
+    IndexedAST parsePrimary(Module* module, TokenVisitor& visitor, PermittedSuffixes suffixes) {
         IndexedAST ast = parsePrimaryNoSuffix(module, visitor);
-        return parsePrimarySuffix(module, visitor, ast);
+        return parsePrimarySuffix(module, visitor, ast, suffixes);
     }
 
     IndexedAST parsePostfix(Module* module, TokenVisitor& visitor) {
-        IndexedAST ast = parsePrimary(module, visitor);
+        IndexedAST ast = parsePrimary(module, visitor, AllowAnySuffix);
         while (!visitor.done()) {
             auto token = visitor.peek();
             switch (token.token.symbol) {
@@ -949,8 +954,21 @@ namespace clover {
     Associativity associativityOf(Symbol op) {
         assert(isBinaryOperator(op));
 
+        // Dirty hack time: exponentiation is semantically right-associative,
+        // but not included here. This is because the exponentiation operator
+        // ** can be confused with pointer types and dereferences, and we can't
+        // tell which it actually is until name resolution. To simplify that
+        // later resolution pass, we give it the same left associativity as
+        // multiplication, so the specific arrangement of asterisks doesn't
+        // change the parse tree. Otherwise, i.e.
+        //
+        // i32** * (i32)** * x
+        //
+        // ...would parse into a different tree than
+        //
+        // i32* ** (i32)* ** x
+
         constexpr u64 RightAssociativityMask = 0ull
-            | 1ull << (OperatorExp - FirstOperator)
             | 1ull << (OperatorAddAssign - FirstOperator)
             | 1ull << (OperatorSubAssign - FirstOperator)
             | 1ull << (OperatorMulAssign - FirstOperator)
@@ -1084,12 +1102,12 @@ namespace clover {
                 for (const IndexedAST& ast : extraChildren) for (u32 i = 0; i < ast.uintConst(); i ++)
                     lhs = module->addInitial(ASTKind::PtrType, origin(lhs, ast), lhs);
                 extraChildren.clear();
-                if (op.token == PunctuatorDot) {
+                if (next.token == PunctuatorDot) {
                     // Uniquely, dot means we have more to parse in this
                     // specific expression - we could be calling a method for
                     // example, like T*.size()
                     assert(lhs.kind() == ASTKind::PtrType);
-                    lhs = parsePrimarySuffix(module, visitor, lhs);
+                    lhs = parsePrimarySuffix(module, visitor, lhs, AllowAnySuffix);
 
                     // This also means we need to go around again, to handle
                     // things like T*.Vec().ElementType* where the field
@@ -1139,7 +1157,7 @@ namespace clover {
             // group as if constructed using an array-type or slice-type
             // construction.
             lhs = makeBinary(module, lhs, op, rhs, IndexedAST(), extraChildren);
-            lhs = parsePrimarySuffix(module, visitor, lhs);
+            lhs = parsePrimarySuffix(module, visitor, lhs, AllowAnySuffix);
             auto possibleOp = getBinaryOperator(module, visitor, isMultiline);
             IndexedToken op = possibleOp.first;
             if (isBinaryOperator(op.token)) {
@@ -1445,6 +1463,123 @@ namespace clover {
             return parseStatement(module, visitor);
     }
 
+    IndexedAST parseVarOrFunDecl(Module* module, TokenVisitor& visitor, IndexPair<u32, u32> declaratorPos, IndexedAST prefixType, IndexedAST signature, bool allowMultiple, bool allowFunction, bool allowInitializer) {
+        // Parses a variable or function declaration based on two parts. If we
+        // have:
+        //
+        //   i32 x
+        //
+        // Then the "prefix type" is i32, and the "signature" is x. Between the
+        // two of these, we represent everything to the left of the optional
+        // colon (or raises clause) in a function or variable decl. This
+        // function's job is to do some validation on the signature, determine
+        // if we have a variable or function decl, if said function decl is
+        // "method-style" (i.e. void Foo.bar()), and then proceed to parse the
+        // remaining parts of the decl as appropriate.
+
+        auto token = visitor.peek();
+
+        if (isIdentifier(signature)) {
+            // Easy - we have a variable declaration. We proceed by parsing
+            // any subsequent variable declarations in the group, and return
+            // the group as a do-block.
+            IndexedAST init = module->add(ASTKind::Missing).positionless();
+            if (token.token == PunctuatorColon) {
+                visitor.read();
+                if (visitor.peek().token == KeywordUninit
+                    && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline))
+                    init = module->add(ASTKind::Uninit).withOrigin(visitor.read());
+                else
+                    init = parseExpression(module, visitor);
+            }
+            if (visitor.peek().token != PunctuatorComma || !allowMultiple)
+                return module->addInitial(ASTKind::VarDecl, origin(declaratorPos, init.missing() ? signature : init), prefixType, signature, init);
+            vec<IndexedAST> decls;
+            decls.push(module->addInitial(ASTKind::VarDecl, origin(declaratorPos, init.missing() ? signature : init), prefixType, signature, init));
+            while (visitor.peek().token == PunctuatorComma) {
+                visitor.readIgnoringWhitespace();
+                Pos pos = visitor.peek().pos;
+                signature = parseIdentifier(module, visitor);
+                if (visitor.peek().token == PunctuatorColon) {
+                    visitor.read();
+                    if (visitor.peek().token == KeywordUninit
+                        && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline))
+                        init = module->add(ASTKind::Uninit).withOrigin(visitor.read());
+                    else
+                        init = parseExpression(module, visitor);
+                } else
+                    init = module->add(ASTKind::Missing).positionless();
+                decls.push(module->addInitial(ASTKind::VarDecl, origin(signature, init.missing() ? signature : init), prefixType, signature, init));
+            }
+            return decls.size() == 1 ? decls[0] : module->addInitial(ASTKind::Do, origin(decls.front(), decls.back()), decls);
+        } else if (signature.kind() == ASTKind::Call) {
+            // Non-method-style function decl.
+            IndexedToken lparen, rparen;
+            if (signature.first != IndexedToken::InvalidIndex && signature.last != IndexedToken::InvalidIndex) {
+                lparen = { visitor.tokens[signature.first], signature.first };
+                // TODO: This probably computes the wrong position if the
+                // callee contains parentheses, like (foo.bar)(baz). But I
+                // don't really have the patience to write a parenthese
+                // matcher inline here right now and it's super minor.
+                while (lparen.token != PunctuatorLeftParen)
+                    lparen = { visitor.tokens[lparen.index + 1], lparen.index + 1 };
+                rparen = { visitor.tokens[signature.last], signature.last };
+            }
+            vec<IndexedAST> arguments;
+            for (u32 i = 1; i < signature.arity(); i ++) {
+                IndexedAST child = signature.indexedChild(i);
+                if (isIdentifier(child))
+                    arguments.push(module->addInitial(ASTKind::VarDecl, origin(child), Missing, child, Missing));
+                else
+                    arguments.push(child);
+            }
+            if (!isIdentifier(signature.child(0)))
+                error(module, signature.indexedChild(0), "Expected identifier in function declaration, found '", snippet(signature, 0), "'.");
+
+            IndexedAST raises = module->add(ASTKind::Missing).positionless();
+            if (visitor.peek().token == KeywordRaises)
+                raises = parseRaisesDeclaration(module, visitor);
+            IndexedAST body = parseBlockOrChain(module, visitor, "function declaration", true);
+            return module->addInitial(ASTKind::FunDecl, origin(declaratorPos, body), prefixType, signature.indexedChild(0), module->addInitial(ASTKind::Tuple, origin(lparen, rparen), arguments), raises, body);
+        } else if (signature.kind() == ASTKind::CallMethod) {
+            // Method-style function decl.
+            IndexedToken lparen, rparen;
+            if (signature.first != IndexedToken::InvalidIndex && signature.last != IndexedToken::InvalidIndex) {
+                lparen = { visitor.tokens[signature.first], signature.first };
+                // TODO: This probably computes the wrong position if the
+                // callee contains parentheses, like (foo.bar)(baz). But I
+                // don't really have the patience to write a parenthese
+                // matcher inline here right now and it's super minor.
+                while (lparen.token != PunctuatorLeftParen)
+                    lparen = { visitor.tokens[lparen.index + 1], lparen.index + 1 };
+                rparen = { visitor.tokens[signature.last], signature.last };
+            }
+            vec<IndexedAST> arguments;
+            for (u32 i = 2; i < signature.arity(); i ++) {
+                IndexedAST child = signature.indexedChild(i);
+                if (isIdentifier(child))
+                    arguments.push(module->addInitial(ASTKind::VarDecl, origin(child), Missing, child, Missing));
+                else
+                    arguments.push(child);
+            }
+            if (!isIdentifier(signature.child(0)))
+                error(module, signature.indexedChild(0), "Expected identifier in function declaration, found '", snippet(signature, 0), "'.");
+
+            signature = module->addInitial(ASTKind::GetField, origin(signature.indexedChild(0), signature.indexedChild(1)), signature.indexedChild(1), signature.indexedChild(0));
+
+            IndexedAST raises = module->add(ASTKind::Missing).positionless();
+            if (visitor.peek().token == KeywordRaises)
+                raises = parseRaisesDeclaration(module, visitor);
+            IndexedAST body = parseBlockOrChain(module, visitor, "function declaration", true);
+            return module->addInitial(ASTKind::FunDecl, origin(declaratorPos, body), prefixType, signature, module->addInitial(ASTKind::Tuple, origin(lparen, rparen), arguments), raises, body);
+        }
+        if (signature.kind() != ASTKind::Error) {
+            error(module, signature, "Unexpected term in declaration '", snippet(signature), "'.");
+            visitor.readUpTo(WhitespaceNewline);
+        }
+        return module->add(ASTKind::Error).positionless();
+    }
+
     IndexedAST parseExpressionOrJuxtaposition(Module* module, TokenVisitor& visitor, bool allowMultiple, bool allowFunction, bool allowInitializer) {
         IndexedAST ast = parseExpression(module, visitor);
         if (visitor.done())
@@ -1464,94 +1599,19 @@ namespace clover {
                 // a function. Otherwise, it's a vardecl, and we assert that the
                 // rhs is an identifier here.
 
-                IndexedAST rhs = possibleDecl.indexedChild(1);
-                if (rhs.kind() == ASTKind::Call) {
-                    IndexedToken lparen, rparen;
-                    if (rhs.first != IndexedToken::InvalidIndex && rhs.last != IndexedToken::InvalidIndex) {
-                        lparen = { visitor.tokens[rhs.first], rhs.first };
-                        // TODO: This probably computes the wrong position if the
-                        // callee contains parentheses, like (foo.bar)(baz). But I
-                        // don't really have the patience to write a parenthese
-                        // matcher inline here right now and it's super minor.
-                        while (lparen.token != PunctuatorLeftParen)
-                            lparen = { visitor.tokens[lparen.index + 1], lparen.index + 1 };
-                        rparen = { visitor.tokens[rhs.last], rhs.last };
-                    }
-                    // It's a FunDecl.
-                    vec<IndexedAST> arguments;
-                    for (u32 i = 1; i < rhs.arity(); i ++) {
-                        IndexedAST child = rhs.indexedChild(i);
-                        if (isIdentifier(child))
-                            arguments.push(module->addInitial(ASTKind::VarDecl, origin(child), Missing, child, Missing));
-                        else
-                            arguments.push(child);
-                    }
-                    if (!isIdentifier(rhs.child(0)))
-                        error(module, rhs.indexedChild(0), "Expected identifier in function declaration, found '", snippet(rhs, 0), "'.");
-                    IndexedAST lhs = possibleDecl.indexedChild(0);
-                    for (u32 i = 2; i < possibleDecl.arity(); i ++) for (u32 j = 0; j < possibleDecl.child(i).uintConst(); j ++)
-                        lhs = module->addInitial(ASTKind::PtrType, origin(lhs, possibleDecl.indexedChild(i)), lhs);
-                    IndexedAST modifiers = ast;
-                    while (modifiers.kind() != ASTKind::Stars) {
-                        if (modifiers.kind() == ASTKind::OwnType)
-                            lhs = module->addInitial(ASTKind::OwnType, origin(modifiers, lhs), lhs);
-                        else
-                            lhs = module->addInitial(ASTKind::UninitType, origin(modifiers, lhs), lhs);
-                        modifiers = modifiers.indexedChild(0);
-                    }
-                    IndexedAST raises = module->add(ASTKind::Missing).positionless();
-                    if (visitor.peek().token == KeywordRaises)
-                        raises = parseRaisesDeclaration(module, visitor);
-                    IndexedAST body = parseBlockOrChain(module, visitor, "function declaration", true);
-                    return module->addInitial(ASTKind::FunDecl, origin(lhs, body), lhs, rhs.indexedChild(0), module->addInitial(ASTKind::Tuple, origin(lparen, rparen), arguments), raises, body);
-                } else {
-                    assert(token.token == PunctuatorColon || token.token == PunctuatorComma);
-                    IndexedAST lhs = possibleDecl.indexedChild(0);
-                    for (u32 i = 2; i < possibleDecl.arity(); i ++) for (u32 j = 0; j < possibleDecl.child(i).uintConst(); j ++)
-                        lhs = module->addInitial(ASTKind::PtrType, origin(lhs, possibleDecl.indexedChild(i)), lhs);
-                    IndexedAST modifiers = ast;
-                    while (modifiers.kind() != ASTKind::Stars) {
-                        if (modifiers.kind() == ASTKind::OwnType)
-                            lhs = module->addInitial(ASTKind::OwnType, origin(modifiers, lhs), lhs);
-                        else
-                            lhs = module->addInitial(ASTKind::UninitType, origin(modifiers, lhs), lhs);
-                        modifiers = modifiers.indexedChild(0);
-                    }
-
-                    IndexedAST name = possibleDecl.indexedChild(1);
-                    if (!isIdentifier(name))
-                        error(module, name, "Expected identifier in variable declaration, found '", snippet(name), "'.");
-
-                    IndexedAST init = module->add(ASTKind::Missing).positionless();
-                    if (token.token == PunctuatorColon) {
-                        visitor.read();
-                        if (visitor.peek().token == KeywordUninit
-                            && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline))
-                            init = module->add(ASTKind::Uninit).withOrigin(visitor.read());
-                        else
-                            init = parseExpression(module, visitor);
-                    }
-                    if (visitor.peek().token != PunctuatorComma || !allowMultiple)
-                        return module->addInitial(ASTKind::VarDecl, origin(lhs, init.missing() ? name : init), lhs, name, init);
-                    vec<IndexedAST> decls;
-                    decls.push(module->addInitial(ASTKind::VarDecl, origin(lhs, init.missing() ? name : init), lhs, name, init));
-                    while (visitor.peek().token == PunctuatorComma) {
-                        visitor.readIgnoringWhitespace();
-                        Pos pos = visitor.peek().pos;
-                        name = parseIdentifier(module, visitor);
-                        if (visitor.peek().token == PunctuatorColon) {
-                            visitor.read();
-                            if (visitor.peek().token == KeywordUninit
-                                && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline))
-                                init = module->add(ASTKind::Uninit).withOrigin(visitor.read());
-                            else
-                                init = parseExpression(module, visitor);
-                        } else
-                            init = module->add(ASTKind::Missing).positionless();
-                        decls.push(module->addInitial(ASTKind::VarDecl, origin(name, init.missing() ? name : init), lhs, name, init));
-                    }
-                    return decls.size() == 1 ? decls[0] : module->addInitial(ASTKind::Do, origin(decls.front(), decls.back()), decls);
+                IndexedAST lhs = possibleDecl.indexedChild(0);
+                for (u32 i = 2; i < possibleDecl.arity(); i ++) for (u32 j = 0; j < possibleDecl.child(i).uintConst(); j ++)
+                    lhs = module->addInitial(ASTKind::PtrType, origin(lhs, possibleDecl.indexedChild(i)), lhs);
+                IndexedAST modifiers = ast;
+                while (modifiers.kind() != ASTKind::Stars) {
+                    if (modifiers.kind() == ASTKind::OwnType)
+                        lhs = module->addInitial(ASTKind::OwnType, origin(modifiers, lhs), lhs);
+                    else
+                        lhs = module->addInitial(ASTKind::UninitType, origin(modifiers, lhs), lhs);
+                    modifiers = modifiers.indexedChild(0);
                 }
+
+                return parseVarOrFunDecl(module, visitor, lhs.origin(), lhs, possibleDecl.indexedChild(1), allowMultiple, allowFunction, allowInitializer);
             }
         }
 
@@ -1582,47 +1642,10 @@ namespace clover {
         // it's invalid for this to be anything other than an identifier or
         // string.
         Pos namePos = visitor.peek().pos;
-        IndexedAST name = parseIdentifier(module, visitor);
-        if (visitor.peek().token == PunctuatorLeftParen && allowFunction) {
-            // Function definition with explicit return type.
-            IndexedAST parameters = parseParameterTuple(module, visitor, false);
-            IndexedAST raises;
-            if (visitor.peek().token == KeywordRaises)
-                raises = parseRaisesDeclaration(module, visitor);
-            else
-                raises = module->add(ASTKind::Missing).positionless();
-            IndexedAST body = parseBlockOrChain(module, visitor, "function declaration", true);
-            return module->addInitial(ASTKind::FunDecl, origin(ast, body), ast, name, parameters, raises, body);
-        }
 
-        vec<IndexedAST> decls;
-        IndexedAST init;
-        if (visitor.peek().token == PunctuatorColon && allowInitializer) {
-            visitor.read();
-            if (visitor.peek().token == KeywordUninit
-                && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline))
-                init = module->add(ASTKind::Uninit).withOrigin(visitor.read());
-            else
-                init = parseExpression(module, visitor);
-        } else
-            init = module->add(ASTKind::Missing).positionless();
-        decls.push(module->addInitial(ASTKind::VarDecl, origin(ast, init.missing() ? name : init), ast, name, init));
-        if (allowMultiple) while (visitor.peek().token == PunctuatorComma) {
-            visitor.readIgnoringWhitespace();
-            name = parseIdentifier(module, visitor);
-            if (visitor.peek().token == PunctuatorColon && allowInitializer) {
-                visitor.read();
-                if (visitor.peek().token == KeywordUninit
-                    && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline))
-                    init = module->add(ASTKind::Uninit).withOrigin(visitor.read());
-                else
-                    init = parseExpression(module, visitor);
-            } else
-                init = module->add(ASTKind::Missing).positionless();
-            decls.push(module->addInitial(ASTKind::VarDecl, origin(name, init.missing() ? name : init), ast, name, init));
-        }
-
-        return decls.size() == 1 ? decls[0] : module->addInitial(ASTKind::Do, origin(decls.front(), decls.back()), decls);
+        bool mustBeFunction;
+        IndexedAST signature = parseExpression(module, visitor);
+        return parseVarOrFunDecl(module, visitor, ast.origin(), ast, signature, allowMultiple, allowFunction, allowInitializer);
     }
 
     void exploreBody(vec<IndexedAST>& contents, IndexedAST body) {
@@ -1920,25 +1943,8 @@ namespace clover {
             }
             case KeywordFun: {
                 visitor.read();
-                Pos namePos = visitor.peek().pos;
-                IndexedAST name = parseIdentifier(module, visitor);
-                if (visitor.peek().token != PunctuatorLeftParen) {
-                    error(module, visitor.peek(), "Expected opening parenthese '(' in function declaration, found '", TokenFormat(module, visitor.peek()));
-                    visitor.readUpTo(WhitespaceNewline);
-                    return module->add(ASTKind::Error).positionless();
-                }
-                IndexedAST parameters = parseParameterTuple(module, visitor, false);
-                IndexedAST raises;
-                if (visitor.peek().token == KeywordRaises)
-                    raises = parseRaisesDeclaration(module, visitor);
-                else
-                    raises = module->add(ASTKind::Missing).positionless();
-                IndexedAST body;
-                if (visitor.done() || visitor.peek().token == WhitespaceNewline)
-                    body = module->add(ASTKind::Missing).positionless();
-                else
-                    body = parseBlockOrChain(module, visitor, "function declaration", false);
-                return module->addInitial(ASTKind::FunDecl, origin(token, body.missing() ? (raises.missing() ? parameters : raises) : body), Missing, name, parameters, raises, body);
+                IndexedAST signature = parseExpression(module, visitor);
+                return parseVarOrFunDecl(module, visitor, IndexPair<u32, u32>(token.index, token.index), module->add(ASTKind::Missing).positionless(), signature, false, true, true);
             }
             case KeywordIn: {
                 visitor.read();
@@ -1999,7 +2005,7 @@ namespace clover {
     };
 
     BindingGroup parseBindingGroup(Module* module, TokenVisitor& visitor) {
-        IndexedAST lhs = parsePrimary(module, visitor);
+        IndexedAST lhs = parsePrimary(module, visitor, AllowAnySuffix);
         BindingGroup binding;
         binding.firstToken = lhs.first;
         auto next = visitor.peek();

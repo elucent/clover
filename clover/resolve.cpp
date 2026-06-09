@@ -2,6 +2,7 @@
 #include "clover/ast.h"
 #include "clover/lex.h"
 #include "clover/limits.h"
+#include "clover/scope.h"
 #include "util/config.h"
 
 namespace clover {
@@ -37,6 +38,7 @@ namespace clover {
 
     struct ResolutionContext {
         struct TypeDecl {
+            Scope* scope;
             vec<triple<Symbol, TypeIndex, IndexPair<u32, u32>>, 8>* discoveredTypeParameters;
             vec<TypeIndex>* instantiatedTypes;
             bool isReallyFunction;
@@ -47,8 +49,8 @@ namespace clover {
         vec<NodeIndex, 8> assignments;
         vec<TypeDecl> typeDecls;
 
-        void enterTypeDecl(vec<triple<Symbol, TypeIndex, IndexPair<u32, u32>>, 8>* discoveredTypeParameters, vec<TypeIndex>* instantiatedTypes) {
-            typeDecls.push({ discoveredTypeParameters, instantiatedTypes, false });
+        void enterTypeDecl(Scope* scope, vec<triple<Symbol, TypeIndex, IndexPair<u32, u32>>, 8>* discoveredTypeParameters, vec<TypeIndex>* instantiatedTypes) {
+            typeDecls.push({ scope, discoveredTypeParameters, instantiatedTypes, false });
         }
 
         void leaveTypeDecl() {
@@ -60,7 +62,7 @@ namespace clover {
             auto& params = typeDecls.back().discoveredTypeParameters;
             assert(params);
             array<i8, 64> buffer;
-            auto var = prints(buffer, "__T", typeDecls.size(), "_", params->size());
+            auto var = prints(buffer, "__T", typeDecls.back().scope->index, "_", params->size());
             auto name = type.types->compilation->sym(var);
             params->push({ name, type.index, origin });
             return name;
@@ -405,7 +407,7 @@ namespace clover {
         inline TypeDeclScope(ResolutionContext& ctx_in, AST decl, vec<triple<Symbol, TypeIndex, IndexPair<u32, u32>>>& discoveredTypeParameters, vec<TypeIndex>& instantiatedTypes, vec<pair<NodeIndex, i32>>& recursiveRefs, Symbol activeType):
             ctx(ctx_in), isCase(isCaseDecl(decl.kind())) {
             if (!isCase)
-                ctx.enterTypeDecl(&discoveredTypeParameters, isGenericTypeDecl(decl.kind()) || ctx.inFunctionSignature() ? nullptr : &instantiatedTypes);
+                ctx.enterTypeDecl(decl.scope(), &discoveredTypeParameters, isGenericTypeDecl(decl.kind()) || ctx.inFunctionSignature() ? nullptr : &instantiatedTypes);
         }
 
         inline ~TypeDeclScope() {
@@ -587,7 +589,10 @@ namespace clover {
         switch (ast.kind()) {
             case ASTKind::AliasDecl:
                 resolveChild(module, ctx, refTraits, ast, 2, ExpectType);
-                if (!isTypeExpression(ast.child(2), MayInstantiate)) {
+                if (ast.child(2).missing()) {
+                    error(module, { ast }, "Missing initial assignment in alias declaration.");
+                    return module->voidType();
+                } else if (!isTypeExpression(ast.child(2), MayInstantiate)) {
                     error(module, { ast, 2 }, "Expected type expression in alias declaration, found '", snippet(ast, 2), "'.");
                     return module->voidType();
                 }
@@ -622,7 +627,6 @@ namespace clover {
                     else if (inst) {
                         StructBuilder builder(module->types, sym, Field(module->types, name, type));
                         builder.addTypeParameters(inst->genericType, inst->typeParameters);
-                        module->genericTypesToResolve.append(instantiatedTypes);
                         ast.setType(builder.build(module->types));
                     } else {
                         if (discoveredTypeParameters.size()) {
@@ -630,7 +634,6 @@ namespace clover {
                             ast.setKind(ASTKind::StructDecl);
                             return PossiblyGenericType(module, addTypeParametersToNonGeneric(module, ast, sym, discoveredTypeParameters, placeholder.index, ASTKind::GenericStructDecl));
                         }
-                        module->genericTypesToResolve.append(instantiatedTypes);
                         ast.setType(module->structType(sym, ast.scope(), Field(module->types, name, type)));
                     }
                     ast.setKind(ast.kind() == ASTKind::NamedCaseDecl ? ASTKind::StructCaseDecl : ASTKind::StructDecl);
@@ -643,8 +646,6 @@ namespace clover {
 
                     if (discoveredTypeParameters.size() && ast.kind() != ASTKind::NamedCaseDecl)
                         return PossiblyGenericType(module, addTypeParametersToNonGeneric(module, ast, sym, discoveredTypeParameters, placeholder.index, ASTKind::GenericNamedDecl));
-                    if (ast.kind() == ASTKind::NamedDecl)
-                        module->genericTypesToResolve.append(instantiatedTypes);
 
                     if (ast.kind() == ASTKind::NamedCaseDecl)
                         ast.setType(module->namedType(sym, ast.scope(), type, IsCase));
@@ -690,7 +691,6 @@ namespace clover {
 
                 if (discoveredTypeParameters.size() && ast.kind() != ASTKind::StructCaseDecl)
                     return PossiblyGenericType(module, addTypeParametersToNonGeneric(module, ast, sym, discoveredTypeParameters, placeholder.index, ASTKind::GenericStructDecl));
-                module->genericTypesToResolve.append(instantiatedTypes);
                 builder.add(ast.scope());
                 if (inst) {
                     assert(!builder.isCase);
@@ -731,7 +731,6 @@ namespace clover {
                 if (discoveredTypeParameters.size() && ast.kind() != ASTKind::UnionCaseDecl)
                     return PossiblyGenericType(module, addTypeParametersToNonGeneric(module, ast, sym, discoveredTypeParameters, placeholder.index, ASTKind::GenericUnionDecl));
 
-                module->genericTypesToResolve.append(instantiatedTypes);
                 builder.add(ast.scope());
                 if (inst) {
                     assert(!builder.isCase);
@@ -1314,8 +1313,128 @@ namespace clover {
         return call;
     }
 
+    void gatherOperands(Module* module, AST ast, vec<IndexedAST>& operands, ASTKind op) {
+        if (ast.child(0).kind() == op)
+            gatherOperands(module, ast.child(0), operands, op);
+        else
+            operands.push(ast.indexedChild(0));
+        if (ast.child(1).kind() == op)
+            gatherOperands(module, ast.child(1), operands, op);
+        else
+            operands.push(ast.indexedChild(1));
+    }
+
+    AST reassociate(Module* module, AST ast, ASTKind op) {
+        vec<IndexedAST> operands;
+        gatherOperands(module, ast, operands, op);
+        for (i64 i = i64(operands.size()) - 2; i >= 0; i --)
+            operands[i] = module->add(op, span(operands[i].origin(), operands[i + 1].origin()), ast.scope(), InvalidType, operands[i], operands[i + 1]).reconstituteOrigin();
+        return operands[0];
+    }
+
+    void findSplitPointForMethod(Module* module, ResolutionContext& ctx, RefTraits refTraits, Scope* scope, AST ast, AST& lhs, AST& splitPoint) {
+        // This is a messy weird function that handles a specific case: if we
+        // have a method-style function definition that returns a pointer type,
+        // the associativity of the multiply/exponent operators can lead to us
+        // having sort of a weirdly-shaped tree. For example,
+        //
+        //   i32* Foo*(i64).getInt()
+        //
+        // ...will parse to an AST like:
+        //
+        //   (* (* i32 Foo) (call_method getInt (tuple i64)))
+        //
+        // ...which isn't great for declaration purposes, because really, i32
+        // and Foo are from totally separate terms, but after parsing they are
+        // joined in the leftmost expression.
+        //
+        // To fix this, we have this function. Basically, we want to find the
+        // "split point" where the return type must end. We greedily associate
+        // type modifiers to the return type when possible. but in a case like
+        // the above, we know lexically that "i32 * Foo" is not a valid type.
+        // So we can "split" on that asterisk, and in the caller of this
+        // function, hoist the "i32 *" part out, and move the "Foo" part in,
+        // so we end up with an AST like:
+        //
+        //   (* i32 (call_method getInt (* Foo (tuple i64))))
+        //
+        // ...which we can easily feed into the normal stars resolution and
+        // get a function declaration out.
+
+        if (splitPoint)
+            return;
+
+        assert(ast.kind() == ASTKind::Stars);
+        if (ast.child(0).kind() == ASTKind::Stars) {
+            findSplitPointForMethod(module, ctx, refTraits, scope, ast.child(0), lhs, splitPoint);
+        }
+
+        switch (ast.child(1).kind()) {
+            case ASTKind::Paren:
+            case ASTKind::Tuple:
+            case ASTKind::List:
+                // These are valid suffixes, so this must not yet be the split
+                // point.
+                return;
+            case ASTKind::Stars:
+                // If our lhs only had valid suffixes, it's possible? We could
+                // find more valid suffixes in the right subtree. Basically, we
+                // want to continue in left-to-right order, which means
+                // exploring the right hand side.
+                findSplitPointForMethod(module, ctx, refTraits, scope, ast.child(1), lhs, splitPoint);
+                return;
+            case ASTKind::CallMethod:
+                // If we find the method before finding a split point, we have
+                // no work to do.
+                return;
+            default:
+                // Otherwise, this is our splitting point. This term becomes
+                // our rhs. The left subtree will be extracted into our lhs,
+                // and this node will be replaced by its right subtree.
+                lhs = resolveChild(module, ctx, refTraits, ast, 0, ExpectValue);
+                if (isTypeExpression(lhs, MayInstantiate)) {
+                    // The presence of a type expression on the lhs indicates
+                    // we do in fact have a declaration. So, we initialize the
+                    // split point here.
+                    splitPoint = ast;
+                }
+                return;
+        }
+    }
+
     AST resolveStars(Module* module, ResolutionContext& ctx, RefTraits refTraits, Scope* scope, AST ast, Expectation expectation) {
-        IndexedAST lhs = resolveChild(module, ctx, NoRefTraits, ast, 0, ExpectValue).reconstituteOrigin(ast.childOrigin(0));
+        AST methodCall;
+        AST probe = ast.child(1);
+        AST probeParent = ast;
+        IndexedAST lhs;
+        while (probe.kind() == ASTKind::Stars) {
+            probeParent = probe;
+            probe = probe.child(1);
+        }
+        if (probe.kind() == ASTKind::CallMethod) {
+            methodCall = probe;
+            bool sawSplittingPoint = false;
+            AST splitPoint, left;
+            findSplitPointForMethod(module, ctx, refTraits, scope, ast, left, splitPoint);
+
+            if (splitPoint) {
+                // We have some nontrivial work to do.
+                lhs = splitPoint.indexedChild(0);
+                IndexedAST right = splitPoint.indexedChild(1);
+                vec<IndexedAST> extraChildren;
+                for (u32 i = 2; i < probeParent.arity(); i ++)
+                    extraChildren.push(probeParent.indexedChild(i));
+                right = module->add(ASTKind::Stars, span(right.origin(), probeParent.childOrigin(1)), scope, InvalidType, right, methodCall.indexedChild(1), extraChildren).reconstituteOrigin();
+                methodCall.setChild(1, right);
+                extraChildren.clear();
+                for (u32 i = 2; i < splitPoint.arity(); i ++)
+                    extraChildren.push(splitPoint.indexedChild(i));
+                ast = module->add(ASTKind::Stars, span(lhs.origin(), probeParent.childOrigin(1)), scope, InvalidType, lhs, methodCall, extraChildren);
+            }
+        }
+
+        if (!lhs)
+            lhs = resolveChild(module, ctx, NoRefTraits, ast, 0, ExpectValue).reconstituteOrigin(ast.childOrigin(0));
         if (!isTypeExpression(lhs, MayInstantiate) && (lhs.kind() != ASTKind::GetField || !isTypeExpression(lhs.child(1), ForbidInstantiation))) {
             // Not a type, so we just have to handle multiple stars. If there
             // multiple star operators (* or **) in the source, and both
@@ -1333,6 +1452,13 @@ namespace clover {
             ast.setChild(1, rhs);
             ast.trimChildrenTo(2);
             ast.setKind(binOp);
+
+            if (binOp == ASTKind::Exp) {
+                // We need to fix the associativity - to simplify stars
+                // resolution we parse exponentiation as left-associative, but
+                // it should really be right-associative from this point on.
+                ast = reassociate(module, ast, ASTKind::Exp);
+            }
             return ast;
         }
 
@@ -1378,9 +1504,9 @@ namespace clover {
         // calling a list on x, which is nonsensical, but makes sense in the
         // context of i32*.
         IndexedAST right = ast.indexedChild(1);
-        bool rhsIsCall = right.kind() == ASTKind::Call;
+        bool rhsIsCall = right.kind() == ASTKind::Call || right.kind() == ASTKind::CallMethod;
         vec<AST> calls;
-        while (right.kind() == ASTKind::Call) {
+        while (right.kind() == ASTKind::Call || right.kind() == ASTKind::CallMethod) {
             calls.push(right);
             right = right.indexedChild(0);
         }
@@ -1453,11 +1579,14 @@ namespace clover {
                 // A decl. It's a variable decl if the rhs was just an ident, a
                 // la i32* x. It's a function decl if the rhs was a call.
                 if (rhsIsCall) {
-                    AST call = calls.back();
+                    AST call = methodCall ? methodCall : calls.back();
                     vec<IndexedAST> arguments;
                     for (u32 i = 1; i < call.arity(); i ++) {
                         IndexedAST child = call.indexedChild(i);
-                        if (child.kind() == ASTKind::NamedParameter) {
+                        if (i == 1 && methodCall) {
+                            // This parameter.
+                            arguments.push(module->add(ASTKind::VarDecl, child.origin(), InvalidScope, InvalidType, child, module->add(ASTKind::Ident, Identifier(KeywordThis)), module->add(ASTKind::Missing)).reconstituteOrigin());
+                        } else if (child.kind() == ASTKind::NamedParameter) {
                             // Untyped argument with a default value.
                             arguments.push(module->add(ASTKind::VarDecl, child.origin(), InvalidScope, InvalidType, Missing, child.indexedChild(0), child.indexedChild(1)).reconstituteOrigin());
                         } else if (isIdentifier(child)) {
@@ -1495,6 +1624,12 @@ namespace clover {
             calls[i].setChild(0, resultNode);
             resultNode = resolve(module, ctx, NoRefTraits, scope, none<AST>(), calls[i], ExpectValue).reconstituteOrigin();
         }
+
+        if (methodCall) {
+            methodCall.setChild(0, resultNode);
+            resultNode = resolve(module, ctx, NoRefTraits, scope, none<AST>(), methodCall, ExpectValue).reconstituteOrigin();
+        }
+
         return resultNode;
     }
 
@@ -1985,7 +2120,7 @@ namespace clover {
                     function->isGeneric = true;
 
                 vec<triple<Symbol, TypeIndex, IndexPair<u32, u32>>> discoveredTypeParameters;
-                ctx.typeDecls.push({ &discoveredTypeParameters, nullptr, true });
+                ctx.typeDecls.push({ ast.scope(), &discoveredTypeParameters, nullptr, true });
 
                 // First we have to see if the function is generic.
                 for (auto [i, a] : enumerate(ast.child(2))) switch (a.kind()) {
@@ -2032,25 +2167,32 @@ namespace clover {
                     returnType = evaluateType(module, ctx, ast.scope(), ret, { ast, 0 }, MayInstantiate);
                 }
 
-                ctx.typeDecls.pop();
-
                 // Get the receiver type if we're a method, before we clobber
                 // the function's name.
                 if (ast.child(1).kind() == ASTKind::GetField) {
                     setScopes(module, scope, ast.child(1));
-                    AST receiver = resolve(module, ctx, NoRefTraits, scope, some<AST>(ast.child(1)), ast.child(1).child(0), ExpectType);
-                    Type receiverType = evaluateType(module, ctx, scope, receiver, { ast.child(1), 0 }, MayInstantiate);
-                    ast.scope()->add(VariableKind::Variable, ast, receiverType.index, KeywordThis);
-                    argumentTypes.push(receiverType);
+                    auto receiver = ast.child(1).indexedChild(0);
+                    AST thisParam = module->add(ASTKind::VarDecl, receiver.origin(), ast.scope(), InvalidType, receiver, module->add(ASTKind::Ident, Identifier(KeywordThis)).withOrigin(receiver.origin()), module->add(ASTKind::Missing)).reconstituteOrigin();
+                    computeScopes(module, ast.scope(), thisParam);
+                    vec<IndexedAST> prevParams;
+                    for (u32 i = 0; i < ast.child(2).arity(); i ++)
+                        prevParams.push(ast.child(2).indexedChild(i));
+                    ast.setChild(2, module->add(ASTKind::Tuple, ast.child(2).origin(), ast.scope(), InvalidType, thisParam.reconstituteOrigin(), prevParams));
+                    resolveChild(module, ctx, refTraits, ast.child(2), 0, ExpectValue);
 
+                    Type receiverType = ast.child(2).child(0).type();
                     if (receiverType.isPtr())
                         receiverType = receiverType.asPtr().elementType();
                     if (isNominal(receiverType.kind())) {
                         Scope* scope = getScope(receiverType);
-                        for (const auto& e : scope->entries)
+                        for (const auto& e : scope->entries) {
+                            const auto& info = scope->function ? scope->function->locals[e.value] : scope->module->globals[e.value];
                             ast.scope()->add(VariableKind::ThisAccess, ast, e.key);
+                        }
                     }
                 }
+
+                ctx.typeDecls.pop();
 
                 if (discoveredTypeParameters.size()) {
                     function->isGeneric = true;

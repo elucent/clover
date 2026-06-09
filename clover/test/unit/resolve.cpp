@@ -878,8 +878,6 @@ void baz():
 }
 
 TEST(resolve_method_decl) {
-    return; // TODO: Revisit method-style function declarations.
-
     auto artifact = RESOLVE(R"(
 type Foo:
     i32 x
@@ -893,7 +891,59 @@ i32* i32*[4].baz()
 i32***(i32)*** i32***(i32***).mystery()
 i32* Foo.Bar*(i32).quux(type T, i32 x)
 i32*(i32)* i32*[].xyzzy()
+42 * 42 * 42.foo()
 )");
+}
+
+TEST(resolve_method_this_access) {
+    auto artifact = RESOLVE(R"(
+type Foo:
+    i32 x, y
+
+i32 Foo.getX(): x
+i32 Foo*.getX(): x
+i32 Foo.getY(): this.y
+i32 Foo*.getY(): this.y
+)");
+
+    auto module = artifact.as<Module>();
+    auto topLevel = module->getTopLevel();
+    auto Foo = topLevel.child(0).type();
+    auto getX1 = topLevel.child(1);
+    ASSERT(getX1.type() == module->funType(I32, Foo));
+    ASSERT(getX1.child(2).arity() == 1);
+    ASSERT(getX1.child(4).kind() == ASTKind::GetField);
+    auto getX2 = topLevel.child(2);
+    ASSERT(getX2.type() == module->funType(I32, module->ptrType(Foo)));
+    ASSERT(getX2.child(2).arity() == 1);
+    ASSERT(getX2.child(4).kind() == ASTKind::GetField);
+    auto getY1 = topLevel.child(3);
+    ASSERT(getY1.type() == module->funType(I32, Foo));
+    ASSERT(getY1.child(2).arity() == 1);
+    auto getY2 = topLevel.child(4);
+    ASSERT(getY2.type() == module->funType(I32, module->ptrType(Foo)));
+    ASSERT(getY2.child(2).arity() == 1);
+}
+
+TEST(resolve_method_generic_base) {
+    auto artifact = RESOLVE(R"(
+type Foo:
+    var x, y
+
+void Foo*.bar(): x + y
+)");
+}
+
+TEST(resolve_exponent_associativity) {
+    auto artifact = RESOLVE(R"(
+var x: 1, y: 2, z: 3
+x ** y ** z
+)");
+    auto module = artifact.as<Module>();
+    auto exp = module->getTopLevel().child(1);
+    ASSERT_EQUAL(exp.kind(), ASTKind::Exp);
+    ASSERT(exp.child(0).kind() != ASTKind::Exp);
+    ASSERT_EQUAL(exp.child(1).kind(), ASTKind::Exp);
 }
 
 TEST(resolve_bad_undefined_var) {

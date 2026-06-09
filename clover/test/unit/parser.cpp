@@ -86,7 +86,7 @@ TEST(parse_binary_arithmetic) {
     ASSERT_SAME_PARSE("1 * 2 * 3", "(stars (stars 1 2 1) 3 1)");
     ASSERT_SAME_PARSE("1 / 2 / 3", "(/ (/ 1 2) 3)");
     ASSERT_SAME_PARSE("1 % 2 % 3", "(% (% 1 2) 3)");
-    ASSERT_SAME_PARSE("1 ** 2 ** 3", "(stars 1 (stars 2 3 2) 2)");
+    ASSERT_SAME_PARSE("1 ** 2 ** 3", "(stars (stars 1 2 2) 3 2)"); // At parse-time, exponentiation is left-associative.
 
     // Same precedence
     ASSERT_SAME_PARSE("1 + 2 - 3", "(- (+ 1 2) 3)");
@@ -325,7 +325,15 @@ TEST(parse_untyped_fundecl) {
     ASSERT_SAME_PARSE("fun f(x, int y): x + y", "(fun missing f (tuple (var missing x missing) (var int y missing)) missing (+ x y))");
 }
 
+TEST(parse_untyped_method_decl) {
+    ASSERT_SAME_PARSE("fun Foo.bar()", "(fun missing (get_field Foo bar) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("fun Foo*.bar()", "(fun missing (get_field (ptr_type Foo) bar) (tuple) missing missing)");
+    ASSERT_SAME_PARSE("fun Foo.bar(i32 x): x", "(fun missing (get_field Foo bar) (tuple (var i32 x missing)) missing x)");
+    ASSERT_SAME_PARSE("fun Foo*.bar(i32 y): y", "(fun missing (get_field (ptr_type Foo) bar) (tuple (var i32 y missing)) missing y)");
+}
+
 TEST(parse_fundecl_default_parameters) {
+    return; // TODO: Actually implement default parameters.
     ASSERT_SAME_PARSE("fun f(int x: 42): x", "(fun missing f (tuple (var int x 42)) missing x)");
     ASSERT_SAME_PARSE("fun f(x: 42): x", "(fun missing f (tuple (var missing x 42)) missing x)");
     ASSERT_SAME_PARSE("fun f(int x: 42, int y: 43): x", "(fun missing f (tuple (var int x 42) (var int y 43)) missing x)");

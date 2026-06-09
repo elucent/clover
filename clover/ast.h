@@ -622,6 +622,10 @@ namespace clover {
         inline ChangePosition(AST ast_in, u32 child_in):
             ast(ast_in), child(child_in) {}
 
+        inline explicit operator bool() const {
+            return !!ast;
+        }
+
         inline AST current() {
             if (child == -1)
                 return ast;
@@ -1554,14 +1558,6 @@ namespace clover {
         // interspersed with imported constants in our constants array, and we
         // don't want to re-evaluate them.
         vec<NodeIndex> constDeclOrder;
-
-        // This (kind of fragilely) holds a list of generic type instantiations
-        // we need to guarantee are concretified before finishing typechecking.
-        // This is stored on the module and not in the typechecking-local
-        // InferenceContext because we often instantiate these generic types
-        // during name resolution, but can only concretify them after inference
-        // is complete.
-        vec<TypeIndex> genericTypesToResolve;
 
         // This holds a list of type definitions we import cases from via use
         // statements, which we want to specially resolve before anything else
