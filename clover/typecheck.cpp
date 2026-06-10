@@ -4123,6 +4123,7 @@ namespace clover {
         // Otherwise, we are truly the first instantiation with this signature,
         // so we become the canonical copy and insert ourselves into the map.
         generic->instantiations->put(concreteKey, function);
+        generic->module->instantiationsToGenerate.push(function);
 
         if UNLIKELY(config::printInferredTree && generic->module != callerModule)
             println(Multiline(decl), '\n');

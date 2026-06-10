@@ -62,6 +62,7 @@ void grow(type T, Set(T)* set):
     set.buckets[i] = Empty for i < |set.buckets|
 
     set.entries = (new T[|oldBuckets| * 2]) as own T[]
+    set.size = 0
     for i < |oldBuckets|:
         set.insert(oldEntries[i]) if oldBuckets[i] is Filled
 

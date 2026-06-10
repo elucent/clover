@@ -1592,6 +1592,10 @@ namespace clover {
         // Which node is the top-level scope.
         NodeIndex topLevel;
 
+        // Which instantiated generic functions should have their code be
+        // generated as part of this module.
+        vec<Function*> instantiationsToGenerate;
+
         u32 numTemps = 0;
         Symbol name;
         bool noMangling = false;

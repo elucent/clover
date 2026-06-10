@@ -3205,18 +3205,6 @@ namespace clover {
             }
 
             case ASTKind::GenericFunDecl: {
-                if (!ast.child(1).missing()) {
-                    // The instantiations are strung along, as a bit of a hack,
-                    // as part of a linked list made up of Then nodes. We walk
-                    // that here.
-                    AST list = ast.child(1);
-                    while (list.kind() == ASTKind::Then) {
-                        if (!list.child(0).function()->forward)
-                            generate(genCtx, builder, list.child(0), module->voidType());
-                        list = list.child(1);
-                    }
-                    generate(genCtx, builder, list, module->voidType());
-                }
                 return JASMINE_INVALID_OPERAND;
             }
 
@@ -3684,6 +3672,10 @@ namespace clover {
         auto result = generate(genCtx, builder, module->getTopLevel(), module->getTopLevel().type());
         jasmine_append_ret_void(builder);
         genCtx.leave();
+
+        for (Function* function : module->instantiationsToGenerate)
+            generate(genCtx, builder, function->module->node(function->decl), module->voidType());
+
         if (optimizationLevel < 2) {
             jasmine_compile_module_only(*genCtx.assembly, output, optimizationLevel, true);
             artifact->update(new AssemblyArtifact(artifact, *genCtx.assembly, module));
