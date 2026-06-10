@@ -3204,9 +3204,8 @@ namespace clover {
                 return coerce(genCtx, builder, destType, typeOf(ast), dest);
             }
 
-            case ASTKind::GenericFunDecl: {
+            case ASTKind::GenericFunDecl:
                 return JASMINE_INVALID_OPERAND;
-            }
 
             case ASTKind::FunDecl: {
                 if (ast.child(4).kind() != ASTKind::Missing) {

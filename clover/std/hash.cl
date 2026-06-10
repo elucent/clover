@@ -149,9 +149,11 @@ u64 intHash(u64 u):
 
 u64 hash(u64 u): intHash(u)
 u64 hash(i64 i): intHash(i as u64)
+u64 hash(char c): intHash(c as u64)
 
 bool equals(u64 a, u64 b): a == b
 bool equals(i64 a, i64 b): a == b
+bool equals(char a, char b): a == b
 
 #################
 # Map and Entry #

@@ -123,7 +123,7 @@ namespace clover {
         error->next = errors;
         errors = error;
         if (++ numErrors >= 20) {
-            reportErrors(artifact);
+            reportErrors(this);
             ::print("[");
             printArtifactName(error->module->artifact);
             ::println(":-] " BOLDRED "error" RESET ": Too many errors reported; exiting now.");

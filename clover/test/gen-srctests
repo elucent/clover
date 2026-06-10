@@ -53,7 +53,6 @@ for srctest in sys.argv[1:len(sys.argv)-1]:
             for k in files[file]:
                 files[file][k] = ''.join(common + files[file][k])
                 expected[file][k] = ''.join(expected[file][k])
-            print(files)
 
 cpptest = []
 

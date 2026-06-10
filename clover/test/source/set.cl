@@ -146,3 +146,19 @@ var containsAll: true
 containsAll = false if not c.contains(i) for 1 <= i <= 5
 log(containsAll) # true
 
+#--- intersect
+
+Set intersect(Set* a, Set* b):
+    Set result: makeset([])
+    for item in a if b.contains(item):
+        result.insert(item)
+    return result
+
+var a: makeset([1, 2, 3, 4])
+var b: makeset([3, 4, 5, 6, 7])
+var c: intersect(&a, &b)
+log(c.size()) # 2
+log(c.contains(2)) # false
+log(c.contains(3)) # true
+log(c.contains(4)) # true
+log(c.contains(5)) # false

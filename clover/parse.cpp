@@ -1484,7 +1484,7 @@ namespace clover {
             // any subsequent variable declarations in the group, and return
             // the group as a do-block.
             IndexedAST init = module->add(ASTKind::Missing).positionless();
-            if (token.token == PunctuatorColon) {
+            if (token.token == PunctuatorColon && allowInitializer) {
                 visitor.read();
                 if (visitor.peek().token == KeywordUninit
                     && (visitor.peek2().token == MetaNone || visitor.peek2().token == PunctuatorComma || visitor.peek2().token == WhitespaceNewline))
