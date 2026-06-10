@@ -589,7 +589,9 @@ namespace clover {
         switch (ast.kind()) {
             case ASTKind::AliasDecl:
                 resolveChild(module, ctx, refTraits, ast, 2, ExpectType);
-                if (ast.child(2).missing()) {
+                if (ast.child(2).kind() == ASTKind::Error)
+                    return module->voidType();
+                else if (ast.child(2).missing()) {
                     error(module, { ast }, "Missing initial assignment in alias declaration.");
                     return module->voidType();
                 } else if (!isTypeExpression(ast.child(2), MayInstantiate)) {
@@ -638,6 +640,8 @@ namespace clover {
                     }
                     ast.setKind(ast.kind() == ASTKind::NamedCaseDecl ? ASTKind::StructCaseDecl : ASTKind::StructDecl);
                 } else {
+                    if (ast.child(2).kind() == ASTKind::Error)
+                        return module->voidType();
                     if (!ast.child(2).missing() && !isTypeExpression(ast.child(2), MayInstantiate)) {
                         error(module, { ast, 2 }, "Expected type expression in named type declaration, found '", snippet(ast, 2), "'.");
                         return module->voidType();
@@ -2080,7 +2084,7 @@ namespace clover {
                         ast.setChild(0, module->add(ASTKind::Ident, Identifier(ctx.reportTypeParameter(ast.type(), ast.childOrigin(0)))));
                 } else {
                     AST type = resolveChild(module, ctx, refTraits, ast, 0, ExpectType);
-                    if (type.missing())
+                    if (type.missing() || type.kind() == ASTKind::Error)
                         return type;
                     if (!isTypeExpression(type, MayInstantiate)) {
                         error(module, { ast, 0 }, "Expected type expression in variable declaration, found '", snippet(ast, 0), "'.");
@@ -2335,6 +2339,8 @@ namespace clover {
                 // and that's basically what the following impl is meant to
                 // apply to.
                 resolveChild(module, ctx, refTraits, ast, 0, ExpectType);
+                if (ast.child(0).kind() == ASTKind::Error)
+                    return module->add(ASTKind::Error);
 
                 if (!isTypeExpression(ast.child(0), MayInstantiate)) {
                     error(module, { ast, 0 }, "Expected type expression in constructor.");

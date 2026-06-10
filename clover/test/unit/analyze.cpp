@@ -1,18 +1,23 @@
 #include "clover/test/unit/helpers.h"
 
+#define SKIP_IF_NO_ANALYZE do { if (!config::noSkipAnalyze) return; } while (false)
+
 TEST(analyze_destroy_toplevel_ptr) {
+    SKIP_IF_NO_ANALYZE;
     auto instance = ANALYZE(R"(
 var ptr: new 42
 )");
 }
 
 TEST(analyze_destroy_in_expression) {
+    SKIP_IF_NO_ANALYZE;
     auto instance = ANALYZE(R"(
 (*new 42) + (*new 42)
 )");
 }
 
 TEST(analyze_alloc_in_branch) {
+    SKIP_IF_NO_ANALYZE;
     auto instance = ANALYZE(R"(
 var ptr: new 42
 var x: 0, y: 10
@@ -23,6 +28,7 @@ if x < y:
 }
 
 TEST(analyze_freed_in_branch) {
+    SKIP_IF_NO_ANALYZE;
     auto instance = ANALYZE(R"(
 var ptr: new 42
 var x: 0
@@ -33,6 +39,7 @@ if x < 10:
 }
 
 TEST(analyze_access_uninit) {
+    SKIP_IF_NO_ANALYZE;
     auto instance = ANALYZE(R"(
 i32 i: uninit
 i = 42
@@ -41,6 +48,7 @@ i + 1
 }
 
 TEST(analyze_bad_access_uninit) {
+    SKIP_IF_NO_ANALYZE;
     EXPECT_ERRORS;
     auto instance = ANALYZE(R"(
 i32 i: uninit
@@ -50,6 +58,7 @@ i + 1
 }
 
 TEST(analyze_access_uninit_after_if_else) {
+    SKIP_IF_NO_ANALYZE;
     auto instance = ANALYZE(R"(
 i32 i: uninit
 i32 j: 0
@@ -62,6 +71,7 @@ i + 1
 }
 
 TEST(analyze_bad_access_uninit_in_branch) {
+    SKIP_IF_NO_ANALYZE;
     EXPECT_ERRORS;
     auto instance = ANALYZE(R"(
 i32 i: uninit
@@ -74,6 +84,7 @@ i + 1
 }
 
 TEST(analyze_bad_freed_in_branch) {
+    SKIP_IF_NO_ANALYZE;
     EXPECT_ERRORS;
     auto instance = ANALYZE(R"(
 var ptr: new 42
@@ -87,6 +98,7 @@ if x < 10:
 }
 
 TEST(analyze_bad_dangle_after_branch) {
+    SKIP_IF_NO_ANALYZE;
     EXPECT_ERRORS;
     auto instance = ANALYZE(R"(
 var ptr: new 42     # &own 'a = @1
@@ -100,6 +112,7 @@ if x < y:
 }
 
 TEST(analyze_bad_alloc_in_branch) {
+    SKIP_IF_NO_ANALYZE;
     EXPECT_ERRORS;
     auto instance = ANALYZE(R"(
 var ptr: uninit
@@ -112,6 +125,7 @@ if x < y:
 }
 
 TEST(analyze_alloc_in_loop) {
+    SKIP_IF_NO_ANALYZE;
     auto instance = ANALYZE(R"(
 var ptr: new 42
 var sum: 0
@@ -122,6 +136,7 @@ for i < 10:
 }
 
 TEST(analyze_alloc_in_loop_uninit) {
+    SKIP_IF_NO_ANALYZE;
     auto instance = ANALYZE(R"(
 var ptr: uninit
 var sum: 0
@@ -133,6 +148,7 @@ sum
 }
 
 TEST(analyze_bad_alloc_in_loop_uninit) {
+    SKIP_IF_NO_ANALYZE;
     EXPECT_ERRORS;
     auto instance = ANALYZE(R"(
 var ptr: uninit
@@ -146,6 +162,7 @@ sum + *ptr
 }
 
 TEST(analyze_make_linked_list) {
+    SKIP_IF_NO_ANALYZE;
     auto instance = ANALYZE(R"(
 type List:
     case Nil

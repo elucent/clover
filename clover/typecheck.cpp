@@ -4103,7 +4103,7 @@ namespace clover {
             // existing instantiation too.
 
             if UNLIKELY(config::verboseInstantiation)
-                println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, function->initialKey }, " and concrete signature ", SignatureKeyLogger { module->types, concreteKey }, ", which matches existing version with signature ", it->value->type());
+                println("[TYPE]\tInstantiated ", module->str(generic->name), "/", function->globalIndex, " with signature ", SignatureKeyLogger { module->types, function->initialKey }, " and concrete signature ", SignatureKeyLogger { module->types, concreteKey }, ", which matches existing version with signature ", it->value->type());
 
             auto existing = it->value;
             generic->instantiations->put(function->initialKey, existing);
@@ -4128,7 +4128,7 @@ namespace clover {
             println(Multiline(decl), '\n');
 
         if UNLIKELY(config::verboseInstantiation)
-            println("[TYPE]\tInstantiated ", module->str(generic->name), " with signature ", SignatureKeyLogger { module->types, function->initialKey }, " and unique concrete signature ", SignatureKeyLogger { module->types, concreteKey });
+            println("[TYPE]\tInstantiated ", module->str(generic->name), "/", function->globalIndex, " with signature ", SignatureKeyLogger { module->types, function->initialKey }, " and unique concrete signature ", SignatureKeyLogger { module->types, concreteKey });
 
         // And we set up entries with the scoped keys too.
         generic->instantiations->put(function->initialKey, function);

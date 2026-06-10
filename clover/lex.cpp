@@ -440,7 +440,7 @@ namespace clover {
                     tokens.push({ OperatorBitNot, pos });
                     break;
                 case '#':
-                    while (visitor.peek() != '\n')
+                    while (!visitor.done() && visitor.peek() != '\n')
                         visitor.read();
                     break;
                 case '\'': {

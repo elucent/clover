@@ -1819,7 +1819,7 @@ namespace clover {
             assert(kind == ASTKind::ResolvedGenericType);
             ASTWord ast;
             ast.kind = kind;
-            auto internResult = tryIntern(Constant::UnsignedConst(genericType->index));
+            auto internResult = tryIntern(Constant::UnsignedConst(genericTypeIndex(genericType)));
             ast.isInline = internResult.canIntern;
             ast.constantIndex = internResult.payload;
             return AST(this, ast);

@@ -45,6 +45,9 @@ FindResult(T) find(type T, Set(T)* set, T key):
                 i = i + 1 & cap - 1
     return None
 
+u32 size(type T, Set(T)* set):
+    return set.size
+
 bool contains(type T, Set(T)* set, T key):
     use FindResult.*
     return set.find(key) is not None
@@ -89,6 +92,22 @@ void insert(type T, Set(T)* set, T key):
                     set.entries[i] = key
                     return
                 i = i + 1 & cap - 1
+
+void remove(type T, Set(T)* set, T key):
+    use Bucket.*
+    use FindResult.*
+
+    u64 h: key.hash()
+    u64 cap: |set.buckets|
+    u64 i: h & cap - 1
+    while true:
+        var bucket: set.buckets[i]
+        return if bucket is Empty
+        if bucket is Filled and set.entries[i].equals(key):
+            set.buckets[i] = Empty
+            set.size --
+            return
+        i = i + 1 & cap - 1
 
 type SetIterator(type T):
     Set(T)* set
