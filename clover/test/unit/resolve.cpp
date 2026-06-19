@@ -106,8 +106,8 @@ i32* y: x.i32*()
     auto x = topLevel.child(0);
     ASSERT(x.kind() == ASTKind::VarDecl);
     ASSERT(x.child(2).kind() == ASTKind::Construct);
-    ASSERT(x.child(2).arity() == 1);
-    ASSERT(x.child(2).child(0).uintConst() == 42);
+    ASSERT(x.child(2).arity() == 2);
+    ASSERT(x.child(2).child(1).uintConst() == 42);
     ASSERT(x.child(2).type() == module->ptrType(I32));
     ASSERT(x.type() == module->ptrType(I32));
     ASSERT(x.child(2).type<TypeKind::Pointer>().elementType() == I32);
@@ -115,8 +115,8 @@ i32* y: x.i32*()
     auto y = topLevel.child(1);
     ASSERT(y.kind() == ASTKind::VarDecl);
     ASSERT(y.child(2).kind() == ASTKind::Construct);
-    ASSERT(y.child(2).arity() == 1);
-    ASSERT(y.child(2).child(0).varInfo().name == module->sym("x"));
+    ASSERT(y.child(2).arity() == 2);
+    ASSERT(y.child(2).child(1).varInfo().name == module->sym("x"));
     ASSERT(y.child(2).type() == module->ptrType(I32));
     ASSERT(y.type() == module->ptrType(I32));
     ASSERT(y.child(2).type<TypeKind::Pointer>().elementType() == I32);
@@ -200,18 +200,18 @@ i32[] bar: foo[0].i32[]()
     auto topLevel = module->getTopLevel();
     auto foo = topLevel.child(1);
     ASSERT(foo.child(2).kind() == ASTKind::Construct);
-    ASSERT(foo.child(2).arity() == 1);
+    ASSERT(foo.child(2).arity() == 2);
     ASSERT(foo.child(2).type() == module->sliceType(I32));
-    ASSERT(foo.child(2).child(0).kind() == ASTKind::Global);
-    ASSERT(foo.child(2).child(0).varInfo().name == module->sym("slice"));
+    ASSERT(foo.child(2).child(1).kind() == ASTKind::Global);
+    ASSERT(foo.child(2).child(1).varInfo().name == module->sym("slice"));
 
     auto bar = topLevel.child(2);
     ASSERT(bar.child(2).kind() == ASTKind::Construct);
-    ASSERT(bar.child(2).arity() == 1);
+    ASSERT(bar.child(2).arity() == 2);
     ASSERT(bar.child(2).type() == module->sliceType(I32));
-    ASSERT(bar.child(2).child(0).kind() == ASTKind::GetIndex);
-    ASSERT(bar.child(2).child(0).child(0).kind() == ASTKind::Global);
-    ASSERT(bar.child(2).child(0).child(0).varInfo().name == module->sym("foo"));
+    ASSERT(bar.child(2).child(1).kind() == ASTKind::GetIndex);
+    ASSERT(bar.child(2).child(1).child(0).kind() == ASTKind::Global);
+    ASSERT(bar.child(2).child(1).child(0).varInfo().name == module->sym("foo"));
 }
 
 TEST(resolve_array_type) {
@@ -257,22 +257,22 @@ var array_element: array_of_slices.i32[][3]()[0].i32[]()
     auto topLevel = module->getTopLevel();
     auto slice_element = topLevel.child(2);
     ASSERT(slice_element.child(2).kind() == ASTKind::Construct);
-    ASSERT(slice_element.child(2).arity() == 1);
+    ASSERT(slice_element.child(2).arity() == 2);
     ASSERT(slice_element.child(2).type() == module->arrayType(I32, 4u));
-    ASSERT(slice_element.child(2).child(0).kind() == ASTKind::GetIndex);
-    ASSERT(slice_element.child(2).child(0).child(0).kind() == ASTKind::Global);
-    ASSERT(slice_element.child(2).child(0).child(0).varInfo().name == module->sym("slice_of_arrays"));
+    ASSERT(slice_element.child(2).child(1).kind() == ASTKind::GetIndex);
+    ASSERT(slice_element.child(2).child(1).child(0).kind() == ASTKind::Global);
+    ASSERT(slice_element.child(2).child(1).child(0).varInfo().name == module->sym("slice_of_arrays"));
 
     auto array_element = topLevel.child(3);
     ASSERT(array_element.child(2).kind() == ASTKind::Construct);
-    ASSERT(array_element.child(2).arity() == 1);
+    ASSERT(array_element.child(2).arity() == 2);
     ASSERT(array_element.child(2).type() == module->sliceType(I32));
-    auto array_element_arg = array_element.child(2).child(0);
+    auto array_element_arg = array_element.child(2).child(1);
     ASSERT(array_element_arg.kind() == ASTKind::GetIndex);
     ASSERT(array_element_arg.child(0).kind() == ASTKind::Construct);
     ASSERT(array_element_arg.child(0).type() == module->arrayType(module->sliceType(I32), 3u));
-    ASSERT(array_element_arg.child(0).child(0).kind() == ASTKind::Global);
-    ASSERT(array_element_arg.child(0).child(0).varInfo().name == module->sym("array_of_slices"));
+    ASSERT(array_element_arg.child(0).child(1).kind() == ASTKind::Global);
+    ASSERT(array_element_arg.child(0).child(1).varInfo().name == module->sym("array_of_slices"));
 }
 
 TEST(resolve_tuple_type) {
@@ -318,15 +318,15 @@ TEST(resolve_tuple_ctor) {
     ASSERT(pair1.type() == module->tupleType(I32, I32));
     ASSERT(pair1.child(2).kind() == ASTKind::Construct);
     ASSERT(pair1.child(2).type() == module->tupleType(I32, I32));
-    ASSERT(pair1.child(2).child(0).kind() == ASTKind::Tuple);
+    ASSERT(pair1.child(2).child(1).kind() == ASTKind::Tuple);
 
     auto pair2 = topLevel.child(1);
     ASSERT(pair2.child(0).kind() == ASTKind::TupleType);
     ASSERT(pair2.type() == module->tupleType(I32, I32));
     ASSERT(pair2.child(2).kind() == ASTKind::Construct);
     ASSERT(pair2.child(2).type() == module->tupleType(I32, I32));
-    ASSERT(pair2.child(2).child(0).kind() == ASTKind::Global);
-    ASSERT(pair2.child(2).child(0).varInfo().name == module->sym("pair1"));
+    ASSERT(pair2.child(2).child(1).kind() == ASTKind::Global);
+    ASSERT(pair2.child(2).child(1).varInfo().name == module->sym("pair1"));
 }
 
 TEST(resolve_function_type) {
@@ -388,12 +388,12 @@ x.i32(i32)*[42](42)
     auto fourth = topLevel.child(4);
     ASSERT(fourth.kind() == ASTKind::Construct);
     ASSERT(fourth.type() == module->funType(module->ptrType(module->funType(I32, I32)), I32));
-    ASSERT(fourth.child(1).kind() == ASTKind::Unsigned);
+    ASSERT(fourth.child(2).kind() == ASTKind::Unsigned);
 
     auto fifth = topLevel.child(5);
     ASSERT(fifth.kind() == ASTKind::Construct);
     ASSERT(fifth.type() == module->arrayType(module->ptrType(module->funType(I32, I32)), 42u));
-    ASSERT(fifth.child(1).kind() == ASTKind::Unsigned);
+    ASSERT(fifth.child(2).kind() == ASTKind::Unsigned);
 }
 
 TEST(resolve_named_type) {
@@ -575,12 +575,12 @@ var x: i32(f32(i64(f64(42))))
     auto init = x.child(2);
     ASSERT(init.kind() == ASTKind::Construct);
     ASSERT(init.type() == I32);
-    ASSERT(init.child(0).kind() == ASTKind::Construct);
-    ASSERT(init.child(0).type() == F32);
-    ASSERT(init.child(0).child(0).kind() == ASTKind::Construct);
-    ASSERT(init.child(0).child(0).type() == I64);
-    ASSERT(init.child(0).child(0).child(0).kind() == ASTKind::Construct);
-    ASSERT(init.child(0).child(0).child(0).type() == F64);
+    ASSERT(init.child(1).kind() == ASTKind::Construct);
+    ASSERT(init.child(1).type() == F32);
+    ASSERT(init.child(1).child(1).kind() == ASTKind::Construct);
+    ASSERT(init.child(1).child(1).type() == I64);
+    ASSERT(init.child(1).child(1).child(1).kind() == ASTKind::Construct);
+    ASSERT(init.child(1).child(1).child(1).type() == F64);
 }
 
 TEST(resolve_nested_set_field) {
@@ -1054,28 +1054,10 @@ alias Func: void(void, i32)
     ASSERT_DID_ERROR(artifact);
 }
 
-TEST(resolve_bad_array_type_non_const) {
-    EXPECT_ERRORS;
-    auto artifact = RESOLVE(R"(
-var x: 42
-i32[x] array
-)");
-    ASSERT_DID_ERROR(artifact);
-}
-
 TEST(resolve_bad_array_type_multi_index) {
     EXPECT_ERRORS;
     auto artifact = RESOLVE(R"(
 i32[1, 2] array
-)");
-    ASSERT_DID_ERROR(artifact);
-}
-
-TEST(resolve_bad_ptr_array_type_non_const) {
-    EXPECT_ERRORS;
-    auto artifact = RESOLVE(R"(
-var x: 42
-i32*[x]
 )");
     ASSERT_DID_ERROR(artifact);
 }

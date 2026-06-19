@@ -1164,7 +1164,6 @@ namespace clover {
                     call.setType(generic->placeholder);
                 else
                     call.setType(instantiate(ctx, ChangePosition { call, 0 }));
-                call.setArity(0);
                 return call;
             }
 
@@ -1216,7 +1215,7 @@ namespace clover {
                 return module->add(ASTKind::Error);
             }
             if (hasAnyNonType) {
-                u32 nonTypeParameters = 0;
+                u32 nonTypeParameters = 1;
                 for (u32 i = 1; i < call.arity(); i ++) {
                     if (!isTypeExpression(call.child(i), MayInstantiate))
                         call.setChild(nonTypeParameters ++, call.child(i));
@@ -1241,18 +1240,14 @@ namespace clover {
                 call.setKind(expectation == ExpectType ? ASTKind::FunType : ASTKind::Construct);
                 if (call.kind() == ASTKind::FunType)
                     call.setType(module->funType(type));
-                else {
+                else
                     call.setType(type);
-                    call.setArity(0);
-                }
                 return call;
             }
 
             if (call.kind() == ASTKind::CallMethod && call.arity() == 2) {
                 // This is the case where we have x.foo(). We don't support UFCS for function types
                 // (i.e. no i32.i32() for the i32(i32) function type), so this must be a constructor.
-                call.setChild(0, call.child(1));
-                call.setArity(call.arity() - 1);
                 call.setKind(ASTKind::Construct);
                 call.setType(type);
                 return call;
@@ -1286,9 +1281,6 @@ namespace clover {
                     hasAnyNonType = true;
             }
             if (hasAnyNonType) {
-                for (u32 i = 1; i < call.arity(); i ++)
-                    call.setChild(i - 1, call.child(i));
-                call.setArity(call.arity() - 1);
                 call.setKind(ASTKind::Construct);
                 call.setType(type);
                 return call;
@@ -1526,13 +1518,19 @@ namespace clover {
                     resultType = module->sliceType(ptrType);
                     resultNode = module->add(ASTKind::SliceType, span(ptrNode.origin(), right.origin()), ast.scope(), resultType, ptrNode).reconstituteOrigin();
                 } else if (right.arity() == 1) {
-                    if (right.child(0).kind() != ASTKind::Unsigned || right.child(0).uintConst() >= 0x100000000ull) {
+                    if (right.child(0).kind() == ASTKind::Unsigned && right.child(0).uintConst() >= 0x100000000ull) {
                         error(module, { right, 0 }, "Array type dimension must be a positive 32-bit integer.");
                         return module->add(ASTKind::Error);
+                    } else if (right.child(0).kind() != ASTKind::Unsigned) {
+                        resolveChild(module, ctx, refTraits, ast, 1, ExpectValue);
+                        resultType = module->varType();
+                    } else {
+                        auto size = right.child(0).uintConst();
+                        resultType = module->arrayType(ptrType, (u32)size);
                     }
-                    auto size = right.child(0).uintConst();
-                    resultType = module->arrayType(ptrType, (u32)size);
                     resultNode = module->add(ASTKind::ArrayType, span(ptrNode.origin(), right.origin()), ast.scope(), resultType, ptrNode, right.indexedChild(0)).reconstituteOrigin();
+                    if (resultType.isVar())
+                        (scope->function ? scope->function->typesThatNeedConst : module->typesThatNeedConst).push(resultNode.node);
                 } else {
                     error(module, { right, 1 }, "Too many dimensions in array type expression.");
                     return module->add(ASTKind::Error);
@@ -1573,7 +1571,7 @@ namespace clover {
                     if (lhsIsField) // Method-style constructor call. If we do x.i32*(y), x is an argument.
                         maybeFirst.push(lhs.indexedChild(0));
                     resultType = ptrType;
-                    resultNode = module->add(ASTKind::Construct, span(ptrNode.origin(), right.origin()), ast.scope(), resultType, maybeFirst, children).reconstituteOrigin();
+                    resultNode = module->add(ASTKind::Construct, span(ptrNode.origin(), right.origin()), ast.scope(), resultType, ptrNode, maybeFirst, children).reconstituteOrigin();
                     return resultNode;
                 }
                 break;
@@ -1680,7 +1678,7 @@ namespace clover {
                 break;
 
             case ASTKind::Construct:
-                for (u32 i = 0; i < pattern.arity(); i ++)
+                for (u32 i = 1; i < pattern.arity(); i ++)
                     resolvePattern(module, ctx, refTraits, scope, { pattern, i }, true);
                 break;
 
@@ -1812,21 +1810,38 @@ namespace clover {
             case ASTKind::GetIndex: {
                 AST lhs = resolveChild(module, ctx, refTraits, ast, 0, ExpectValue);
                 if (isTypeExpression(lhs, MayInstantiate)) {
-                    if (ast.child(1).kind() != ASTKind::Unsigned || ast.child(1).uintConst() >= 0x100000000ull) {
+                    Type resultType;
+                    if (ast.child(1).kind() == ASTKind::Unsigned && ast.child(1).uintConst() >= 0x100000000ull) {
                         error(module, { ast, 1 }, "Array type dimension must be a positive 32-bit integer.");
                         return module->add(ASTKind::Error);
+                    } else if (ast.child(1).kind() != ASTKind::Unsigned) {
+                        resolveChild(module, ctx, refTraits, ast, 1, ExpectValue);
+                        resultType = module->varType();
+                    } else {
+                        auto size = ast.child(1).uintConst();
+                        resultType = module->arrayType(evaluateType(module, ctx, scope, lhs, { ast, 0 }, MayInstantiate), u32(size));
                     }
-                    auto size = ast.child(1).uintConst();
+                    ast.setType(resultType);
                     ast.setKind(ASTKind::ArrayType);
-                    ast.setType(module->arrayType(evaluateType(module, ctx, scope, lhs, { ast, 0 }, MayInstantiate), u32(size)));
+                    if (resultType.isVar())
+                        (scope->function ? scope->function->typesThatNeedConst : module->typesThatNeedConst).push(ast.node);
                 } else if (lhs.kind() == ASTKind::GetField && isTypeExpression(lhs.child(1), ForbidInstantiation)) {
                     Type fieldType = evaluateType(module, ctx, scope, lhs.child(1), {}, ForbidInstantiation);
-                    if (ast.child(1).kind() != ASTKind::Unsigned || ast.child(1).uintConst() >= 0x100000000ull) {
+                    Type resultType;
+                    if (ast.child(1).kind() == ASTKind::Unsigned && ast.child(1).uintConst() >= 0x100000000ull) {
                         error(module, { ast, 1 }, "Array type dimension must be a positive 32-bit integer.");
                         return module->add(ASTKind::Error);
+                    } else if (ast.child(1).kind() != ASTKind::Unsigned) {
+                        resolveChild(module, ctx, refTraits, ast, 1, ExpectValue);
+                        resultType = module->varType();
+                    } else {
+                        auto size = ast.child(1).uintConst();
+                        resultType = module->arrayType(fieldType, u32(size));
                     }
                     auto size = ast.child(1).uintConst();
-                    lhs.setChild(1, module->add(ASTKind::ArrayType, ast.origin(), ast.scope(), module->arrayType(fieldType, u32(size)), lhs.indexedChild(1), ast.indexedChild(1)));
+                    lhs.setChild(1, module->add(ASTKind::ArrayType, ast.origin(), ast.scope(), resultType, lhs.indexedChild(1), ast.indexedChild(1)));
+                    if (resultType.isVar())
+                        (scope->function ? scope->function->typesThatNeedConst : module->typesThatNeedConst).push(lhs.child(1).node);
                     return lhs;
                 } else {
                     resolveChild(module, ctx, NoRefTraits, ast, 1, ExpectValue);
@@ -1894,13 +1909,21 @@ namespace clover {
                     error(module, { ast, 0 }, "Expected type in array type expression, found '", snippet(ast, 0), "'.");
                     return module->add(ASTKind::Error);
                 }
-                if (ast.child(1).kind() != ASTKind::Unsigned || ast.child(1).uintConst() >= 0x100000000ull) {
+                Type resultType;
+                if (ast.child(1).kind() == ASTKind::Unsigned && ast.child(1).uintConst() >= 0x100000000ull) {
                     error(module, { ast, 1 }, "Array type dimension must be a positive 32-bit integer.");
                     return module->add(ASTKind::Error);
+                } else if (ast.child(1).kind() != ASTKind::Unsigned) {
+                    resolveChild(module, ctx, refTraits, ast, 1, ExpectValue);
+                    resultType = module->varType();
+                } else {
+                    auto size = ast.child(1).uintConst();
+                    resultType = module->arrayType(evaluateType(module, ctx, scope, base, { ast, 0 }, MayInstantiate), u32(size));
                 }
-                auto size = ast.child(1).uintConst();
                 ast.setKind(ASTKind::ArrayType);
-                ast.setType(module->arrayType(evaluateType(module, ctx, scope, base, { ast, 0 }, MayInstantiate), u32(size)));
+                ast.setType(resultType);
+                if (resultType.isVar())
+                    (scope->function ? scope->function->typesThatNeedConst : module->typesThatNeedConst).push(ast.node);
                 return ast;
             }
             case ASTKind::TupleType: {
@@ -1978,7 +2001,7 @@ namespace clover {
                     AST resolvedField = resolveChild(module, ctx, refTraits, ast, 1, ExpectType);
                     assert(resolvedField.kind() == ASTKind::Construct); // Must be the case, for this to be valid.
                     vec<IndexedAST> nestedChildren;
-                    for (u32 i = 0; i < resolvedField.arity(); i ++)
+                    for (u32 i = 1; i < resolvedField.arity(); i ++)
                         nestedChildren.push(resolvedField.indexedChild(i));
                     return module->add(ASTKind::Construct, resolvedField.origin(), resolvedField.scope(), resolvedField.type(), ast.indexedChild(0), nestedChildren);
                 }
@@ -2348,9 +2371,8 @@ namespace clover {
                 }
 
                 ast.setType(evaluateType(module, ctx, scope, ast.child(0), { ast, 0 }, MayInstantiate));
-                for (u32 i = 0; i < ast.arity() - 1; i ++)
-                    ast.setChild(i, resolve(module, ctx, refTraits, scope, some<AST>(ast), ast.child(i + 1), ExpectValue));
-                ast.setArity(ast.arity() - 1);
+                for (u32 i = 1; i < ast.arity(); i ++)
+                    resolveChild(module, ctx, refTraits, ast, i, ExpectValue);
                 return ast;
             }
             case ASTKind::Tuple: {

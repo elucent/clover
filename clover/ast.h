@@ -1134,6 +1134,9 @@ namespace clover {
         SignatureKey initialKey;
         Intrinsic intrinsic;
 
+        // Type expressions we need to resolve after constant evaluation.
+        vec<NodeIndex> typesThatNeedConst;
+
         union {
             map<SignatureKey, Function*>* instantiations = nullptr; // Cache of instantiations of this function.
             Function* forward;
@@ -1595,6 +1598,9 @@ namespace clover {
         // Which instantiated generic functions should have their code be
         // generated as part of this module.
         vec<Function*> instantiationsToGenerate;
+
+        // Type expressions we need to resolve after constant evaluation.
+        vec<NodeIndex> typesThatNeedConst;
 
         u32 numTemps = 0;
         Symbol name;

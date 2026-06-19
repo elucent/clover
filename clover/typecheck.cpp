@@ -1219,26 +1219,26 @@ namespace clover {
             case ASTKind::Construct:
                 switch (pattern.type().kind()) {
                     case TypeKind::Named:
-                        if (pattern.arity() == 0)
+                        if (pattern.arity() == 1)
                             type_assert(pattern.type().asNamed().innerType() == Void);
                         else {
-                            type_assert(pattern.arity() == 1);
-                            inferPattern(ctx, function, pattern.type().asNamed().innerType(), pattern.child(0));
+                            type_assert(pattern.arity() == 2);
+                            inferPattern(ctx, function, pattern.type().asNamed().innerType(), pattern.child(1));
                         }
                         return pattern.type();
                     case TypeKind::Struct: {
                         auto structType = pattern.type().asStruct();
-                        for (u32 i = 0; i < pattern.arity(); i ++) {
+                        for (u32 i = 1; i < pattern.arity(); i ++) {
                             if (pattern.child(i).kind() == ASTKind::Splat) {
                                 type_assert(i == pattern.arity() - 1);
                                 vec<TypeIndex> remainingTypes;
-                                for (u32 j = i; j < structType.count(); j ++)
+                                for (u32 j = i - 1; j < structType.count(); j ++)
                                     remainingTypes.push(structType.fieldTypeIndex(j));
                                 inferPattern(ctx, function, module->tupleType(remainingTypes), pattern.child(i));
                                 break;
                             }
 
-                            inferPattern(ctx, function, structType.fieldType(i), pattern.child(i));
+                            inferPattern(ctx, function, structType.fieldType(i - 1), pattern.child(i));
                         }
                         return pattern.type();
                     }
@@ -1842,8 +1842,8 @@ namespace clover {
                 if (type.isNum() || type == Char) {
                     // We check later here because we can't unify against
                     // Char | Number.
-                    type_assert(ast.arity() == 1);
-                    inferChild(ctx, function, ast, 0);
+                    type_assert(ast.arity() == 2);
+                    inferChild(ctx, function, ast, 1);
                     ctx.checkLater(ast);
                     return fromNodeType(ast);
                 }
@@ -1852,8 +1852,8 @@ namespace clover {
                     // We check later here because we don't want to force our
                     // input into any one particular kind of pointer or
                     // slice type too early.
-                    type_assert(ast.arity() == 1);
-                    inferChild(ctx, function, ast, 0);
+                    type_assert(ast.arity() == 2);
+                    inferChild(ctx, function, ast, 1);
                     ctx.checkLater(ast);
                     return fromNodeType(ast);
                 }
@@ -1861,13 +1861,13 @@ namespace clover {
                 if (type.isNamed()) {
                     // Named types can be constructed with a single parameter.
 
-                    if (ast.arity() == 0) {
+                    if (ast.arity() == 1) {
                         type_assert(type.asNamed().innerType() == Void);
                         return fromNodeType(ast);
                     }
 
-                    type_assert(ast.arity() == 1);
-                    value = inferChild(ctx, function, ast, 0);
+                    type_assert(ast.arity() == 2);
+                    value = inferChild(ctx, function, ast, 1);
                     unify(value, type.asNamed().innerType(), ast, ctx);
                     return fromNodeType(ast);
                 }
@@ -1876,10 +1876,10 @@ namespace clover {
                     // Tuple types can be constructed with exactly as many
                     // parameters as they have members.
 
-                    type_assert(ast.arity() == type.asTuple().count());
-                    for (u32 i = 0; i < ast.arity(); i ++) {
+                    type_assert(ast.arity() == type.asTuple().count() + 1);
+                    for (u32 i = 1; i < ast.arity(); i ++) {
                         value = inferChild(ctx, function, ast, i);
-                        unify(value, type.asTuple().fieldType(i), ast, ctx);
+                        unify(value, type.asTuple().fieldType(i - 1), ast, ctx);
                     }
                     return fromNodeType(ast);
                 }
@@ -1888,10 +1888,10 @@ namespace clover {
                     // Struct types can be constructed with exactly as many
                     // parameters as they have members.
 
-                    type_assert(ast.arity() == type.asStruct().count());
-                    for (u32 i = 0; i < ast.arity(); i ++) {
+                    type_assert(ast.arity() == type.asStruct().count() + 1);
+                    for (u32 i = 1; i < ast.arity(); i ++) {
                         value = inferChild(ctx, function, ast, i);
-                        unify(value, type.asStruct().fieldType(i), ast, ctx);
+                        unify(value, type.asStruct().fieldType(i - 1), ast, ctx);
                     }
                     return fromNodeType(ast);
                 }
@@ -3976,18 +3976,18 @@ namespace clover {
                 fallthrough;
             case TypeKind::Numeric: {
                 // Any Char or number can be cast to any other Char or number.
-                Type operandType = inferredType(ctx, function, ast.child(0));
+                Type operandType = inferredType(ctx, function, ast.child(1));
                 type_assert(operandType.unifyOnto(module->charType(), nullptr, Query) == UnifySuccess
                     || operandType.unifyOnto(module->topNumberType(), nullptr, Query) == UnifySuccess);
                 break;
             }
             case TypeKind::Pointer: {
-                Type operandType = inferredType(ctx, function, ast.child(0));
+                Type operandType = inferredType(ctx, function, ast.child(1));
                 type_assert(operandType.isPtr());
                 break;
             }
             case TypeKind::Slice: {
-                Type operandType = inferredType(ctx, function, ast.child(0));
+                Type operandType = inferredType(ctx, function, ast.child(1));
                 type_assert(operandType.isSlice());
                 break;
             }

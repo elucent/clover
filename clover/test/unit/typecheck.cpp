@@ -1141,3 +1141,17 @@ i8 second: pair.second
     auto second = topLevel.child(3);
     ASSERT_TYPE_EQUAL(second.type(), module->i8Type());
 }
+
+TEST(typecheck_array_type_const_expr) {
+    auto instance = TYPECHECK(R"(
+const x: 1
+const y: 2
+i32[x + y + 3] arr
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+
+    auto arr = topLevel.child(2);
+    ASSERT_TYPE_EQUAL(arr.type(), module->arrayType(module->i32Type(), 6));
+}

@@ -1712,8 +1712,8 @@ namespace clover {
                     case TypeKind::Struct: {
                         Region region = state.regions->instance(Regions::Stack, type);
                         for (u32 i = 0; i < type.asStruct().count(); i ++) {
-                            auto init = analyze(state, { ast, i });
-                            setField(state, toDestroy, RegionValue(pos, region), i, init, { ast, i });
+                            auto init = analyze(state, { ast, i + 1 });
+                            setField(state, toDestroy, RegionValue(pos, region), i, init, { ast, i + 1 });
                         }
                         if UNLIKELY(config::verboseAnalyze)
                             println("[ANA]\tCreated new tuple region ", region, " at ", ast);

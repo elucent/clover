@@ -1,4 +1,5 @@
 #include "clover/interp.h"
+#include "clover/value.h"
 
 namespace clover {
     f64 toFloat(Value v) {
@@ -123,7 +124,7 @@ namespace clover {
                 return evalBitwise(env, ast.child(0), ast.child(1), [](i64 a, i64 b) -> i64 { return a ^ b; }, [](u64 a, u64 b) -> u64 { return a ^ b; }, "XOR");
 
             default:
-                unreachable("Couldn't evaluate expression ", ast);
+                return boxError();
         }
     }
 
