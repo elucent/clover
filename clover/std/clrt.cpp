@@ -185,14 +185,14 @@ EXPORTED void CLRTAtomicClearBit(u64* word, u64 bit) {
     atomics::clear_bit(word, bit);
 }
 
-EXPORTED void CLRTAtomicTestSetBit(u64*, u64) ASMLABEL("atomic.testSetBit(u64*,u64)void");
-EXPORTED void CLRTAtomicTestSetBit(u64* word, u64 bit) {
-    atomics::test_set_bit(word, bit);
+EXPORTED bool CLRTAtomicTestSetBit(u64*, u64) ASMLABEL("atomic.testSetBit(u64*,u64)bool");
+EXPORTED bool CLRTAtomicTestSetBit(u64* word, u64 bit) {
+    return atomics::test_set_bit(word, bit);
 }
 
-EXPORTED void CLRTAtomicTestClearBit(u64*, u64) ASMLABEL("atomic.testClearBit(u64*,u64)void");
-EXPORTED void CLRTAtomicTestClearBit(u64* word, u64 bit) {
-    atomics::test_clear_bit(word, bit);
+EXPORTED bool CLRTAtomicTestClearBit(u64*, u64) ASMLABEL("atomic.testClearBit(u64*,u64)bool");
+EXPORTED bool CLRTAtomicTestClearBit(u64* word, u64 bit) {
+    return atomics::test_clear_bit(word, bit);
 }
 
 

@@ -90,6 +90,6 @@ in time:
 in atomic:
     void setBit(u64* word, u64 bit)
     void clearBit(u64* word, u64 bit)
-    void testSetBit(u64* word, u64 bit)
-    void testClearBit(u64* word, u64 bit)
+    bool testSetBit(u64* word, u64 bit)
+    bool testClearBit(u64* word, u64 bit)
 
