@@ -4067,6 +4067,30 @@ namespace clover {
             AST decl = module->node(info.decl);
             evaluateConstants(module, decl.function());
         }
+
+        for (NodeIndex node : (function ? function->typesThatNeedConst : module->typesThatNeedConst)) {
+            AST ast = module->node(node);
+            switch (ast.kind()) {
+                case ASTKind::ArrayType: {
+                    auto value = eval(env, ast.child(1));
+                    u64 size;
+                    if (value.kind() == Value::Unsigned)
+                        size = value.u;
+                    else if (value.kind() == Value::Int)
+                        size = value.i;
+                    else {
+                        ast.type().asVar().makeEqual(module->voidType());
+                        error(module, ast.childOrigin(1), "Couldn't evaluate array size expression '", snippet(ast, 1), "' to an integer.");
+                        continue;
+                    }
+                    ast.type().asVar().makeEqual(module->arrayType(evaluateType(module, function, ast.child(0)), size));
+                    ast.setType(expand(ast.type()));
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
     }
 
     void finalizeInstantiatedFunction(Module* callerModule, Function* function) {
