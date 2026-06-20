@@ -2465,10 +2465,10 @@ namespace clover {
         newScope->instParent = methodScope;
         newFunction->methodScope = methodScope;
 
+        newFunction->locals.append(generic->locals);
         for (auto e : oldScope->entries) {
             newScope->entries.put(e.key, e.value);
             newScope->inTable.add(e.key.symbol);
-            newFunction->locals.push(generic->locals[e.value]);
         }
 
         // Ensure our new scope is associated with our parameters/return type.
@@ -2487,7 +2487,6 @@ namespace clover {
         auto funcType = type.asFunc();
         if UNLIKELY(config::verboseInstantiation)
             println("[TYPE]\tInstantiation of ", module->str(generic->name), " has function type ", funcType);
-
 
         // Refine the type variables from instantiating the signature based on
         // our parameters and return type constraints.

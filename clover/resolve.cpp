@@ -2206,15 +2206,18 @@ namespace clover {
                         prevParams.push(ast.child(2).indexedChild(i));
                     ast.setChild(2, module->add(ASTKind::Tuple, ast.child(2).origin(), ast.scope(), InvalidType, thisParam.reconstituteOrigin(), prevParams));
                     resolveChild(module, ctx, refTraits, ast.child(2), 0, ExpectValue);
+                    if (ast.child(2).child(0).kind() == ASTKind::Error)
+                        return ast.child(2).child(0);
 
-                    Type receiverType = ast.child(2).child(0).type();
+                    Type receiverType = expand(ast.child(2).child(0).type());
                     if (receiverType.isPtr())
-                        receiverType = receiverType.asPtr().elementType();
+                        receiverType = expand(receiverType.asPtr().elementType());
                     if (isNominal(receiverType.kind())) {
                         Scope* scope = getScope(receiverType);
                         for (const auto& e : scope->entries) {
                             const auto& info = scope->function ? scope->function->locals[e.value] : scope->module->globals[e.value];
-                            ast.scope()->add(VariableKind::ThisAccess, ast, e.key);
+                            if (!ast.scope()->findLocal(e.key)) // Function parameters shadow type members.
+                                ast.scope()->add(VariableKind::ThisAccess, ast, e.key);
                         }
                     }
                 }

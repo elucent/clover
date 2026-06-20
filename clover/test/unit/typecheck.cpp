@@ -1155,3 +1155,16 @@ i32[x + y + 3] arr
     auto arr = topLevel.child(2);
     ASSERT_TYPE_EQUAL(arr.type(), module->arrayType(module->i32Type(), 6));
 }
+
+TEST(typecheck_generic_method_decl) {
+    auto instance = TYPECHECK(R"(
+type Generic(type T):
+    T field
+
+void Generic(T).getField(type T):
+    field
+
+var generic: Generic(i32, 42)
+generic.getField()
+)");
+}

@@ -26,87 +26,87 @@ type FindResult(type T):
         T* item
     case None
 
-FindResult(T) find(type T, Set(T)* set, T key):
+FindResult(T) Set(T)*.find(type T, T key):
     use Bucket.*
     use FindResult.*
 
     u64 h: key.hash()
-    u64 cap: |set.buckets|
+    u64 cap: |buckets|
     u64 i: h & cap - 1
     while true:
-        match set.buckets[i]:
+        match buckets[i]:
             case Empty:
                 return None
             case Ghost:
                 i = i + 1 & cap - 1
             case Filled:
-                if set.entries[i].equals(key):
-                    return Found(&set.entries[i])
+                if entries[i].equals(key):
+                    return Found(&entries[i])
                 i = i + 1 & cap - 1
     return None
 
-u32 size(type T, Set(T)* set):
-    return set.size
+u32 Set(T)*.size(type T):
+    return this.size
 
-bool contains(type T, Set(T)* set, T key):
+bool Set(T)*.contains(type T, T key):
     use FindResult.*
-    return set.find(key) is not None
+    return this.find(key) is not None
 
-void grow(type T, Set(T)* set):
+void Set(T)*.grow(type T):
     use Bucket.*
 
-    own Bucket[] oldBuckets: set.buckets
-    own T[] oldEntries: set.entries
+    own Bucket[] oldBuckets: buckets
+    own T[] oldEntries: entries
 
-    set.buckets = (new Bucket[|oldBuckets| * 2]) as own Bucket[]
-    set.buckets[i] = Empty for i < |set.buckets|
+    buckets = (new Bucket[|oldBuckets| * 2]) as own Bucket[]
+    buckets[i] = Empty for i < |buckets|
 
-    set.entries = (new T[|oldBuckets| * 2]) as own T[]
-    set.size = 0
+    entries = (new T[|oldBuckets| * 2]) as own T[]
+    size = 0
     for i < |oldBuckets|:
-        set.insert(oldEntries[i]) if oldBuckets[i] is Filled
+        this.insert(oldEntries[i]) if oldBuckets[i] is Filled
 
-void insert(type T, Set(T)* set, T key):
+void Set(T)*.insert(type T, T key):
     use Bucket.*
     use FindResult.*
 
-    if (set.size + 1) * 10 > |set.buckets| * 6:
-        set.grow()
+    if (size + 1) * 10 > |buckets| * 6:
+        this.grow()
 
     u64 h: key.hash()
-    u64 cap: |set.buckets|
+    u64 cap: |buckets|
     u64 i: h & cap - 1
     while true:
-        match set.buckets[i]:
+        match buckets[i]:
             case Empty:
-                set.buckets[i] = Filled
-                set.entries[i] = key
-                set.size ++
+                buckets[i] = Filled
+                entries[i] = key
+                size ++
                 return
             case Ghost:
-                set.buckets[i] = Filled
-                set.entries[i] = key
-                set.size ++
+                buckets[i] = Filled
+                entries[i] = key
+                size ++
                 return
             case Filled:
-                if set.entries[i].equals(key):
-                    set.entries[i] = key
+                if entries[i].equals(key):
+                    entries[i] = key
                     return
                 i = i + 1 & cap - 1
 
-void remove(type T, Set(T)* set, T key):
+void Set(T)*.remove(type T, T key):
     use Bucket.*
     use FindResult.*
 
     u64 h: key.hash()
-    u64 cap: |set.buckets|
+    u64 cap: |buckets|
     u64 i: h & cap - 1
     while true:
-        var bucket: set.buckets[i]
+        var bucket: buckets[i]
         return if bucket is Empty
-        if bucket is Filled and set.entries[i].equals(key):
-            set.buckets[i] = Empty
-            set.size --
+        if bucket is Filled and entries[i].equals(key):
+            buckets[i] = Empty
+            size --
             return
         i = i + 1 & cap - 1
 
@@ -114,28 +114,28 @@ type SetIterator(type T):
     Set(T)* set
     u32 i
 
-SetIterator(T) iter(type T, Set(T)* set):
+SetIterator(T) Set(T)*.iter(type T):
     use Bucket.*
     var i: 0
-    while i < |set.buckets| and set.buckets[i] is not Filled:
+    while i < |buckets| and buckets[i] is not Filled:
         i ++
-    return SetIterator(T)(set, i)
+    return SetIterator(T)(this, i)
 
-bool done(type T, SetIterator(T) iter):
-    iter.i == |iter.set.buckets|
+bool SetIterator(T).done(type T):
+    i == |set.buckets|
 
-T read(type T, SetIterator(T) iter):
+T SetIterator(T).read(type T):
     var result: uninit # TODO: Add a panic/exception.
-    if iter.i < |iter.set.buckets|:
-        result = iter.set.entries[iter.i]
+    if i < |set.buckets|:
+        result = set.entries[i]
     return result
 
-SetIterator(T) next(type T, SetIterator(T) iter):
+SetIterator(T) SetIterator(T).next(type T):
     use Bucket.*
-    iter.i ++
-    while iter.i < |iter.set.buckets| and iter.set.buckets[iter.i] is not Filled:
-        iter.i ++
-    return iter
+    i ++
+    while i < |set.buckets| and set.buckets[i] is not Filled:
+        i ++
+    return this
 
 #####################################
 # Primitive hash/equality functions #
@@ -178,56 +178,56 @@ Map(K, V) makemap(type K, type V, (K, V)[] pairs):
         map.set(k, v)
     return map
 
-void erase(type K, type V, Map(K, V)* map, K key):
+void Map(K, V)*.erase(type K, type V, K key):
     Entry(K, V) entry: uninit
     entry.key = key
-    map.entries.erase(entry)
+    entries.erase(entry)
 
-bool contains(type K, type V, Map(K, V)* map, K key):
+bool Map(K, V)*.contains(type K, type V, K key):
     Entry(K, V) entry: uninit
     entry.key = key
-    map.entries.contains(entry)
+    entries.contains(entry)
 
-V get(type K, type V, Map(K, V)* map, K key):
+V Map(K, V)*.get(type K, type V, K key):
     use FindResult.*
 
     Entry(K, V) entry: uninit
     entry.key = key
-    var result: map.entries.find(entry)
+    var result: entries.find(entry)
     match result:
         case Found(f): f.value
         case None: entry.value
 
-V* at(type K, type V, Map(K, V)* map, K key):
+V* Map(K, V)*.at(type K, type V, K key):
     use FindResult.*
 
     Entry(K, V) entry: uninit
     entry.key = key
-    var result: map.entries.find(entry)
+    var result: entries.find(entry)
     match result:
         case Found(f): &f.value
         case None: &entry.value
 
-void set(type K, type V, Map(K, V)* map, K key, V value):
+void Map(K, V)*.set(type K, type V, K key, V value):
     var entry: Entry(K, V)(key, value)
-    map.entries.insert(entry)
+    entries.insert(entry)
 
 type MapIterator(type K, type V):
     SetIterator(Entry(K, V)) internal
 
-MapIterator(K, V) iter(type K, type V, Map(K, V)* map):
-    MapIterator(K, V)(map.entries.iter())
+MapIterator(K, V) Map(K, V)*.iter(type K, type V):
+    MapIterator(K, V)(entries.iter())
 
-bool done(type K, type V, MapIterator(K, V) iter):
-    return iter.internal.done()
+bool MapIterator(K, V).done(type K, type V):
+    return internal.done()
 
-(K, V) read(type K, type V, MapIterator(K, V) iter):
-    var entry: iter.internal.read()
+(K, V) MapIterator(K, V).read(type K, type V):
+    var entry: internal.read()
     (entry.key, entry.value)
 
-MapIterator(K, V) next(type K, type V, MapIterator(K, V) iter):
-    iter.internal = iter.internal.next()
-    return iter
+MapIterator(K, V) MapIterator(K, V).next(type K, type V):
+    internal = internal.next()
+    return this
 
 ##################################
 # String hash/equality functions #
