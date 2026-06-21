@@ -2632,6 +2632,8 @@ namespace clover {
                 return addGlobalGenericType(other->genericTypes[otherEntry.genericTypeIndex]);
             if (otherEntry.kind == VariableKind::Namespace)
                 return addGlobalNamespace(other->namespaces[otherEntry.namespaceIndex]);
+            if (otherEntry.kind == VariableKind::Constant)
+                return addConstantIndirect(scope, otherEntry.constantIndex, otherEntry.name);
             return addGlobal(otherEntry.kind, otherEntry.type, otherEntry.name);
         }
 
