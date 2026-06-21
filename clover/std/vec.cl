@@ -1,6 +1,8 @@
+use std/algo
+
 type Vec(type T):
     own T[] items
-    u64 size
+    u32 size
 
 Vec(T) makevec(type T, T[] items):
     var cap: 8
@@ -18,7 +20,7 @@ void Vec(T)*.push(type T, T item):
     this.grow() if size + 1 > |items|
     items[size ++] = item
 
-u64 Vec(T)*.size(type T):
+u32 Vec(T)*.size(type T):
     this.size
 
 T Vec(T)*.pop(type T):
@@ -45,6 +47,9 @@ T Vec(T)*.last(type T):
 
 void Vec(T)*.append(type T, iterable):
     this.push(item) for item in iterable
+
+void Vec(T)*.reverse(type T):
+    items[:size].reverse()
 
 void removeIf(type T, Vec(T)* vec, bool(T) predicate):
     var writer: 0, reader: 0

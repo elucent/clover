@@ -1,3 +1,7 @@
+use std/vec
+
+# Prefix and suffix tests
+
 bool startswith?(i8[] string, i8[] prefix):
     return false if |string| < |prefix|
     return false if string[i] != prefix[i] for i < |prefix|
@@ -7,6 +11,8 @@ bool endswith?(i8[] string, i8[] suffix):
     return false if |string| < |suffix|
     return false if string[|string| - i - 1] != suffix[|suffix| - i - 1] for i < |suffix|
     return true
+
+# String splitting
 
 type StringSplitter:
     i8[] string
@@ -53,3 +59,10 @@ StringSplitter next(StringSplitter iter):
 
 bool done(StringSplitter iter):
     |iter.string| == 0
+
+# String building
+
+use std/vec
+
+type StringBuilder:
+    Vec(i8) buffer
