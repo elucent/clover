@@ -1,31 +1,33 @@
 use std/vec
-void log(i64)
-void log(u64)
-void log(bool)
+
+in test:
+    void log(i64)
+    void log(u64)
+    void log(bool)
 
 #--- make_empty
 
 Vec(i32) vec: makevec([])
-log(vec.size()) # 0
+test.log(vec.size()) # 0
 
 #--- make_fixed
 
 Vec(i32) vec: makevec([1, 2, 3])
-log(vec.size()) # 3
-log(vec.get(0)) # 1
-log(vec.get(1)) # 2
-log(vec.get(2)) # 3
+test.log(vec.size()) # 3
+test.log(vec.get(0)) # 1
+test.log(vec.get(1)) # 2
+test.log(vec.get(2)) # 3
 
 #--- push_pop
 
 Vec(i32) vec: makevec([1, 2, 3])
-log(vec.last()) # 3
+test.log(vec.last()) # 3
 vec.push(4)
 vec.push(5)
-log(vec.last()) # 5
-log(vec.pop()) # 5
-log(vec.pop()) # 4
-log(vec.last()) # 3
+test.log(vec.last()) # 5
+test.log(vec.pop()) # 5
+test.log(vec.pop()) # 4
+test.log(vec.last()) # 3
 
 #--- append
 
@@ -38,10 +40,79 @@ vec.append(slice)
 Vec(i32) othervec: makevec([8, 9])
 vec.append(othervec)
 
-log(vec.size()) # 9
+test.log(vec.size()) # 9
 bool allCorrect: true
 for 1 <= i < 10 if vec.get(i - 1) != i as i32:
     allCorrect = false
-log(allCorrect) # true
+test.log(allCorrect) # true
 
+#--- reverse_empty
 
+Vec(i32) vec: makevec([])
+
+bool noIter: true
+noIter = false for i in vec
+test.log(vec.size()) # 0
+test.log(noIter) # true
+
+vec.reverse()
+noIter = false for i in vec
+test.log(vec.size()) # 0
+test.log(noIter) # true
+
+#--- reverse_single
+
+Vec(i32) vec: makevec([42])
+
+test.log(vec.get(0)) # 42
+test.log(vec.size()) # 1
+
+vec.reverse()
+test.log(vec.get(0)) # 42
+test.log(vec.size()) # 1
+
+#--- reverse_multiple_odd
+
+Vec(i32) vec: makevec([1, 2, 3])
+test.log(vec.get(0)) # 1
+test.log(vec.get(1)) # 2
+test.log(vec.get(2)) # 3
+
+vec.reverse()
+test.log(vec.get(0)) # 3
+test.log(vec.get(1)) # 2
+test.log(vec.get(2)) # 1
+
+#--- reverse_multiple_even
+
+Vec(i32) vec: makevec([1, 2, 3, 4])
+test.log(vec.get(0)) # 1
+test.log(vec.get(1)) # 2
+test.log(vec.get(2)) # 3
+test.log(vec.get(3)) # 4
+
+vec.reverse()
+test.log(vec.get(0)) # 4
+test.log(vec.get(1)) # 3
+test.log(vec.get(2)) # 2
+test.log(vec.get(3)) # 1
+
+#--- reverse_100
+
+Vec(i32) vec: makevec([])
+for i < 100:
+    vec.push(i)
+
+test.log(vec.size()) # 100
+bool allInOrder: true
+for i < 100 if i > 0:
+    if vec.get(i) != vec.get(i - 1) + 1:
+        allInOrder = false
+test.log(allInOrder) # true
+
+vec.reverse()
+test.log(vec.size()) # 100
+for i < 100 if i > 0:
+    if vec.get(i) != vec.get(i - 1) - 1:
+        allInOrder = false
+test.log(allInOrder) # true

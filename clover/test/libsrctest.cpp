@@ -2,13 +2,13 @@
 #include "util/utf.h"
 
 #define DEFINE_LOG(ctype, type) \
-    EXPORTED void log(ctype) ASMLABEL("log(" type ")void"); \
+    EXPORTED void log(ctype) ASMLABEL("test.log(" type ")void"); \
     EXPORTED void log(ctype value) { \
         println(value); \
     }
 
 #define DEFINE_CUSTOM_LOG(ctype, type, ...) \
-    EXPORTED void log(ctype) ASMLABEL("log(" type ")void"); \
+    EXPORTED void log(ctype) ASMLABEL("test.log(" type ")void"); \
     EXPORTED void log(ctype value) { \
         __VA_ARGS__; \
     }
