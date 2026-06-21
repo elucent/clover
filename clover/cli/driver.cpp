@@ -166,7 +166,11 @@ i32 main(i32 argc, i8** argv, i8** envp) {
         jasmine_write_relocatable_elf_object(combined, outputFile.data(), outputFile.size());
 
         vec<const_slice<i8>> args;
-        args.push(cstring("ld"));
+        #ifdef RT_ASAN
+            args.push(cstring("clang"));
+        #else
+            args.push(cstring("ld"));
+        #endif
         args.push(cstring("-z"));
         args.push(cstring("noexecstack"));
 
@@ -182,6 +186,9 @@ i32 main(i32 argc, i8** argv, i8** envp) {
         args.push(prints(buf, "-L", installDir));
         args.push(cstring("-lclrt"));
         args.push(cstring("-lc"));
+        #ifdef RT_ASAN
+            args.push(cstring("-fsanitize=undefined,address,leak"));
+        #endif
         args.append(linkerArgs);
         process::exec(cstring("/usr/bin/env"), args);
         file::remove(outputFile);

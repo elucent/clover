@@ -34,7 +34,7 @@ else
 	DEBUG_CXX_FLAGS := -O0 -g3 -Ibin/debug
 
 	ifeq ($(ASAN), 1)
-		DEBUG_CXX_FLAGS += -fsanitize=undefined,address -fno-sanitize=function -DRT_ASAN=1
+		DEBUG_CXX_FLAGS += -fsanitize=undefined,address,leak -fno-sanitize=function -DRT_ASAN=1
 	endif
 
 	DEBUG_LINK_FLAGS := -Wl,--gc-sections -z noexecstack
