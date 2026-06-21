@@ -60,6 +60,15 @@ File open(i8[] path, u32 flags):
     IOTable[id].eof = false
     return File(id as u32)
 
+File open(i8[] path, i8[] flagChars):
+    u32 flags: 0
+    for ch in flagChars:
+        match ch as char:
+            case 'w': flags |= file.Write
+            case 'r': flags |= file.Read
+            case 'a': flags |= file.Append
+    return open(path, flags)
+
 void close(File f):
     file.close(IOTable[f.id].desc)
     IOTable[f.id].link = IOTableFreeList
@@ -85,6 +94,10 @@ void flushInput(File f):
     entry.end += amount as u16
 
 # Standard IO interface for input and output, for Files.
+
+bool eof?(File file):
+    var entry: IOTable[file.id]
+    entry.eof and entry.start == entry.end
 
 i8 peek(File file):
     var entry: IOTable[file.id]
@@ -141,6 +154,9 @@ File put(File file, i8[] string):
 
 # Standard IO interface implemented for byte slices.
 
+bool eof?(i8[] string):
+    |string| == 0
+
 i8 peek(i8[] string):
     return string[0]
 
@@ -149,6 +165,7 @@ i8[] get(i8[] string, i8* byte):
     return string[1:]
 
 i8[] put(i8[] string, i8 byte):
+    return string if |string| == 0
     string[0] = byte
     return string[1:]
 
@@ -159,14 +176,11 @@ i8[] advance(i8[] string, u32 amount):
     string[|string|:] if |string| < amount else string[amount:]
 
 i8[] put(i8[] string, i8[] input):
-    string[:|input|] = input
-    return string[|input|:]
+    u32 len: |string| if |string| < |input| else |input|
+    string[:len] = input[:len]
+    return string[len:]
 
 # Other File methods.
-
-bool eof?(File file):
-    var entry: IOTable[file.id]
-    entry.eof and entry.start == entry.end
 
 own i8[] read(File f):
     var entry: IOTable[f.id]
@@ -177,7 +191,7 @@ own i8[] read(File f):
 
 # Generic formatting functions.
 
-fun parse(io, u64* number):
+fun read(io, u64* number):
     var acc: 0, mul: 1
     while io.peek() >= i8('0') and io.peek() <= i8('9'):
         acc *= 10
@@ -187,13 +201,13 @@ fun parse(io, u64* number):
     *number = acc
     return io
 
-fun parse(io, i64* number):
+fun read(io, i64* number):
     i64 mul: 1
     if io.peek() == '-' as i8:
         mul = -1
         io = io.advance(1)
     u64 num
-    io = parse(io, &num)
+    io = read(io, &num)
     *number = num as i64 * mul
     return io
 
