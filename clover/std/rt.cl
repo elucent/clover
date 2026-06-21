@@ -14,6 +14,10 @@ in memory:
     void tag(i8[] pages, Flags)
     void decommit(i8[] pages)
 
+    void moveBytes(i8* dst, i8* src, u64 size)
+    void move(type T, type U, T* dst, U* src, u64 size):
+        moveBytes(dst as i8*, src as i8*, size)
+
 ###########
 #  Files  #
 ###########

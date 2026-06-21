@@ -80,6 +80,11 @@ EXPORTED void CLRTMemoryDecommit(slice<i8> pages) {
     memory::decommit(pages);
 }
 
+EXPORTED void CLRTMemoryMoveBytes(i8*, i8*, u64) ASMLABEL("memory.moveBytes(i8*,i8*,u64)void");
+EXPORTED void CLRTMemoryMoveBytes(i8* dst, i8* src, u64 bytes) {
+    memory::move(dst, src, bytes);
+}
+
 EXPORTED u32 CLRTFileOpen(const_slice<i8>, u32) ASMLABEL("file.open(i8[],u32)file.fd");
 EXPORTED u32 CLRTFileOpen(const_slice<i8> path, u32 flags) {
     return file::open(path, flags);
