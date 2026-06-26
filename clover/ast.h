@@ -515,13 +515,9 @@ namespace clover {
     }
 
     template<typename IndexSource>
-    inline u32 getFirstIndex(const IndexSource& i) {
-        static_assert(false, "Not a valid index source.");
-    }
+    inline u32 getFirstIndex(const IndexSource& i);
     template<typename IndexSource>
-    inline u32 getLastIndex(const IndexSource& i) {
-        static_assert(false, "Not a valid index source.");
-    }
+    inline u32 getLastIndex(const IndexSource& i);
 
     template<>
     inline u32 getFirstIndex(const u32& i) {
