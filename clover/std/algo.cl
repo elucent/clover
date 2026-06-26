@@ -42,7 +42,7 @@ fun Enumerator(T).read(type T):
     (count, internal.read())
 
 Enumerator(T) Enumerator(T).next(type T):
-    Enumerator(T)(count + 1, internal.next())
+    Enumerator(T)(internal.next(), count + 1)
 
 bool Enumerator(T).done(type T):
     internal.done()

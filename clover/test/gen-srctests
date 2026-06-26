@@ -109,6 +109,8 @@ const_slice<i8> read(const_slice<i8> path) {{
     assert(f != -1);
     file::readbuf(f, str);
     file::closebuf(f);
+    while (str.last() == '\\n')
+        str = str.take(str.size() - 1);
     return str;
 }}
 

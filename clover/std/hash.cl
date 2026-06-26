@@ -45,7 +45,7 @@ FindResult(T) Set(T)*.find(type T, T key):
                 i = i + 1 & cap - 1
     return None
 
-u32 Set(T)*.size(type T):
+u32 Set*.size():
     return this.size
 
 bool Set(T)*.contains(type T, T key):
