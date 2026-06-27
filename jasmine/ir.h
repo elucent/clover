@@ -1756,18 +1756,23 @@ namespace jasmine {
 
     inline void Block::growTo(u32 newCapacity) {
         u32 oldHeader = headidx;
-        u16 oldLength = wordCount();
-        u16 oldCapacity = capacity();
+        u32 oldLength = wordCount();
+        u32 oldCapacity = capacity();
         if (oldCapacity >= newCapacity)
             return;
-        headidx = function->blockWords.size();
         i32 i = 0;
-        for (; i < oldLength; i ++) {
-            BlockWord oldWord = function->blockWords[oldHeader + i];
-            function->blockWords.push(oldWord);
+        if (headidx + oldCapacity == function->blockWords.size()) {
+            for (; i < newCapacity - oldCapacity; i ++)
+                function->blockWords.push({});
+        } else {
+            headidx = function->blockWords.size();
+            for (; i < oldLength; i ++) {
+                BlockWord oldWord = function->blockWords[oldHeader + i];
+                function->blockWords.push(oldWord);
+            }
+            for (; i < newCapacity; i ++)
+                function->blockWords.push({});
         }
-        for (; i < newCapacity; i ++)
-            function->blockWords.push({});
         capacity() = newCapacity;
         function->blockList[blockidx] = headidx;
     }
