@@ -15,13 +15,13 @@ namespace jasmine {
                 Edge edge = fn.edge(branch.operand(0).edge);
                 Block dest = edge.dest();
                 if (dest.predecessorIndices().size() == 1 && fn.edge(dest.predecessorIndices()[0]).srcIndex() == block.index()) {
-                    block.dims().length --; // Remove the branch.
+                    block.wordCount() --; // Remove the branch.
                     for (Node n : dest.nodes())
                         block.addNode(n);
                     for (Edge edge : dest.successors())
                         fn.addEdge(block.index(), edge.dest().index());
                     fn.removeEdge(edge.index());
-                    dest.dims().length = 2;
+                    dest.wordCount() = Block::PrefixSize;
                     dest.header().pred = dest.header().succ = 0;
                 }
             }
@@ -55,7 +55,7 @@ namespace jasmine {
                 continue;
             Node branch = block.node(block.nodeIndices().size() - 1);
             if (branch.opcode() == Opcode::BR && fn.edge(branch.operand(0).edge).destIndex() == schedule[i + 1])
-                block.dims().length --;
+                block.wordCount() --;
         }
     }
 }

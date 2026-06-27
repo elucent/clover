@@ -60,7 +60,7 @@ namespace jasmine {
                 continue;
 
             u32 oldSize = block.nodeIndices().size();
-            u32 oldLength = block.dims().length;
+            u32 oldLength = block.wordCount();
             u32 newSize = oldSize;
             for (u16 i : inserts) newSize += insertions[i].length;
             if (inserts.size() > 1)
@@ -85,7 +85,7 @@ namespace jasmine {
                 }
             }
             inserts.clear();
-            block.dims().length += newSize - oldSize;
+            block.wordCount() += newSize - oldSize;
         }
         insertions.clear();
         nodesToInsert.clear();

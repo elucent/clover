@@ -335,17 +335,14 @@ namespace jasmine {
         u16 index;
     };
 
-    struct BlockDimensions {
-        u16 length, capacity;
-    };
-
     using EdgeIndex = u32;
     using BlockIndex = u32;
     using NodeIndex = u32;
 
     union BlockWord {
         BlockHeader header;
-        BlockDimensions dimensions;
+        u32 length;
+        u32 capacity;
         EdgeIndex edge;
         NodeIndex node;
         u32 bits;
@@ -545,6 +542,7 @@ namespace jasmine {
         u32 headidx;
         BlockIndex blockidx;
 
+        static constexpr u32 PrefixSize = 3;
         static constexpr u32 defaultCapacity = 8;
         using IndexType = BlockIndex;
         using WordType = BlockWord;
@@ -554,13 +552,14 @@ namespace jasmine {
 
         inline BlockHeader header() const;
         inline BlockHeader& header();
-        inline const BlockDimensions& dims() const;
-        inline BlockDimensions& dims();
+        inline u32 wordCount() const;
+        inline u32& wordCount();
+        inline u32 capacity() const;
+        inline u32& capacity();
         inline BlockIndex index() const;
         inline u32 length() const;
         inline BlockWord word(i32 i) const;
         inline BlockWord& word(i32 i);
-        inline u32 wordCount() const;
 
         inline void grow();
         inline void growTo(u32 size);
@@ -833,8 +832,8 @@ namespace jasmine {
             Block bb { this, headidx, blockidx };
             bb.header().index = blockidx;
             bb.header().pred = bb.header().succ = 0;
-            bb.dims().length = 2;
-            bb.dims().capacity = Block::defaultCapacity;
+            bb.wordCount() = 3;
+            bb.capacity() = Block::defaultCapacity;
             return bb;
         }
 
@@ -1719,12 +1718,20 @@ namespace jasmine {
         return function->blockWords[headidx].header;
     }
 
-    inline const BlockDimensions& Block::dims() const {
-        return function->blockWords[headidx + 1].dimensions;
+    inline u32 Block::wordCount() const {
+        return function->blockWords[headidx + 1].length;
     }
 
-    inline BlockDimensions& Block::dims() {
-        return function->blockWords[headidx + 1].dimensions;
+    inline u32& Block::wordCount() {
+        return function->blockWords[headidx + 1].length;
+    }
+
+    inline u32 Block::capacity() const {
+        return function->blockWords[headidx + 2].capacity;
+    }
+
+    inline u32& Block::capacity() {
+        return function->blockWords[headidx + 2].capacity;
     }
 
     inline BlockIndex Block::index() const {
@@ -1732,11 +1739,7 @@ namespace jasmine {
     }
 
     inline u32 Block::length() const {
-        return dims().length;
-    }
-
-    inline u32 Block::wordCount() const {
-        return dims().capacity;
+        return wordCount();
     }
 
     inline BlockWord Block::word(i32 i) const {
@@ -1748,14 +1751,14 @@ namespace jasmine {
     }
 
     inline void Block::grow() {
-        growTo(dims().capacity * 2);
+        growTo(capacity() * 2);
     }
 
     inline void Block::growTo(u32 newCapacity) {
         u32 oldHeader = headidx;
-        u16 oldLength = dims().length;
-        u16 oldCapacity = dims().capacity;
-        if (dims().capacity >= newCapacity)
+        u16 oldLength = wordCount();
+        u16 oldCapacity = capacity();
+        if (oldCapacity >= newCapacity)
             return;
         headidx = function->blockWords.size();
         i32 i = 0;
@@ -1765,20 +1768,20 @@ namespace jasmine {
         }
         for (; i < newCapacity; i ++)
             function->blockWords.push({});
-        dims().capacity = newCapacity;
+        capacity() = newCapacity;
         function->blockList[blockidx] = headidx;
     }
 
     inline const_slice<EdgeIndex> Block::predecessorIndices() const {
-        return { &function->blockWords[headidx + 2].edge, header().pred };
+        return { &function->blockWords[headidx + PrefixSize].edge, header().pred };
     }
 
     inline slice<EdgeIndex> Block::predecessorIndices() {
-        return { &function->blockWords[headidx + 2].edge, header().pred };
+        return { &function->blockWords[headidx + PrefixSize].edge, header().pred };
     }
 
     inline BlockView<Edge> Block::predecessors() const {
-        return BlockView<Edge> { function, index(), 2u, header().pred };
+        return BlockView<Edge> { function, index(), PrefixSize, header().pred };
     }
 
     inline Edge Block::predecessor(u32 i) const {
@@ -1797,13 +1800,13 @@ namespace jasmine {
         for (EdgeIndex pred : predecessorIndices()) if (pred == edge)
             return;
 
-        if (dims().length + 1 >= dims().capacity)
+        if (wordCount() + 1 >= capacity())
             grow();
 
-        for (i32 i = dims().length; i > header().pred + 2; i --)
+        for (i32 i = wordCount(); i > header().pred + PrefixSize; i --)
             word(i) = word(i - 1);
-        word(header().pred ++ + 2).edge = edge;
-        dims().length ++;
+        word(header().pred ++ + PrefixSize).edge = edge;
+        wordCount() ++;
     }
 
     inline void Block::removePredecessor(Edge edge) {
@@ -1812,9 +1815,9 @@ namespace jasmine {
 
     inline void Block::removePredecessor(EdgeIndex edge) {
         for (auto [j, pred] : enumerate(predecessorIndices())) if (pred == edge) {
-            for (i32 i = j + 2; i < dims().length - 1; i ++)
+            for (i32 i = j + PrefixSize; i < wordCount() - 1; i ++)
                 word(i) = word(i + 1);
-            dims().length --;
+            wordCount() --;
             header().pred --;
             return;
         }
@@ -1822,22 +1825,22 @@ namespace jasmine {
 
     inline void Block::removeAllPredecessors() {
         u32 pred = header().pred;
-        for (i32 i = 2; i < dims().length - pred; i ++)
+        for (i32 i = PrefixSize; i < wordCount() - pred; i ++)
             word(i) = word(i + pred);
-        dims().length -= pred;
+        wordCount() -= pred;
         header().pred = 0;
     }
 
     inline const_slice<EdgeIndex> Block::successorIndices() const {
-        return { &function->blockWords[headidx + 2 + header().pred].edge, header().succ };
+        return { &function->blockWords[headidx + PrefixSize + header().pred].edge, header().succ };
     }
 
     inline slice<EdgeIndex> Block::successorIndices() {
-        return { &function->blockWords[headidx + 2 + header().pred].edge, header().succ };
+        return { &function->blockWords[headidx + PrefixSize + header().pred].edge, header().succ };
     }
 
     inline BlockView<Edge> Block::successors() const {
-        return BlockView<Edge> { function, index(), 2u + header().pred, header().succ };
+        return BlockView<Edge> { function, index(), PrefixSize + header().pred, header().succ };
     }
 
     inline void Block::addSuccessor(Edge edge) {
@@ -1848,13 +1851,13 @@ namespace jasmine {
         for (EdgeIndex succ : successorIndices()) if (succ == edge)
             return;
 
-        if (dims().length + 1 >= dims().capacity)
+        if (wordCount() + 1 >= capacity())
             grow();
 
-        for (i32 i = dims().length; i > header().pred + header().succ + 2; i --)
+        for (i32 i = length(); i > header().pred + header().succ + PrefixSize; i --)
             word(i) = word(i - 1);
-        word(header().succ ++ + header().pred + 2).edge = edge;
-        dims().length ++;
+        word(header().succ ++ + header().pred + PrefixSize).edge = edge;
+        wordCount() ++;
     }
 
     inline void Block::removeSuccessor(Edge edge) {
@@ -1863,9 +1866,9 @@ namespace jasmine {
 
     inline void Block::removeSuccessor(EdgeIndex edge) {
         for (auto [j, succ] : enumerate(successorIndices())) if (succ == edge) {
-            for (i32 i = header().pred + j + 2; i < dims().length - 1; i ++)
+            for (i32 i = header().pred + j + PrefixSize; i < wordCount() - 1; i ++)
                 word(i) = word(i + 1);
-            dims().length --;
+            wordCount() --;
             header().succ --;
             return;
         }
@@ -1873,22 +1876,22 @@ namespace jasmine {
 
     inline void Block::removeAllSuccessors() {
         u32 succ = header().succ;
-        for (i32 i = header().pred + 2; i < dims().length - succ; i ++)
+        for (i32 i = header().pred + PrefixSize; i < wordCount() - succ; i ++)
             word(i) = word(i + succ);
-        dims().length -= succ;
+        wordCount() -= succ;
         header().succ = 0;
     }
 
     inline const_slice<NodeIndex> Block::nodeIndices() const {
-        return { &function->blockWords[headidx + 2 + header().pred + header().succ].node, dims().length - header().pred - header().succ - 2 };
+        return { &function->blockWords[headidx + PrefixSize + header().pred + header().succ].node, wordCount() - header().pred - header().succ - PrefixSize };
     }
 
     inline slice<NodeIndex> Block::nodeIndices() {
-        return { &function->blockWords[headidx + 2 + header().pred + header().succ].node, dims().length - header().pred - header().succ - 2 };
+        return { &function->blockWords[headidx + PrefixSize + header().pred + header().succ].node, wordCount() - header().pred - header().succ - PrefixSize };
     }
 
     inline BlockView<Node> Block::nodes() const {
-        return BlockView<Node> { function, index(), 2u + header().pred + header().succ, dims().length - header().pred - header().succ - 2u };
+        return BlockView<Node> { function, index(), PrefixSize + header().pred + header().succ, wordCount() - header().pred - header().succ -  PrefixSize };
     }
 
     inline Node Block::node(u32 i) const {
@@ -1913,13 +1916,13 @@ namespace jasmine {
                 *writer ++ = *reader;
             ++ reader;
         }
-        dims().length -= reader - writer;
+        wordCount() -= reader - writer;
     }
 
     inline void Block::addNode(Node node) {
-        if (dims().length + 1 >= dims().capacity)
+        if (wordCount() + 1 >= capacity())
             grow();
-        word(dims().length ++).node = node.index();
+        word(wordCount() ++).node = node.index();
     }
 
     template<typename... Args>
@@ -1928,11 +1931,11 @@ namespace jasmine {
     }
 
     inline void Block::replaceNode(u32 i, Node node) {
-        word(2 + header().pred + header().succ + i).node = node.index();
+        word(PrefixSize + header().pred + header().succ + i).node = node.index();
     }
 
     inline void Block::shrinkTo(u32 newSize) {
-        dims().length = 2 + header().pred + header().succ + newSize;
+        wordCount() = PrefixSize + header().pred + header().succ + newSize;
     }
 
     template<typename... Args>
