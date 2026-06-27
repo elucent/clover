@@ -2787,7 +2787,7 @@ namespace clover {
 
         // We already rejected if any unification failed, now we need to make
         // those unifications permanent to inform the future resolution.
-        if (!expand(funcType.returnType()).isVar())
+        if (expand(funcType.returnType()).isConcrete())
             unify(expand(funcType.returnType()), returnType, ast, ctx);
         nonTypeParameters = 0;
         for (u32 i = 1; i < ast.arity(); i ++) {
@@ -2795,7 +2795,7 @@ namespace clover {
                 continue;
             auto arg = inferredType(ctx, function, ast.child(i));
             auto parameterType = expand(funcType.asFunc().parameterType(nonTypeParameters ++));
-            if (!parameterType.isVar())
+            if (expand(parameterType).isConcrete())
                 unify(arg, parameterType, ast, ctx);
         }
 
