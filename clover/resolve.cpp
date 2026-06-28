@@ -2216,8 +2216,12 @@ namespace clover {
                         Scope* scope = getScope(receiverType);
                         for (const auto& e : scope->entries) {
                             const auto& info = scope->function ? scope->function->locals[e.value] : scope->module->globals[e.value];
-                            if (!ast.scope()->findLocal(e.key)) // Function parameters shadow type members.
-                                ast.scope()->add(VariableKind::ThisAccess, ast, e.key);
+                            if (!ast.scope()->findLocal(e.key)) { // Function parameters shadow type members.
+                                if (info.kind == VariableKind::Member || info.kind == VariableKind::Variable)
+                                    ast.scope()->add(VariableKind::ThisAccess, ast, e.key);
+                                else
+                                    ast.scope()->addIndirect(ast.module, ast, scope, e.value, e.key);
+                            }
                         }
                     }
                 }
