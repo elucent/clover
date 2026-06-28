@@ -1331,6 +1331,23 @@ namespace clover {
                 unreachable("Type expressions are not allowed in value positions unless they are atoms.");
             }
 
+            case ASTKind::FunType: {
+                bool allAtoms = true;
+                for (u32 i = 1; i < ast.arity(); i ++) {
+                    Type type = evaluateType(module, function, ast.child(i));
+                    if (!isAtom(type)) {
+                        allAtoms = false;
+                        break;
+                    }
+                }
+                if (allAtoms) {
+                    ast.setKind(ASTKind::Construct);
+                    ast.setType(evaluateType(module, function, ast.child(0)));
+                    return fromNodeType(ast);
+                }
+                unreachable("Type expressions are not allowed in value positions unless they are atoms.");
+            }
+
             case ASTKind::Paren: {
                 value = inferChild(ctx, function, ast, 0);
                 if (value.isKnownValue())

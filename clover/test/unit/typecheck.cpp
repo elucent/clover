@@ -1168,3 +1168,21 @@ var generic: Generic(i32, 42)
 generic.getField()
 )");
 }
+
+TEST(typecheck_construct_all_atoms) {
+    auto instance = TYPECHECK(R"(
+type Foo
+type Bar
+
+type Baz:
+    Foo foo
+    Bar bar
+
+var baz: Baz(Foo, Bar)
+)");
+
+    auto module = instance.artifact->as<Module>();
+    auto topLevel = module->getTopLevel();
+    auto baz = topLevel.child(3);
+    ASSERT_EQUAL(baz.child(2).kind(), ASTKind::Construct);
+}
