@@ -1832,9 +1832,6 @@ namespace clover {
 
         template<>
         inline u32 encode<TypeKind::Range>(TypeSystem& sys, const Type& bottom, const Type& top) {
-            assert(bottom.isConcrete());
-            assert(top.isConcrete());
-
             TypeWord word;
             word.bits = 0;
             word.kind = TypeKind::Range;
@@ -2634,6 +2631,12 @@ namespace clover {
             default:
                 unreachable("Not a case type.");
         }
+    }
+
+    inline Type rootParentType(Type type) {
+        while (isCase(type))
+            type = parentType(type);
+        return type;
     }
 
     inline Type greatestCommonSubtype(Type a, Type b, Constraints* constraints, UnifyMode mode) {

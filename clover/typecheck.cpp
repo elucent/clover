@@ -1326,6 +1326,8 @@ namespace clover {
                 Type type = evaluateType(module, function, ast);
                 if (type.isNamed() && type.asNamed().innerType() == Void) {
                     // It's an atom, so it's allowed to be used in a value position.
+                    if (isCase(type))
+                        return fromType(module->rangeType(type, expand(rootParentType(type))));
                     return fromType(type);
                 }
                 unreachable("Type expressions are not allowed in value positions unless they are atoms.");
