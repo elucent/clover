@@ -73,14 +73,13 @@ namespace clover {
 
         union {
             struct { Kind kind : KindBits; u32 isConcrete : 1; u32 : 2; u32 isSigned : 1; u32 isFloat : 1; u32 bitCount : 8; u32 pad : 14; };
-            struct { Kind : KindBits; u32 : 3; u32 fieldCount : 24; };
             struct { Kind : KindBits; u32 : 2; u32 isCompactArray : 1; TypeIndex compactElement : CompactArrayTypeBits; u32 compactLength : CompactArrayLengthBits; };
             struct { Kind : KindBits; u32 : 1; RefTraits refTraits : 2; u32 : 24; };
             struct { Kind : KindBits; u32 : 3; TypeIndex extElement : 24; };
             struct { Kind : KindBits; u32 : 1; u32 hasSlice : 1; u32 hasPtr : 1; TypeIndex typeBound : 24; };
             struct { Kind : KindBits; u32 markedEqual : 1; u32 hasOwner : 1; u32 hasOwnPtr : 1; TypeIndex : 24; };
             struct { u32 typeParamCount : 8; u32 genericIndex : 24; };
-            struct { Kind : KindBits; u32 : 1; u32 isCase : 1; u32 isGenericInst : 1; u32 : 24; };
+            struct { Kind : KindBits; u32 : 1; u32 isCase : 1; u32 isGenericInst : 1; u32 fieldCount : 24; };
             struct { u32 extLength; };
             struct { u32 name; };
             struct { u32 hasName : 1; u32 isBitField : 1; u32 bitFieldSize : 6; TypeIndex fieldType : 24; };
@@ -2275,6 +2274,17 @@ namespace clover {
 
     inline bool isAtom(Type type) {
         return type.isNamed() && type.asNamed().innerType() == Void;
+    }
+
+    inline bool isAtomOnly(Type type) {
+        if (isAtom(type))
+            return true;
+        if (!type.isUnion())
+            return false;
+        for (u32 i = 0; i < type.asUnion().count(); i ++)
+            if (!isAtomOnly(type.asUnion().caseType(i)))
+                return false;
+        return true;
     }
 
     inline Type canonicalTypeInBounds(TypeSystem* sys, Type lb, Type ub);

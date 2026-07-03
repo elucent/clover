@@ -761,11 +761,24 @@ namespace clover {
         return coerce(genCtx, builder, destType, typeOf(ast), result);
     }
 
+    JasmineOperand generateGetTag(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand aggregate, Type destType);
+
     JasmineOperand generateCompare(GenerationContext& genCtx, JasmineBuilder builder, AST ast, Type destType, void (*builder_func)(JasmineBuilder, JasmineType, JasmineOperand, JasmineOperand, JasmineOperand)) {
         Type operandType = typeOf(ast, 0);
         JasmineType loweredType = genCtx.lower(operandType);
         JasmineOperand lhs = generate(genCtx, builder, ast.child(0), operandType);
         JasmineOperand rhs = generate(genCtx, builder, ast.child(1), operandType);
+        if (isAtomOnly(operandType)) {
+            assert(ast.kind() == ASTKind::Equal || ast.kind() == ASTKind::NotEqual);
+            if (!operandType.isUnion() && !isCase(operandType)) {
+                // Tautological - return true.
+                return genCtx.imm(1);
+            }
+            lhs = generateGetTag(genCtx, builder, operandType, lhs, genCtx.module->u32Type());
+            rhs = generateGetTag(genCtx, builder, operandType, rhs, genCtx.module->u32Type());
+            loweredType = genCtx.tagType();
+            // Fall through.
+        }
         JasmineOperand result = genCtx.temp();
         builder_func(builder, loweredType, result, lhs, rhs);
         assert(typeOf(ast) == ast.module->boolType());
@@ -953,14 +966,31 @@ namespace clover {
         switch (cond.kind()) {
             case ASTKind::Less:
             case ASTKind::LessEq:
-            case ASTKind::Equal:
-            case ASTKind::NotEqual:
             case ASTKind::Greater:
             case ASTKind::GreaterEq:
                 knownCondOp = cond.kind();
                 type = typeOf(cond, 0);
                 lhs = generate(genCtx, builder, cond.child(0), typeOf(cond, 0));
                 rhs = generate(genCtx, builder, cond.child(1), typeOf(cond, 0));
+                break;
+            case ASTKind::Equal:
+            case ASTKind::NotEqual:
+                type = typeOf(cond, 0);
+                if (isAtomOnly(type) && type.isUnion()) {
+                    knownCondOp = cond.kind();
+                    lhs = generate(genCtx, builder, cond.child(0), typeOf(cond, 0));
+                    rhs = generate(genCtx, builder, cond.child(1), typeOf(cond, 0));
+                    lhs = generateGetTag(genCtx, builder, type, lhs, genCtx.module->u32Type());
+                    rhs = generateGetTag(genCtx, builder, type, rhs, genCtx.module->u32Type());
+                    type = cond.module->u32Type();
+                } else if (isAtom(type)) {
+                    knownCondOp = ASTKind::Bool;
+                    cond = cond.module->add(ASTKind::Bool, Constant::BoolConst(true));
+                } else {
+                    knownCondOp = cond.kind();
+                    lhs = generate(genCtx, builder, cond.child(0), typeOf(cond, 0));
+                    rhs = generate(genCtx, builder, cond.child(1), typeOf(cond, 0));
+                }
                 break;
             case ASTKind::And:
             case ASTKind::Or:
@@ -1069,6 +1099,10 @@ namespace clover {
     }
 
     triple<JasmineType, Type, u32> computeFieldAccessTypes(GenerationContext& genCtx, Type aggregateType, u32 fieldId) {
+        if (aggregateType.isUnion()) {
+            assert(fieldId == 0);
+            aggregateType = aggregateType.asUnion().caseType(0);
+        }
         if (aggregateType.isStruct()) {
             auto structType = aggregateType.asStruct();
             auto fieldType = expand(structType.fieldType(fieldId));
@@ -1092,8 +1126,18 @@ namespace clover {
     }
 
     JasmineOperand generateGetTag(GenerationContext& genCtx, JasmineBuilder builder, Type baseType, JasmineOperand aggregate, Type destType) {
-        const auto [aggregateType, base, isPointer] = materializeAggregateBase(genCtx, builder, baseType, aggregate);
+        const auto [aggregateType, baseRef, isPointerRef] = materializeAggregateBase(genCtx, builder, baseType, aggregate);
         const auto [loweredAggregate, fieldType, _] = computeFieldAccessTypes(genCtx, aggregateType, 0);
+
+        auto base = baseRef;
+        auto isPointer = isPointerRef;
+
+        if (aggregateType.isUnion() && !isPointer) {
+            auto tmp = genCtx.temp();
+            jasmine_append_addr(builder, JASMINE_TYPE_PTR, tmp, base);
+            base = tmp;
+            isPointer = true;
+        }
 
         JasmineOperand result = genCtx.temp();
         if (isPointer) {

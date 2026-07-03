@@ -2274,7 +2274,51 @@ i32 test():
 )");
 
     auto exec = load(instance.artifact);
-    auto test = lookup<i64()>("test()i32", exec);
+    auto test = lookup<i32()>("test()i32", exec);
 
     ASSERT_EQUAL(test(), 15);
+}
+
+TEST(codegen_compare_atom_only) {
+    auto instance = COMPILE(R"(
+type Color:
+    case Red
+    case Yellow
+    case Green
+    case Blue
+    case Purple
+use Color.*
+
+i32 countMatching(Color[] colors, Color color):
+    var count: 0
+    for c in colors:
+        if c == color:
+            count ++
+    return count
+
+i32 countNotMatching(Color[] colors, Color color):
+    var count: 0
+    for c in colors:
+        if c != color:
+            count ++
+    return count
+
+var colors: [Red, Red, Green, Yellow, Blue, Yellow, Green, Green, Red, Yellow]
+
+i32 test1(): countMatching(colors, Red)
+i32 test2(): countMatching(colors, Blue)
+i32 test3(): countNotMatching(colors, Purple)
+i32 test4(): countNotMatching(colors, Green)
+)");
+
+    auto exec = load(instance.artifact);
+    auto test1 = lookup<i32()>("test1()i32", exec);
+    auto test2 = lookup<i32()>("test2()i32", exec);
+    auto test3 = lookup<i32()>("test3()i32", exec);
+    auto test4 = lookup<i32()>("test4()i32", exec);
+
+    ASSERT_EQUAL(test1(), 3);
+    ASSERT_EQUAL(test2(), 1);
+    ASSERT_EQUAL(test3(), 10);
+    ASSERT_EQUAL(test4(), 7);
 }

@@ -4053,6 +4053,7 @@ namespace clover {
                 if (ast.kind() == ASTKind::Equal || ast.kind() == ASTKind::NotEqual)
                     type_assert(operandType.isNum()
                         || operandType.isFunc()
+                        || isAtomOnly(operandType)
                         || operandType == Bool
                         || operandType == Char
                         || operandType.isPtr());
