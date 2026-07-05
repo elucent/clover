@@ -2502,7 +2502,8 @@ namespace clover {
         newFunction->typeIndex = type.index;
         newDecl.setType(type);
 
-        assert(type.isFunc());
+        if (!type.isFunc())
+            type_error("Expected function type, but got ", type, " at ", call);
         auto funcType = type.asFunc();
         if UNLIKELY(config::verboseInstantiation)
             println("[TYPE]\tInstantiation of ", module->str(generic->name), " has function type ", funcType);
@@ -2565,7 +2566,8 @@ namespace clover {
         }
         if (!funcType.isConcrete())
             instantiationCtx.ensureResolved(newDecl.type());
-        assert(funcType.isFunc());
+        if (!funcType.isFunc())
+            type_error("Expected function type, but got ", funcType, " at ", call);
         if (!newDecl.child(4).missing()) { // If we're a stub function, we don't need to do anything.
             inferChild(instantiationCtx, newDecl.function(), newDecl, 4);
             addImplicitReturns(instantiationCtx, funcType.returnType(), newDecl, newDecl.child(4), { newDecl, 4 });
@@ -2786,7 +2788,8 @@ namespace clover {
 
     CallResolution refineCall(InferenceContext& ctx, Function* function, AST ast) {
         auto type = inferredType(ctx, function, ast.child(0));
-        type_assert(type.isFunc());
+        if (!type.isFunc())
+            type_error("Expected function type, but got ", type, " at ", ast);
         auto funcType = type.asFunc();
         type_assert(ast.arity() - 1 >= funcType.asFunc().parameterCount());
 
