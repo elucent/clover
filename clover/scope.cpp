@@ -1044,6 +1044,12 @@ namespace clover {
                         failed = true;
                         break;
                     }
+                    const auto* info = entry.isGlobal() ? &entry.scope->module->globals[entry.index] : &entry.scope->function->locals[entry.index];
+                    while (info->kind == VariableKind::Forward) {
+                        Scope* originalScope = entry.isGlobal() ? scope->module->scopes[info->defScope] : scope->function->module->scopes[info->defScope];
+                        entry = Scope::FindResult(originalScope, info->index, !originalScope->function);
+                        info = originalScope->function ? &originalScope->function->locals[info->index] : &originalScope->module->globals[info->index];
+                    }
                     if (entry.isGlobal()) {
                         const auto& global = entry.scope->module->globals[entry.index];
                         if (global.kind == VariableKind::Namespace)

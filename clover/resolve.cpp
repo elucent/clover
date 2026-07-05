@@ -871,8 +871,7 @@ namespace clover {
                 if (entry.scope->function == scope->function)
                     return module->add(ASTKind::Const, ConstId(scope->function->locals[entry.index()].constantIndex));
 
-                // It's an external constant, so we need to close over
-                // it.
+                // It's an external constant, so we need to close over it.
                 VariableInfo info = entry.isGlobal() ? entry.scope->module->globals[entry.index()] : entry.scope->function->locals[entry.index()];
                 scope->addConstantIndirect(module, parent, entry.scope, info.constantIndex, ast.symbol());
                 auto reentry = scope->findLocal(ast.symbol());
@@ -2219,6 +2218,8 @@ namespace clover {
                             if (!ast.scope()->findLocal(e.key)) { // Function parameters shadow type members.
                                 if (info.kind == VariableKind::Member || info.kind == VariableKind::Variable)
                                     ast.scope()->add(VariableKind::ThisAccess, ast, e.key);
+                                else if (info.kind == VariableKind::Constant)
+                                    ast.scope()->addConstantIndirect(ast.module, ast, scope, info.constantIndex, e.key);
                                 else
                                     ast.scope()->addIndirect(ast.module, ast, scope, e.value, e.key);
                             }
