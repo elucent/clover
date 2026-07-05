@@ -2322,3 +2322,41 @@ i32 test4(): countNotMatching(colors, Green)
     ASSERT_EQUAL(test3(), 10);
     ASSERT_EQUAL(test4(), 7);
 }
+
+TEST(codegen_multiple_binding_group) {
+    auto instance = COMPILE(R"(
+void reverse(i32[] xs):
+    for i < (|xs| / 2), |xs| > j > (|xs| / 2):
+        i32 temp: xs[i]
+        xs[i] = xs[j]
+        xs[j] = temp
+
+i32 dot(i32[] a, i32[] b):
+    var sum: 0
+    for i in a, j in b:
+        sum += i * j
+    return sum
+)");
+
+    auto exec = load(instance.artifact);
+    auto reverse = lookup<void(const_slice<i32>)>("reverse(i32[])void", exec);
+    array<i32, 5> nums;
+    for (auto i = 0; i < 5; i ++)
+        nums[i] = 5 - i;
+
+    reverse(nums);
+    for (auto i = 0; i < 5; i ++)
+        ASSERT_EQUAL(i + 1, nums[i]);
+
+    auto dot = lookup<i32(const_slice<i32>, const_slice<i32>)>("dot(i32[],i32[])i32", exec);
+    array<i32, 3> xAxis, yAxis, zAxis;
+    for (auto i = 0; i < 3; i ++)
+        xAxis[i] = 0;
+    zAxis = yAxis = xAxis;
+    xAxis[0] = 1;
+    yAxis[1] = 1;
+    zAxis[2] = 1;
+    ASSERT_EQUAL(dot(xAxis, yAxis), 0);
+    ASSERT_EQUAL(dot(yAxis, zAxis), 0);
+    ASSERT_EQUAL(dot(zAxis, xAxis), 0);
+}
