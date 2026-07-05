@@ -578,6 +578,16 @@ TEST(parse_is_not_expression) {
     ASSERT_SAME_PARSE("if a is not 1 and b is not Foo(c): print(x)", "(if (and (not (is a 1)) (not (is b (call Foo c)))) (call print x))");
 }
 
+TEST(parse_in_expression) {
+    ASSERT_SAME_PARSE("print(x) if a in [1, 2, 3]", "(if (in a (list 1 2 3)) (call print x))");
+    ASSERT_SAME_PARSE("if a in [1, 2, 3] and b in [4, 5, 6]: print(a + b)", "(if (and (in a (list 1 2 3)) (in b (list 4 5 6))) (call print (+ a b)))");
+}
+
+TEST(parse_not_in_expression) {
+    ASSERT_SAME_PARSE("print(x) if a not in [1, 2, 3]", "(if (not (in a (list 1 2 3))) (call print x))");
+    ASSERT_SAME_PARSE("if a not in [1, 2, 3] and b not in [4, 5, 6]: print(a + b)", "(if (and (not (in a (list 1 2 3))) (not (in b (list 4 5 6)))) (call print (+ a b)))");
+}
+
 TEST(parse_uninit_var) {
     ASSERT_SAME_PARSE("i32 x: uninit", "(var i32 x uninit)");
     ASSERT_SAME_PARSE("i32 * x: uninit", "(var (ptr_type i32) x uninit)");

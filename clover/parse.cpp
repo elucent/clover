@@ -932,6 +932,7 @@ namespace clover {
             | 1ull << (KeywordIs - FirstOperator)
             | 1ull << (KeywordIsNot - FirstOperator)
             | 1ull << (KeywordIn - FirstOperator)
+            | 1ull << (KeywordNotIn - FirstOperator)
             | 1ull << (KeywordAnd - FirstOperator)
             | 1ull << (KeywordOr - FirstOperator)
             | 1ull << (KeywordIf - FirstOperator);
@@ -1051,6 +1052,8 @@ namespace clover {
             case KeywordIsNot:
                 return module->addInitial(ASTKind::Not, origin(lhs, rhs), module->addInitial(ASTKind::Is, origin(lhs, rhs), lhs, rhs));
             case KeywordIn: kind = ASTKind::In; break;
+            case KeywordNotIn:
+                return module->addInitial(ASTKind::Not, origin(lhs, rhs), module->addInitial(ASTKind::In, origin(lhs, rhs), lhs, rhs));
             case KeywordAnd: kind = ASTKind::And; break;
             case KeywordOr: kind = ASTKind::Or; break;
             case OperatorMul:
@@ -1132,6 +1135,10 @@ namespace clover {
                 IndexedToken possibleOp = visitor.peekIgnoringWhitespace();
                 if (isBinaryOperator(possibleOp.token) || possibleOp.token == KeywordElse) {
                     visitor.readIgnoringWhitespace(); // Consume newline and any interstitial indentation.
+                    if (visitor.peek().token == KeywordNot && visitor.peek2().token == KeywordIn) {
+                        visitor.read();
+                        return { { KeywordNotIn, possibleOp.pos, possibleOp.index }, false };
+                    }
                     if (possibleOp.token == KeywordIs && visitor.peek2().token == KeywordNot) {
                         visitor.read();
                         return { { KeywordIsNot, possibleOp.pos, possibleOp.index }, false };
@@ -1139,6 +1146,10 @@ namespace clover {
                     return { possibleOp, true };
                 }
             }
+        }
+        if (visitor.peek().token == KeywordNot && visitor.peek2().token == KeywordIn) {
+            auto nottoken = visitor.read();
+            return { { KeywordNotIn, nottoken.pos, nottoken.index }, false };
         }
         if (visitor.peek().token == KeywordIs && visitor.peek2().token == KeywordNot) {
             auto is = visitor.read();
@@ -2571,6 +2582,7 @@ namespace clover {
             precedences[KeywordIs - FirstOperator] = 50;
             precedences[KeywordIsNot - FirstOperator] = 50;
             precedences[KeywordIn - FirstOperator] = 50;
+            precedences[KeywordNotIn - FirstOperator] = 50;
             precedences[OperatorLess - FirstOperator] = 60;
             precedences[OperatorLessEqual - FirstOperator] = 60;
             precedences[OperatorGreater - FirstOperator] = 60;
