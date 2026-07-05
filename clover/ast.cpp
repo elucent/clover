@@ -113,6 +113,11 @@ namespace clover {
         printScope(compilation, getTopLevel().scope(), childScopes, 0);
     }
 
+    void Module::printScope(Scope* scope) {
+        vec<vec<Scope*>> childScopes;
+        printScope(compilation, scope, childScopes, 0);
+    }
+
     void Module::printScope(Compilation* compilation, Scope* scope, const vec<vec<Scope*>>& childScopes, u32 amount) {
         auto indent = [](u32 n) {
             for (u32 i = 0; i < n; i ++)
@@ -179,7 +184,7 @@ namespace clover {
                     unreachable("Tried to print unsupported variable kind ", VariableInfo::KindNamesUpper[(u32)info.kind]);
             }
         }
-        for (Scope* child : childScopes[scope->index])
+        if (childScopes.size() > scope->index) for (Scope* child : childScopes[scope->index])
             printScope(compilation, child, childScopes, amount + 2);
     }
 

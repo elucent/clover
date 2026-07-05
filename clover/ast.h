@@ -2693,6 +2693,7 @@ namespace clover {
 
         void print(Compilation* compilation) override;
         void printScopes(Compilation* compilation);
+        void printScope(Scope* scope);
         void printScope(Compilation* compilation, Scope* scope, const vec<vec<Scope*>>& children, u32 indent);
         u64 reportSize() override;
 
