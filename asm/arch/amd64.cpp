@@ -132,7 +132,7 @@ MaybePair<ASMVal> AMD64LinuxAssembler::place_scalar_return_value(void* state, Re
 }
 
 MaybePair<ASMVal> AMD64LinuxAssembler::place_aggregate_return_value(void* state, const_slice<Repr> members) {
-    if (members.size() == 1)
+    if (members.size() == 1 && members[0].kind() != Size::MEMORY)
         return place_scalar_return_value(state, members[0]);
 
     u32 totalSize = 0, maxAlignment = 1;
