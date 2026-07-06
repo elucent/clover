@@ -165,3 +165,12 @@ test.log(c.contains(3)) # true
 test.log(c.contains(4)) # true
 test.log(c.contains(5)) # false
 
+#--- in
+
+var nums: makeset([])
+nums.insert(i) for i <= 10 until 6 in nums
+test.log(nums.size()) # 7
+test.log(6 in nums) # true
+test.log(0 in nums) # true
+test.log(2 not in nums) # false
+test.log(-1 in nums) # false

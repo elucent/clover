@@ -51,8 +51,10 @@ void Vec(T)*.append(type T, iterable):
 void Vec(T)*.reverse(type T):
     items[:size].reverse()
 
+bool Vec(T)*.contains(type T, T item):
+    items[:size].contains(item)
+
 void removeIf(type T, Vec(T)* vec, bool(T) predicate):
     var writer: 0, reader: 0
     vec[writer] = vec[reader] if predicate(vec.items[reader]) while reader < vec.size
     vec.size = writer
-

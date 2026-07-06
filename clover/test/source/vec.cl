@@ -116,3 +116,13 @@ for i < 100 if i > 0:
     if vec.get(i) != vec.get(i - 1) - 1:
         allInOrder = false
 test.log(allInOrder) # true
+
+#--- in
+
+var vec: makevec([])
+vec.push(i) for i < 10
+test.log(1 in vec) # true
+test.log(-1 in vec) # false
+test.log(9 in vec) # true
+test.log(10 not in vec) # true
+test.log(42 not in vec) # true
