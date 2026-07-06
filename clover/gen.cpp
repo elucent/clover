@@ -3653,6 +3653,8 @@ namespace clover {
                 JasmineOperand result;
                 for (AST child : ast)
                     result = generate(genCtx, builder, child, destType);
+                if (destType != Void)
+                    return coerce(genCtx, builder, destType, typeOf(ast, ast.arity() - 1), result);
                 return JASMINE_INVALID_OPERAND;
             }
             default:

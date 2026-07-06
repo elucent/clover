@@ -2360,3 +2360,28 @@ i32 dot(i32[] a, i32[] b):
     ASSERT_EQUAL(dot(yAxis, zAxis), 0);
     ASSERT_EQUAL(dot(zAxis, xAxis), 0);
 }
+
+TEST(codegen_in_expression) {
+    auto instance = COMPILE(R"(
+bool test(i32[] xs, i32 i):
+    i in xs
+
+bool testNot(i32[] xs, i32 i):
+    i not in xs
+)");
+
+    auto exec = load(instance.artifact);
+    auto test = lookup<bool(const_slice<i32>, i32)>("test(i32[],i32)bool", exec);
+    auto testNot = lookup<bool(const_slice<i32>, i32)>("testNot(i32[],i32)bool", exec);
+
+    array<i32, 5> nums;
+    for (auto i = 0; i < 5; i ++)
+        nums[i] = i;
+
+    ASSERT(test(nums, 1));
+    ASSERT(test(nums, 3));
+    ASSERT(!test(nums, 5));
+    ASSERT(!testNot(nums, 1));
+    ASSERT(!testNot(nums, 3));
+    ASSERT(testNot(nums, 5));
+}

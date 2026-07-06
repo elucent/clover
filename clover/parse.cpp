@@ -1051,9 +1051,11 @@ namespace clover {
             case KeywordIs: kind = ASTKind::Is; break;
             case KeywordIsNot:
                 return module->addInitial(ASTKind::Not, origin(lhs, rhs), module->addInitial(ASTKind::Is, origin(lhs, rhs), lhs, rhs));
-            case KeywordIn: kind = ASTKind::In; break;
+            case KeywordIn:
+                return module->addInitial(ASTKind::CallMethod, origin(lhs, rhs), Identifier(MethodContains), rhs, lhs);
             case KeywordNotIn:
-                return module->addInitial(ASTKind::Not, origin(lhs, rhs), module->addInitial(ASTKind::In, origin(lhs, rhs), lhs, rhs));
+                return module->addInitial(ASTKind::Not, origin(lhs, rhs),
+                    module->addInitial(ASTKind::CallMethod, origin(lhs, rhs), Identifier(MethodContains), rhs, lhs));
             case KeywordAnd: kind = ASTKind::And; break;
             case KeywordOr: kind = ASTKind::Or; break;
             case OperatorMul:

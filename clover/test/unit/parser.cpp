@@ -579,13 +579,13 @@ TEST(parse_is_not_expression) {
 }
 
 TEST(parse_in_expression) {
-    ASSERT_SAME_PARSE("print(x) if a in [1, 2, 3]", "(if (in a (list 1 2 3)) (call print x))");
-    ASSERT_SAME_PARSE("if a in [1, 2, 3] and b in [4, 5, 6]: print(a + b)", "(if (and (in a (list 1 2 3)) (in b (list 4 5 6))) (call print (+ a b)))");
+    ASSERT_SAME_PARSE("print(x) if a in [1, 2, 3]", "(if (call_method contains (list 1 2 3) a) (call print x))");
+    ASSERT_SAME_PARSE("if a in [1, 2, 3] and b in [4, 5, 6]: print(a + b)", "(if (and (call_method contains (list 1 2 3) a) (call_method contains (list 4 5 6) b)) (call print (+ a b)))");
 }
 
 TEST(parse_not_in_expression) {
-    ASSERT_SAME_PARSE("print(x) if a not in [1, 2, 3]", "(if (not (in a (list 1 2 3))) (call print x))");
-    ASSERT_SAME_PARSE("if a not in [1, 2, 3] and b not in [4, 5, 6]: print(a + b)", "(if (and (not (in a (list 1 2 3))) (not (in b (list 4 5 6)))) (call print (+ a b)))");
+    ASSERT_SAME_PARSE("print(x) if a not in [1, 2, 3]", "(if (not (call_method contains (list 1 2 3) a)) (call print x))");
+    ASSERT_SAME_PARSE("if a not in [1, 2, 3] and b not in [4, 5, 6]: print(a + b)", "(if (and (not (call_method contains (list 1 2 3) a)) (not (call_method contains (list 4 5 6) b))) (call print (+ a b)))");
 }
 
 TEST(parse_uninit_var) {
