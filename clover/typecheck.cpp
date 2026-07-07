@@ -1,5 +1,6 @@
 #include "clover/typecheck.h"
 #include "clover/ast.h"
+#include "clover/compilation.h"
 #include "clover/resolve.h"
 #include "clover/interp.h"
 #include "clover/value.h"
@@ -1598,11 +1599,7 @@ namespace clover {
                 rhs = inferChild(ctx, function, ast, 1);
                 if (ast.kind() == ASTKind::SetIndex)
                     value = inferChild(ctx, function, ast, 2);
-
-                if (rhs.isKnownValue())
-                    assert(rhs.isKnownSigned() || rhs.isKnownUnsigned());
-                else
-                    unify(rhs, module->topIntegerType(), ast, ctx);
+                Type indexType = toType(module, rhs).type(module);
 
                 varType = module->varType(ast);
                 if (ast.kind() != ASTKind::SetIndex)
@@ -1622,10 +1619,13 @@ namespace clover {
                         unreachable("Expected indexed access.");
                 }
 
-                if (ast.kind() == ASTKind::SetIndex)
-                    unify(value, varType, ast, ctx);
+                if (ast.kind() == ASTKind::SetIndex) {
+                    Type initType = toType(module, value).type(module);
+                    ctx.constraints->constrainOrder(initType, varType);
+                }
 
                 ctx.constraints->constrainOrder(lhsType, varType);
+                    ctx.constraints->constrainOrder(indexType, varType);
                 return ast.kind() == ASTKind::SetIndex ? fromType(module->voidType()) : fromNodeType(ast);
             }
 
@@ -2166,7 +2166,7 @@ namespace clover {
         return type;
     }
 
-    Type elementTypeOf(Module* module, Type type, bool allowUninit) {
+    Type tryGetElementTypeOf(Module* module, Type type, bool allowUninit) {
         if (type.kind() == TypeKind::Array)
             return expand(type.asArray().elementType());
         if (type.kind() == TypeKind::Slice) {
@@ -2192,8 +2192,7 @@ namespace clover {
                 return expand(result.asSlice().elementType());
             }
         }
-        type_error("Type ", type, " cannot be indexed.");
-        unreachable("");
+        return module->invalidType();
     }
 
     RefinementResult refinePattern(InferenceContext& ctx, Function* function, Type input, AST pattern) {
@@ -3035,7 +3034,34 @@ namespace clover {
             case ASTKind::SetIndex: {
                 Type baseType = inferredType(ctx, function, ast.child(0));
                 baseType = dereferenceIfPointer(module, baseType, ast.kind() == ASTKind::SetIndex);
-                Type elementType = elementTypeOf(module, baseType, ast.kind() == ASTKind::SetIndex);
+                Type elementType = tryGetElementTypeOf(module, baseType, ast.kind() == ASTKind::SetIndex);
+
+                if (!elementType) {
+                    // Fall back to method call.
+                    switch (ast.kind()) {
+                        case ASTKind::GetIndex:
+                            ast = module->replace(ast, ASTKind::CallMethod, module->add(ASTKind::Ident, Identifier(MethodGet)).withOrigin(ast.origin()), ast.indexedChild(0), ast.indexedChild(1));
+                            break;
+                        case ASTKind::AddrIndex:
+                        case ASTKind::EnsureAddrIndex:
+                            ast = module->replace(ast, ASTKind::CallMethod, module->add(ASTKind::Ident, Identifier(MethodAt)).withOrigin(ast.origin()), ast.indexedChild(0), ast.indexedChild(1));
+                            break;
+                        case ASTKind::SetIndex:
+                            ast = module->replace(ast, ASTKind::CallMethod, module->add(ASTKind::Ident, Identifier(MethodSet)).withOrigin(ast.origin()), ast.indexedChild(0), ast.indexedChild(1), ast.indexedChild(2));
+                            ast.setType(refinedType);
+                            break;
+                        default:
+                            unreachable("Not an indexing op: ", ast.kind());
+                    }
+                    ast.setChild(0, resolveNode(ast.scope(), ast, ast.child(0)));
+                    return refine(ctx, function, ast, refinedType);
+                }
+
+                if (ast.kind() == ASTKind::SetIndex)
+                    unify(elementType, refinedType, ast, ctx);
+
+                Type indexType = inferredType(ctx, function, ast.child(1));
+                unify(indexType, module->topIntegerType(), ast, ctx);
 
                 switch (ast.kind()) {
                     case ASTKind::SetIndex:

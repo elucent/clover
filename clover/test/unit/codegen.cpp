@@ -2385,3 +2385,21 @@ bool testNot(i32[] xs, i32 i):
     ASSERT(!testNot(nums, 3));
     ASSERT(testNot(nums, 5));
 }
+
+TEST(codegen_overload_brackets) {
+    auto instance = COMPILE(R"(
+type Box: i32 x, y
+
+i32 Box*.get(i32 i):
+    x if i == 0 else y
+
+i32 test():
+    var box: Box(20, 22)
+    return box[0] + box[1]
+)");
+
+    auto exec = load(instance.artifact);
+    auto test = lookup<i32()>("test()i32", exec);
+
+    ASSERT_EQUAL(test(), 42);
+}

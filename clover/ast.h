@@ -2124,7 +2124,7 @@ namespace clover {
             astWords.pushUnchecked(word);
             addChildren(args...);
             if (index == ast[existing.node]) {
-                memory::copy(astWords.begin() + index, astWords.begin() + end, sizeof(ASTWord) * (word.arity + 1));
+                memory::move(astWords.begin() + index, astWords.begin() + end, sizeof(ASTWord) * (word.arity + 1));
                 astWords.shrinkBy(word.arity + 1);
             } else
                 ast[existing.node] = index;

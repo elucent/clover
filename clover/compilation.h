@@ -451,6 +451,9 @@ namespace clover {
         macro(MethodDone, "done") \
         macro(MethodRead, "read") \
         macro(MethodNext, "next") \
+        macro(MethodGet, "get") \
+        macro(MethodSet, "set") \
+        macro(MethodAt, "at") \
         macro(MethodContains, "contains") \
         macro(BuiltinMemoryAlloc, "memory.alloc") \
         macro(BuiltinMemoryFree, "memory.free") \

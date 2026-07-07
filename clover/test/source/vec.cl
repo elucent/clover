@@ -126,3 +126,15 @@ test.log(-1 in vec) # false
 test.log(9 in vec) # true
 test.log(10 not in vec) # true
 test.log(42 not in vec) # true
+
+#--- index_operator
+
+var vec: makevec([])
+for i < 10:
+    vec.push(i)
+test.log(vec[1] + vec[2]) # 3
+var ptr: &vec[3]
+*ptr = 42
+vec[4] = 42
+test.log(vec[3] + vec[4]) # 84
+
