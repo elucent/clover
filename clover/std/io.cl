@@ -70,6 +70,7 @@ File open(i8[] path, i8[] flagChars):
     return open(path, flags)
 
 void close(File f):
+    f.flushOutput()
     file.close(IOTable[f.id].desc)
     IOTable[f.id].link = IOTableFreeList
     IOTableFreeList = f.id as i32
@@ -92,6 +93,11 @@ void flushInput(File f):
     if amount < IOFileBufferSize - entry.end:
         entry.eof = true
     entry.end += amount as u16
+
+i8 get(input):
+    i8 byte: 0
+    input.get(&byte)
+    return byte
 
 # Standard IO interface for input and output, for Files.
 
@@ -141,7 +147,7 @@ File put(File file, i8[] string):
         bool shouldFlush: false
         if file.id == stdout.id for i < |string| if string[i] == '\n' as i8:
             shouldFlush = true
-        buffer[i] = string[i] for i < |string|
+        buffer[:|string|] = string
         entry.end += |string|
         file.flushOutput() if shouldFlush
         return file
@@ -149,8 +155,7 @@ File put(File file, i8[] string):
     var sizeInBuffers: |string| / IOFileBufferSize
     for i < sizeInBuffers:
         file.put(string[i * IOFileBufferSize:i * IOFileBufferSize + IOFileBufferSize])
-    file.put(string[sizeInBuffers * IOFileBufferSize:|string|])
-    return file
+    return file.put(string[sizeInBuffers * IOFileBufferSize:|string|])
 
 # Standard IO interface implemented for byte slices.
 
