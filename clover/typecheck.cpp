@@ -3033,8 +3033,8 @@ namespace clover {
             case ASTKind::EnsureAddrIndex:
             case ASTKind::SetIndex: {
                 Type baseType = inferredType(ctx, function, ast.child(0));
-                baseType = dereferenceIfPointer(module, baseType, ast.kind() == ASTKind::SetIndex);
-                Type elementType = tryGetElementTypeOf(module, baseType, ast.kind() == ASTKind::SetIndex);
+                baseType = dereferenceIfPointer(module, baseType, ast.kind() != ASTKind::GetIndex);
+                Type elementType = tryGetElementTypeOf(module, baseType, ast.kind() != ASTKind::GetIndex);
 
                 if (!elementType) {
                     // Fall back to method call.
