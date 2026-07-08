@@ -642,10 +642,10 @@ namespace jasmine {
                         if (isInt(destType) && isInt(srcType)) {
                             if (destRepr.size() <= srcRepr.size()) // Truncation or just changing signedness - in either case, it's just a move.
                                 Insns::mov(as, destRepr, loweredOperands[0], loweredOperands[2]);
-                            else if (isSigned(destType)) // Otherwise, we're doing some kind of extension.
-                                Insns::sxt(as, srcRepr, loweredOperands[0], loweredOperands[2]);
-                            else
+                            else if (isUnsigned(srcType)) // Otherwise, we're doing some kind of extension.
                                 Insns::zxt(as, srcRepr, loweredOperands[0], loweredOperands[2]);
+                            else
+                                Insns::sxt(as, srcRepr, loweredOperands[0], loweredOperands[2]);
                         } else if (isInt(destType) && isFloat(srcType)) {
                             if (srcType == F32)
                                 Insns::f32toi(as, destRepr, loweredOperands[0], loweredOperands[2]);
