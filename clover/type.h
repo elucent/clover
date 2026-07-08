@@ -47,18 +47,19 @@ namespace clover {
         enum class Kind : u32 {
             Primitive,      // Primitive type with no substructure (bottom, void, bool, char, any).
             Numeric,        // Allows numeric coercion.
+            Range,          // Interval of two known type bounds.
             Pointer,        // Pointer to some child type.
             Slice,          // Slice of array of some element type.
             Array,          // Contiguous array of elements.
             Tuple,          // Heterogeneous, fixed-length vector of fields.
             Function,       // Function with arguments and a return type.
             Var,            // Type variable.
-            Range,          // Interval of two known type bounds.
             Named,          // Named wrapper around an inner type.
             Struct,         // Named tuple of fields.
             Union,          // Union of multiple cases.
             FirstNamed = Named,
             LastTypeKind = Union,
+            LastNoInternalStructure = Range
         };
 
         constexpr static u32 KindBits = 5;
@@ -278,6 +279,7 @@ namespace clover {
         }
 
         inline UnifyResult unifyOnto(Type other, Constraints* constraints, UnifyMode mode);
+        inline UnifyResult unifyOntoUncached(Type other, Constraints* constraints, UnifyMode mode);
 
         template<typename Func>
         inline void forEachVar(Func&& func);
@@ -2286,7 +2288,36 @@ namespace clover {
 
     inline Type canonicalTypeInBounds(TypeSystem* sys, Type lb, Type ub);
 
+    constexpr u32 MaxCachedTypeIndex = 512;
+    extern bitset<MaxCachedTypeIndex * MaxCachedTypeIndex> cache;
+
+    inline void addToCache(TypeIndex a, TypeIndex b, UnifyResult result) {
+        u32 index = a * MaxCachedTypeIndex + b;
+        cache.on(index * 2);
+        if (result == UnifySuccess)
+            cache.on(index * 2 + 1);
+    }
+
+    inline u32 getCache(TypeIndex a, TypeIndex b) {
+        u32 index = a * MaxCachedTypeIndex + b;
+        return cache[index * 2] << 1 | cache[index * 2 + 1];
+    }
+
     inline UnifyResult Type::unifyOnto(Type other, Constraints* constraints, UnifyMode mode) {
+        TypeKind k = kind(), ok = other.kind();
+        bool shouldCache = index < MaxCachedTypeIndex && other.index < MaxCachedTypeIndex && isConcrete() && other.isConcrete();
+        if (shouldCache) {
+            auto result = getCache(index, other.index);
+            if (result & 2)
+                return (result & 1) ? UnifySuccess : UnifyFailure;
+        }
+        auto result = unifyOntoUncached(other, constraints, mode);
+        if (shouldCache)
+            addToCache(index, other.index, result);
+        return result;
+    }
+
+    inline UnifyResult Type::unifyOntoUncached(Type other, Constraints* constraints, UnifyMode mode) {
         if (index == other.index)
             return UnifySuccess;
 
@@ -2433,7 +2464,7 @@ namespace clover {
                         Type upper = greatestCommonSubtype(other.asVar().upperBound(), isRange() ? asRange().upperBound() : *this, constraints, mode & ModeMask);
                         if (!upper)
                             return UnifyFailure;
-                        if (!other.isRange())
+                        if (!other.isRange() && !isRange())
                             other.asVar().makeEqual(*this);
                         return UnifySuccess;
                     }
@@ -4162,6 +4193,8 @@ namespace clover {
             println("[TYPE]\tMade type variable ", *this, " equal to ", t);
         if (t.index == Bottom)
             type_error("Made type variable ", *this, " equal to ", t);
+        if (t.isRange())
+            type_error("Made type variable ", *this, " equal to range ", t);
         TypeWord* ptr = &firstWord();
         ptr[1].markedEqual = true;
         ptr[0].typeBound = ptr[1].typeBound = t.index;

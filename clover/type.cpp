@@ -1,9 +1,28 @@
 #include "clover/type.h"
 #include "clover/scope.h"
 #include "clover/ast.h"
+#include "util/init.h"
 
 namespace clover {
     TypeSystem* TypeKey::sys;
+
+    bool inited = false;
+    u64 unifyCount = 0, smallUnifyCount = 0;
+    bitset<MaxCachedTypeIndex * MaxCachedTypeIndex> cache;
+
+    void logTally() {
+        println("[TALLY]\tSmall unifications: ", smallUnifyCount, " / ", unifyCount);
+    }
+
+    void tallyUnification(TypeIndex a, TypeIndex b) {
+        if (!inited) {
+            atexit(logTally);
+            inited = true;
+        }
+        if (a < 256 && b < 256)
+            smallUnifyCount ++;
+        unifyCount ++;
+    }
 
     void StructBuilder::add(Scope* scope) {
         this->scope = scope;
