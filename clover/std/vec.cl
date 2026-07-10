@@ -36,7 +36,6 @@ void Vec(T)*.set(type T, u64 i, T item):
     items[i] = item
 
 void Vec(T)*.clear(type T):
-    del x for x in items
     size = 0
 
 T[] Vec(T)*.iter(type T):
