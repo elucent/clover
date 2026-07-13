@@ -11,6 +11,7 @@
 #include "clover/lex.h"
 #include "clover/scope.h"
 #include "clover/value.h"
+#include "clover/analyze.h"
 #include "clover/error.h"
 
 namespace clover {
@@ -1132,6 +1133,12 @@ namespace clover {
 
         // Type expressions we need to resolve after constant evaluation.
         vec<NodeIndex> typesThatNeedConst;
+
+        // Regions for the parameters of this function, filled in during memory analysis.
+        vec<RegionIndex, 4> lifetimeSignature;
+
+        // Required constraints between the variables in the function's lifetime signature.
+        vec<ParameterConstraint> lifetimeConstraints;
 
         union {
             map<SignatureKey, Function*>* instantiations = nullptr; // Cache of instantiations of this function.

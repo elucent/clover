@@ -11,15 +11,13 @@
 #include "util/deque.h"
 
 namespace clover {
-    using RegionIndex = u32;
-    constexpr RegionIndex InvalidRegion = 0xfffffffu;
-
     struct RegionWord {
         enum Kind : u32 {
-            Singleton,
-            Ref,
-            Tuple,
-            Var
+            Singleton,  // Just a slot with some data, for which we don't know an internal structure.
+            Ref,        // A possibly owning reference to another region.
+            Tuple,      // A tuple of one or more regions.
+            Var,        // A variable representing a heap slot whose structure is tracked by the state.
+            Param       // A variable representing an external region where a function argument points.
         };
 
         constexpr static RegionIndex ExtParent = 0xffffu;
@@ -29,7 +27,9 @@ namespace clover {
             struct { u32 tupleSize; };
             struct { RegionIndex fieldId; };
             struct { Kind : 3; u32 isFwd : 1; RegionIndex variable : 28; };
-            struct { u32 : 2; u32 isOwn : 1; u32 isTuple : 1; RegionIndex ref : 28; };
+            struct { u32 : 3; u32 isOwn : 1; u32 isTuple : 1; RegionIndex ref : 27; };
+            struct { u32 : 5; u32 parameter : 27; };
+            struct { u32 : 5; u32 parentParameter : 27; };
         };
     };
 
@@ -39,6 +39,7 @@ namespace clover {
 
     struct Region;
     struct RegionState;
+    struct ParameterConstraints;
 
     struct Regions {
         vec<RegionWord> words;
@@ -51,8 +52,9 @@ namespace clover {
             LastDead = MaybeDead,
             Heap = 2,
             Globals = 3,
-            Stack = 4,
-            Atoms = 5,
+            ParentStack = 4,
+            Stack = 5,
+            Atoms = 6,
             MaxBuiltinRegion = Atoms;
 
         // It's nice to be able to check both of these with a simple compare.
@@ -64,6 +66,7 @@ namespace clover {
             words.push({ .kind = RegionKind::Singleton, .parent = InvalidRegion }); // MaybeDead
             words.push({ .kind = RegionKind::Singleton, .parent = InvalidRegion }); // Heap
             words.push({ .kind = RegionKind::Singleton, .parent = InvalidRegion }); // Globals
+            words.push({ .kind = RegionKind::Singleton, .parent = InvalidRegion }); // ParentStack
             words.push({ .kind = RegionKind::Singleton, .parent = InvalidRegion }); // Stack
             words.push({ .kind = RegionKind::Singleton, .parent = InvalidRegion }); // Atoms
         }
@@ -140,7 +143,9 @@ namespace clover {
         inline Region var(u32 variable);
         inline Region ref(RegionIndex parent, RegionIndex target, bool isOwn);
         inline Region tuple(RegionIndex parent, u32 size);
-        inline Region instance(RegionIndex parent, Type type);
+        inline Region param(u32 index);
+        inline Region alias(ParameterConstraints& constraints, Region paramA, Region paramB);
+        inline Region instance(RegionIndex parent, Type type, ParameterConstraints* constraints = nullptr);
     };
 
     bool couldBeDead(RegionIndex index) {
@@ -228,6 +233,34 @@ namespace clover {
 
         inline bool isForwarded() const {
             return isVar() && nthWord(0).isFwd;
+        }
+
+        inline bool isParam() const {
+            return nthWord(0).kind == RegionKind::Param;
+        }
+
+        inline bool hasParamParent() const {
+            return isParam() && nthWord(1).parentParameter != InvalidRegion;
+        }
+
+        inline Region paramParent() const {
+            assert(hasParamParent());
+            return { regions, nthWord(1).parentParameter };
+        }
+
+        inline void setParamParent(u32 param) {
+            assert(isParam());
+
+            // If we already have a parent, we should use that.
+            Region region = *this;
+            while (region.hasParamParent())
+                region = region.paramParent();
+
+            region.nthWord(1).parentParameter = param;
+        }
+
+        inline u32 param() const {
+            return nthWord(0).parameter;
         }
 
         inline u32 var() const {
@@ -360,6 +393,16 @@ namespace clover {
         return Region(this, words.size() - 1);
     }
 
+    inline Region Regions::param(u32 index) {
+        RegionWord word;
+        word.kind = RegionKind::Param;
+        word.parameter = index;
+        words.push(word);
+        word.parentParameter = InvalidRegion;
+        words.push(word);
+        return Region(this, words.size() - 2);
+    }
+
     inline Region Regions::ref(RegionIndex parent, RegionIndex target, bool isOwn) {
         words.push({ .kind = RegionKind::Ref, .parent = parent });
         words.push({ .isOwn = isOwn, .ref = target });
@@ -426,46 +469,6 @@ namespace clover {
                 tup.setField(ptrFieldCount ++, isOwn(member), !isSomePointer(member), i, regions->instance(tup.index, member).index);
         }
         return tup;
-    }
-
-    inline Region Regions::instance(RegionIndex parent, Type type) {
-        switch (type.kind()) {
-            case TypeKind::Numeric:
-            case TypeKind::Primitive:
-                return def(parent);
-            case TypeKind::Function:
-                // TODO: Revisit this once closures are a thing.
-                return def(parent);
-            case TypeKind::Named:
-                // Even though we might have a tag field, that tag will never
-                // be a pointer, so we ignore it and just instantiate the inner
-                // type.
-                return instance(parent, expand(type.asNamed().innerType()));
-            case TypeKind::Struct:
-                return instanceAggregate(this, parent, type.asStruct());
-            case TypeKind::Tuple:
-                return instanceAggregate(this, parent, type.asTuple());
-            case TypeKind::Pointer:
-                return ref(parent, Regions::Dead, type.asPtr().isOwn());
-
-            case TypeKind::Array:
-                // Kinda shaky on this!!! We can't generally assume we see
-                // inside an array, but if it contains owning pointers, do we
-                // maybe still want to label its region differently? Hard to
-                // say, maybe this will become a different kind of region in
-                // the future.
-                return def(parent);
-            case TypeKind::Slice:
-                // Likewise, treating slices the same as pointers prevents us
-                // from seeing their interior structure. Which is maybe
-                // desirable? But maybe not.
-                return ref(parent, Regions::Dead, type.asSlice().isOwn());
-            case TypeKind::Union:
-                unreachable("TODO: Implement region instancing for union types.");
-            case TypeKind::Var:
-            case TypeKind::Range:
-                unreachable("Shouldn't try and instance a variable or range type in analysis pass.");
-        }
     }
 
     struct RegionState {
@@ -560,11 +563,73 @@ namespace clover {
         return regions->get(possibleVar);
     }
 
+    struct ParameterConstraints {
+        vec<tinyvec<ParameterConstraint, 3>> constraints;
+
+        u32 nextParam() {
+            constraints.push({});
+            return constraints.size() - 1;
+        }
+
+        void addConstraint(ParameterConstraint::Kind kind, u32 lhs, u32 rhs) {
+            constraints[lhs].push({ kind, rhs });
+        }
+    };
+
+    inline Region Regions::instance(RegionIndex parent, Type type, ParameterConstraints* constraints) {
+        switch (type.kind()) {
+            case TypeKind::Numeric:
+            case TypeKind::Primitive:
+                return def(parent);
+            case TypeKind::Function:
+                // TODO: Revisit this once closures are a thing.
+                return def(parent);
+            case TypeKind::Named:
+                // Even though we might have a tag field, that tag will never
+                // be a pointer, so we ignore it and just instantiate the inner
+                // type.
+                return instance(parent, expand(type.asNamed().innerType()));
+            case TypeKind::Struct:
+                return instanceAggregate(this, parent, type.asStruct());
+            case TypeKind::Tuple:
+                return instanceAggregate(this, parent, type.asTuple());
+            case TypeKind::Pointer:
+                return ref(parent, constraints ? param(constraints->nextParam()).index : Regions::Dead, type.asPtr().isOwn());
+
+            case TypeKind::Array:
+                // Kinda shaky on this!!! We can't generally assume we see
+                // inside an array, but if it contains owning pointers, do we
+                // maybe still want to label its region differently? Hard to
+                // say, maybe this will become a different kind of region in
+                // the future.
+                return def(parent);
+            case TypeKind::Slice:
+                // Likewise, treating slices the same as pointers prevents us
+                // from seeing their interior structure. Which is maybe
+                // desirable? But maybe not.
+                return ref(parent, constraints ? param(constraints->nextParam()).index : Regions::Dead, type.asSlice().isOwn());
+            case TypeKind::Union:
+                unreachable("TODO: Implement region instancing for union types.");
+            case TypeKind::Var:
+            case TypeKind::Range:
+                unreachable("Shouldn't try and instance a variable or range type in analysis pass.");
+        }
+    }
+
+    inline Region Regions::alias(ParameterConstraints& constraints, Region a, Region b) {
+        u32 newId = constraints.nextParam();
+        a.setParamParent(newId);
+        b.setParamParent(newId);
+        return param(newId);
+    }
+
     struct State {
         Module* module;
         Function* function;
         Regions* regions;
         State* parent;
+        RegionIndex frame;
+        ParameterConstraints* constraints;
         vec<u32> scopes;
         vec<u32> locals;
         vec<RegionState> variableRegions;
@@ -580,10 +645,15 @@ namespace clover {
             state.parent = nullptr;
             state.variableRegions.expandTo(module->globals.size(), RegionState());
             state.emitDestructors = true;
+            state.constraints = nullptr;
+
+            // Since the top level function never returns, we never need to
+            // consider the case that the top level frame is dead.
+            state.frame = Regions::Stack;
             return state;
         }
 
-        static State initial(Regions* regions, Function* function) {
+        static State initial(Regions* regions, Function* function, ParameterConstraints* constraints) {
             State state;
             state.module = function->module;
             state.function = function;
@@ -591,6 +661,13 @@ namespace clover {
             state.parent = nullptr;
             state.variableRegions.expandTo(function->locals.size(), RegionState());
             state.emitDestructors = true;
+            state.constraints = constraints;
+
+            // For non-top-level frames, we assign the frame to a variable, so
+            // we can kill it and check for dangling values when we return.
+            state.frame = state.newHeapVar().index;
+            state.assignHeapVar(regions->get(state.frame).var(), Regions::Stack);
+
             return state;
         }
 
@@ -664,6 +741,10 @@ namespace clover {
         }
 
         void endScope(Scope* scope, ChangePosition location) {
+            if (scopes.back() > locals.size()) {
+                scopes.pop();
+                return; // This is the slightly hacky way we indicate that the scope ended early.
+            }
             const_slice<u32> inScope = locals[{scopes.back(), locals.size()}];
             vec<IndexedAST> dtors;
             for (u32 var : inScope)
@@ -674,6 +755,23 @@ namespace clover {
             }
             locals.shrinkBy(inScope.size());
             scopes.pop();
+        }
+
+        void endScopeEarly(Scope* scope, ChangePosition location) {
+            const_slice<u32> inScope = locals[{scopes.back(), locals.size()}];
+            vec<IndexedAST> dtors;
+            for (u32 var : inScope)
+                destroy(dtors, scope, var);
+            if (dtors.size()) {
+                IndexedAST dtorBlock = module->add(ASTKind::Do, InvalidScope, module->voidType(), dtors).positionless();
+                location.replaceWith(module->add(ASTKind::Then, InvalidScope, module->voidType(), location.indexedCurrent(), dtorBlock));
+            }
+            locals.shrinkBy(inScope.size());
+
+            // This makes the last scope bigger than the number of locals,
+            // which is otherwise impossible, so this is the state we use to
+            // mark that the scope ended early. We check this in endScope().
+            scopes.back() ++;
         }
 
         void def(u32 var) {
@@ -1143,11 +1241,13 @@ namespace clover {
             default:
                 unreachable("That should be all the built-in regions.");
         }
+        if (region.isParam())
+            return format(io, "'", region.param());
         if (region.isVar())
             return format(io, '$', region.var());
         io = format(io, '@', region.index);
         if (region.isRef())
-            return format(io, '[', region.isOwn() ? "&own @" : "& @", region.deref().index, ']');
+            return format(io, " -> ", region.isOwn() ? "&own @" : "& ", region.deref());
         if (region.isTuple()) {
             io = format(io, '(');
             for (u32 i = 0; i < region.size(); i ++) {
@@ -1171,11 +1271,11 @@ namespace clover {
                 continue;
             const auto& info = state.function ? state.function->locals[i] : state.module->globals[i];
             io = format(io, "[ANA]\t - ", state.module->str(info.name), " = ", state.regions->get(state.variableRegions[i].self));
-            if (state.variableRegions[i].isRef(state.regions)) {
-                RegionValue value(i);
-                Region referent = state.regions->get(value.state(state).ref);
-                io = format(io, " -> ", isOwn(value.type(state)) ? "&own " : "& ", referent);
-            }
+            // if (state.variableRegions[i].isRef(state.regions)) {
+            //     RegionValue value(i);
+            //     Region referent = state.regions->get(value.state(state).ref);
+            //     io = format(io, " -> ", isOwn(value.type(state)) ? "&own " : "& ", referent);
+            // }
             io = format(io, '\n');
         }
         for (u32 i = 0; i < state.heapVariables.size(); i ++) {
@@ -1228,6 +1328,7 @@ namespace clover {
     void take(State& state, Region region) {
         switch (region.kind()) {
             case RegionKind::Singleton:
+            case RegionKind::Param:
                 return;
             case RegionKind::Ref:
                 if (region.isOwn())
@@ -1256,6 +1357,7 @@ namespace clover {
         switch (region.kind()) {
             case RegionKind::Singleton:
             case RegionKind::Ref:
+            case RegionKind::Param:
                 unreachable("Region ", region, " shouldn't have fields.");
             case RegionKind::Tuple: {
                 auto f = region.field(field);
@@ -1371,6 +1473,10 @@ namespace clover {
         return true;
     }
 
+    bool checkNotDangling(State& state, RegionValue value) {
+
+    }
+
     void kill(State& state, Region region) {
         if (!region)
             return;
@@ -1400,6 +1506,8 @@ namespace clover {
                 kill(state, state.readHeapVar(region.var()));
                 state.assignHeapVar(region.var(), Regions::Dead);
                 return;
+            case RegionKind::Param:
+                unreachable("Shouldn't be able to kill a parameter region directly.");
         }
     }
 
@@ -1424,6 +1532,8 @@ namespace clover {
             case RegionKind::Var:
                 killField(state, state.readHeapVar(region.expand().var()), field);
                 return;
+            case RegionKind::Param:
+                unreachable("Shouldn't be able to kill a parameter region directly.");
         }
     }
 
@@ -1821,6 +1931,36 @@ namespace clover {
                 if (ast.kind() != ASTKind::Do)
                     state.endScope(ast.scope(), { ast, ast.arity() - 1 });
                 return result;
+
+            case ASTKind::FunDecl: {
+                ParameterConstraints constraints;
+                State state = State::initial(regions, ast.function(), &constraints);
+
+                state.beginScope();
+                for (AST param : ast.child(2)) if (param.kind() == ASTKind::VarDecl) {
+                    Type type = expand(param.type());
+                    if (param.child(1).missing()) {
+                        // TODO: Should we do something here?
+                    } else
+                        state[param.child(1).variable()] = regions->instance(Regions::Stack, type, &constraints);
+                }
+
+                discard(state, toDestroy, analyze(state, { ast, 4 }), { ast, 4 });
+                state.endScope(ast.scope(), { ast, 4 });
+                return result;
+            }
+
+            case ASTKind::Return: {
+                assert(state.function);
+                Region var = regions->get(state.frame);
+                state.assignHeapVar(var.var(), Regions::Dead);
+
+                // When we leave a function, we need to ensure that we haven't
+                // left an externally-visible value in an invalid state.
+
+                state.endScopeEarly(ast.scope(), ast.child(1).missing() ? ChangePosition(ast) : ChangePosition(ast, 1));
+                return result;
+            }
 
             case ASTKind::AliasDecl:
             case ASTKind::NamedDecl:

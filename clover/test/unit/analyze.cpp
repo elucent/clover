@@ -177,6 +177,25 @@ for i < 10:
 )");
 }
 
+TEST(analyze_call_simple) {
+    SKIP_IF_NO_ANALYZE;
+    auto instance = ANALYZE(R"(
+i32 foo(i32* x):
+    return *x
+)");
+}
+
+TEST(analyze_bad_dangling_return) {
+    SKIP_IF_NO_ANALYZE;
+    EXPECT_ERRORS;
+    auto instance = ANALYZE(R"(
+i32* localRef():
+    i32 x: 42
+    return &x
+)");
+    ASSERT_DID_ERROR(instance);
+}
+
 // TEST(analyze_return_local_ref) {
 //     auto instance = ANALYZE(R"(
 // fun returnsLocal():

@@ -8,6 +8,7 @@ namespace clover {
     using TypeIndex = u32;
     using ScopeIndex = u32;
     using ConstraintIndex = u32;
+    using RegionIndex = u32;
 
     namespace Limits {
         constexpr u32
@@ -28,7 +29,9 @@ namespace clover {
             MaxFieldsPerTypeBits = 15,
             MaxFieldsPerType = (1 << MaxFieldsPerTypeBits) - 1,
             ConstraintsPerCompilationBits = 24,
-            ConstraintsPerCompilation = (1 << ConstraintsPerCompilationBits) - 1;
+            ConstraintsPerCompilation = (1 << ConstraintsPerCompilationBits) - 1,
+            RegionsPerModuleBits = 27,
+            RegionsPerModule = (1 << RegionsPerModuleBits) - 1;
 
         constexpr u64
             MaxArrayLengthBits = 32,
@@ -41,7 +44,8 @@ namespace clover {
             InvalidScope = ScopesPerCompilation,
             InvalidConstant = ConstantsPerFunction,
             InvalidConstraint = ConstraintsPerCompilation,
-            InvalidId = IdsPerCompilation;
+            InvalidId = IdsPerCompilation,
+            InvalidRegion = RegionsPerModule;
     };
 
     using Limits::InvalidSymbol;
@@ -51,6 +55,7 @@ namespace clover {
     using Limits::InvalidConstant;
     using Limits::InvalidId;
     using Limits::InvalidConstraint;
+    using Limits::InvalidRegion;
 }
 
 #endif
