@@ -2,6 +2,7 @@
 #define JASMINE_PASS_REGALLOC_H
 
 #include "jasmine/pass/helpers.h"
+#include "jasmine/type.h"
 #include "util/deque.h"
 #include "util/io.h"
 #include "asm/arch.h"
@@ -437,7 +438,6 @@ namespace jasmine {
                         } else {
                             assert(!calleeSaves.empty());
                             allocations.scratchesByInstruction[node].push(calleeSaves.next());
-                            allocations.calleeSaves.add(calleeSaves.next());
                             calleeSaves.remove(calleeSaves.next());
                         }
                     }
@@ -599,10 +599,24 @@ namespace jasmine {
 
             for (u32 k = 0; k < 2; k ++) for (BlockIndex bi : postorder) {
                 Block block = fn->block(bi);
-                for (Edge pred : block.predecessors())
-                    liveIn[bi] |= liveIn[pred.srcIndex()];
                 liveIn[bi] |= gen[bi];
                 liveIn[bi].removeAll(kill[bi]);
+                for (Edge pred : block.predecessors())
+                    liveIn[pred.srcIndex()] |= liveIn[bi];
+            }
+
+            if UNLIKELY(config::verboseRegalloc) {
+                for (Block block : fn->blocks()) {
+                    println("[ALLOC]\tGEN at block .bb", block.index(), " is: ");
+                    for (auto e : gen[block.index()])
+                        println("[ALLOC]\t - ", OperandLogger { *fn, fn->variableById(e)});
+                    println("[ALLOC]\tKILL at block .bb", block.index(), " is: ");
+                    for (auto e : kill[block.index()])
+                        println("[ALLOC]\t - ", OperandLogger { *fn, fn->variableById(e)});
+                    println("[ALLOC]\tLive-in at block .bb", block.index(), " is: ");
+                    for (auto e : liveIn[block.index()])
+                        println("[ALLOC]\t - ", OperandLogger { *fn, fn->variableById(e)});
+                }
             }
         }
 
@@ -1003,6 +1017,8 @@ namespace jasmine {
                         if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
                             type = PTR;
                         src.regType = type;
+                        if (dest.isReg())
+                            dest.regType = type;
                         succ.addMove(src, dest);
                     } else if (variableLocations[var].kind == Operand::Invalid) {
                         variableLocations[var] = slotFor(var), liveInSlot.on(var);
@@ -1236,6 +1252,11 @@ namespace jasmine {
                     evict(block, indexInBlock, regBindings[63 - r]);
                     if UNLIKELY(config::verboseRegalloc)
                         println("[ALLOC]\tPicked occupied scratch register ", OperandLogger { *fn, Target::is_gp(63 - r) ? fn->gp(63 - r) : fn->fp(63 - r) }, " for instruction ", node);
+                    // We don't need to add to the callee-saved scratches set
+                    // here, because we know the register already belonged to
+                    // something else, which must at one point have added the
+                    // callee-save to either the scratches or normal
+                    // callee-saves set.
                     break;
                 }
             }

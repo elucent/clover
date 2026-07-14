@@ -733,6 +733,16 @@ namespace clover {
                         result = operand;
                         break;
                     }
+                    if (srcType.isNum() && destType.isNum() && false) {
+                        // Skip generating conversions between integers of the
+                        // same bit count. This should always be a no-op, and
+                        // avoiding the conversion up front helps save the
+                        // backend some work.
+                        if (!srcType.asNum().isFloat() && !destType.asNum().isFloat() && srcType.asNum().bitCount() == destType.asNum().bitCount()) {
+                            result = operand;
+                            break;
+                        }
+                    }
                     result = genCtx.temp();
                     jasmine_append_convert(builder, genCtx.lower(destType), result, genCtx.lower(srcType), operand);
                     break;
@@ -893,37 +903,29 @@ namespace clover {
         bool isPre = ast.kind() == ASTKind::PreIncr || ast.kind() == ASTKind::PreDecr;
 
         if (ast.child(0).kind() == ASTKind::AddressOf && ast.child(0).child(0).kind() == ASTKind::Local) {
-            // Again, in this common case, we avoid memory operations and
-            // operate directly on the local.
-            JasmineType varType = genCtx.lower(typeOf(ast.child(0), 0));
-            JasmineOperand base = genCtx.local(ast.child(0).child(0).variable());
-            if (isPre) {
-                binOp(builder, varType, base, base, genCtx.imm(1));
-                return coerce(genCtx, builder, destType, typeOf(ast.child(0), 0), base);
-            } else {
-                auto result = genCtx.temp();
-                jasmine_append_mov(builder, varType, result, base);
-                binOp(builder, varType, base, base, genCtx.imm(1));
-                return coerce(genCtx, builder, destType, typeOf(ast.child(0), 0), result);
-            }
+            // Unlike compound assignments, we always leave this as a load.
+            // This is because increments and decrements can be used in
+            // expression positions, which means modifying a variable could
+            // invalidate a previous read of that variable. Rather than add a
+            // conservative move from every variable use, we turn pre/post
+            // increment/decrement into memory operations.
+        }
+        Type ptrType = typeOf(ast, 0);
+        Type elementType = expand(ptrType.asPtr().elementType());
+        JasmineType varType = genCtx.lower(elementType);
+        JasmineOperand base = generate(genCtx, builder, ast.child(0), ptrType);
+        JasmineOperand temp = genCtx.temp();
+        jasmine_append_load(builder, varType, temp, base);
+        if (isPre) {
+            binOp(builder, varType, temp, temp, genCtx.imm(1));
+            jasmine_append_store(builder, varType, base, temp);
+            return coerce(genCtx, builder, destType, elementType, temp);
         } else {
-            Type ptrType = typeOf(ast, 0);
-            Type elementType = expand(ptrType.asPtr().elementType());
-            JasmineType varType = genCtx.lower(elementType);
-            JasmineOperand base = generate(genCtx, builder, ast.child(0), ptrType);
-            JasmineOperand temp = genCtx.temp();
-            jasmine_append_load(builder, varType, temp, base);
-            if (isPre) {
-                binOp(builder, varType, temp, temp, genCtx.imm(1));
-                jasmine_append_store(builder, varType, base, temp);
-                return coerce(genCtx, builder, destType, elementType, temp);
-            } else {
-                JasmineOperand result = genCtx.temp();
-                jasmine_append_mov(builder, varType, result, temp);
-                binOp(builder, varType, temp, temp, genCtx.imm(1));
-                jasmine_append_store(builder, varType, base, temp);
-                return coerce(genCtx, builder, destType, elementType, result);
-            }
+            JasmineOperand result = genCtx.temp();
+            jasmine_append_mov(builder, varType, result, temp);
+            binOp(builder, varType, temp, temp, genCtx.imm(1));
+            jasmine_append_store(builder, varType, base, temp);
+            return coerce(genCtx, builder, destType, elementType, result);
         }
     }
 

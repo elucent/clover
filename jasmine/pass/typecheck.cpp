@@ -167,8 +167,12 @@ namespace jasmine {
                     TypeIndex& currentType = fn.variableList[operand.var].type;
                     if (currentType == UNDEFINED)
                         currentType = type;
-                    else if (currentType != type)
+                    else if (currentType != type) {
+                        // Show some leniency for signed/unsigned integers.
+                        if (isInt(currentType) && isInt(type) && (~currentType & 3) == (~type & 3))
+                            break;
                         ctx.error(block, node, "Can't unify variable ", OperandLogger { fn, operand }, " of type ", TypeLogger { fn, currentType }, " with ", TypeLogger { fn, type }, '.');
+                    }
                     break;
                 }
                 case Operand::Sizeof:

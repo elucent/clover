@@ -598,6 +598,12 @@ namespace jasmine {
         return type <= U8 && type >= U64;
     }
 
+    inline TypeIndex makeSigned(TypeIndex type) {
+        if (isUnsigned(type))
+            type += 4;
+        return type;
+    }
+
     inline bool isSigned(TypeIndex type) {
         return isInt(type) && !isUnsigned(type);
     }

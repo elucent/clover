@@ -306,6 +306,10 @@ namespace jasmine {
         }
         if (allocations.stack || fn.hasAlloca) {
             Target::enter(as);
+        }
+        for (mreg r : allocations.calleeSaves)
+            Target::push64(as, Target::is_gp(r) ? GP(r) : FP(r));
+        if (allocations.stack || fn.hasAlloca) {
             Target::stack(as, Imm(allocations.stack));
         }
 
@@ -606,6 +610,11 @@ namespace jasmine {
                     case Opcode::RET: {
                         if (totalStackWithCalleeSaves % 16 == 0 && !allocations.stack && fn.makesCalls)
                             Target::unstack(as, Imm(8));
+                        vec<mreg> calleeSaves;
+                        for (mreg r : allocations.calleeSaves)
+                            calleeSaves.push(r);
+                        for (mreg r : reversed(calleeSaves))
+                            Target::pop64(as, Target::is_gp(r) ? GP(r) : FP(r));
                         if (allocations.stack || fn.hasAlloca)
                             Target::leave(as);
                         Target::ret(as);
