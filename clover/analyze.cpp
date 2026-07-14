@@ -1474,7 +1474,7 @@ namespace clover {
     }
 
     bool checkNotDangling(State& state, RegionValue value) {
-
+        unreachable("TODO: Finish implementing this.");
     }
 
     void kill(State& state, Region region) {
