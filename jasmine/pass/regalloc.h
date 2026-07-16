@@ -1361,10 +1361,14 @@ namespace jasmine {
                 auto returnPlacement = passes->placeReturnValue(*fn, fn->returnType, parameterState);
                 returnOperand = operandFromPlacement(*fn, returnPlacement);
             }
-            for (auto& param : fn->parameters) if (!isCompound(param.type) || isFunction(*fn, param.type)) {
-                Repr repr = passes->repr(param.type);
-                auto placement = Target::place_scalar_parameter(parameterState, repr);
-                param.operand = operandFromPlacement(*fn, placement);
+            for (auto& param : fn->parameters) {
+                if (!isCompound(param.type) || isFunction(*fn, param.type)) {
+                    Repr repr = passes->repr(param.type);
+                    auto placement = Target::place_scalar_parameter(parameterState, repr);
+                    param.operand = operandFromPlacement(*fn, placement);
+                } else {
+                    param.operand = slotFor(param.operand.var);
+                }
             }
             Target::finish_placing_parameters(parameterState);
 

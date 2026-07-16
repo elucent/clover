@@ -3,6 +3,7 @@
 
 #include "util/config.h"
 #include "util/hash.h"
+#include "util/str.h"
 #include "util/vec.h"
 #include "util/bits.h"
 #include "util/pool.h"
@@ -4714,7 +4715,7 @@ namespace clover {
             while (p > 0) {
                 u32 n = number / p;
                 u32 c = n % 26;
-                if (p > 1)
+                if (p * 26 > number)
                     c --;
                 p /= 26;
                 io = format(io, i8('a' + c));

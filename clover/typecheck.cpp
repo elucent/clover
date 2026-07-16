@@ -3,6 +3,7 @@
 #include "clover/compilation.h"
 #include "clover/resolve.h"
 #include "clover/interp.h"
+#include "clover/type.h"
 #include "clover/value.h"
 #include "util/config.h"
 
@@ -1710,6 +1711,7 @@ namespace clover {
                     ast.setType(varType);
 
                 ctx.constraints->constrainOrder(lhsType, varType);
+                ctx.checkLater(ast);
                 return fromNodeType(ast);
             }
 
@@ -1907,7 +1909,8 @@ namespace clover {
                     // Struct types can be constructed with exactly as many
                     // parameters as they have members.
 
-                    type_assert(ast.arity() == type.asStruct().count() + 1);
+                    if (ast.arity() != type.asStruct().count() + 1)
+                        type_error("Incorrect number of parameters for constructor ", ast);
                     for (u32 i = 1; i < ast.arity(); i ++) {
                         value = inferChild(ctx, function, ast, i);
                         unify(value, type.asStruct().fieldType(i - 1), ast, ctx);
@@ -2859,14 +2862,17 @@ namespace clover {
                 Type baseType = dereferenceIfPointer(module, srcType, ast.kind() == ASTKind::SetField);
                 bool didDereference = baseType.index != srcType.index;
 
-                if (baseType.isVar()) {
-                    baseType = canonicalTypeInBounds(module->types, baseType.asVar().lowerBound(), baseType.asVar().upperBound());
-                    if (!didDereference)
-                        baseType = dereferenceIfPointer(module, baseType, ast.kind() == ASTKind::SetField);
+                while (baseType.isVar()) {
+                    Type assignment = canonicalTypeInBounds(module->types, baseType.asVar().lowerBound(), baseType.asVar().upperBound());
+                    if (assignment.isPtr() && !didDereference) {
+                        baseType = assignment = assignment.asPtr().elementType();
+                        didDereference = true;
+                        continue;
+                    }
+                    if (assignment == Bottom)
+                        return NotEnoughInformation;
+                    break;
                 }
-
-                if (baseType == Bottom)
-                    return NotEnoughInformation;
 
                 if (baseType.isVar())
                     baseType = concreteType(module, baseType);
@@ -3034,6 +3040,13 @@ namespace clover {
             case ASTKind::SetIndex: {
                 Type baseType = inferredType(ctx, function, ast.child(0));
                 baseType = dereferenceIfPointer(module, baseType, ast.kind() != ASTKind::GetIndex);
+
+                if (baseType.isVar()) {
+                    Type assignment = canonicalTypeInBounds(baseType.types, baseType.asVar().lowerBound(), baseType.asVar().upperBound());
+                    if (assignment == Bottom)
+                        return NotEnoughInformation;
+                }
+
                 Type elementType = tryGetElementTypeOf(module, baseType, ast.kind() != ASTKind::GetIndex);
 
                 if (!elementType) {
@@ -3105,8 +3118,14 @@ namespace clover {
                             return NotEnoughInformation;
                     }
                     resolution = refineOverloadedCall(ctx, function, ast);
-                } else
+                } else {
+                    Type type = expand(inferredType(ctx, function, ast.child(0)));
+                    if (type.isVar())
+                        type = canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound());
+                    if (!type.isFunc())
+                        return NotEnoughInformation;
                     resolution = refineCall(ctx, function, ast);
+                }
                 if (!resolution && ast.kind() == ASTKind::CallMethod) {
                     auto arg = inferredType(ctx, function, ast.child(1));
                     auto dereffed = dereferenceIfPointer(module, arg, false);
@@ -3592,6 +3611,7 @@ namespace clover {
                     }
                 }
                 type.firstWord().isConcrete = allConcrete;
+                break;
             }
             case TypeKind::Named: {
                 auto namedType = type.asNamed();
@@ -3983,7 +4003,8 @@ namespace clover {
                 bool madeProgress = false;
                 order.removeIf([&](ConstraintIndex i) {
                     bool shouldRemove = false;
-                    Type type = constraints.types->get(constraints.constrainedTypes[i]);
+                    Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+                    Type type = origType;
                     if (expand(type).isVar()) {
                         if (expand(type.asVar().lowerBound()).isConcrete() && expand(type.asVar().upperBound()).isConcrete()) {
                             type.concretify();
@@ -3995,6 +4016,41 @@ namespace clover {
 
                     for (Constraint constraint : constraints.constraints[i])
                         processSubtypeConstraint(type, constraint);
+
+                    if (constraints.constraints[i].doesNeedRefinement()) {
+                        assert(origType.isVar());
+                        assert(origType.asVar().hasOwner());
+
+                        AST ast = origType.asVar().owner();
+                        assert(!ast.isLeaf());
+                        switch (refine(ctx, ast.function(), ast, type)) {
+                            case RefineSuccess:
+                                break;
+                            case RefineFailure:
+                            case NotEnoughInformation:
+                                type_error("Couldn't refine node ", ast, " after inferring type ", type);
+                        }
+                    }
+
+                    if UNLIKELY(constraints.constraints[i].hasRefinementList) {
+                        auto& list = constraints.constraints[i].refinementList(constraints);
+                        for (ConstraintIndex i : list) {
+                            Type origType = constraints.types->get(constraints.constrainedTypes[i]);
+                            assert(origType.isVar());
+                            assert(origType.asVar().hasOwner());
+                            AST ast = origType.asVar().owner();
+                            assert(!ast.isLeaf());
+                            switch (refine(ctx, ast.function(), ast, type)) {
+                                case RefineSuccess:
+                                    break;
+                                case RefineFailure:
+                                case NotEnoughInformation:
+                                    type_error("Couldn't refine node ", ast, " after inferring type ", type);
+                                    break;
+                            }
+                        }
+                        constraints.constraints[i].dropRefinementList(constraints);
+                    }
 
                     return shouldRemove;
                 });
@@ -4098,6 +4154,14 @@ namespace clover {
 
             case ASTKind::TopLevel:
                 concretifyNode(ast);
+                break;
+
+            case ASTKind::GetField:
+            case ASTKind::SetField:
+            case ASTKind::AddrField:
+            case ASTKind::EnsureAddrField:
+                if (isIdentifier(ast.child(1)))
+                    refine(ctx, function, ast, ast.type());
                 break;
 
             default:

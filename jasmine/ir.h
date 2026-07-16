@@ -277,13 +277,13 @@ namespace jasmine {
 
         union {
             struct { Kind kind : 4; u32 var : 28; };
-            struct { Kind : 4; i32 isInline : 1; i32 constant : 27; };
-            struct { Kind : 4; TypeIndex regType : 20; i32 gp : 8; };
+            struct { Kind : 4; u32 isInline : 1; i32 constant : 27; };
+            struct { Kind : 4; TypeIndex regType : 22; i32 gp : 6; };
             struct { Kind : 4; u32 : 20; i32 fp : 8; };
             struct { Kind : 4; u32 : 12; i32 ra : 8, rb : 8; };
             struct { Kind : 4; u32 edge : 28; };
             struct { Kind : 4; i32 sym : 28; };
-            struct { Kind : 4; i32 base : 8; i32 offset : 20; };
+            struct { Kind : 4; i32 base : 6; i32 offset : 22; };
             struct { Kind : 4; TypeIndex type : 28; };
             u32 bits;
         };

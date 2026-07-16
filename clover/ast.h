@@ -93,13 +93,10 @@ namespace clover {
         macro(PreDecr, preDecr, pre_decr, false, 1) \
         macro(PostIncr, postIncr, post_incr, false, 1) \
         macro(PostDecr, postDecr, post_decr, false, 1) \
-        macro(Range, range, .., false, 2) \
         macro(Length, length, length, false, 1) \
         macro(SizeOf, sizeOf, size_of, false, 1) \
         macro(Is, is, is, false, 2) \
         macro(In, in, in, false, 2) \
-        macro(FormatString, formatString, format_string, false, -1) \
-        macro(WithRank, withRank, with_rank, false, 2) \
         macro(NamedParameter, namedParameter, named_parameter, false, 2) \
         macro(Stars, stars, stars, false, -1) /* Horrible syntax hack. It's lhs, rhs, then any number of 1s or 2s encoded as integers. */ \
         macro(New, new, new, false, 1) \

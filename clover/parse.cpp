@@ -1045,7 +1045,6 @@ namespace clover {
             case OperatorGreaterEqual: return chainRelationalOperators(module, op.pos, lhs, ASTKind::GreaterEq, rhs);
             case OperatorEqual: return chainRelationalOperators(module, op.pos, lhs, ASTKind::Equal, rhs);
             case OperatorNotEqual: return chainRelationalOperators(module, op.pos, lhs, ASTKind::NotEqual, rhs);
-            case OperatorRange: kind = ASTKind::Range; break;
             case KeywordAs:
                 return module->addInitial(ASTKind::Construct, origin(lhs, rhs), rhs, lhs);
             case KeywordIs: kind = ASTKind::Is; break;

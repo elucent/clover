@@ -872,7 +872,7 @@ namespace jasmine {
                         assert(operands[1].kind == Operand::Memory); // Compounds should always be allocated to stack slots...for now.
                         i64 offsetStart = offset(fn, n.type(), fn.intValueOf(operands[2])) + operands[1].offset;
                         i64 offsetEnd = offsetStart + fieldRepr.size();
-                        if (fitsSigned<20>(offsetStart) && fitsSigned<20>(offsetEnd - 1)) // It's okay to not be inclusive on the end.
+                        if (fitsSigned<22>(offsetStart) && fitsSigned<22>(offsetEnd - 1)) // It's okay to not be inclusive on the end.
                             makeMove<Target>(this, fn, b, fieldType, operands[0], fn.memory(operands[1].base, offsetStart), allocations.scratch0(n), usedScratches);
                         else {
                             // If the dest is a general-purpose register, we
@@ -893,7 +893,7 @@ namespace jasmine {
                         assert(operands[0].kind == Operand::Memory); // Compounds should always be allocated to stack slots...for now.
                         i64 offsetStart = offset(fn, n.type(), fn.intValueOf(operands[1])) + operands[0].offset;
                         i64 offsetEnd = offsetStart + fieldRepr.size();
-                        if (fitsSigned<20>(offsetStart) && fitsSigned<20>(offsetEnd - 1)) // It's okay to not be inclusive on the end.
+                        if (fitsSigned<22>(offsetStart) && fitsSigned<22>(offsetEnd - 1)) // It's okay to not be inclusive on the end.
                             makeMove<Target>(this, fn, b, fieldType, fn.memory(operands[0].base, offsetStart), src, allocations.scratch0(n), usedScratches);
                         else {
                             Operand scratch = allocations.scratch0(n);
@@ -910,7 +910,7 @@ namespace jasmine {
                         assert(operands[1].kind == Operand::Memory); // Compounds should always be allocated to stack slots...for now.
                         i64 offsetStart = offset(fn, n.type(), fn.intValueOf(operands[2])) + operands[1].offset;
                         Operand output = operands[0].isReg() ? operands[0] : allocations.scratch0(n);
-                        if (fitsSigned<20>(offsetStart)) // It's okay to not be inclusive on the end.
+                        if (fitsSigned<22>(offsetStart)) // It's okay to not be inclusive on the end.
                             b.addNode(Opcode::ADDR, PTR, output, fn.memory(operands[1].base, offsetStart));
                         else {
                             Operand scratch = allocations.scratch0(n);
@@ -926,7 +926,7 @@ namespace jasmine {
                         auto fieldRepr = repr(fieldType);
                         Operand srcPtr = materialize(b, PTR, operands[1], allocations.scratch0(n));
                         i64 off = offset(fn, n.type(), fn.intValueOf(operands[2]));
-                        assert(fitsSigned<20>(off + fieldRepr.size() - 1));
+                        assert(fitsSigned<22>(off + fieldRepr.size() - 1));
                         makeMove<Target>(this, fn, b, fieldType, operands[0], fn.memory(srcPtr.gp, off), allocations.scratch1(n), usedScratches);
                         break;
                     }
@@ -935,7 +935,7 @@ namespace jasmine {
                         auto fieldRepr = repr(fieldType);
                         Operand srcPtr = materialize(b, PTR, operands[1], allocations.scratch0(n));
                         i64 off = offset(fn, n.type(), fn.intValueOf(operands[2]));
-                        assert(fitsSigned<20>(off + fieldRepr.size() - 1));
+                        assert(fitsSigned<22>(off + fieldRepr.size() - 1));
                         Operand output = operands[0].isReg() ? operands[0] : allocations.scratch0(n);
                         if (!operands[0].isReg())
                             reportUsedScratch(output);
@@ -948,7 +948,7 @@ namespace jasmine {
                         auto fieldRepr = repr(fieldType);
                         Operand dstPtr = materialize(b, PTR, operands[0], allocations.scratch0(n));
                         i64 off = offset(fn, n.type(), fn.intValueOf(operands[1]));
-                        assert(fitsSigned<20>(off + fieldRepr.size() - 1));
+                        assert(fitsSigned<22>(off + fieldRepr.size() - 1));
                         makeMove<Target>(this, fn, b, fieldType, fn.memory(dstPtr.gp, off), operands[2], allocations.scratch1(n), usedScratches);
                         break;
                     }
@@ -961,7 +961,7 @@ namespace jasmine {
                         if (index.isConst()) {
                             i64 offsetStart = base.offset + elementRepr.size() * fn.intValueOf(index);
                             i64 offsetEnd = offsetStart + elementRepr.size();
-                            if (fitsSigned<20>(offsetStart) && fitsSigned<20>(offsetEnd - 1)) { // It's okay to not be inclusive on the end.
+                            if (fitsSigned<22>(offsetStart) && fitsSigned<22>(offsetEnd - 1)) { // It's okay to not be inclusive on the end.
                                 makeMove<Target>(this, fn, b, elementType, operands[0], fn.memory(base.base, offsetStart), allocations.scratch0(n), usedScratches);
                                 break;
                             } else {
@@ -992,7 +992,7 @@ namespace jasmine {
                         if (index.isConst()) {
                             i64 offsetStart = base.offset + elementRepr.size() * fn.intValueOf(index);
                             i64 offsetEnd = offsetStart + elementRepr.size();
-                            if (fitsSigned<20>(offsetStart) && fitsSigned<20>(offsetEnd - 1)) { // It's okay to not be inclusive on the end.
+                            if (fitsSigned<22>(offsetStart) && fitsSigned<22>(offsetEnd - 1)) { // It's okay to not be inclusive on the end.
                                 makeMove<Target>(this, fn, b, elementType, fn.memory(base.base, offsetStart), operands[3], allocations.scratch0(n), usedScratches);
                                 break;
                             } else {
@@ -1020,7 +1020,7 @@ namespace jasmine {
                             reportUsedScratch(output);
                         if (index.isConst()) {
                             i64 offsetStart = base.offset + elementRepr.size() * fn.intValueOf(index);
-                            if (fitsSigned<20>(offsetStart)) { // It's okay to not be inclusive on the end.
+                            if (fitsSigned<22>(offsetStart)) { // It's okay to not be inclusive on the end.
                                 b.addNode(Opcode::ADDR, PTR, output, fn.memory(base.base, offsetStart));
                             } else {
                                 b.addNode(Opcode::MOV, PTR, allocations.scratch1(n), fn.intConst(offsetStart - base.offset));
@@ -1053,7 +1053,7 @@ namespace jasmine {
                         Operand index = operands[3];
                         if (index.isConst()) {
                             i64 off = fn.intValueOf(index) * elementRepr.size();
-                            if (fitsSigned<20>(off + elementRepr.size() - 1))
+                            if (fitsSigned<22>(off + elementRepr.size() - 1))
                                 makeMove<Target>(this, fn, b, elementType, operands[0], fn.memory(srcPtr.gp, off), allocations.scratch1(n), usedScratches);
                             else {
                                 b.addNode(Opcode::MOV, PTR, allocations.scratch1(n), fn.intConst(off));
@@ -1124,7 +1124,7 @@ namespace jasmine {
                         Operand index = operands[2];
                         if (index.isConst()) {
                             i64 off = fn.intValueOf(index) * elementRepr.size();
-                            if (fitsSigned<20>(off + elementRepr.size() - 1))
+                            if (fitsSigned<22>(off + elementRepr.size() - 1))
                                 makeMove<Target>(this, fn, b, elementType, fn.memory(dstPtr.gp, off), operands[3], allocations.scratch1(n), usedScratches);
                             else {
                                 b.addNode(Opcode::ADD, PTR, allocations.scratch0(n), dstPtr, index);

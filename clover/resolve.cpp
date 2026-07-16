@@ -1261,7 +1261,7 @@ namespace clover {
             // would look like a function type, we actually turn ourselves into a GetField - and handle that for
             // Call at the start of this function.
 
-            u32 firstArg = call.kind() == ASTKind::Call ? 1 : 2;
+            u32 firstArg = call.kind() == ASTKind::CallMethod ? 2 : 1;
 
             bool hasAnyNonType = false;
             vec<Type> types;
@@ -1670,6 +1670,11 @@ namespace clover {
             case ASTKind::Ident:
             case ASTKind::Literal:
                 patternPos.replaceWith(resolvePatternBinding(module, ctx, refTraits, scope, pattern.symbol(), patternPos.origin()));
+                break;
+
+            case ASTKind::ResolvedFunction:
+                // Must be a function name in an outer scope.
+                patternPos.replaceWith(resolvePatternBinding(module, ctx, refTraits, scope, pattern.resolvedFunction()->name, patternPos.origin()));
                 break;
 
             case ASTKind::VarDecl:
