@@ -581,11 +581,13 @@ namespace jasmine {
 
                 for (Move& move : edge.moves()) {
                     assert(move.dest.isReg() || move.src.isReg());
-                    if (move.src.isReg())
+                    if (move.src.isReg()) {
                         originalEdgeTypes.back().push(move.src.regType);
-                    else
+                        move.src.regType = 0;
+                    } else
                         originalEdgeTypes.back().push(move.dest.regType);
-                    move.src.regType = move.dest.regType = 0;
+                    if (move.dest.isReg())
+                        move.dest.regType = 0;
                 }
             } else for (Move move : edge.moves()) {
                 assert(move.dest.kind == Operand::Var);

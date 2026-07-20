@@ -46,7 +46,11 @@ namespace jasmine {
             for (EdgeIndex p : block.successorIndices()) succ.push(p);
             for (EdgeIndex e : pred) fn.removeEdge(e);
             for (EdgeIndex e : succ) fn.removeEdge(e);
-            for (Node n : block.nodes()) n.nopify();
+            for (Node n : block.nodes()) {
+                if (ctx.defs && hasDef(n.opcode()))
+                    (*ctx.defs)[n.def(0).var] = -1;
+                n.nopify();
+            }
         }
 
         vec<i32, 64> useCounts;
@@ -68,11 +72,12 @@ namespace jasmine {
             if (hasDef(n.opcode()) && !hasEffects(n.opcode()) && !useCounts[n.operand(0).var]) {
                 for (Operand o : n.uses()) if (o.kind == Operand::Var) {
                     if (!--useCounts[o.var] && ctx.has(IRTrait::SSA)) {
-                        auto def = (*ctx.defs)[o.var];
+                        auto& def = (*ctx.defs)[o.var];
                         if (def >= 0)
                             dceNodes.push(def);
                         else if (def < -1)
                             dceEdges.push(-(def + 2));
+                        def = -1;
                     }
                 }
                 n.nopify();
@@ -100,11 +105,12 @@ namespace jasmine {
                 if (!hasEffects(n.opcode())) {
                     for (Operand o : n.uses()) if (o.kind == Operand::Var) {
                         if (!--useCounts[o.var]) {
-                            auto def = (*ctx.defs)[o.var];
+                            auto& def = (*ctx.defs)[o.var];
                             if (def >= 0)
                                 dceNodes.push((*ctx.defs)[o.var]);
                             else if (def < -1)
                                 dceEdges.push(-(def + 2));
+                            def = -1;
                         }
                     }
                     n.nopify();

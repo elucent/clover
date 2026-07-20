@@ -329,6 +329,8 @@ namespace jasmine {
         JASMINE_PASS(CONSTANT_FOLDING);
         ctx.require(SSA);
 
+        auto& defs = *ctx.defs;
+
         vec<biasedset<128>> userNodes, userEdges;
         userNodes.expandTo(fn.variableList.size());
         userEdges.expandTo(fn.variableList.size());
@@ -352,6 +354,7 @@ namespace jasmine {
                 for (Move& move : edge.moves()) if (move.src == var)
                     move.src = val;
             }
+            defs[var.var] = -1;
             fixpoint = false;
             wasFoldedOut.on(var.var);
         };
@@ -377,7 +380,11 @@ namespace jasmine {
                         edgesToRemove.push(e);
                     for (EdgeIndex e : edgesToRemove)
                         fn.removeEdge(e);
-                    for (Node n : block.nodes()) n.nopify();
+                    for (Node n : block.nodes()) {
+                        if (hasDef(n.opcode()))
+                            defs[n.def(0).var] = -1;
+                        n.nopify();
+                    }
                     fixpoint = false;
                     continue;
                 }

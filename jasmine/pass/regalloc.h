@@ -1448,13 +1448,17 @@ namespace jasmine {
                     edgeReg.add(allocations.edgeAllocations[edge.index()].gp);
                     if (move.src.kind == Operand::Var) {
                         RegSet preferred;
-                        if (move.dest.isReg())
-                            preferred.add(move.dest.gp);
-                        TypeIndex type = fn->variableList[move.src.var].type;
-                        if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
-                            type = PTR;
-                        move.src = allocate(block, block.nodeIndices().size() - 1, move.src.var, edgeReg, preferred);
-                        move.src.regType = type;
+                        if (pins->isPinned(move.src.var))
+                            move.src = slotFor(move.src.var);
+                        else {
+                            if (move.dest.isReg())
+                                preferred.add(move.dest.gp);
+                            TypeIndex type = fn->variableList[move.src.var].type;
+                            if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
+                                type = PTR;
+                            move.src = allocate(block, block.nodeIndices().size() - 1, move.src.var, edgeReg, preferred);
+                            move.src.regType = type;
+                        }
                     }
                 }
 
@@ -1467,6 +1471,10 @@ namespace jasmine {
                     Edge first = block.predecessor(0);
                     biasedset<128> edgeVars;
                     for (Edge pred : block.predecessors()) for (Move& move : pred.moves()) if (move.dest.kind == Operand::Var) {
+                        if (pins->isPinned(move.dest.var)) {
+                            move.dest = slotFor(move.dest.var);
+                            continue;
+                        }
                         edgeVars.on(move.dest.var);
                         TypeIndex type = fn->variableList[move.dest.var].type;
                         if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
