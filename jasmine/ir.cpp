@@ -95,7 +95,7 @@ namespace jasmine {
         if (visited[index])
             return;
         indices.push(index);
-        visited[index] = true;
+        visited.on(index);
         Block block = fn.block(index);
         for (Edge successor : block.successors()) {
             if (!visited[successor.destIndex()])
@@ -106,7 +106,7 @@ namespace jasmine {
     void traverseBlocksPostorder(vec<BlockIndex>& indices, const Function& fn, bitset<256>& visited, BlockIndex index) {
         if (visited[index])
             return;
-        visited[index] = true;
+        visited.on(index);
         Block block = fn.block(index);
         for (Edge successor : block.successors()) {
             if (!visited[successor.destIndex()])
