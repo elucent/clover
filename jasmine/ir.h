@@ -278,9 +278,9 @@ namespace jasmine {
         union {
             struct { Kind kind : 4; u32 var : 28; };
             struct { Kind : 4; u32 isInline : 1; i32 constant : 27; };
-            struct { Kind : 4; TypeIndex regType : 22; i32 gp : 6; };
-            struct { Kind : 4; u32 : 20; i32 fp : 8; };
-            struct { Kind : 4; u32 : 12; i32 ra : 8, rb : 8; };
+            struct { Kind : 4; TypeIndex regType : 22; u32 gp : 6; };
+            struct { Kind : 4; u32 : 22; u32 fp : 6; };
+            struct { Kind : 4; u32 : 16; u32 ra : 6, rb : 6; };
             struct { Kind : 4; u32 edge : 28; };
             struct { Kind : 4; i32 sym : 28; };
             struct { Kind : 4; i32 base : 6; i32 offset : 22; };
@@ -1986,7 +1986,7 @@ namespace jasmine {
                 if (edge.moves().size() && !isDOT) {
                     io = format(io, " (");
                     bool first = true;
-                    for (Move move : edge.moves()) {
+                    for (const Move& move : edge.moves()) {
                         if (!first) io = format(io, ", ");
                         first = false;
                         io = format(io, OperandLogger { o.function, move.src }, " => ", OperandLogger { o.function, move.dest });

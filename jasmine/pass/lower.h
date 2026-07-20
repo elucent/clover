@@ -2,6 +2,7 @@
 #define JASMINE_PASS_LOWER_H
 
 #include "jasmine/ir.h"
+#include "jasmine/pass.h"
 #include "jasmine/pass/helpers.h"
 
 namespace jasmine {
@@ -643,7 +644,7 @@ namespace jasmine {
         } else
             unreachable("Unexpected allocation mode.");
 
-        if UNLIKELY(config::verboseRegalloc) {
+        if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn)) {
             println("Function after stack/register allocation:\n");
             println(fn);
         }

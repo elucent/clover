@@ -204,16 +204,10 @@ namespace jasmine {
         ctx.reset();
         ctx.did(TYPECHECK);
 
-        if (optLevel > 0)
-            findDominators(ctx, fn);
-
-        if (optLevel == 1)
-            computePins(ctx, fn);
-
-        if (optLevel > 1) {
-            if (optLevel > 2) {
+        if (optLevel > 0) {
+            enforceSSA(ctx, fn);
+            if (optLevel > 1) {
                 findNaturalLoops(ctx, fn);
-                enforceSSA(ctx, fn);
                 if (!config::noConstantFolding)
                     foldConstants(ctx, fn);
                 if (!config::noStrengthReduction)
@@ -232,6 +226,7 @@ namespace jasmine {
             cleanup(ctx, fn);
             if (optLevel > 1)
                 liveness(ctx, fn);
+            findDominators(ctx, fn);
         }
     }
 

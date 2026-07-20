@@ -49,10 +49,13 @@ namespace clover {
         if (!isTypeExpression(ast, MayInstantiate))
             return false;
 
+        Type type = evaluateType(ast.module, function, ast);
+
         // Atom types are always interpreted as values, not type parameters,
         // even though they are technically type expressions.
-        if (isAtom(evaluateType(ast.module, function, ast)))
+        if (isAtom(type))
             return false;
+
         return true;
     }
 
@@ -1324,7 +1327,13 @@ namespace clover {
             case ASTKind::Typename:
             case ASTKind::GlobalTypename:
             case ASTKind::TypeField:
-            case ASTKind::GenericInst: {
+            case ASTKind::GenericInst:
+            case ASTKind::ArrayType:
+            case ASTKind::SliceType:
+            case ASTKind::OwnType:
+            case ASTKind::UninitType:
+            case ASTKind::PtrType:
+            case ASTKind::TupleType: {
                 Type type = evaluateType(module, function, ast);
                 if (type.isNamed() && type.asNamed().innerType() == Void) {
                     // It's an atom, so it's allowed to be used in a value position.
@@ -1332,7 +1341,7 @@ namespace clover {
                         return fromType(module->rangeType(type, expand(rootParentType(type))));
                     return fromType(type);
                 }
-                unreachable("Type expressions are not allowed in value positions unless they are atoms.");
+                return fromType(Void);
             }
 
             case ASTKind::FunType: {
@@ -1825,10 +1834,10 @@ namespace clover {
                 for (u32 i = 1; i < ast.arity(); i ++) {
                     if (isGenericTypeExpression(ast.child(i)))
                         inferChild(ctx, function, ast, i);
-                    if (isTypeParameter(function, ast.child(i)))
-                        continue; // It's a type parameter, skip it for now.
+
                     auto arg = inferChild(ctx, function, ast, i);
-                    ctx.constraints->constrainOrder(toType(module, arg).type(module), ast.type());
+                    if (!isTypeParameter(function, ast.child(i)))
+                        ctx.constraints->constrainOrder(toType(module, arg).type(module), ast.type());
                 }
                 return fromNodeType(ast);
             }
@@ -2790,6 +2799,11 @@ namespace clover {
 
     CallResolution refineCall(InferenceContext& ctx, Function* function, AST ast) {
         auto type = inferredType(ctx, function, ast.child(0));
+        if (type.isVar()) {
+            Type assignment = canonicalTypeInBounds(type.types, type.asVar().lowerBound(), type.asVar().upperBound());
+            if (assignment.isFunc())
+                type = concreteType(ast.module, assignment);
+        }
         if (!type.isFunc())
             type_error("Expected function type, but got ", type, " at ", ast);
         auto funcType = type.asFunc();
@@ -2798,6 +2812,7 @@ namespace clover {
         auto returnType = ast.type();
         if (!canUnify(funcType.returnType(), returnType, ast))
             return CallResolution();
+        u32 remainingTypeParameters = ast.child(0).kind() == ASTKind::ResolvedFunction ? ast.child(0).resolvedFunction()->typeParameterDecls.size() : 0;
         u32 nonTypeParameters = 0;
         for (u32 i = 1; i < ast.arity(); i ++) {
             if (isTypeParameter(function, ast.child(i)))

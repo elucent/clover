@@ -183,7 +183,6 @@ namespace clover {
         macro(On, on, on, false, 2) \
         macro(Case, case, case, false, 2) \
         macro(Match, match, match, false, -1) \
-        macro(Defer, defer, defer, false, 1) \
         macro(TopLevel, toplevel, toplevel, false, -1)
 
     struct Arity {
@@ -3456,7 +3455,7 @@ namespace clover {
         };
         auto typeColor = ast.kind() == ASTKind::ResolvedGenericType ? BLUE : (isTypeExpression(ast, ForbidInstantiation) ? CYAN : GREEN);
         auto typeReset = RESET;
-        bool isDOT = config::printTypeConstraintsAsDOT || config::jasmineASTComments;
+        bool isDOT = config::printTypeConstraintsAsDOT || config::jasmineASTComments || config::noColors;
         if (isDOT)
             typeColor = typeReset = "";
         bool shouldPrintType = ast.module->nodeTypes.size();

@@ -88,7 +88,6 @@ namespace jasmine {
     NOINLINE void reduceStrength(PassContext& ctx, Function& fn) {
         JASMINE_PASS(STRENGTH_REDUCTION);
         ctx.require(SSA);
-        recordDefs(ctx, fn);
 
         static u8 ruleDatabaseBytes[sizeof(ReductionRules)];
         ReductionRules& ruleDatabase = *bitcast<ReductionRules*>(&ruleDatabaseBytes);

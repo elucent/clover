@@ -95,6 +95,7 @@ enum class PassTimeUnit {
     macro(printInferredTreeAfterEachPass, print-inferred-tree-after-each-pass, bool, false, Clover, "Print Clover AST after each type inference iteration.") \
     macro(printTypeConstraints, print-type-constraints, bool, false, Clover, "Print inferred type constraint graph to standard output.") \
     macro(printTypeConstraintsAsDOT, print-type-constraints-as-dot, bool, false, Clover, "Print inferred type constraint graph as GraphViz graph.") \
+    macro(noColors, no-colors, bool, false, Clover, "Disable colors in compiler diagnostics.") \
     macro(cloverDOTFile, clover-dot-file, const_slice<i8>, cstring(""), Clover, "Path to write Clover GraphViz output to.") \
     macro(printProducts, print-products, bool, false, Clover, "Print Clover build products at the end of compilation.") \
     macro(parseAsSexp, parse-as-sexp, bool, false, Clover, "Parse token stream as s-expressions.") \
