@@ -1152,7 +1152,7 @@ namespace jasmine {
                     // memory location is if it's in its stack slot, and each
                     // variable should only have one unique stack slot across
                     // the whole function.
-                    assert(src.kind != Operand::Memory && dest.kind != Operand::Memory);
+                    assert(src.kind != Operand::Memory || dest.kind != Operand::Memory);
 
                     TypeIndex type = fn->variableList[var].type;
                     if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
