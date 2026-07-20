@@ -296,7 +296,7 @@ namespace jasmine {
                             : node.type();
                         if (containsPointer(elementType)) {
                             if (node.operand(1).isLabel())
-                                unify(pointerAliasing[node.operand(1).var], AliasClasses::Globals);
+                                unify(pointerAliasing[node.operand(0).var], AliasClasses::Globals);
                             else
                                 unify(pointerAliasing[node.operand(0).var], ensure(pointerAliasing[node.operand(1).var]));
                         }
@@ -370,8 +370,10 @@ namespace jasmine {
         for (NodeIndex si : storesToRevisit) {
             Node store = fn.node(si);
             auto dest = aliasClasses.expand(pointerAliasing[store.operand(0).var]);
-            if (dest == AliasClasses::Globals)
-                aliasClasses.pin(pointerAliasing[store.operand(1).var]);
+            if (dest == AliasClasses::Globals) {
+                Operand src = store.opcode() == Opcode::STORE ? store.operand(1) : store.operand(2);
+                aliasClasses.pin(pointerAliasing[src.var]);
+            }
         }
 
         // We now have a union-find of all the alias classes in the function.
