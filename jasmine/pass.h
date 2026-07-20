@@ -4,6 +4,7 @@
 #include "jasmine/type.h"
 #include "jasmine/ir.h"
 #include "jasmine/data.h"
+#include "util/str.h"
 #include "util/config.h"
 #include "util/maybe.h"
 

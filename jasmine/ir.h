@@ -621,6 +621,8 @@ namespace jasmine {
 
         inline bool hasCorrectIndex() const;
 
+        inline EdgeHeader rawHeader() const;
+        inline EdgeHeader& rawHeader();
         inline EdgeHeader header() const;
         inline EdgeHeader& header();
         inline EdgeIndex index() const;
@@ -1614,14 +1616,22 @@ namespace jasmine {
         return headidx == function->edgeList[edgeidx];
     }
 
+    inline EdgeHeader Edge::rawHeader() const {
+        return function->edgeWords[headidx].header;
+    }
+
+    inline EdgeHeader& Edge::rawHeader() {
+        return function->edgeWords[headidx].header;
+    }
+
     inline EdgeHeader Edge::header() const {
         assert(hasCorrectIndex());
-        return function->edgeWords[headidx].header;
+        return rawHeader();
     }
 
     inline EdgeHeader& Edge::header() {
         assert(hasCorrectIndex());
-        return function->edgeWords[headidx].header;
+        return rawHeader();
     }
 
     inline EdgeIndex Edge::index() const {
@@ -1662,8 +1672,8 @@ namespace jasmine {
 
     inline void Edge::grow() {
         u32 oldHeader = headidx;
-        u16 oldLength = header().length;
-        u16 oldCapacity = header().capacity;
+        u16 oldLength = rawHeader().length;
+        u16 oldCapacity = rawHeader().capacity;
         headidx = function->edgeWords.size();
         i32 i = 0;
         for (i = 0; i < oldLength; i ++) {
@@ -1672,7 +1682,7 @@ namespace jasmine {
         }
         for (; i < oldCapacity * 2; i ++)
             function->edgeWords.push({});
-        header().capacity = oldCapacity * 2;
+        rawHeader().capacity = oldCapacity * 2;
         function->edgeList[edgeidx] = headidx;
     }
 
