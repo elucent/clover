@@ -550,12 +550,18 @@ namespace jasmine {
         inline Block(Function* function_in, u32 headidx_in, BlockIndex blockidx_in):
             function(function_in), headidx(headidx_in), blockidx(blockidx_in) {}
 
+        inline bool hasCorrectIndex() const;
+
         inline BlockHeader header() const;
         inline BlockHeader& header();
         inline u32 wordCount() const;
         inline u32& wordCount();
         inline u32 capacity() const;
         inline u32& capacity();
+        inline u32 rawWordCount() const;
+        inline u32& rawWordCount();
+        inline u32 rawCapacity() const;
+        inline u32& rawCapacity();
         inline BlockIndex index() const;
         inline u32 length() const;
         inline BlockWord word(i32 i) const;
@@ -614,6 +620,8 @@ namespace jasmine {
 
         inline Edge(Function* function_in, u32 headidx_in, EdgeIndex edgeidx_in):
             function(function_in), headidx(headidx_in), edgeidx(edgeidx_in) {}
+
+        inline bool hasCorrectIndex() const;
 
         inline EdgeHeader header() const;
         inline EdgeHeader& header();
@@ -1604,11 +1612,17 @@ namespace jasmine {
 
     // Edge method implementations.
 
+    inline bool Edge::hasCorrectIndex() const {
+        return headidx == function->edgeList[edgeidx];
+    }
+
     inline EdgeHeader Edge::header() const {
+        assert(hasCorrectIndex());
         return function->edgeWords[headidx].header;
     }
 
     inline EdgeHeader& Edge::header() {
+        assert(hasCorrectIndex());
         return function->edgeWords[headidx].header;
     }
 
@@ -1665,10 +1679,12 @@ namespace jasmine {
     }
 
     inline const_slice<Move> Edge::moves() const {
+        assert(hasCorrectIndex());
         return { &function->edgeWords[headidx + 1].move, header().length - 1 };
     }
 
     inline slice<Move> Edge::moves() {
+        assert(hasCorrectIndex());
         return { &function->edgeWords[headidx + 1].move, header().length - 1 };
     }
 
@@ -1710,28 +1726,54 @@ namespace jasmine {
 
     // Block method implementations.
 
+    inline bool Block::hasCorrectIndex() const {
+        return headidx == function->blockList[blockidx];
+    }
+
     inline BlockHeader Block::header() const {
+        assert(hasCorrectIndex());
         return function->blockWords[headidx].header;
     }
 
     inline BlockHeader& Block::header() {
+        assert(hasCorrectIndex());
         return function->blockWords[headidx].header;
     }
 
-    inline u32 Block::wordCount() const {
+    inline u32 Block::rawWordCount() const {
         return function->blockWords[headidx + 1].length;
+    }
+
+    inline u32& Block::rawWordCount() {
+        return function->blockWords[headidx + 1].length;
+    }
+
+    inline u32 Block::rawCapacity() const {
+        return function->blockWords[headidx + 2].capacity;
+    }
+
+    inline u32& Block::rawCapacity() {
+        return function->blockWords[headidx + 2].capacity;
+    }
+
+    inline u32 Block::wordCount() const {
+        assert(hasCorrectIndex());
+        return rawWordCount();
     }
 
     inline u32& Block::wordCount() {
-        return function->blockWords[headidx + 1].length;
+        assert(hasCorrectIndex());
+        return rawWordCount();
     }
 
     inline u32 Block::capacity() const {
-        return function->blockWords[headidx + 2].capacity;
+        assert(hasCorrectIndex());
+        return rawCapacity();
     }
 
     inline u32& Block::capacity() {
-        return function->blockWords[headidx + 2].capacity;
+        assert(hasCorrectIndex());
+        return rawCapacity();
     }
 
     inline BlockIndex Block::index() const {
@@ -1743,21 +1785,23 @@ namespace jasmine {
     }
 
     inline BlockWord Block::word(i32 i) const {
+        assert(hasCorrectIndex());
         return function->blockWords[headidx + i];
     }
 
     inline BlockWord& Block::word(i32 i) {
+        assert(hasCorrectIndex());
         return function->blockWords[headidx + i];
     }
 
     inline void Block::grow() {
-        growTo(capacity() * 2);
+        growTo(rawCapacity() * 2);
     }
 
     inline void Block::growTo(u32 newCapacity) {
         u32 oldHeader = headidx;
-        u32 oldLength = wordCount();
-        u32 oldCapacity = capacity();
+        u32 oldLength = rawWordCount();
+        u32 oldCapacity = rawCapacity();
         if (oldCapacity >= newCapacity)
             return;
         i32 i = 0;
@@ -1773,15 +1817,17 @@ namespace jasmine {
             for (; i < newCapacity; i ++)
                 function->blockWords.push({});
         }
-        capacity() = newCapacity;
+        rawCapacity() = newCapacity;
         function->blockList[blockidx] = headidx;
     }
 
     inline const_slice<EdgeIndex> Block::predecessorIndices() const {
+        assert(hasCorrectIndex());
         return { &function->blockWords[headidx + PrefixSize].edge, header().pred };
     }
 
     inline slice<EdgeIndex> Block::predecessorIndices() {
+        assert(hasCorrectIndex());
         return { &function->blockWords[headidx + PrefixSize].edge, header().pred };
     }
 
