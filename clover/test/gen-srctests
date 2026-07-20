@@ -98,6 +98,7 @@ i32 compile(const_slice<i8> src, const_slice<i8> outpath) {{
     posix_spawn(&pid, "{binarypath}", &actions, &attr, &ptr, process::envp);
     waitpid(pid, &result, 0);
     delete[] outpath_cstr;
+    posix_spawn_file_actions_destroy(&actions);
     close(nativeout);
     return result;
 }}
