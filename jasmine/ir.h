@@ -5,8 +5,6 @@
 #include "jasmine/const.h"
 #include "jasmine/type.h"
 #include "util/bits.h"
-#include "util/str.h"
-#include "util/sort.h"
 #include "util/config.h"
 
 namespace jasmine {

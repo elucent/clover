@@ -442,7 +442,7 @@ namespace jasmine {
                         set->bits[i] = word >> 32;
                 }
             }
-            indices.expandBy(index - (indices.size() - 1));
+            indices.expandBy(index - (i32(indices.size()) - 1));
             indices[index] = setIndex;
         }
 
