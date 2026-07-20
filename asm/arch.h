@@ -564,6 +564,9 @@ struct Reloc : public Def {
         // AMD64 specific
         REL32_LE_J_AMD64,   // 32-bit PC-relative relocation that's part of a jump.
         REL32_LE_M_AMD64,   // 32-bit PC-relative relocation that's part of a data reference.
+        REL32_LE_MI8_AMD64,     // Same as REL32_LE_M_AMD64, but followed by a one-byte immediate.
+        REL32_LE_MI16_AMD64,    // Same as REL32_LE_M_AMD64, but followed by a two-byte immediate.
+        REL32_LE_MI32_AMD64,    // Same as REL32_LE_M_AMD64, but followed by a four-byte immediate.
         #endif
 
         #if INCLUDE_ARCH_RISCV64

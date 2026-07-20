@@ -25,6 +25,21 @@ void linkReloc(iptr reloc, iptr sym, Reloc::Kind kind) {
                     panic("Difference is too big for 32-bit relative relocation!");
                 store<i32>(little_endian<i32>(diff), (i32*)reloc - 1);
                 break;
+            case Reloc::REL32_LE_MI8_AMD64:
+                if (diff < -0x80000000l || diff > 0x7fffffffl)
+                    panic("Difference is too big for 32-bit relative relocation!");
+                store<i32>(little_endian<i32>(diff), (i32*)(reloc - 5));
+                break;
+            case Reloc::REL32_LE_MI16_AMD64:
+                if (diff < -0x80000000l || diff > 0x7fffffffl)
+                    panic("Difference is too big for 32-bit relative relocation!");
+                store<i32>(little_endian<i32>(diff), (i32*)(reloc - 6));
+                break;
+            case Reloc::REL32_LE_MI32_AMD64:
+                if (diff < -0x80000000l || diff > 0x7fffffffl)
+                    panic("Difference is too big for 32-bit relative relocation!");
+                store<i32>(little_endian<i32>(diff), (i32*)(reloc - 8));
+                break;
         #endif
 
         #if INCLUDE_ARCH_RISCV64
@@ -698,6 +713,21 @@ void Assembly::writeELFObject(fd file) {
                     offset -= 4;
                     type = R_AMD64_PC32;
                     addend = -4;
+                    break;
+                case Reloc::REL32_LE_MI8_AMD64:
+                    offset -= 5;
+                    type = R_AMD64_PC32;
+                    addend = -5;
+                    break;
+                case Reloc::REL32_LE_MI16_AMD64:
+                    offset -= 6;
+                    type = R_AMD64_PC32;
+                    addend = -6;
+                    break;
+                case Reloc::REL32_LE_MI32_AMD64:
+                    offset -= 8;
+                    type = R_AMD64_PC32;
+                    addend = -8;
                     break;
                 default:
                     unreachable("Invalid relocation kind for AMD64");

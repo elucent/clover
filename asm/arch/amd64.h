@@ -1755,10 +1755,19 @@ struct AMD64Assembler {
         binaryop(as, QWORD, Opcode::from(0x88), dst, src);
     }
 
+    static inline void fixupRipRelative(Assembly& as, ASMVal addr, Reloc::Kind kind) {
+        assert(addr.kind == ASMVal::MEM);
+        if (addr.memkind != ASMVal::REG_OFFSET) {
+            as.relocs.back().kind = kind;
+            as.relocs.back().offset = as.code.size();
+        }
+    }
+
     static inline void st8(Assembly& as, ASMVal dst, ASMVal src) {
         if (src.kind == ASMVal::IMM) {
             unaryop(as, BYTE, Opcode::litExt(0xC6, 0x00), dst);
             as.code.write<i8>(src.imm);
+            fixupRipRelative(as, dst, Reloc::REL32_LE_MI8_AMD64);
         }
         else binaryop(as, BYTE, Opcode::from(0x88), dst, src);
     }
@@ -1767,6 +1776,7 @@ struct AMD64Assembler {
         if (src.kind == ASMVal::IMM) {
             unaryop(as, WORD, Opcode::litExt(0xC7, 0x00), dst);
             as.code.writeLE<i16>(src.imm);
+            fixupRipRelative(as, dst, Reloc::REL32_LE_MI16_AMD64);
         }
         else binaryop(as, WORD, Opcode::from(0x88), dst, src);
     }
@@ -1775,6 +1785,7 @@ struct AMD64Assembler {
         if (src.kind == ASMVal::IMM) {
             unaryop(as, DWORD, Opcode::litExt(0xC7, 0x00), dst);
             as.code.writeLE<i32>(src.imm);
+            fixupRipRelative(as, dst, Reloc::REL32_LE_MI32_AMD64);
         }
         else binaryop(as, DWORD, Opcode::from(0x88), dst, src);
     }
@@ -1783,6 +1794,7 @@ struct AMD64Assembler {
         if (src.kind == ASMVal::IMM) {
             unaryop(as, QWORD, Opcode::litExt(0xC7, 0x00), dst);
             as.code.writeLE<i32>(src.imm);
+            fixupRipRelative(as, dst, Reloc::REL32_LE_MI32_AMD64);
         }
         else binaryop(as, QWORD, Opcode::from(0x88), dst, src);
     }
