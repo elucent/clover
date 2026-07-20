@@ -9,13 +9,17 @@ namespace jasmine {
 
         vec<i32, 64> nodeRenumberings, blockRenumberings, edgeRenumberings;
         i32 newBlocks = 0, newNodes = 0, newEdges = 0;
-        bitset<256> blockReachability;
+        bitset<256> blockReachability, edgeReachability;
 
         // Compute reachable blocks via preorder traversal of the CFG.
         vec<BlockIndex> blockTraversal;
         fn.scheduleInPreorder(blockTraversal);
-        for (BlockIndex b : blockTraversal)
+        for (BlockIndex b : blockTraversal) {
             blockReachability.on(b);
+            Node tail = fn.block(b).last();
+            for (Operand operand : tail.operands()) if (operand.kind == Operand::Branch)
+                edgeReachability.on(operand.edge);
+        }
 
         // Give new indices to all reachable blocks. It's important that this maintain
         // the existing order, so we can use cleanup on post-lowering code.
@@ -28,7 +32,7 @@ namespace jasmine {
 
         // Give new indices to all edges between reachable blocks.
         for (Edge e : fn.edges()) {
-            if (blockReachability[e.srcIndex()] && blockReachability[e.destIndex()])
+            if (blockReachability[e.srcIndex()] && blockReachability[e.destIndex()] && edgeReachability[e.index()])
                 edgeRenumberings.push(newEdges ++);
             else
                 edgeRenumberings.push(-1);
@@ -42,7 +46,7 @@ namespace jasmine {
                 nodeRenumberings.push(-1);
         }
 
-        bool removedAnyNodes = newNodes != fn.nodeList.size() || config::neverSkipCleanup, 
+        bool removedAnyNodes = newNodes != fn.nodeList.size() || config::neverSkipCleanup,
             removedAnyBlocks = newBlocks != fn.blockList.size() || config::neverSkipCleanup,
             removedAnyEdges = newEdges != fn.edgeList.size() || config::neverSkipCleanup;
 
@@ -74,7 +78,7 @@ namespace jasmine {
                 for (Operand& o : b.last().operands()) if (o.kind == Operand::Branch)
                     o.edge = edgeRenumberings[o.edge];
             }
-            
+
             if (removedAnyNodes) {
                 b.removeIf([&](Node node) -> bool { return node.opcode() == Opcode::NOP; });
                 for (NodeIndex& n : b.nodeIndices())
