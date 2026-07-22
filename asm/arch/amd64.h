@@ -131,13 +131,13 @@ struct AMD64Assembler {
 
     static inline bool needsREX(AMD64Size size, ASMVal v) {
         if (v.kind == ASMVal::MEM) return v.base >= R8;
-        else if (v.kind == ASMVal::FP) return v.fp >= XMM8;
-        else if (v.kind == ASMVal::GP) return v.gp >= R8;
+        else if (v.kind == ASMVal::FP) return v.reg >= XMM8;
+        else if (v.kind == ASMVal::GP) return v.reg >= R8;
         else return false;
     }
 
     static inline bool needs8BitREX(AMD64Size size, ASMVal v) {
-        return size == BYTE && v.gp >= RSP;
+        return size == BYTE && v.reg >= RSP;
     }
 
     static inline void nullary_prefix(Assembly& as, AMD64Size size, ASMVal reg, ASMVal rm) {
@@ -189,10 +189,10 @@ struct AMD64Assembler {
     }
 
     static inline void modrm(Assembly& as, ASMVal reg, ASMVal rm) {
-        u8 modb = 0b00, rmb = rm.gp & 0b111, regb = 0b000;
+        u8 modb = 0b00, rmb = rm.reg & 0b111, regb = 0b000;
         u8 sib = 0;
         if (reg.kind == ASMVal::GP)
-            regb = reg.gp & 0b111;
+            regb = reg.reg & 0b111;
         if (reg.kind == ASMVal::GP && rm.kind == ASMVal::GP)
             modb = 0b11;
         else if (rm.kind == ASMVal::MEM) {
@@ -342,8 +342,8 @@ struct AMD64Assembler {
     }
 
     static inline bool is_ext(ASMVal val) {
-        return (val.kind == ASMVal::FP && val.fp >= XMM8)
-            || (val.kind == ASMVal::GP && val.gp >= R8);
+        return (val.kind == ASMVal::FP && val.reg >= XMM8)
+            || (val.kind == ASMVal::GP && val.reg >= R8);
     }
 
     enum VexOpcode {
@@ -374,7 +374,7 @@ struct AMD64Assembler {
             if (!rexX) vex1 |= 0b01000000; // ~X bit
             if (!is_ext(rhs)) vex1 |= 0b00100000; // ~B bit
             vex2 |= prefix;
-            vex2 |= (~(lhs.fp - XMM0) & 0b1111) << 3; // Extra operand.
+            vex2 |= (~(lhs.reg - XMM0) & 0b1111) << 3; // Extra operand.
             if (wide) vex2 |= 0b10000000; // Wide
             as.code.write<u8>(vex1);
             as.code.write<u8>(vex2);
@@ -384,7 +384,7 @@ struct AMD64Assembler {
             u8 vex = 0;
             if (!is_ext(dst)) vex |= 0b10000000; // ~R bit
             vex |= prefix;
-            vex |= (~(lhs.fp - XMM0) & 0b1111) << 3; // Extra operand.
+            vex |= (~(lhs.reg - XMM0) & 0b1111) << 3; // Extra operand.
             as.code.write<u8>(vex);
         }
     }
@@ -433,9 +433,9 @@ struct AMD64Assembler {
         ASMVal reg = dst, rm = rhs;
         assert(reg.kind != ASMVal::MEM);
         if (reg.kind == ASMVal::FP)
-            reg = GP(reg.fp - XMM0);
+            reg = GP(reg.reg - XMM0);
         if (rm.kind == ASMVal::FP)
-            rm = GP(rm.gp - XMM0);
+            rm = GP(rm.reg - XMM0);
         modrm(as, reg, rm);
     }
 
@@ -454,9 +454,9 @@ struct AMD64Assembler {
         ASMVal reg = dst, rm = src;
         if (reg.kind == ASMVal::MEM) swap(reg, rm);
         if (reg.kind == ASMVal::FP)
-            reg = GP(reg.fp - XMM0);
+            reg = GP(reg.reg - XMM0);
         if (rm.kind == ASMVal::FP)
-            rm = GP(rm.gp - XMM0);
+            rm = GP(rm.reg - XMM0);
         modrm(as, reg, rm);
     }
 
@@ -509,11 +509,11 @@ struct AMD64Assembler {
 
         if (a != dst) {
             if (a.kind == ASMVal::IMM && b.kind == ASMVal::GP)
-                return la(as, dst, Mem(b.gp, a.imm));
+                return la(as, dst, Mem(b.reg, a.imm));
             if (b.kind == ASMVal::IMM && a.kind == ASMVal::GP)
-                return la(as, dst, Mem(a.gp, b.imm));
+                return la(as, dst, Mem(a.reg, b.imm));
             if (a.kind == ASMVal::GP && b.kind == ASMVal::GP)
-                return lai8(as, dst, Mem(a.gp, 0), b);
+                return lai8(as, dst, Mem(a.reg, 0), b);
         }
 
         if (a.kind == ASMVal::IMM) swap(a, b);
@@ -651,7 +651,7 @@ struct AMD64Assembler {
     }
 
     static inline void sdiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov16(as, GP(RCX), b), b = GP(RCX);
         mov16(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -663,7 +663,7 @@ struct AMD64Assembler {
     }
 
     static inline void sdiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov32(as, GP(RCX), b), b = GP(RCX);
         mov32(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -674,7 +674,7 @@ struct AMD64Assembler {
     }
 
     static inline void sdiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov64(as, GP(RCX), b), b = GP(RCX);
         mov64(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -697,7 +697,7 @@ struct AMD64Assembler {
     }
 
     static inline void udiv16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov16(as, GP(RCX), b), b = GP(RCX);
         mov16(as, GP(RAX), a), a = GP(RAX);
         if (b.kind == ASMVal::IMM)
@@ -708,7 +708,7 @@ struct AMD64Assembler {
     }
 
     static inline void udiv32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov32(as, GP(RCX), b), b = GP(RCX);
         mov32(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -719,7 +719,7 @@ struct AMD64Assembler {
     }
 
     static inline void udiv64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov64(as, GP(RCX), b), b = GP(RCX);
         mov64(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -741,7 +741,7 @@ struct AMD64Assembler {
     }
 
     static inline void srem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov16(as, GP(RCX), b), b = GP(RCX);
         mov16(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -753,7 +753,7 @@ struct AMD64Assembler {
     }
 
     static inline void srem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov32(as, GP(RCX), b), b = GP(RCX);
         mov32(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -764,7 +764,7 @@ struct AMD64Assembler {
     }
 
     static inline void srem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov64(as, GP(RCX), b), b = GP(RCX);
         mov64(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -785,7 +785,7 @@ struct AMD64Assembler {
     }
 
     static inline void urem16(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov16(as, GP(RCX), b), b = GP(RCX);
         zxt16(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -796,7 +796,7 @@ struct AMD64Assembler {
     }
 
     static inline void urem32(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov32(as, GP(RCX), b), b = GP(RCX);
         zxt32(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -807,7 +807,7 @@ struct AMD64Assembler {
     }
 
     static inline void urem64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
-        if (b.gp == RAX || b.gp == RDX)
+        if (b.reg == RAX || b.reg == RDX)
             mov64(as, GP(RCX), b), b = GP(RCX);
         mov64(as, GP(RAX), a);
         if (b.kind == ASMVal::IMM)
@@ -1573,52 +1573,52 @@ struct AMD64Assembler {
         assert(src.kind == ASMVal::GP);
         as.code.write<u8>(0x66);
         if (needsREX(BYTE, src)) as.code.write<u8>(0x41);
-        as.code.write<u8>(0x50 + (src.gp & 0b111));
+        as.code.write<u8>(0x50 + (src.reg & 0b111));
     }
 
     static inline void push16(Assembly& as, ASMVal src) {
         assert(src.kind == ASMVal::GP);
         as.code.write<u8>(0x66);
         if (needsREX(BYTE, src)) as.code.write<u8>(0x41);
-        as.code.write<u8>(0x50 + (src.gp & 0b111));
+        as.code.write<u8>(0x50 + (src.reg & 0b111));
     }
 
     static inline void push32(Assembly& as, ASMVal src) {
         assert(src.kind == ASMVal::GP);
         if (needsREX(BYTE, src)) as.code.write<u8>(0x41);
-        as.code.write<u8>(0x50 + (src.gp & 0b111));
+        as.code.write<u8>(0x50 + (src.reg & 0b111));
     }
 
     static inline void push64(Assembly& as, ASMVal src) {
         assert(src.kind == ASMVal::GP);
         if (needsREX(BYTE, src)) as.code.write<u8>(0x41);
-        as.code.write<u8>(0x50 + (src.gp & 0b111));
+        as.code.write<u8>(0x50 + (src.reg & 0b111));
     }
 
     static inline void pop8(Assembly& as, ASMVal dst) {
         assert(dst.kind == ASMVal::GP);
         as.code.write<u8>(0x66);
         if (needsREX(BYTE, dst)) as.code.write<u8>(0x41);
-        as.code.write<u8>(0x58 + (dst.gp & 0b111));
+        as.code.write<u8>(0x58 + (dst.reg & 0b111));
     }
 
     static inline void pop16(Assembly& as, ASMVal dst) {
         assert(dst.kind == ASMVal::GP);
         as.code.write<u8>(0x66);
         if (needsREX(BYTE, dst)) as.code.write<u8>(0x41);
-        as.code.write<u8>(0x58 + (dst.gp & 0b111));
+        as.code.write<u8>(0x58 + (dst.reg & 0b111));
     }
 
     static inline void pop32(Assembly& as, ASMVal dst) {
         assert(dst.kind == ASMVal::GP);
         if (needsREX(BYTE, dst)) as.code.write<u8>(0x41);
-        as.code.write<u8>(0x58 + (dst.gp & 0b111));
+        as.code.write<u8>(0x58 + (dst.reg & 0b111));
     }
 
     static inline void pop64(Assembly& as, ASMVal dst) {
         assert(dst.kind == ASMVal::GP);
         if (needsREX(BYTE, dst)) as.code.write<u8>(0x41);
-        as.code.write<u8>(0x58 + (dst.gp & 0b111));
+        as.code.write<u8>(0x58 + (dst.reg & 0b111));
     }
 
     static inline void fpush32(Assembly& as, ASMVal src) {
@@ -1647,7 +1647,7 @@ struct AMD64Assembler {
             if (src.imm == 0) return xor8(as, dst, dst, dst);
 
             unary_prefix(as, BYTE, dst);
-            as.code.write<u8>(0xB0 + (dst.gp & 0b111));
+            as.code.write<u8>(0xB0 + (dst.reg & 0b111));
             as.code.write<i8>(src.imm);
         }
         else binaryop(as, BYTE, Opcode::from(0x88), dst, src);
@@ -1658,7 +1658,7 @@ struct AMD64Assembler {
         if (src.kind == ASMVal::IMM) {
             if (src.imm == 0) return xor16(as, dst, dst, dst);
             unary_prefix(as, WORD, dst);
-            as.code.write<u8>(0xB8 + (dst.gp & 0b111));
+            as.code.write<u8>(0xB8 + (dst.reg & 0b111));
             as.code.writeLE<i16>(src.imm);
         }
         else binaryop(as, WORD, Opcode::from(0x88), dst, src);
@@ -1670,7 +1670,7 @@ struct AMD64Assembler {
             if (src.imm == 0) return xor32(as, dst, dst, dst);
 
             unary_prefix(as, DWORD, dst);
-            as.code.write<u8>(0xB8 + (dst.gp & 0b111));
+            as.code.write<u8>(0xB8 + (dst.reg & 0b111));
             as.code.writeLE<i32>(src.imm);
         }
         else binaryop(as, DWORD, Opcode::from(0x88), dst, src);
@@ -1688,7 +1688,7 @@ struct AMD64Assembler {
                 as.code.writeLE<i32>(src.imm);
             } else {
                 unary_prefix(as, DWORD, dst); // DWORD for shorter encoding size, since zero-extension doesn't affect the value.
-                as.code.write<u8>(0xB8 + (dst.gp & 0b111));
+                as.code.write<u8>(0xB8 + (dst.reg & 0b111));
                 as.code.writeLE<i32>(src.imm);
             }
         }
@@ -1824,161 +1824,161 @@ struct AMD64Assembler {
     }
 
     static inline void ldis8(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, BYTE, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, BYTE, offset);
         as.code.write<u8>(0x0f);
         as.code.write<u8>(0xbe);
-        index_args(as, dst.gp, base, index, BYTE, offset);
+        index_args(as, dst.reg, base, index, BYTE, offset);
     }
 
     static inline void ldis16(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, BYTE, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, BYTE, offset);
         as.code.write<u8>(0x0f);
         as.code.write<u8>(0xbf);
-        index_args(as, dst.gp, base, index, WORD, offset);
+        index_args(as, dst.reg, base, index, WORD, offset);
     }
 
     static inline void ldis32(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, BYTE, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, BYTE, offset);
         as.code.write<u8>(0x63);
-        index_args(as, dst.gp, base, index, DWORD, offset);
+        index_args(as, dst.reg, base, index, DWORD, offset);
     }
 
     static inline void ldiz8(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, BYTE, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, BYTE, offset);
         as.code.write<u8>(0x0f);
         as.code.write<u8>(0xb6);
-        index_args(as, dst.gp, base, index, BYTE, offset);
+        index_args(as, dst.reg, base, index, BYTE, offset);
     }
 
     static inline void ldiz16(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, BYTE, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, BYTE, offset);
         as.code.write<u8>(0x0f);
         as.code.write<u8>(0xb7);
-        index_args(as, dst.gp, base, index, WORD, offset);
+        index_args(as, dst.reg, base, index, WORD, offset);
     }
 
     static inline void ldiz32(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, BYTE, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, BYTE, offset);
         as.code.write<u8>(0x8b);
-        index_args(as, dst.gp, base, index, DWORD, offset);
+        index_args(as, dst.reg, base, index, DWORD, offset);
     }
 
     static inline void ldi64(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, BYTE, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, BYTE, offset);
         as.code.write<u8>(0x8b);
-        index_args(as, dst.gp, base, index, QWORD, offset);
+        index_args(as, dst.reg, base, index, QWORD, offset);
     }
 
     static inline void lai8(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, BYTE, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, BYTE, offset);
         as.code.write<u8>(0x8d);
-        index_args(as, dst.gp, base, index, BYTE, offset);
+        index_args(as, dst.reg, base, index, BYTE, offset);
     }
 
     static inline void lai16(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, WORD, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, WORD, offset);
         as.code.write<u8>(0x8d);
-        index_args(as, dst.gp, base, index, WORD, offset);
+        index_args(as, dst.reg, base, index, WORD, offset);
     }
 
     static inline void lai32(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, DWORD, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, DWORD, offset);
         as.code.write<u8>(0x8d);
-        index_args(as, dst.gp, base, index, DWORD, offset);
+        index_args(as, dst.reg, base, index, DWORD, offset);
     }
 
     static inline void lai64(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
-        index_prefix(as, QWORD, dst.gp, base, index, QWORD, offset);
+        index_prefix(as, QWORD, dst.reg, base, index, QWORD, offset);
         as.code.write<u8>(0x8d);
-        index_args(as, dst.gp, base, index, QWORD, offset);
+        index_args(as, dst.reg, base, index, QWORD, offset);
     }
 
     static inline void sti8(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = dst.base, index = idx.gp;
+        mreg base = dst.base, index = idx.reg;
         i64 offset = dst.offset;
         if (dst.memkind != ASMVal::REG_OFFSET) {
             la(as, GP(RAX), dst);
             base = RAX;
             offset = 0;
         }
-        mreg srcreg = src.kind == ASMVal::IMM ? RAX : src.gp;
+        mreg srcreg = src.kind == ASMVal::IMM ? RAX : src.reg;
         index_prefix(as, BYTE, srcreg, base, index, BYTE, offset);
         as.code.write<u8>(src.kind == ASMVal::IMM ? 0xc6 : 0x88);
         index_args(as, srcreg, base, index, BYTE, offset);
@@ -1987,14 +1987,14 @@ struct AMD64Assembler {
     }
 
     static inline void sti16(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = dst.base, index = idx.gp;
+        mreg base = dst.base, index = idx.reg;
         i64 offset = dst.offset;
         if (dst.memkind != ASMVal::REG_OFFSET) {
             la(as, GP(RAX), dst);
             base = RAX;
             offset = 0;
         }
-        mreg srcreg = src.kind == ASMVal::IMM ? RAX : src.gp;
+        mreg srcreg = src.kind == ASMVal::IMM ? RAX : src.reg;
         index_prefix(as, WORD, srcreg, base, index, WORD, offset);
         as.code.write<u8>(src.kind == ASMVal::IMM ? 0xc7 : 0x89);
         index_args(as, srcreg, base, index, WORD, offset);
@@ -2003,14 +2003,14 @@ struct AMD64Assembler {
     }
 
     static inline void sti32(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = dst.base, index = idx.gp;
+        mreg base = dst.base, index = idx.reg;
         i64 offset = dst.offset;
         if (dst.memkind != ASMVal::REG_OFFSET) {
             la(as, GP(RAX), dst);
             base = RAX;
             offset = 0;
         }
-        mreg srcreg = src.kind == ASMVal::IMM ? RAX : src.gp;
+        mreg srcreg = src.kind == ASMVal::IMM ? RAX : src.reg;
         index_prefix(as, DWORD, srcreg, base, index, DWORD, offset);
         as.code.write<u8>(src.kind == ASMVal::IMM ? 0xc7 : 0x89);
         index_args(as, srcreg, base, index, DWORD, offset);
@@ -2019,14 +2019,14 @@ struct AMD64Assembler {
     }
 
     static inline void sti64(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = dst.base, index = idx.gp;
+        mreg base = dst.base, index = idx.reg;
         i64 offset = dst.offset;
         if (dst.memkind != ASMVal::REG_OFFSET) {
             la(as, GP(RAX), dst);
             base = RAX;
             offset = 0;
         }
-        mreg srcreg = src.kind == ASMVal::IMM ? RAX : src.gp;
+        mreg srcreg = src.kind == ASMVal::IMM ? RAX : src.reg;
         index_prefix(as, QWORD, srcreg, base, index, QWORD, offset);
         as.code.write<u8>(src.kind == ASMVal::IMM ? 0xc7 : 0x89);
         index_args(as, srcreg, base, index, QWORD, offset);
@@ -2035,33 +2035,33 @@ struct AMD64Assembler {
     }
 
     static inline void fldi32(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
         vexunaryprefix(as, VexPrefixF3, index >= R8, false, dst, src, TwoByteOpcode);
         as.code.write<u8>(0x10);
-        index_args(as, dst.fp - XMM0, base, index, DWORD, offset);
+        index_args(as, dst.reg - XMM0, base, index, DWORD, offset);
     }
 
     static inline void fldi64(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = src.base, index = idx.gp;
+        mreg base = src.base, index = idx.reg;
         i64 offset = src.offset;
         if (src.memkind != ASMVal::REG_OFFSET) {
             la(as, dst, src);
-            base = dst.gp;
+            base = dst.reg;
             offset = 0;
         }
         vexunaryprefix(as, VexPrefixF2, index >= R8, false, dst, src, TwoByteOpcode);
         as.code.write<u8>(0x10);
-        index_args(as, dst.fp - XMM0, base, index, QWORD, offset);
+        index_args(as, dst.reg - XMM0, base, index, QWORD, offset);
     }
 
     static inline void fsti32(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = dst.base, index = idx.gp;
+        mreg base = dst.base, index = idx.reg;
         i64 offset = dst.offset;
         if (dst.memkind != ASMVal::REG_OFFSET) {
             la(as, GP(RAX), dst);
@@ -2074,11 +2074,11 @@ struct AMD64Assembler {
         }
         vexunaryprefix(as, VexPrefixF3, index >= R8, false, dst, src, TwoByteOpcode);
         as.code.write<u8>(0x11);
-        index_args(as, src.fp - XMM0, base, index, DWORD, offset);
+        index_args(as, src.reg - XMM0, base, index, DWORD, offset);
     }
 
     static inline void fsti64(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
-        mreg base = dst.base, index = idx.gp;
+        mreg base = dst.base, index = idx.reg;
         i64 offset = dst.offset;
         if (dst.memkind != ASMVal::REG_OFFSET) {
             la(as, GP(RAX), dst);
@@ -2091,7 +2091,7 @@ struct AMD64Assembler {
         }
         vexunaryprefix(as, VexPrefixF2, index >= R8, false, dst, src, TwoByteOpcode);
         as.code.write<u8>(0x11);
-        index_args(as, src.fp - XMM0, base, index, QWORD, offset);
+        index_args(as, src.reg - XMM0, base, index, QWORD, offset);
     }
 
     static inline void la(Assembly& as, ASMVal dst, ASMVal src) {
@@ -2104,7 +2104,7 @@ struct AMD64Assembler {
             if (value & 0x80000000ull) {
                 // Significant unsigned value, so use zero-extending 32-bit mov.
                 unary_prefix(as, DWORD, dst);
-                as.code.write<u8>(0xB8 + (dst.gp & 0b111));
+                as.code.write<u8>(0xB8 + (dst.reg & 0b111));
                 as.code.writeLE<u32>(src.imm64);
             } else
                 mov32(as, dst, Imm(src.imm64)); // This could have been a 32-bit imm.
@@ -2112,7 +2112,7 @@ struct AMD64Assembler {
         }
 
         unary_prefix(as, QWORD, dst);
-        as.code.write<u8>(0xB8 + (dst.gp & 0b111));
+        as.code.write<u8>(0xB8 + (dst.reg & 0b111));
         as.code.writeLE<i64>(src.imm64);
     }
 

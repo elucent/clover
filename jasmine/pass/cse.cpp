@@ -138,8 +138,7 @@ namespace jasmine {
             case Operand::Sizeof:
                 h = mixHash(h, mixHash(intHash(o.kind), intHash(o.type)));
                 break;
-            case Operand::GP:
-            case Operand::FP:
+            case Operand::Reg:
             case Operand::RegPair:
             case Operand::Memory:
             case Operand::Invalid:

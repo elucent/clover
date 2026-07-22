@@ -167,8 +167,8 @@ namespace jasmine {
         inline Block generate(Operand scratch) {
             assert(hasDst && hasSrc);
             assert(scratch.isReg());
-            assert(scratch.gp != dstOperand.base);
-            assert(scratch.gp != srcOperand.base);
+            assert(scratch.reg != dstOperand.base);
+            assert(scratch.reg != srcOperand.base);
             u32 size = repr.size();
             u32 i = 0;
             u32 align = max(repr.alignment(), min(dstAlign, srcAlign));
@@ -239,9 +239,9 @@ namespace jasmine {
     }
 
     template<typename T>
-    inline u8 scratchAndClobberNode(PassContext& ctx, Function& fn, Node node, RegSet& clobbers);
+    inline Scratches scratchAndClobberNode(PassContext& ctx, Function& fn, Node node, RegSet& clobbers);
 
-    inline u8 defaultScratchesForNode(PassContext& ctx, Function& fn, Node node) {
+    inline Scratches defaultScratchesForNode(PassContext& ctx, Function& fn, Node node) {
         auto constCount = [&]() -> u32 {
             u32 sum = 0;
             for (Operand operand : node.uses()) {
@@ -341,8 +341,8 @@ namespace jasmine {
     }
 
     template<>
-    inline u8 scratchAndClobberNode<AMD64Assembler>(PassContext& ctx, Function& fn, Node node, RegSet& clobbers) {
-        u8 scratches = defaultScratchesForNode(ctx, fn, node);
+    inline Scratches scratchAndClobberNode<AMD64Assembler>(PassContext& ctx, Function& fn, Node node, RegSet& clobbers) {
+        Scratches scratches = defaultScratchesForNode(ctx, fn, node);
         switch (node.opcode()) {
             case Opcode::DIV:
             case Opcode::REM:
@@ -367,24 +367,21 @@ namespace jasmine {
     }
 
     template<>
-    inline u8 scratchAndClobberNode<AMD64LinuxAssembler>(PassContext& ctx, Function& fn, Node node, RegSet& clobbers) {
+    inline Scratches scratchAndClobberNode<AMD64LinuxAssembler>(PassContext& ctx, Function& fn, Node node, RegSet& clobbers) {
         return scratchAndClobberNode<AMD64Assembler>(ctx, fn, node, clobbers);
     }
 
     template<typename T>
-    inline u8 scratchAndClobberNode(PassContext& ctx, Function& fn, Node node, RegSet& clobbers) {
+    inline Scratches scratchAndClobberNode(PassContext& ctx, Function& fn, Node node, RegSet& clobbers) {
         return scratchAndClobberNode<typename T::Underlying>(ctx, fn, node, clobbers);
     }
 
     inline Operand operandFromPlacement(Function& fn, MaybePair<ASMVal> placement) {
-        if (placement.isPair()) {
-            mreg first = placement.first.kind == ASMVal::GP ? placement.first.gp : placement.first.fp;
-            mreg second = placement.second.kind == ASMVal::GP ? placement.second.gp : placement.second.fp;
-            return fn.regPair(first, second);
-        } else {
+        if (placement.isPair())
+            return fn.regPair(placement.first.reg, placement.second.reg);
+        else {
             ASMVal singular = placement.first;
-            if (singular.kind == ASMVal::GP) return fn.gp(singular.gp);
-            else if (singular.kind == ASMVal::FP) return fn.fp(singular.fp);
+            if (singular.is_reg()) return fn.reg(singular.reg);
             else if (singular.kind == ASMVal::MEM) {
                 assert(singular.memkind == ASMVal::REG_OFFSET);
                 return fn.memory(singular.base, singular.offset);
@@ -429,7 +426,7 @@ namespace jasmine {
         for (u32 i = 0; i < fn.nodeList.size(); i ++) {
             checkForCalls(ctx, *this, fn, fn.node(i), callList, callSites);
             RegSet clobbers;
-            u8 scratchesNeeded = scratchAndClobberNode<Target>(ctx, fn, fn.node(i), clobbers);
+            Scratches scratchesNeeded = scratchAndClobberNode<Target>(ctx, fn, fn.node(i), clobbers);
             clobberList.push(clobbers);
             scratchesPerNode.push(scratchesNeeded);
         }

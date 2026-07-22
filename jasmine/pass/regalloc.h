@@ -11,32 +11,23 @@
 namespace jasmine {
     template<typename Target>
     struct VariableLocation {
-        enum Kind { NONE, GP, FP, STACK };
+        enum Kind { NONE, REG, STACK };
         union {
-            struct { Kind kind : 2; mreg gp : 6; i32 stack : 24; };
-            struct { Kind : 2; mreg fp : 6; i32 : 24; };
+            struct { Kind kind : 2; mreg reg : 6; i32 stack : 24; };
         };
 
         inline static VariableLocation None() {
             VariableLocation loc;
             loc.kind = NONE;
-            loc.gp = 0;
+            loc.reg = 0;
             loc.stack = 0;
             return loc;
         }
 
-        inline static VariableLocation Gp(mreg r) {
+        inline static VariableLocation Reg(mreg r) {
             VariableLocation loc;
-            loc.kind = GP;
-            loc.gp = r;
-            loc.stack = 0;
-            return loc;
-        }
-
-        inline static VariableLocation Fp(mreg r) {
-            VariableLocation loc;
-            loc.kind = FP;
-            loc.gp = r;
+            loc.kind = Reg;
+            loc.reg = r;
             loc.stack = 0;
             return loc;
         }
@@ -44,17 +35,15 @@ namespace jasmine {
         inline static VariableLocation Stack(i32 stack) {
             VariableLocation loc;
             loc.kind = STACK;
-            loc.gp = 0;
+            loc.reg = 0;
             loc.stack = stack;
             return loc;
         }
 
         inline Operand operand(Function& fn) const {
             switch (kind) {
-                case GP:
-                    return fn.gp(gp);
-                case FP:
-                    return fn.fp(fp);
+                case REG:
+                    return fn.reg(reg);
                 case STACK:
                     return fn.memory(Target::fp, stack);
                 default:
@@ -151,14 +140,14 @@ namespace jasmine {
                     // TODO: Should we use register pair return value hinting here?
                     if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn))
                         println("Hinted ", OperandLogger { fn, result }, " to ", OperandLogger { fn, callSite.returnValue }, " due to use as result in ", node);
-                    variableHints[result.var] = callSite.returnValue.gp;
+                    variableHints[result.var] = callSite.returnValue.reg;
                 }
             }
             for (auto [i, o] : enumerate(node.uses().drop(1))) { // Drop 1 for the callee.
                 if (o.kind == Operand::Var && variableHints[o.var] == -1 && callSite.parameters[i].isReg()) {
                     if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn))
                         println("Hinted ", OperandLogger { fn, o }, " to ", OperandLogger { fn, callSite.parameters[i] }, " due to use as parameter in ", node);
-                    variableHints[o.var] = callSite.parameters[i].gp;
+                    variableHints[o.var] = callSite.parameters[i].reg;
                 }
             }
         }
@@ -176,7 +165,7 @@ namespace jasmine {
             if (param.operand.kind == Operand::Var && variableHints[param.operand.var] == -1 && parameterOperand.isReg()) {
                 if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn))
                     println("Hinted ", OperandLogger { fn, param.operand }, " to ", OperandLogger { fn, parameterOperand }, " since it's a parameter of this function");
-                variableHints[param.operand.var] = parameterOperand.gp;
+                variableHints[param.operand.var] = parameterOperand.reg;
             }
         }
         Target::finish_placing_parameters(parameterState);
@@ -193,7 +182,7 @@ namespace jasmine {
             if (use.kind == Operand::Var && variableHints[use.var] == -1 && returnOperand.isReg()) {
                 if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn))
                     println("Hinted ", OperandLogger { fn, use }, " to ", OperandLogger { fn, returnOperand }, " due to use in ", last);
-                variableHints[use.var] = returnOperand.gp;
+                variableHints[use.var] = returnOperand.reg;
             }
         }
 
@@ -231,7 +220,7 @@ namespace jasmine {
                         if (call.operand(1).kind == Operand::Var && liveness[i].var == call.operand(1).var) {
                             for (Operand operand : callSites[callInsns[node]].parameters) {
                                 if (operand.isReg())
-                                    allowed.remove(operand.gp);
+                                    allowed.remove(operand.reg);
                                 else if (operand.kind == Operand::RegPair) {
                                     allowed.remove(operand.ra);
                                     allowed.remove(operand.rb);
@@ -240,9 +229,10 @@ namespace jasmine {
                             }
                         }
                     }
-                    if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn))
-                        println("  Scratches needed for ", fn.node(node), " is ", (u32)scratchesPerNode[node]);
-                    necessaryScratches = max(necessaryScratches, scratchesPerNode[node]);
+                    unreachable("TODO: Fix up the advanced register allocator");
+                    // if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn))
+                    //     println("  Scratches needed for ", fn.node(node), " is ", (u32)scratchesPerNode[node]);
+                    // necessaryScratches = max(necessaryScratches, scratchesPerNode[node]);
                 }
                 if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn))
                     println("Total necessary scratches for ", OperandLogger { fn, fn.variableById(liveness[i].var) }, "[bb", block.index(), ":", liveness[i].start, ":", liveness[i].end, "] is ", (u32)necessaryScratches);
@@ -330,10 +320,8 @@ namespace jasmine {
                 mreg assignment = node.allowed.next();
                 if (node.hint == -1 && range.successor != -1 && graph[range.successor].assigned) {
                     LiveRange& succ = liveness[range.successor];
-                    if (allocations.allocations[range.successor].kind == Operand::GP)
-                        node.hint = allocations.allocations[range.successor].gp;
-                    else if (allocations.allocations[range.successor].kind == Operand::FP)
-                        node.hint = allocations.allocations[range.successor].fp;
+                    if (allocations.allocations[range.successor].kind == Operand::Reg)
+                        node.hint = allocations.allocations[range.successor].reg;
                 }
                 if (node.hint != -1 && node.allowed[node.hint])
                     assignment = node.hint;
@@ -369,9 +357,9 @@ namespace jasmine {
                 }
 
                 if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn)) {
-                    println("Assigned range ", OperandLogger { fn, fn.variableById(range.var) }, "[bb", node.block, ":", range.start, ":", range.end, "] to ", OperandLogger { fn, Target::is_gp(assignment) ? fn.gp(assignment) : fn.fp(assignment) });
+                    println("Assigned range ", OperandLogger { fn, fn.variableById(range.var) }, "[bb", node.block, ":", range.start, ":", range.end, "] to ", OperandLogger { fn, fn.reg(assignment) });
                     println(" - Necessary scratches = ", node.necessaryScratches, ", remaining allowed = ", node.allowed.without(assignment).size());
-                    print(" - Removing ", OperandLogger { fn, Target::is_gp(assignment) ? fn.gp(assignment) : fn.fp(assignment) }, " from");
+                    print(" - Removing ", OperandLogger { fn, fn.reg(assignment) }, " from");
                 }
                 for (u32 adj : interference[node.range]) {
                     if (isEdge(adj)) {
@@ -392,7 +380,7 @@ namespace jasmine {
                     allocations.calleeSaves.add(assignment);
                 node.hint = assignment;
                 node.allowed.remove(assignment);
-                allocations.allocations[node.range] = Target::is_gp(assignment) ? fn.gp(assignment) : fn.fp(assignment);
+                allocations.allocations[node.range] = fn.reg(assignment);
             }
         }
 
@@ -422,7 +410,7 @@ namespace jasmine {
                     RegSet allowed = graph[i].allowed;
                     if UNLIKELY(fn.node(node).opcode() == Opcode::RET) {
                         if (returnOperand.isReg())
-                            allowed.remove(returnOperand.gp);
+                            allowed.remove(returnOperand.reg);
                         else if (returnOperand.kind == Operand::RegPair)
                             allowed.remove(returnOperand.ra), allowed.remove(returnOperand.rb);
                         else if (returnOperand.kind == Operand::Memory) {
@@ -432,16 +420,17 @@ namespace jasmine {
                     }
                     RegSet calleeSaves = allowed & Target::callee_saves();
                     RegSet callerSaves = allowed & Target::caller_saves();
-                    for (u8 k = 0; k < scratchesPerNode[node]; k ++) {
-                        if (!callerSaves.empty()) {
-                            allocations.scratchesByInstruction[node].push(callerSaves.next());
-                            callerSaves.remove(callerSaves.next());
-                        } else {
-                            assert(!calleeSaves.empty());
-                            allocations.scratchesByInstruction[node].push(calleeSaves.next());
-                            calleeSaves.remove(calleeSaves.next());
-                        }
-                    }
+                    unreachable("TODO: Fix up the advanced register allocator");
+                    // for (u8 k = 0; k < scratchesPerNode[node]; k ++) {
+                    //     if (!callerSaves.empty()) {
+                    //         allocations.scratchesByInstruction[node].push(callerSaves.next());
+                    //         callerSaves.remove(callerSaves.next());
+                    //     } else {
+                    //         assert(!calleeSaves.empty());
+                    //         allocations.scratchesByInstruction[node].push(calleeSaves.next());
+                    //         calleeSaves.remove(calleeSaves.next());
+                    //     }
+                    // }
                     if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn)) {
                         print("Reserved scratches");
                         for (u8 scratch : allocations.scratchesByInstruction[node])
@@ -461,7 +450,7 @@ namespace jasmine {
                 RegSet allowed = Target::gps() | Target::fps();
                 if UNLIKELY(fn.node(node).opcode() == Opcode::RET) {
                     if (returnOperand.isReg())
-                        allowed.remove(returnOperand.gp);
+                        allowed.remove(returnOperand.reg);
                     else if (returnOperand.kind == Operand::RegPair)
                         allowed.remove(returnOperand.ra), allowed.remove(returnOperand.rb);
                     else if (returnOperand.kind == Operand::Memory) {
@@ -471,16 +460,17 @@ namespace jasmine {
                 }
                 RegSet calleeSaves = allowed & Target::callee_saves();
                 RegSet callerSaves = allowed & Target::caller_saves();
-                for (u8 k = 0; k < scratchesPerNode[node]; k ++) {
-                    if (!callerSaves.empty()) {
-                        allocations.scratchesByInstruction[node].push(callerSaves.next());
-                        callerSaves.remove(callerSaves.next());
-                    } else {
-                        assert(!calleeSaves.empty());
-                        allocations.scratchesByInstruction[node].push(calleeSaves.next());
-                        calleeSaves.remove(calleeSaves.next());
-                    }
-                }
+                unreachable("TODO: Fix up the advanced register allocator");
+                // for (u8 k = 0; k < scratchesPerNode[node]; k ++) {
+                //     if (!callerSaves.empty()) {
+                //         allocations.scratchesByInstruction[node].push(callerSaves.next());
+                //         callerSaves.remove(callerSaves.next());
+                //     } else {
+                //         assert(!calleeSaves.empty());
+                //         allocations.scratchesByInstruction[node].push(calleeSaves.next());
+                //         calleeSaves.remove(calleeSaves.next());
+                //     }
+                // }
                 if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn)) {
                     print("Reserved scratches");
                     for (u8 scratch : allocations.scratchesByInstruction[node])
@@ -494,9 +484,9 @@ namespace jasmine {
         for (Edge edge : fn.edges()) {
             assert(!availablePerEdge[edge.index()].empty());
             if (availablePerEdge[edge.index()] & Target::caller_saves())
-                allocations.edgeAllocations[edge.index()] = fn.gp((availablePerEdge[edge.index()] & Target::caller_saves()).next());
+                allocations.edgeAllocations[edge.index()] = fn.reg((availablePerEdge[edge.index()] & Target::caller_saves()).next());
             else
-                allocations.edgeAllocations[edge.index()] = fn.gp(availablePerEdge[edge.index()].next());
+                allocations.edgeAllocations[edge.index()] = fn.reg(availablePerEdge[edge.index()].next());
             if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, fn)) {
                 println("Assigned edge bb", edge.srcIndex(), " -> bb", edge.destIndex(), " to ", OperandLogger { fn, allocations.edgeAllocations[edge.index()] });
             }
@@ -691,9 +681,9 @@ namespace jasmine {
         void evict(Block block, i32 indexInBlock, i32 var) {
             Operand loc = variableLocations[var];
             assert(loc.isReg());
-            assert(regBindings[loc.gp] == var);
-            freeRegs.add(loc.gp);
-            regBindings[loc.gp] = -1;
+            assert(regBindings[loc.reg] == var);
+            freeRegs.add(loc.reg);
+            regBindings[loc.reg] = -1;
 
             // Since we allocate in reverse, evicting a variable means emitting
             // a load, after the instruction that caused it to be evicted.
@@ -793,7 +783,7 @@ namespace jasmine {
 
         void unbind(i32 var) {
             if (variableLocations[var].isReg()) {
-                mreg reg = variableLocations[var].gp;
+                mreg reg = variableLocations[var].reg;
                 assert(regBindings[(u32)reg] == var);
                 assert(!freeRegs[reg]);
 
@@ -846,10 +836,10 @@ namespace jasmine {
                         // to ensure it ends up in its slot after this
                         // instruction.
                         fn->addInsertion(block, indexInBlock + 1, Function::Early);
-                        fn->addNodeToInsertion(fn->addNode(Opcode::STORE, type, variableLocations[var], fn->fp(reg), magicTag));
+                        fn->addNodeToInsertion(fn->addNode(Opcode::STORE, type, variableLocations[var], fn->reg(reg), magicTag));
                     }
 
-                    variableLocations[var] = fn->fp(reg);
+                    variableLocations[var] = fn->reg(reg);
                     freeRegs.remove(reg);
                     regBindings[(u32)reg] = var;
 
@@ -871,10 +861,10 @@ namespace jasmine {
                     if (variableLocations[var].kind == Operand::Memory) {
                         // Ditto for gp types.
                         fn->addInsertion(block, indexInBlock + 1, Function::Early);
-                        fn->addNodeToInsertion(fn->addNode(Opcode::STORE, type, variableLocations[var], fn->gp(reg), magicTag));
+                        fn->addNodeToInsertion(fn->addNode(Opcode::STORE, type, variableLocations[var], fn->reg(reg), magicTag));
                     }
 
-                    variableLocations[var] = fn->gp(reg);
+                    variableLocations[var] = fn->reg(reg);
                     freeRegs.remove(reg);
                     regBindings[(u32)reg] = var;
 
@@ -940,7 +930,7 @@ namespace jasmine {
             bindings->remainingEdges = block.predecessorIndices().size();
 
             for (i32 i = 0; i < 64; i ++) if (regBindings[i] != -1)
-                bindings->bind(regBindings[i], Target::is_gp(i) ? fn->gp(i) : fn->fp(i));
+                bindings->bind(regBindings[i], fn->reg(i));
 
             bindings->liveInSlot.clear();
             bindings->liveInSlot |= liveInSlot;
@@ -1075,9 +1065,9 @@ namespace jasmine {
 
             auto& allocations = *ctx->allocations;
             for (Edge succ : block.successors()) {
-                if (allocations.edgeAllocations[succ.index()].isReg() && !freeRegs[allocations.edgeAllocations[succ.index()].gp]) {
+                if (allocations.edgeAllocations[succ.index()].isReg() && !freeRegs[allocations.edgeAllocations[succ.index()].reg]) {
                     if (!(freeRegs & validGps).empty())
-                        allocations.edgeAllocations[succ.index()] = fn->gp((freeRegs & validGps).next());
+                        allocations.edgeAllocations[succ.index()] = fn->reg((freeRegs & validGps).next());
                     else
                         allocations.edgeAllocations[succ.index()] = slotForEdge(succ.index());
                 }
@@ -1247,18 +1237,20 @@ namespace jasmine {
             // whole range. Otherwise, we allow it to remain in a register.
 
             RegSet excludedRegs;
-            RegSet availableScratches = reversedValidGps;
+            RegSet availableGPScratches = reversedValidGps, availableFPScratches = reversedValidFps;
 
             auto& allocations = *ctx->allocations;
 
-            for (u32 k = 0; k < (*ctx->scratchesPerNode)[node.index()]; k ++) {
+            auto scratches = (*ctx->scratchesPerNode)[node.index()];
+            for (u32 k = 0; k < scratches.gpCount() + scratches.fpCount(); k ++) {
                 bool didAddScratch = false;
+                RegSet& availableScratches = k < scratches.gpCount() ? availableGPScratches : availableFPScratches;
                 for (mreg r : availableScratches) if (freeRegs[63 - r]) {
                     allocations.scratchesByInstruction[node.index()].push(63 - r);
                     availableScratches.remove(r);
                     excludedRegs.add(63 - r);
                     if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, *fn))
-                        println("[ALLOC]\tPicked free scratch register ", OperandLogger { *fn, Target::is_gp(63 - r) ? fn->gp(63 - r) : fn->fp(63 - r) }, " for instruction ", node);
+                        println("[ALLOC]\tPicked free scratch register ", OperandLogger { *fn, fn->reg(63 - r) }, " for instruction ", node);
                     didAddScratch = true;
                     break;
                 }
@@ -1275,7 +1267,7 @@ namespace jasmine {
                     assert(regBindings[63 - r] != -1);
                     evict(block, indexInBlock, regBindings[63 - r]);
                     if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, *fn))
-                        println("[ALLOC]\tPicked occupied scratch register ", OperandLogger { *fn, Target::is_gp(63 - r) ? fn->gp(63 - r) : fn->fp(63 - r) }, " for instruction ", node);
+                        println("[ALLOC]\tPicked occupied scratch register ", OperandLogger { *fn, fn->reg(63 - r) }, " for instruction ", node);
                     // We don't need to add to the callee-saved scratches set
                     // here, because we know the register already belonged to
                     // something else, which must at one point have added the
@@ -1295,7 +1287,7 @@ namespace jasmine {
             for (mreg r : ~freeRegs & clobbers) {
                 assert(regBindings[(u32)r] != -1);
                 if UNLIKELY(config::verboseRegalloc && shouldPrintFor(Pass::REGISTER_ALLOCATION, *fn))
-                    println("[ALLOC]\tReallocating ", OperandLogger { *fn, fn->variableById(regBindings[(u32)r]) }, " due to clobbered register ", OperandLogger { *fn, fn->gp(r) }, " in instruction ", node);
+                    println("[ALLOC]\tReallocating ", OperandLogger { *fn, fn->variableById(regBindings[(u32)r]) }, " due to clobbered register ", OperandLogger { *fn, fn->reg(r) }, " in instruction ", node);
                 reallocate(block, indexInBlock, regBindings[(u32)r], excludedRegs);
             }
 
@@ -1312,13 +1304,13 @@ namespace jasmine {
                 node.def(0) = allocate(block, indexInBlock, def.var, excludedRegs);
                 if (isFirstDef(block.index(), indexInBlock, def.var)) {
                     if (variableLocations[def.var].isReg())
-                        preferred.add(variableLocations[def.var].gp);
+                        preferred.add(variableLocations[def.var].reg);
                     unbind(def.var);
                 }
             }
 
             if (node.opcode() == Opcode::RET && returnOperand.isReg())
-                preferred.add(returnOperand.gp);
+                preferred.add(returnOperand.reg);
 
             CallSite* callSite = nullptr;
             if (node.opcode() == Opcode::CALL || node.opcode() == Opcode::CALL_VOID)
@@ -1333,7 +1325,7 @@ namespace jasmine {
                         // that register.
                         auto param = fn->variableList[use.var].parameterIndex;
                         if (fn->parameters[param].operand.isReg())
-                            preferred.add(fn->parameters[param].operand.gp);
+                            preferred.add(fn->parameters[param].operand.reg);
                     }
                     if (callSite) {
                         u32 startOfArguments = node.opcode() == Opcode::CALL ? 2 : 1;
@@ -1342,7 +1334,7 @@ namespace jasmine {
                         if (i >= startOfArguments) {
                             Operand arg = callSite->parameters[i - startOfArguments];
                             if (arg.isReg())
-                                preferred.add(arg.gp);
+                                preferred.add(arg.reg);
                         }
                     }
                     node.use(i) = allocate(block, indexInBlock, use.var, excludedRegs, preferred);
@@ -1353,7 +1345,7 @@ namespace jasmine {
             // registers in flight across it.
             if (callSite) {
                 for (mreg r : (~freeRegs & Target::caller_saves())) {
-                    if (node.opcode() == Opcode::CALL_VOID || r != node.def(0).gp)
+                    if (node.opcode() == Opcode::CALL_VOID || r != node.def(0).reg)
                         callSite->liveAcross.add(r);
                 }
             }
@@ -1445,14 +1437,14 @@ namespace jasmine {
 
                 if (block.successorIndices().size() > 0) for (Edge edge : block.successors()) for (Move& move : edge.moves()) {
                     RegSet edgeReg;
-                    edgeReg.add(allocations.edgeAllocations[edge.index()].gp);
+                    edgeReg.add(allocations.edgeAllocations[edge.index()].reg);
                     if (move.src.kind == Operand::Var) {
                         RegSet preferred;
                         if (pins->isPinned(move.src.var))
                             move.src = slotFor(move.src.var);
                         else {
                             if (move.dest.isReg())
-                                preferred.add(move.dest.gp);
+                                preferred.add(move.dest.reg);
                             TypeIndex type = fn->variableList[move.src.var].type;
                             if (isFunction(*fn, type)) // Needed to avoid any compound types in the move.
                                 type = PTR;
@@ -1484,7 +1476,7 @@ namespace jasmine {
                     }
                     RegSet edgeRegs;
                     for (i32 var : edgeVars) {
-                        edgeRegs.add(variableLocations[var].gp);
+                        edgeRegs.add(variableLocations[var].reg);
                         unbind(var);
                     }
 
@@ -1499,7 +1491,7 @@ namespace jasmine {
                             frontier.pushl(fn->edge(pred).srcIndex());
                         }
                         if (!(freeRegs & validGps & ~edgeRegs).empty())
-                            allocations.edgeAllocations[pred] = fn->gp((freeRegs & validGps & ~edgeRegs).next());
+                            allocations.edgeAllocations[pred] = fn->reg((freeRegs & validGps & ~edgeRegs).next());
                         else
                             allocations.edgeAllocations[pred] = slotForEdge(pred);
                     }

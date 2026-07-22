@@ -33,7 +33,7 @@ namespace jasmine {
                 if (move.dest.kind == Operand::Var)
                     isVarUsed.on(move.dest.var);
             }
-            allocations.edgeAllocations[edge.index()] = fn.gp(gpScratches[0]);
+            allocations.edgeAllocations[edge.index()] = fn.reg(gpScratches[0]);
         }
 
         i64 total8Aligned = 0, total16Aligned = 0, total32Aligned = 0, total64Aligned = 0;

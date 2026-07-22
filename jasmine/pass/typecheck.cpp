@@ -197,14 +197,7 @@ namespace jasmine {
                     if (type != TypeKind::F64)
                         ctx.error(block, node, "64-bit float constant ", OperandLogger { fn, operand }, " must have type F64.");
                     break;
-                case Operand::GP:
-                    if (!isInt(type))
-                        ctx.error(block, node, "General-purpose register operand ", OperandLogger { fn, operand }, " cannot be assigned non-integral type ", TypeLogger { fn, type }, '.');
-                    break;
-                case Operand::FP:
-                    if (!isFloat(type))
-                        ctx.error(block, node, "Floating-point register operand ", OperandLogger { fn, operand }, " cannot be assigned non-float type ", TypeLogger { fn, type }, '.');
-                    break;
+                case Operand::Reg:
                 case Operand::Memory:
                 case Operand::Func:
                 case Operand::Data:

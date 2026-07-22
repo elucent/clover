@@ -237,10 +237,8 @@ namespace jasmine {
                 return ::F32(fn.f32ValueOf(operand));
             case Operand::F64Const:
                 return ::F64(fn.f64ValueOf(operand));
-            case Operand::GP:
-                return GP(operand.gp);
-            case Operand::FP:
-                return FP(operand.fp);
+            case Operand::Reg:
+                return Target::is_gp(operand.reg) ? GP(operand.reg) : FP(operand.reg);
             case Operand::Memory:
                 return Mem(operand.base, operand.offset);
             case Operand::Func:

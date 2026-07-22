@@ -267,17 +267,16 @@ namespace jasmine {
     struct Operand {
         enum Kind : u32 {
             Var = 0, IntConst = 1, F32Const = 2, F64Const = 3,
-            GP = 4, FP = 5, RegPair = 6, Memory = 7, Branch = 8,
-            Func = 9, Data = 10, Static = 11, Type = 12,
-            Sizeof = 13, String = 14,
+            Reg = 4, RegPair = 5, Memory = 6, Branch = 7,
+            Func = 8, Data = 9, Static = 10, Type = 11,
+            Sizeof = 12, String = 13,
             Invalid = 15
         };
 
         union {
             struct { Kind kind : 4; u32 var : 28; };
             struct { Kind : 4; u32 isInline : 1; i32 constant : 27; };
-            struct { Kind : 4; TypeIndex regType : 22; u32 gp : 6; };
-            struct { Kind : 4; u32 : 22; u32 fp : 6; };
+            struct { Kind : 4; TypeIndex regType : 22; u32 reg : 6; };
             struct { Kind : 4; u32 : 16; u32 ra : 6, rb : 6; };
             struct { Kind : 4; u32 edge : 28; };
             struct { Kind : 4; i32 sym : 28; };
@@ -295,7 +294,7 @@ namespace jasmine {
         }
 
         inline bool isReg() const {
-            return kind == GP || kind == FP;
+            return kind == Reg;
         }
 
         inline bool isConst() const {
@@ -1224,19 +1223,11 @@ namespace jasmine {
         template<typename T>
         inline T valueOf(Operand i) { return FunctionMethods::valueOf<T>(*this, i); }
 
-        inline Operand gp(mreg reg) {
+        inline Operand reg(mreg reg) {
             Operand operand;
             operand.bits = 0;
-            operand.kind = Operand::GP;
-            operand.gp = reg;
-            return operand;
-        }
-
-        inline Operand fp(mreg reg) {
-            Operand operand;
-            operand.bits = 0;
-            operand.kind = Operand::FP;
-            operand.fp = reg;
+            operand.kind = Operand::Reg;
+            operand.reg = reg;
             return operand;
         }
 
@@ -1277,8 +1268,8 @@ namespace jasmine {
         }
 
         inline Operand memory(Operand base, i32 offset) {
-            if (base.kind == Operand::GP)
-                return memory(base.gp, offset);
+            if (base.kind == Operand::Reg)
+                return memory(base.reg, offset);
             assert(base.kind == Operand::Memory);
             i32 netOffset = offset + base.offset;
             assert(netOffset >= -0x80000 && netOffset < 0x7ffff);
@@ -2049,12 +2040,10 @@ namespace jasmine {
                 }
                 return io;
             }
-            case Operand::GP:
-                return format(io, o.function.target().reg_name(o.operand.gp));
-            case Operand::FP:
-                return format(io, o.function.target().reg_name(o.operand.fp));
+            case Operand::Reg:
+                return format(io, o.function.target().reg_name(o.operand.reg));
             case Operand::RegPair:
-                return format(io, o.function.target().reg_name(o.operand.gp), ":", o.function.target().reg_name(o.operand.fp));
+                return format(io, o.function.target().reg_name(o.operand.ra), ":", o.function.target().reg_name(o.operand.rb));
             case Operand::Memory:
                 io = format(io, '[', o.function.target().reg_name(o.operand.base));
                 if (o.operand.offset == 0)

@@ -207,14 +207,17 @@ namespace jasmine {
         if (optLevel > 0) {
             enforceSSA(ctx, fn);
             if (optLevel > 1) {
-                findNaturalLoops(ctx, fn);
                 if (!config::noConstantFolding)
                     foldConstants(ctx, fn);
                 if (!config::noStrengthReduction)
                     reduceStrength(ctx, fn);
                 if (!config::noCSE)
                     eliminateCommonSubexpressions(ctx, fn);
+                simplify(ctx, fn);
                 cleanup(ctx, fn);
+
+                findDominators(ctx, fn);
+                findNaturalLoops(ctx, fn);
                 computeEffects(ctx, fn);
                 if (!config::noLICM)
                     hoistLoopInvariantCode(ctx, fn);
@@ -224,15 +227,15 @@ namespace jasmine {
             }
             simplify(ctx, fn);
             cleanup(ctx, fn);
-            if (optLevel > 1)
-                liveness(ctx, fn);
+            // if (optLevel > 1)
+            //     liveness(ctx, fn);
             findDominators(ctx, fn);
         }
     }
 
     void targetSpecificOptimizations(PassContext& ctx, Function& fn, u32 optLevel, bool validate) {
         ctx.targetSpecificPasses->computeClobbers(ctx, fn);
-        if (optLevel > 1) {
+        if (optLevel > 4) {
             containment(ctx, fn);
             ctx.targetSpecificPasses->allocateRegisters(ctx, fn, RegisterAllocationMode::ADVANCED);
         } else if (optLevel > 0)

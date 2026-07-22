@@ -399,10 +399,10 @@ struct RISCV64Assembler {
 
     static inline ASMVal materializeImm32(Assembly& as, ASMVal dst, i32 src) {
         assert(dst.kind == ASMVal::GP);
-        if (fitsSigned<6>(src) && encodeci(as, 0b01, dst.gp, src, 0b010)) // c.li
+        if (fitsSigned<6>(src) && encodeci(as, 0b01, dst.reg, src, 0b010)) // c.li
             return dst;
         if (fitsSigned<12>(src)) {
-            encodei(as, 0b0010011, dst.gp, ZERO, src); // addi (rs1=zero)
+            encodei(as, 0b0010011, dst.reg, ZERO, src); // addi (rs1=zero)
             return dst;
         }
         i32 lower = signExtend<12>(src);
@@ -410,15 +410,15 @@ struct RISCV64Assembler {
         assert(!(upper & 0xfff));
         upper >>= 12;
         if (fitsSigned<6>(upper))
-            encodeci(as, 0b01, dst.gp, upper, 0b011); // c.lui
+            encodeci(as, 0b01, dst.reg, upper, 0b011); // c.lui
         else
-            encodeu(as, 0b0110111, dst.gp, upper); // lui
+            encodeu(as, 0b0110111, dst.reg, upper); // lui
         if (src & 0xfff) {
             auto imm12 = signExtend<12>(src);
             if (fitsSigned<6>(imm12))
-                encodeci(as, 0b01, dst.gp, imm12, 0b000); // c.addi
+                encodeci(as, 0b01, dst.reg, imm12, 0b000); // c.addi
             else
-                encodei(as, 0b0010011, dst.gp, dst.gp, imm12); // addi
+                encodei(as, 0b0010011, dst.reg, dst.reg, imm12); // addi
         }
         return dst;
     }
@@ -436,14 +436,14 @@ struct RISCV64Assembler {
             // then shift.
             u32 smallerUpper = upper >> ctz32(upper);
             if (fitsSigned<6>(upper))
-                encodeci(as, 0b01, dst.gp, upper, 0b011); // c.lui
+                encodeci(as, 0b01, dst.reg, upper, 0b011); // c.lui
             else
-                encodeu(as, 0b0110111, dst.gp, upper); // lui
+                encodeu(as, 0b0110111, dst.reg, upper); // lui
             shl64(as, dst, dst, Imm(shift));
 
             // If we have a lower component, then addi that in now.
             if (lower)
-                encodei(as, 0b0010011, dst.gp, dst.gp, lower); // addi
+                encodei(as, 0b0010011, dst.reg, dst.reg, lower); // addi
             return dst;
         }
         unreachable("TODO: Finish immediate materialization logic.");
@@ -482,17 +482,17 @@ struct RISCV64Assembler {
         if (b.kind == ASMVal::IMM) {
             if (b.imm == 0)
                 return mov32(as, dst, a);
-            if (dst == a && encodeci(as, 0b01, dst.gp, b.imm, 0b001)) // c.addiw
+            if (dst == a && encodeci(as, 0b01, dst.reg, b.imm, 0b001)) // c.addiw
                 return;
             if (fitsSigned<12>(b.imm))
-                return encodei(as, 0b0011011, dst.gp, a.gp, b.imm, 0b000); // addiw
+                return encodei(as, 0b0011011, dst.reg, a.reg, b.imm, 0b000); // addiw
             b = materializeImm32(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
-        if (dst == a && encodeca(as, 0b01, dst.gp, b.gp, 0b01, 0b100111)) // c.addw
+        if (dst == a && encodeca(as, 0b01, dst.reg, b.reg, 0b01, 0b100111)) // c.addw
             return;
-        return encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b000, 0b0000000); // addw
+        return encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b000, 0b0000000); // addw
     }
 
     static inline void add64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -501,17 +501,17 @@ struct RISCV64Assembler {
         if (b.kind == ASMVal::IMM) {
             if (b.imm == 0)
                 return mov64(as, dst, a);
-            if (dst == a && encodeci(as, 0b01, dst.gp, b.imm, 0b000)) // c.addi
+            if (dst == a && encodeci(as, 0b01, dst.reg, b.imm, 0b000)) // c.addi
                 return;
             if (fitsSigned<12>(b.imm))
-                return encodei(as, 0b0010011, dst.gp, a.gp, b.imm, 0b000); // addi
+                return encodei(as, 0b0010011, dst.reg, a.reg, b.imm, 0b000); // addi
             b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
-        if (dst == a && encodecr(as, 0b10, dst.gp, b.gp, 0b1001)) // c.add
+        if (dst == a && encodecr(as, 0b10, dst.reg, b.reg, 0b1001)) // c.add
             return;
-        return encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b000, 0b0000000); // add
+        return encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b000, 0b0000000); // add
     }
 
     static inline void sub8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -528,17 +528,17 @@ struct RISCV64Assembler {
         if (b.kind == ASMVal::IMM) {
             if (b.imm == 0)
                 return mov32(as, dst, a);
-            if (dst == a && encodeci(as, 0b01, dst.gp, -b.imm, 0b001)) // c.addiw
+            if (dst == a && encodeci(as, 0b01, dst.reg, -b.imm, 0b001)) // c.addiw
                 return;
             if (fitsSigned<12>(b.imm))
-                return encodei(as, 0b0011011, dst.gp, a.gp, -b.imm, 0b000); // addiw
+                return encodei(as, 0b0011011, dst.reg, a.reg, -b.imm, 0b000); // addiw
             b = materializeImm32(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
-        if (dst == a && encodeca(as, 0b01, dst.gp, b.gp, 0b00, 0b100111)) // c.subw
+        if (dst == a && encodeca(as, 0b01, dst.reg, b.reg, 0b00, 0b100111)) // c.subw
             return;
-        return encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b000, 0b0100000); // subw
+        return encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b000, 0b0100000); // subw
     }
 
     static inline void sub64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -547,17 +547,17 @@ struct RISCV64Assembler {
         if (b.kind == ASMVal::IMM) {
             if (b.imm == 0)
                 return mov64(as, dst, ::GP(ZERO));
-            if (dst == a && encodeci(as, 0b01, dst.gp, -b.imm, 0b000)) // c.addi (negative imm)
+            if (dst == a && encodeci(as, 0b01, dst.reg, -b.imm, 0b000)) // c.addi (negative imm)
                 return;
             if (fitsSigned<12>(-b.imm))
-                return encodei(as, 0b0010011, dst.gp, a.gp, -b.imm, 0b000); // addi (negative imm)
+                return encodei(as, 0b0010011, dst.reg, a.reg, -b.imm, 0b000); // addi (negative imm)
             b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
-        if (dst == a && encodeca(as, 0b01, dst.gp, b.gp, 0b00, 0b100011)) // c.sub
+        if (dst == a && encodeca(as, 0b01, dst.reg, b.reg, 0b00, 0b100011)) // c.sub
             return;
-        return encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b000, 0b0100000); // sub
+        return encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b000, 0b0100000); // sub
     }
 
     static inline void neg8(Assembly& as, ASMVal dst, ASMVal src) {
@@ -596,7 +596,7 @@ struct RISCV64Assembler {
                 return shl32(as, dst, a, ::Imm(intLog2(u32(b.imm))));
             b = materializeImm32(as, ::GP(scratch), b.imm);
         }
-        encoder(as, 0b0111011, dst.gp, a.gp, b.gp, 0b000, 0b0000001); // mulw
+        encoder(as, 0b0111011, dst.reg, a.reg, b.reg, 0b000, 0b0000001); // mulw
     }
 
     static inline void mul64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -611,7 +611,7 @@ struct RISCV64Assembler {
                 return shl64(as, dst, a, ::Imm(intLog2(u32(b.imm))));
             b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
-        encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b000, 0b0000001); // mul
+        encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b000, 0b0000001); // mul
     }
 
     template<u32 Size, bool IsSigned, typename Func>
@@ -643,7 +643,7 @@ struct RISCV64Assembler {
     template<bool Is32, bool IsRem, bool IsSigned, i8 Opcode, i8 Funct3, i8 Funct7>
     static inline void encodeDivRem(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (a.kind == ASMVal::IMM) {
-            assert(b.gp != scratch);
+            assert(b.reg != scratch);
             a = materializeImm64<IsSigned>(as, ::GP(scratch), a.imm);
         }
         if (b.kind == ASMVal::IMM) {
@@ -660,7 +660,7 @@ struct RISCV64Assembler {
             }
             b = materializeImm64<IsSigned>(as, ::GP(scratch), b.imm);
         }
-        encoder(as, Opcode, dst.gp, a.gp, b.gp, Funct3, Funct7);
+        encoder(as, Opcode, dst.reg, a.reg, b.reg, Funct3, Funct7);
     }
 
     static inline void sdiv8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -755,17 +755,17 @@ struct RISCV64Assembler {
         if (b.kind == ASMVal::IMM) {
             if (b.imm == 0)
                 return mov64(as, dst, a);
-            if (dst == a && encodecb2(as, 0b01, dst.gp, b.imm, 0b10, 0b100)) // c.andi
+            if (dst == a && encodecb2(as, 0b01, dst.reg, b.imm, 0b10, 0b100)) // c.andi
                 return;
             if (fitsSigned<12>(b.imm))
-                return encodei(as, 0b0010011, dst.gp, a.gp, b.imm, 0b111); // andi
+                return encodei(as, 0b0010011, dst.reg, a.reg, b.imm, 0b111); // andi
             b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
-        if (dst == a && encodeca(as, 0b01, dst.gp, b.gp, 0b11, 0b100011)) // c.and
+        if (dst == a && encodeca(as, 0b01, dst.reg, b.reg, 0b11, 0b100011)) // c.and
             return;
-        return encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b111, 0b0000000); // and
+        return encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b111, 0b0000000); // and
     }
 
     static inline void or8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -787,14 +787,14 @@ struct RISCV64Assembler {
             if (b.imm == 0)
                 return mov64(as, dst, a);
             if (fitsSigned<12>(b.imm))
-                return encodei(as, 0b0010011, dst.gp, a.gp, b.imm, 0b110); // ori
+                return encodei(as, 0b0010011, dst.reg, a.reg, b.imm, 0b110); // ori
             b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
-        if (dst == a && encodeca(as, 0b01, dst.gp, b.gp, 0b10, 0b100011)) // c.or
+        if (dst == a && encodeca(as, 0b01, dst.reg, b.reg, 0b10, 0b100011)) // c.or
             return;
-        return encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b110, 0b0000000); // or
+        return encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b110, 0b0000000); // or
     }
 
     static inline void xor8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -816,14 +816,14 @@ struct RISCV64Assembler {
             if (b.imm == 0)
                 return mov64(as, dst, a);
             if (fitsSigned<12>(b.imm))
-                return encodei(as, 0b0010011, dst.gp, a.gp, b.imm, 0b100); // xori
+                return encodei(as, 0b0010011, dst.reg, a.reg, b.imm, 0b100); // xori
             b = materializeImm64<true>(as, ::GP(scratch), b.imm);
         }
         if (dst == b)
             swap(dst, b);
-        if (dst == a && encodeca(as, 0b01, dst.gp, b.gp, 0b01, 0b100011)) // c.xor
+        if (dst == a && encodeca(as, 0b01, dst.reg, b.reg, 0b01, 0b100011)) // c.xor
             return;
-        return encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b100, 0b0000000); // xor
+        return encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b100, 0b0000000); // xor
     }
 
     static inline void shl8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -839,27 +839,27 @@ struct RISCV64Assembler {
             if (!b.imm)
                 return;
             assert(fitsUnsigned<6>(b.imm));
-            encodei(as, 0b0011011, dst.gp, a.gp, 0b000000 << 6 | b.imm, 0b001); // slliw
+            encodei(as, 0b0011011, dst.reg, a.reg, 0b000000 << 6 | b.imm, 0b001); // slliw
             return;
         }
         if (a.kind == ASMVal::IMM)
             a = materializeImm32(as, ::GP(scratch), a.imm);
-        encoder(as, 0b0111011, dst.gp, a.gp, b.gp, 0b001, 0b0000000); // sllw
+        encoder(as, 0b0111011, dst.reg, a.reg, b.reg, 0b001, 0b0000000); // sllw
     }
 
     static inline void shl64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
         if (b.kind == ASMVal::IMM) {
             if (!b.imm)
                 return;
-            if (dst == a && a.kind == ASMVal::GP && encodeci(as, 0b10, dst.gp, b.imm, 0b000, false)) // c.slli
+            if (dst == a && a.kind == ASMVal::GP && encodeci(as, 0b10, dst.reg, b.imm, 0b000, false)) // c.slli
                 return;
             assert(fitsUnsigned<6>(b.imm));
-            encodei(as, 0b0010011, dst.gp, a.gp, 0b000000 << 6 | b.imm, 0b001); // slli
+            encodei(as, 0b0010011, dst.reg, a.reg, 0b000000 << 6 | b.imm, 0b001); // slli
             return;
         }
         if (a.kind == ASMVal::IMM)
             a = materializeImm64<true>(as, ::GP(scratch), a.imm);
-        encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b001, 0b0000000); // sll
+        encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b001, 0b0000000); // sll
     }
 
     static inline void shr8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -887,12 +887,12 @@ struct RISCV64Assembler {
             if (!b.imm)
                 return;
             assert(fitsUnsigned<6>(b.imm));
-            encodei(as, 0b0011011, dst.gp, a.gp, 0b000000 << 6 | b.imm, 0b101); // srliw
+            encodei(as, 0b0011011, dst.reg, a.reg, 0b000000 << 6 | b.imm, 0b101); // srliw
             return;
         }
         if (a.kind == ASMVal::IMM)
             a = materializeImm32(as, ::GP(scratch), a.imm);
-        encoder(as, 0b0111011, dst.gp, a.gp, b.gp, 0b101, 0b0000000); // srlw
+        encoder(as, 0b0111011, dst.reg, a.reg, b.reg, 0b101, 0b0000000); // srlw
     }
 
     static inline void shr64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -900,14 +900,14 @@ struct RISCV64Assembler {
             if (!b.imm)
                 return;
             assert(fitsUnsigned<6>(b.imm));
-            if (dst == a && a.kind == ASMVal::GP && encodecb2(as, 0b10, dst.gp, b.imm, 0b00, 0b100)) // c.srli
+            if (dst == a && a.kind == ASMVal::GP && encodecb2(as, 0b10, dst.reg, b.imm, 0b00, 0b100)) // c.srli
                 return;
-            encodei(as, 0b0010011, dst.gp, a.gp, 0b000000 << 6 | b.imm, 0b101); // srli
+            encodei(as, 0b0010011, dst.reg, a.reg, 0b000000 << 6 | b.imm, 0b101); // srli
             return;
         }
         if (a.kind == ASMVal::IMM)
             a = materializeImm64<true>(as, ::GP(scratch), a.imm);
-        encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b101, 0b0000000); // srl
+        encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b101, 0b0000000); // srl
     }
 
     static inline void sar8(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -935,12 +935,12 @@ struct RISCV64Assembler {
             if (!b.imm)
                 return;
             assert(fitsUnsigned<6>(b.imm));
-            encodei(as, 0b0011011, dst.gp, a.gp, 0b010000 << 6 | b.imm, 0b101); // srliw
+            encodei(as, 0b0011011, dst.reg, a.reg, 0b010000 << 6 | b.imm, 0b101); // srliw
             return;
         }
         if (a.kind == ASMVal::IMM)
             a = materializeImm32(as, ::GP(scratch), a.imm);
-        encoder(as, 0b0111011, dst.gp, a.gp, b.gp, 0b101, 0b0100000); // sraw
+        encoder(as, 0b0111011, dst.reg, a.reg, b.reg, 0b101, 0b0100000); // sraw
     }
 
     static inline void sar64(Assembly& as, ASMVal dst, ASMVal a, ASMVal b) {
@@ -949,14 +949,14 @@ struct RISCV64Assembler {
                 return;
             assert(fitsUnsigned<6>(b.imm));
             u8 encodedShift = (b.imm & 0b11111) | (b.imm & 0b100000) << 2 | 0b01 << 5;
-            if (dst == a && a.kind == ASMVal::GP && encodecb2(as, 0b10, dst.gp, b.imm, 0b01, 0b100)) // c.srai
+            if (dst == a && a.kind == ASMVal::GP && encodecb2(as, 0b10, dst.reg, b.imm, 0b01, 0b100)) // c.srai
                 return;
-            encodei(as, 0b0010011, dst.gp, a.gp, 0b010000 << 6 | b.imm, 0b101); // srli
+            encodei(as, 0b0010011, dst.reg, a.reg, 0b010000 << 6 | b.imm, 0b101); // srli
             return;
         }
         if (a.kind == ASMVal::IMM)
             a = materializeImm64<true>(as, ::GP(scratch), a.imm);
-        encoder(as, 0b0110011, dst.gp, a.gp, b.gp, 0b101, 0b0100000); // srl
+        encoder(as, 0b0110011, dst.reg, a.reg, b.reg, 0b101, 0b0100000); // srl
     }
 
     using ExtensionFunction = void(*)(Assembly&, ASMVal, ASMVal);
@@ -1045,13 +1045,13 @@ struct RISCV64Assembler {
 
     static inline void mov64(Assembly& as, ASMVal dst, ASMVal src) {
         if (dst == src) return;
-        if (src.kind == ASMVal::GP && src.gp == ZERO)
+        if (src.kind == ASMVal::GP && src.reg == ZERO)
             src = Imm(0); // It's otherwise illegal to c.mv with a zero source.
         if (src.kind == ASMVal::IMM) {
             materializeImm64<true>(as, dst, src.imm);
             return;
         }
-        encodecr(as, 0b10, dst.gp, src.gp, 0b1000); // c.mv
+        encodecr(as, 0b10, dst.reg, src.reg, 0b1000); // c.mv
     }
 
     static inline void sxt8(Assembly& as, ASMVal dst, ASMVal src) {
@@ -1065,7 +1065,7 @@ struct RISCV64Assembler {
     }
 
     static inline void sxt32(Assembly& as, ASMVal dst, ASMVal src) {
-        encodeci(as, 0b01, dst.gp, 0, 0b001); // c.addiw
+        encodeci(as, 0b01, dst.reg, 0, 0b001); // c.addiw
     }
 
     static inline void zxt8(Assembly& as, ASMVal dst, ASMVal src) {
@@ -1098,7 +1098,7 @@ struct RISCV64Assembler {
             add64(as, ::GP(scratch), ::GP(scratch), ::GP(src.base));
             src = Mem(scratch, signExtend<12>(src.offset));
         }
-        encodei(as, Opcode, dst.gp, src.base, src.offset, Funct3);
+        encodei(as, Opcode, dst.reg, src.base, src.offset, Funct3);
     }
 
     static inline void lds8(Assembly& as, ASMVal dst, ASMVal src) {
@@ -1145,7 +1145,7 @@ struct RISCV64Assembler {
             add64(as, ::GP(scratch), ::GP(scratch), ::GP(dst.base));
             dst = Mem(scratch, signExtend<12>(dst.offset));
         }
-        encodes(as, Opcode, dst.base, src.gp, dst.offset, Funct3);
+        encodes(as, Opcode, dst.base, src.reg, dst.offset, Funct3);
     }
 
     static inline void st8(Assembly& as, ASMVal dst, ASMVal src) {
@@ -1193,8 +1193,8 @@ struct RISCV64Assembler {
             src = Mem(scratch, 0);
         }
 
-        add64(as, ::GP(scratch), ::GP(src.base), ::GP(idx.gp));
-        encodei(as, Opcode, dst.gp, scratch, src.offset, Funct3);
+        add64(as, ::GP(scratch), ::GP(src.base), ::GP(idx.reg));
+        encodei(as, Opcode, dst.reg, scratch, src.offset, Funct3);
     }
 
     static inline void ldis8(Assembly& as, ASMVal dst, ASMVal src, ASMVal idx) {
@@ -1254,7 +1254,7 @@ struct RISCV64Assembler {
             dst = Mem(scratch, 0);
         }
 
-        add64(as, ::GP(scratch), ::GP(dst.base), ::GP(idx.gp));
+        add64(as, ::GP(scratch), ::GP(dst.base), ::GP(idx.reg));
         encodes(as, Opcode, dst.base, scratch, dst.offset, Funct3);
     }
 
@@ -1325,7 +1325,7 @@ struct RISCV64Assembler {
     // Control flow
 
     static inline void br(Assembly& as, ASMVal dst) {
-        if (dst.kind == ASMVal::GP && encodecr(as, 0b10, dst.gp, ZERO, 0b1000)) // c.jr
+        if (dst.kind == ASMVal::GP && encodecr(as, 0b10, dst.reg, ZERO, 0b1000)) // c.jr
             return;
         assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
         as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL20_12_JR_RV64, dst.label);
@@ -1365,40 +1365,40 @@ struct RISCV64Assembler {
         // dst.
         switch (cc) {
             case COND_LT:
-                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b101); // bge
+                encodes(as, 0b1100011, a.reg, b.reg, 0, 0b101); // bge
                 break;
             case COND_LE:
-                encodes(as, 0b1100011, b.gp, a.gp, 0, 0b100); // bgt (blt b, a)
+                encodes(as, 0b1100011, b.reg, a.reg, 0, 0b100); // bgt (blt b, a)
                 break;
             case COND_GT:
-                encodes(as, 0b1100011, b.gp, a.gp, 0, 0b101); // ble (bge b, a)
+                encodes(as, 0b1100011, b.reg, a.reg, 0, 0b101); // ble (bge b, a)
                 break;
             case COND_GE:
-                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b100); // blt
+                encodes(as, 0b1100011, a.reg, b.reg, 0, 0b100); // blt
                 break;
             case COND_ABOVE:
-                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b111); // bgeu
+                encodes(as, 0b1100011, a.reg, b.reg, 0, 0b111); // bgeu
                 break;
             case COND_AE:
-                encodes(as, 0b1100011, b.gp, a.gp, 0, 0b110); // bgtu (bltu b, a)
+                encodes(as, 0b1100011, b.reg, a.reg, 0, 0b110); // bgtu (bltu b, a)
                 break;
             case COND_BELOW:
-                encodes(as, 0b1100011, b.gp, a.gp, 0, 0b111); // bleu (bgeu b, a)
+                encodes(as, 0b1100011, b.reg, a.reg, 0, 0b111); // bleu (bgeu b, a)
                 break;
             case COND_BE:
-                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b110); // bltu
+                encodes(as, 0b1100011, a.reg, b.reg, 0, 0b110); // bltu
                 break;
             case COND_EQ:
-                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b001); // bne
+                encodes(as, 0b1100011, a.reg, b.reg, 0, 0b001); // bne
                 break;
             case COND_NE:
-                encodes(as, 0b1100011, a.gp, b.gp, 0, 0b000); // beq
+                encodes(as, 0b1100011, a.reg, b.reg, 0, 0b000); // beq
                 break;
             case COND_TEST_ZERO:
-                encodes(as, 0b1100011, a.gp, ZERO, 0, 0b001); // bneqz (bne a, zero)
+                encodes(as, 0b1100011, a.reg, ZERO, 0, 0b001); // bneqz (bne a, zero)
                 break;
             case COND_TEST_NONZERO:
-                encodes(as, 0b1100011, a.gp, ZERO, 0, 0b000); // beqz (beq a, zero)
+                encodes(as, 0b1100011, a.reg, ZERO, 0, 0b000); // beqz (beq a, zero)
                 break;
         }
         encodeu(as, 0b0010111, scratch, 0); // auipc

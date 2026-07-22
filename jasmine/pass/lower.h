@@ -39,7 +39,7 @@ namespace jasmine {
             // We always do one full load when loading into a pair, since if we
             // were smaller than a register, we should be passed as a single
             // register.
-            b.addNode(Opcode::LOAD, first.kind == Operand::GP ? PTR : F64, first, src);
+            b.addNode(Opcode::LOAD, repr.isFloat() ? F64 : PTR, first, src);
             src.offset += 8;
             reg = second;
         } else
@@ -50,14 +50,14 @@ namespace jasmine {
         // its data using this information. Then, we potentially do multiple
         // loads and need to OR them together.
 
-        if (reg.kind == Operand::FP) {
+        if (repr.isFloat()) {
             // Of course, for floats, we can only have
             // 32-bit and 64-bit. So we only need a
             // single load in either case.
 
             b.addNode(Opcode::LOAD, repr.size() > 12 ? F64 : F32, reg, fn.memory(src.base, src.offset));
         } else {
-            assert(src.base != reg.gp); // This would be really weird, but it would mess everything up, so we assert it.
+            assert(src.base != reg.reg); // This would be really weird, but it would mess everything up, so we assert it.
             u32 initialRemainder = repr.size() - (second.kind != Operand::Invalid ? 8 : 0), remainder = initialRemainder;
             remainder = roundUpToNearest(remainder, min(8u, repr.alignment()));
             if (!(remainder & remainder - 1)) { // Single power-of-two means we can do a single move.
@@ -81,7 +81,7 @@ namespace jasmine {
                     b.addNode(Opcode::LOAD, moveType, scratch, fn.memory(src.base, src.offset + remainder));
                     b.addNode(Opcode::SHL, PTR, reg, reg, fn.intConst(moveSize * 8));
                     b.addNode(Opcode::OR, PTR, reg, reg, scratch);
-                    usedScratches.add(scratch.gp);
+                    usedScratches.add(scratch.reg);
                 }
             }
         }
@@ -92,20 +92,20 @@ namespace jasmine {
 
         Operand reg;
         if (second.kind != Operand::Invalid) {
-            b.addNode(Opcode::STORE, first.kind == Operand::GP ? PTR : F64, dest, first);
+            b.addNode(Opcode::STORE, repr.isFloat() ? F64 : PTR, dest, first);
             dest.offset += 8;
             reg = second;
         } else
             reg = first;
 
-        if (reg.kind == Operand::FP) {
+        if (repr.isFloat()) {
             // Of course, for floats, we can only have
             // 32-bit and 64-bit. So we only need a
             // single load in either case.
 
             b.addNode(Opcode::STORE, repr.size() > 12 ? F64 : F32, fn.memory(dest.base, dest.offset), reg);
         } else {
-            assert(dest.base != reg.gp); // This would be really weird, but it would mess everything up, so we assert it.
+            assert(dest.base != reg.reg); // This would be really weird, but it would mess everything up, so we assert it.
             u32 remainder = repr.size() - (second.kind != Operand::Invalid ? 8 : 0);
             remainder = roundUpToNearest(remainder, min(8u, repr.alignment()));
             if (!(remainder & remainder - 1)) { // Single power-of-two means we can do a single move.
@@ -130,7 +130,7 @@ namespace jasmine {
                     if (remainder) // This wasn't our last iteration.
                         b.addNode(Opcode::SHR, PTR, scratch, scratch, fn.intConst(moveSize * 8));
                 }
-                usedScratches.add(scratch.gp);
+                usedScratches.add(scratch.reg);
             }
         }
     }
@@ -140,8 +140,8 @@ namespace jasmine {
         if (dest == src)
             return;
         if (dest.isReg() && src.isReg()) {
-            assert(Target::is_gp(dest.gp) == Target::is_gp(src.gp));
-            if (dest.gp == src.gp)
+            assert(Target::is_gp(dest.reg) == Target::is_gp(src.reg));
+            if (dest.reg == src.reg)
                 return;
             b.addNode(Opcode::MOV, type, dest, src);
         } else if (dest.isReg() && src.isConst())
@@ -151,12 +151,12 @@ namespace jasmine {
         else if (src.isLabel()) {
             b.addNode(Opcode::ADDR, type, scratch, src);
             b.addNode(Opcode::STORE, type, dest, scratch);
-            usedScratches.add(scratch.gp);
+            usedScratches.add(scratch.reg);
         } else if (src.isConst()) {
             if UNLIKELY(src.kind == Operand::IntConst && !fits<I32>(fn.intValueOf(src))) {
                 b.addNode(Opcode::MOV, type, scratch, src);
                 b.addNode(Opcode::STORE, type, dest, scratch);
-                usedScratches.add(scratch.gp);
+                usedScratches.add(scratch.reg);
             } else
                 b.addNode(Opcode::STORE, type, dest, src);
         } else if (dest.isReg()) {
@@ -174,7 +174,7 @@ namespace jasmine {
                 .dst(dest)
                 .src(src)
                 .generate(scratch);
-            usedScratches.add(scratch.gp);
+            usedScratches.add(scratch.reg);
         }
     }
 
@@ -187,7 +187,7 @@ namespace jasmine {
                 if UNLIKELY(src.kind == Operand::IntConst && !fits<I32>(fn.intValueOf(src))) {
                     b.addNode(Opcode::MOV, *reg, moveScratch, src);
                     b.addNode(Opcode::STORE_INDEX, *reg, dest, idx, moveScratch);
-                    usedScratches.add(moveScratch.gp);
+                    usedScratches.add(moveScratch.reg);
                 } else
                     b.addNode(Opcode::STORE_INDEX, *reg, dest, idx, src);
             } else if (src.isReg())
@@ -195,18 +195,18 @@ namespace jasmine {
             else {
                 b.addNode(Opcode::ADDR_INDEX, *reg, ptrScratch, dest, idx);
                 b = MemoryMover<Target>(passes, b, elementRepr)
-                    .dst(fn.memory(ptrScratch.gp, 0))
+                    .dst(fn.memory(ptrScratch.reg, 0))
                     .src(src)
                     .generate(moveScratch);
-                usedScratches.add(ptrScratch.gp);
-                usedScratches.add(moveScratch.gp);
+                usedScratches.add(ptrScratch.reg);
+                usedScratches.add(moveScratch.reg);
             }
         } else {
             b.addNode(Opcode::MOV, PTR, ptrScratch, idx);
             b.addNode(Opcode::MUL, PTR, ptrScratch, ptrScratch, fn.intConst(elementRepr.size()));
             b.addNode(Opcode::ADDR_INDEX, I8, ptrScratch, dest, ptrScratch);
-            makeMove<Target>(passes, fn, b, type, fn.memory(ptrScratch.gp, 0), src, moveScratch, usedScratches);
-            usedScratches.add(ptrScratch.gp);
+            makeMove<Target>(passes, fn, b, type, fn.memory(ptrScratch.reg, 0), src, moveScratch, usedScratches);
+            usedScratches.add(ptrScratch.reg);
         }
     }
 
@@ -221,17 +221,17 @@ namespace jasmine {
                 b.addNode(Opcode::ADDR_INDEX, *reg, ptrScratch, src, idx);
                 b = MemoryMover<Target>(passes, b, elementRepr)
                     .dst(dest)
-                    .src(fn.memory(ptrScratch.gp, 0))
+                    .src(fn.memory(ptrScratch.reg, 0))
                     .generate(moveScratch);
-                usedScratches.add(moveScratch.gp);
-                usedScratches.add(ptrScratch.gp);
+                usedScratches.add(moveScratch.reg);
+                usedScratches.add(ptrScratch.reg);
             }
         } else {
             b.addNode(Opcode::MOV, PTR, ptrScratch, idx);
             b.addNode(Opcode::MUL, PTR, ptrScratch, ptrScratch, fn.intConst(elementRepr.size()));
             b.addNode(Opcode::ADDR_INDEX, I8, ptrScratch, src, ptrScratch);
-            makeMove<Target>(passes, fn, b, type, dest, fn.memory(ptrScratch.gp, 0), moveScratch, usedScratches);
-            usedScratches.add(ptrScratch.gp);
+            makeMove<Target>(passes, fn, b, type, dest, fn.memory(ptrScratch.reg, 0), moveScratch, usedScratches);
+            usedScratches.add(ptrScratch.reg);
         }
     }
 
@@ -244,16 +244,16 @@ namespace jasmine {
             else {
                 b.addNode(Opcode::LOAD, *registerType, scratch, src);
                 b.addNode(Opcode::STORE, *registerType, dest, scratch);
-                usedScratches.add(scratch.gp);
+                usedScratches.add(scratch.reg);
             }
         } else {
             b.addNode(Opcode::ADDR, PTR, ptrScratch, src);
             b = MemoryMover<Target>(passes, b, passes->repr(type))
                 .dst(dest)
-                .src(fn.memory(ptrScratch.gp, 0))
+                .src(fn.memory(ptrScratch.reg, 0))
                 .generate(scratch);
-            usedScratches.add(ptrScratch.gp);
-            usedScratches.add(scratch.gp);
+            usedScratches.add(ptrScratch.reg);
+            usedScratches.add(scratch.reg);
         }
     }
 
@@ -265,7 +265,7 @@ namespace jasmine {
             if UNLIKELY(src.kind == Operand::IntConst && !fits<I32>(fn.intValueOf(src))) {
                 b.addNode(Opcode::MOV, type, scratch, src);
                 b.addNode(Opcode::STORE, type, dest, scratch);
-                usedScratches.add(scratch.gp);
+                usedScratches.add(scratch.reg);
             } else
                 b.addNode(Opcode::STORE, type, dest, src);
         } else if (auto registerType = canMoveWithRegister(passes, fn, type)) {
@@ -274,16 +274,16 @@ namespace jasmine {
             else {
                 b.addNode(Opcode::LOAD, *registerType, scratch, src);
                 b.addNode(Opcode::STORE, *registerType, dest, scratch);
-                usedScratches.add(scratch.gp);
+                usedScratches.add(scratch.reg);
             }
         } else {
             b.addNode(Opcode::ADDR, PTR, ptrScratch, dest);
             b = MemoryMover<Target>(passes, b, passes->repr(type))
-                .dst(fn.memory(ptrScratch.gp, 0))
+                .dst(fn.memory(ptrScratch.reg, 0))
                 .src(src)
                 .generate(scratch);
-            usedScratches.add(ptrScratch.gp);
-            usedScratches.add(scratch.gp);
+            usedScratches.add(ptrScratch.reg);
+            usedScratches.add(scratch.reg);
         }
     }
 
@@ -296,7 +296,8 @@ namespace jasmine {
             status[i] = Moved;
             return;
         }
-        auto scratchFor = [&](Operand operand) -> Operand { return operand.kind == Operand::FP ? fpScratch : gpScratch; };
+        TypeIndex type = moveTypes[i];
+        auto scratchFor = [&](Operand operand) -> Operand { return isFloat(type) ? fpScratch : gpScratch; };
         status[i] = Moving;
         for (u32 j = 0; j < moves.size(); j ++) {
             auto tmpSrc = moves[j].src;
@@ -316,7 +317,7 @@ namespace jasmine {
                 }
             }
         }
-        makeMove<Target>(passes, fn, b, moveTypes[i], dest, move.src, scratchFor(move.src), usedScratches);
+        makeMove<Target>(passes, fn, b, type, dest, move.src, scratchFor(move.src), usedScratches);
         status[i] = Moved;
     }
 
@@ -656,7 +657,7 @@ namespace jasmine {
         // Next, some helpers to lower the individual instructions.
 
         auto reportUsedScratch = [&](Operand scratch) {
-            usedScratches.add(scratch.gp);
+            usedScratches.add(scratch.reg);
         };
 
         auto materialize = [&](Block& b, TypeIndex type, Operand src, Operand scratch) -> Operand {
@@ -746,7 +747,7 @@ namespace jasmine {
                 return;
             }
 
-            parallelMove<Target>(passes, fn, b, allocations.edgeAllocations[edge], fn.fp(Target::fps().next()), originalEdgeTypes[edge], moves, usedScratches);
+            parallelMove<Target>(passes, fn, b, allocations.edgeAllocations[edge], fn.reg(Target::fps().next()), originalEdgeTypes[edge], moves, usedScratches);
         };
 
         u32 maxStackArguments = 0;
@@ -772,7 +773,7 @@ namespace jasmine {
                         allocations.stack = roundUpToNearest(allocations.stack, 8);
                         savedReturnPointer = fn.memory(Target::fp, -(allocations.stack += 8));
                         allocations.stack = roundUpToNearest(allocations.stack, 16);
-                        b.addNode(Opcode::STORE, PTR, savedReturnPointer, fn.gp(returnPlacement.first.base));
+                        b.addNode(Opcode::STORE, PTR, savedReturnPointer, fn.reg(returnPlacement.first.base));
                     }
                 }
 
@@ -803,9 +804,9 @@ namespace jasmine {
                     else
                         unreachable("Unknown allocation mode.");
                     if (isCompound(p.type) && !isFunction(fn, p.type) && (arg.isPair() || arg.first.is_reg())) {
-                        Operand paramFirst = arg.first.kind == ASMVal::GP ? fn.gp(arg.first.gp) : fn.fp(arg.first.fp);
+                        Operand paramFirst = fn.reg(arg.first.reg);
                         Operand paramSecond = arg.isPair()
-                            ? (arg.second.kind == ASMVal::GP ? fn.gp(arg.second.gp) : fn.fp(arg.second.fp))
+                            ? fn.reg(arg.second.reg)
                             : fn.invalid();
                         parameterPairMoves.push({ p.type, parameterOperand, paramFirst, paramSecond });
                     } else {
@@ -824,21 +825,21 @@ namespace jasmine {
                 Operand gpScratch, fpScratch;
                 RegSet available = Target::gps() | Target::fps();
                 for (const auto& move : parameterMoves) {
-                    if (move.src.isReg()) available.remove(move.src.gp);
-                    if (move.dest.isReg()) available.remove(move.dest.gp);
+                    if (move.src.isReg()) available.remove(move.src.reg);
+                    if (move.dest.isReg()) available.remove(move.dest.reg);
                     if (move.src.kind == Operand::Memory) available.remove(move.src.base);
                     if (move.dest.kind == Operand::Memory) available.remove(move.dest.base);
                 }
                 for (const auto& pairMove : parameterPairMoves) {
-                    if (pairMove.dest.isReg()) available.remove(pairMove.dest.gp);
+                    if (pairMove.dest.isReg()) available.remove(pairMove.dest.reg);
                     if (pairMove.dest.kind == Operand::Memory) available.remove(pairMove.dest.base);
-                    if (pairMove.first.isReg()) available.remove(pairMove.first.gp);
+                    if (pairMove.first.isReg()) available.remove(pairMove.first.reg);
                     if (pairMove.first.kind == Operand::Memory) available.remove(pairMove.first.base);
-                    if (pairMove.second.isReg()) available.remove(pairMove.second.gp);
+                    if (pairMove.second.isReg()) available.remove(pairMove.second.reg);
                     if (pairMove.second.kind == Operand::Memory) available.remove(pairMove.second.base);
                 }
-                gpScratch = fn.gp((available & Target::gps()).next());
-                fpScratch = fn.fp((available & Target::fps()).next());
+                gpScratch = fn.reg((available & Target::gps()).next());
+                fpScratch = fn.reg((available & Target::fps()).next());
 
                 for (const auto& pairMove : parameterPairMoves)
                     storeAggregateFromRegisters(fn, b, this->repr(pairMove.type), pairMove.dest, pairMove.first, pairMove.second, gpScratch, usedScratches);
@@ -881,10 +882,10 @@ namespace jasmine {
                             // If the dest is a general-purpose register, we
                             // can clobber it, since no other operand can be in
                             // a register.
-                            Operand scratch = operands[0].kind == Operand::GP ? operands[0] : allocations.scratch1(n);
+                            Operand scratch = operands[0].isReg() && !fieldRepr.isFloat() ? operands[0] : allocations.scratch1(n);
                             b.addNode(Opcode::ADDR, PTR, scratch, operands[1]);
                             b.addNode(Opcode::ADD, PTR, scratch, scratch, fn.intConst(offsetStart - operands[1].offset));
-                            makeMove<Target>(this, fn, b, fieldType, operands[0], fn.memory(scratch.gp, 0), allocations.scratch0(n), usedScratches);
+                            makeMove<Target>(this, fn, b, fieldType, operands[0], fn.memory(scratch.reg, 0), allocations.scratch0(n), usedScratches);
                             reportUsedScratch(scratch);
                         }
                         break;
@@ -902,7 +903,7 @@ namespace jasmine {
                             Operand scratch = allocations.scratch0(n);
                             b.addNode(Opcode::ADDR, PTR, scratch, operands[0]);
                             b.addNode(Opcode::ADD, PTR, scratch, scratch, fn.intConst(offsetStart - operands[0].offset));
-                            makeMove<Target>(this, fn, b, fieldType, fn.memory(scratch.gp, 0), operands[0], allocations.scratch1(n), usedScratches);
+                            makeMove<Target>(this, fn, b, fieldType, fn.memory(scratch.reg, 0), operands[0], allocations.scratch1(n), usedScratches);
                             reportUsedScratch(scratch);
                         }
                         break;
@@ -930,7 +931,7 @@ namespace jasmine {
                         Operand srcPtr = materialize(b, PTR, operands[1], allocations.scratch0(n));
                         i64 off = offset(fn, n.type(), fn.intValueOf(operands[2]));
                         assert(fitsSigned<22>(off + fieldRepr.size() - 1));
-                        makeMove<Target>(this, fn, b, fieldType, operands[0], fn.memory(srcPtr.gp, off), allocations.scratch1(n), usedScratches);
+                        makeMove<Target>(this, fn, b, fieldType, operands[0], fn.memory(srcPtr.reg, off), allocations.scratch1(n), usedScratches);
                         break;
                     }
                     case Opcode::OFFSET_FIELD: {
@@ -942,7 +943,7 @@ namespace jasmine {
                         Operand output = operands[0].isReg() ? operands[0] : allocations.scratch0(n);
                         if (!operands[0].isReg())
                             reportUsedScratch(output);
-                        b.addNode(Opcode::ADDR, PTR, output, fn.memory(srcPtr.gp, off));
+                        b.addNode(Opcode::ADDR, PTR, output, fn.memory(srcPtr.reg, off));
                         writeBack(b, PTR, operands[0], output);
                         break;
                     }
@@ -952,7 +953,7 @@ namespace jasmine {
                         Operand dstPtr = materialize(b, PTR, operands[0], allocations.scratch0(n));
                         i64 off = offset(fn, n.type(), fn.intValueOf(operands[1]));
                         assert(fitsSigned<22>(off + fieldRepr.size() - 1));
-                        makeMove<Target>(this, fn, b, fieldType, fn.memory(dstPtr.gp, off), operands[2], allocations.scratch1(n), usedScratches);
+                        makeMove<Target>(this, fn, b, fieldType, fn.memory(dstPtr.reg, off), operands[2], allocations.scratch1(n), usedScratches);
                         break;
                     }
                     case Opcode::GET_INDEX: {
@@ -1057,11 +1058,11 @@ namespace jasmine {
                         if (index.isConst()) {
                             i64 off = fn.intValueOf(index) * elementRepr.size();
                             if (fitsSigned<22>(off + elementRepr.size() - 1))
-                                makeMove<Target>(this, fn, b, elementType, operands[0], fn.memory(srcPtr.gp, off), allocations.scratch1(n), usedScratches);
+                                makeMove<Target>(this, fn, b, elementType, operands[0], fn.memory(srcPtr.reg, off), allocations.scratch1(n), usedScratches);
                             else {
                                 b.addNode(Opcode::MOV, PTR, allocations.scratch1(n), fn.intConst(off));
                                 b.addNode(Opcode::ADD, PTR, allocations.scratch0(n), srcPtr, index);
-                                makeMove<Target>(this, fn, b, elementType, operands[0], fn.memory(allocations.scratch0(n).gp, off), allocations.scratch1(n), usedScratches);
+                                makeMove<Target>(this, fn, b, elementType, operands[0], fn.memory(allocations.scratch0(n).reg, off), allocations.scratch1(n), usedScratches);
                             }
                         } else {
                             index = materialize(b, operands[2].type, index, allocations.scratch1(n));
@@ -1073,7 +1074,7 @@ namespace jasmine {
                             // allows us to reuse specifically the index scratch register as the pointer scratch. So we
                             // do that. Any change to the pointer materialization logic though could potentially throw
                             // this out of whack though, so be careful.
-                            makeMoveSrcIndex<Target>(this, fn, b, elementType, operands[0], fn.memory(srcPtr.gp, 0), index, allocations.scratch1(n), allocations.scratch2(n), usedScratches);
+                            makeMoveSrcIndex<Target>(this, fn, b, elementType, operands[0], fn.memory(srcPtr.reg, 0), index, allocations.scratch1(n), allocations.scratch2(n), usedScratches);
                         }
                         break;
                     }
@@ -1104,7 +1105,7 @@ namespace jasmine {
                             if (indexRepr.size() < pointerRepr.size())
                                 b.addNode(Opcode::CONVERT, PTR, index, operands[2], index);
 
-                            b.addNode(Opcode::ADDR_INDEX, elementType, output, fn.memory(srcPtr.gp, 0), index);
+                            b.addNode(Opcode::ADDR_INDEX, elementType, output, fn.memory(srcPtr.reg, 0), index);
                             writeBack(b, PTR, operands[0], output);
                         } else {
                             index = materialize(b, operands[2].type, index, allocations.scratch1(n));
@@ -1128,18 +1129,18 @@ namespace jasmine {
                         if (index.isConst()) {
                             i64 off = fn.intValueOf(index) * elementRepr.size();
                             if (fitsSigned<22>(off + elementRepr.size() - 1))
-                                makeMove<Target>(this, fn, b, elementType, fn.memory(dstPtr.gp, off), operands[3], allocations.scratch1(n), usedScratches);
+                                makeMove<Target>(this, fn, b, elementType, fn.memory(dstPtr.reg, off), operands[3], allocations.scratch1(n), usedScratches);
                             else {
                                 b.addNode(Opcode::ADD, PTR, allocations.scratch0(n), dstPtr, index);
                                 reportUsedScratch(allocations.scratch0(n));
-                                makeMove<Target>(this, fn, b, elementType, fn.memory(allocations.scratch0(n).gp, off), operands[3], allocations.scratch1(n), usedScratches);
+                                makeMove<Target>(this, fn, b, elementType, fn.memory(allocations.scratch0(n).reg, off), operands[3], allocations.scratch1(n), usedScratches);
                             }
                         } else {
                             index = materialize(b, operands[1].type, index, allocations.scratch1(n));
                             auto indexRepr = repr(operands[1].type);
                             if (indexRepr.size() < pointerRepr.size())
                                 b.addNode(Opcode::CONVERT, PTR, index, operands[1], index);
-                            makeMoveDestIndex<Target>(this, fn, b, elementType, fn.memory(dstPtr.gp, 0), index, operands[3], allocations.scratch1(n), allocations.scratch2(n), usedScratches);
+                            makeMoveDestIndex<Target>(this, fn, b, elementType, fn.memory(dstPtr.reg, 0), index, operands[3], allocations.scratch1(n), allocations.scratch2(n), usedScratches);
                         }
                         break;
                     }
@@ -1161,7 +1162,7 @@ namespace jasmine {
                         }
 
                         Operand src = materialize(b, PTR, operands[1], allocations.scratch0(n));
-                        src = fn.memory(src.gp, 0); // Load directly from the pointer.
+                        src = fn.memory(src.reg, 0); // Load directly from the pointer.
                         makeMove<Target>(this, fn, b, n.type(), operands[0], src, allocations.scratch1(n), usedScratches);
                         break;
                     }
@@ -1178,7 +1179,7 @@ namespace jasmine {
                         }
 
                         Operand dest = materialize(b, PTR, operands[0], allocations.scratch0(n));
-                        makeMove<Target>(this, fn, b, n.type(), fn.memory(dest.gp, 0), operands[1], allocations.scratch1(n), usedScratches);
+                        makeMove<Target>(this, fn, b, n.type(), fn.memory(dest.reg, 0), operands[1], allocations.scratch1(n), usedScratches);
                         break;
                     }
                     case Opcode::ADDR: {
@@ -1233,14 +1234,18 @@ namespace jasmine {
                     case Opcode::BITCAST:
                     case Opcode::CONVERT: {
                         Repr srcRepr = repr(operands[1].type), destRepr = repr(n.type());
+                        Operand gpScratch = allocations.scratch0(n), fpScratch = allocations.scratch1(n);
+                        Operand srcScratch = srcRepr.isFloat() ? fpScratch : gpScratch;
                         if (srcRepr.kind() == destRepr.kind() && srcRepr.kind() != Size::MEMORY) {
                             makeMove<Target>(this, fn, b, n.type(), operands[0], operands[2], allocations.scratch0(n), usedScratches);
                             break;
                         }
-                        Operand src = materialize(b, operands[1].type, operands[2], allocations.scratch0(n));
-                        if UNLIKELY(src.isConst())
-                            makeMove<Target>(this, fn, b, operands[1].type, src = allocations.scratch0(n), operands[2], allocations.scratch0(n), usedScratches);
-                        Operand output = operands[0].isReg() ? operands[0] : allocations.scratch0(n);
+                        Operand src = materialize(b, operands[1].type, operands[2], srcScratch);
+                        if UNLIKELY(src.isConst()) {
+                            makeMove<Target>(this, fn, b, operands[1].type, src, operands[2], srcScratch, usedScratches);
+                            src = srcScratch;
+                        }
+                        Operand output = operands[0].isReg() ? operands[0] : (destRepr.isFloat() ? fpScratch : gpScratch);
                         if (!operands[0].isReg())
                             reportUsedScratch(output);
                         b.addNode(n.opcode(), n.type(), output, operands[1], src);
@@ -1350,36 +1355,32 @@ namespace jasmine {
                         const CallSite& callSite = callSites[callInsns[n.index()]];
                         bool needsPadding = false;
                         for (mreg r : callSite.liveAcross) {
-                            callerSaves.push(Target::is_gp(r) ? fn.gp(r) : fn.fp(r));
+                            callerSaves.push(fn.reg(r));
                             b.addNode(Opcode::PUSH, Target::is_gp(r) ? PTR : F64, callerSaves.back());
                             needsPadding = !needsPadding;
                         }
                         if (needsPadding)
-                            b.addNode(Opcode::SUB, PTR, fn.gp(Target::sp), fn.gp(Target::sp), fn.intConst(sizeof(void*)));
+                            b.addNode(Opcode::SUB, PTR, fn.reg(Target::sp), fn.reg(Target::sp), fn.intConst(sizeof(void*)));
 
                         RegSet nonArgumentScratches = Target::caller_saved_gps(), nonArgumentFPScratches = Target::caller_saved_fps();
                         for (Operand param : callSite.parameters) {
-                            if (param.kind == Operand::GP)
-                                nonArgumentScratches.remove(param.gp);
-                            else if (param.kind == Operand::FP)
-                                nonArgumentFPScratches.remove(param.fp);
+                            if (param.kind == Operand::Reg)
+                                nonArgumentScratches.remove(param.reg);
                             else if (param.kind == Operand::RegPair)
                                 nonArgumentScratches.remove(param.ra), nonArgumentScratches.remove(param.rb),
                                 nonArgumentFPScratches.remove(param.ra), nonArgumentFPScratches.remove(param.rb);
                         }
                         if (n.opcode() == Opcode::CALL) {
                             auto rv = callSite.returnValue;
-                            if (rv.kind == Operand::GP)
-                                nonArgumentScratches.remove(rv.gp);
-                            else if (rv.kind == Operand::FP)
-                                nonArgumentFPScratches.remove(rv.fp);
+                            if (rv.kind == Operand::Reg)
+                                nonArgumentScratches.remove(rv.reg);
                             else if (rv.kind == Operand::RegPair)
                                 nonArgumentScratches.remove(rv.ra), nonArgumentScratches.remove(rv.rb),
                                 nonArgumentFPScratches.remove(rv.ra), nonArgumentFPScratches.remove(rv.rb);
                             else if (rv.kind == Operand::Memory)
                                 nonArgumentScratches.remove(rv.base), nonArgumentScratches.remove(rv.offset);
                         }
-                        Operand moveScratch = fn.gp(nonArgumentScratches.next()), fpMoveScratch = fn.fp(nonArgumentFPScratches.next());
+                        Operand moveScratch = fn.reg(nonArgumentScratches.next()), fpMoveScratch = fn.reg(nonArgumentFPScratches.next());
 
                         vec<Move> parallelMoves;
                         vec<TypeIndex> moveTypes;
@@ -1409,8 +1410,8 @@ namespace jasmine {
                                 if (arg.isReg())
                                     paramFirst = arg, paramSecond = fn.invalid();
                                 else {
-                                    paramFirst = Target::is_gp(arg.ra) ? fn.gp(arg.ra) : fn.fp(arg.ra);
-                                    paramSecond = Target::is_gp(arg.rb) ? fn.gp(arg.rb) : fn.fp(arg.rb);
+                                    paramFirst = fn.reg(arg.ra);
+                                    paramSecond = fn.reg(arg.rb);
                                 }
                                 loadAggregateIntoRegisters(fn, b, this->repr(t), paramFirst, paramSecond, argumentOperand, moveScratch, usedScratches);
                             }
@@ -1419,7 +1420,7 @@ namespace jasmine {
                         if (n.opcode() == Opcode::CALL && callSite.returnValue.kind == Operand::Memory) {
                             // Pass the address of our output to the callee.
                             assert(operands[0].kind == Operand::Memory);
-                            b.addNode(Opcode::ADDR, PTR, fn.gp(callSite.returnValue.base), operands[0]);
+                            b.addNode(Opcode::ADDR, PTR, fn.reg(callSite.returnValue.base), operands[0]);
                         }
 
                         Operand callee = n.opcode() == Opcode::CALL_VOID ? operands[0] : operands[1];
@@ -1434,8 +1435,8 @@ namespace jasmine {
                             if (rv.isReg())
                                 paramFirst = rv, paramSecond = fn.invalid();
                             else {
-                                paramFirst = Target::is_gp(rv.ra) ? fn.gp(rv.ra) : fn.fp(rv.ra);
-                                paramSecond = Target::is_gp(rv.rb) ? fn.gp(rv.rb) : fn.fp(rv.rb);
+                                paramFirst = fn.reg(rv.ra);
+                                paramSecond = fn.reg(rv.rb);
                             }
                             storeAggregateFromRegisters(fn, b, this->repr(compound.returnType()), operands[0], paramFirst, paramSecond, moveScratch, usedScratches);
                         } else if (compound.returnType() != VOID && operands[0].kind != Operand::Var) {
@@ -1448,17 +1449,17 @@ namespace jasmine {
                                 makeMove<Target>(this, fn, b, compound.returnType(), operands[0], rv, moveScratch, usedScratches);
                         }
                         if (needsPadding)
-                            b.addNode(Opcode::ADD, PTR, fn.gp(Target::sp), fn.gp(Target::sp), fn.intConst(sizeof(void*)));
+                            b.addNode(Opcode::ADD, PTR, fn.reg(Target::sp), fn.reg(Target::sp), fn.intConst(sizeof(void*)));
                         for (Operand o : reversed(callerSaves))
-                            b.addNode(Opcode::POP, o.kind == Operand::GP ? PTR : F64, o);
+                            b.addNode(Opcode::POP, Target::is_fp(o.reg) ? F64 : PTR, o);
                         break;
                     }
                     case Opcode::RET: {
                         if (n.type() != VOID) {
                             if (isCompound(n.type()) && !isFunction(fn, n.type()) && (returnPlacement.isPair() || returnPlacement.first.is_reg())) {
-                                Operand paramFirst = returnPlacement.first.kind == ASMVal::GP ? fn.gp(returnPlacement.first.gp) : fn.fp(returnPlacement.first.fp);
+                                Operand paramFirst = fn.reg(returnPlacement.first.reg);
                                 Operand paramSecond = returnPlacement.isPair()
-                                    ? (returnPlacement.second.kind == ASMVal::GP ? fn.gp(returnPlacement.second.gp) : fn.fp(returnPlacement.second.fp))
+                                    ? fn.reg(returnPlacement.second.reg)
                                     : fn.invalid();
                                 loadAggregateIntoRegisters(fn, b, this->repr(n.type()), paramFirst, paramSecond, operands[0], allocations.scratch0(n), usedScratches);
                             } else {
@@ -1473,7 +1474,7 @@ namespace jasmine {
                                     // return buffer by the caller, and the
                                     // offset encodes the register by which we
                                     // should return it back to the caller.
-                                    b.addNode(Opcode::LOAD, PTR, fn.gp(returnPlacement.first.offset), savedReturnPointer);
+                                    b.addNode(Opcode::LOAD, PTR, fn.reg(returnPlacement.first.offset), savedReturnPointer);
                                     makeMove<Target>(this, fn, b, n.type(), fn.memory(returnPlacement.first.offset, 0), operands[0], allocations.scratch0(n), usedScratches);
                                 } else
                                     makeMove<Target>(this, fn, b, n.type(), operandFromPlacement(fn, returnPlacement), operands[0], allocations.scratch0(n), usedScratches);

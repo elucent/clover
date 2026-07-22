@@ -372,8 +372,7 @@ union ASMVal {
             i64 imm64;
             float f32;
             double f64;
-            mreg gp;
-            mreg fp;
+            mreg reg;
             struct { MemKind memkind; mreg base; i32 offset; };
             struct { MemKind : 8;     mreg : 8; Label label; };
             u64 uval;
@@ -410,7 +409,7 @@ inline static ASMVal None() {
 inline static ASMVal FP(mreg r) {
     ASMVal m;
     m.uval = 0;
-    m.fp = r;
+    m.reg = r;
     m.kind = ASMVal::FP;
     return m;
 }
@@ -418,7 +417,7 @@ inline static ASMVal FP(mreg r) {
 inline static ASMVal GP(mreg r) {
     ASMVal m;
     m.uval = 0;
-    m.gp = r;
+    m.reg = r;
     m.kind = ASMVal::GP;
     return m;
 }
@@ -1123,6 +1122,10 @@ struct Repr {
         return scalar.size;
     }
 
+    inline bool isFloat() const {
+        return kind() == Size::FLOAT32 || kind() == Size::FLOAT64;
+    }
+
     inline u32 size() const {
         switch (scalar.size) {
             case Size::BITS8:
@@ -1641,10 +1644,10 @@ struct Printer : public Assembler {
                 ::write(io, "!invalid");
                 break;
             case ASMVal::FP:
-                ::write(io, Assembler::reg_name(val.fp));
+                ::write(io, Assembler::reg_name(val.reg));
                 break;
             case ASMVal::GP:
-                ::write(io, Assembler::reg_name(val.gp));
+                ::write(io, Assembler::reg_name(val.reg));
                 break;
             case ASMVal::IMM:
                 ::write(io, val.imm);

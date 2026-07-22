@@ -194,10 +194,10 @@ namespace jasmine {
             Function& fn = *node.function;
             if (scratchMode == SharedScratchRegisters) {
                 if (isCompare(node.opcode()) && n == 0)
-                    return fn.gp(sharedGpScratches[0]); // Override integer result on floating-point compare.
-                return isFloat(node.type()) ? fn.fp(sharedFpScratches[n]) : fn.gp(sharedGpScratches[n]);
+                    return fn.reg(sharedGpScratches[0]); // Override integer result on floating-point compare.
+                return isFloat(node.type()) ? fn.reg(sharedFpScratches[n]) : fn.reg(sharedGpScratches[n]);
             } else
-                return isFloat(node.type()) ? fn.fp(scratchesByInstruction[node.index()][n]) : fn.gp(scratchesByInstruction[node.index()][n]);
+                return isFloat(node.type()) ? fn.reg(scratchesByInstruction[node.index()][n]) : fn.reg(scratchesByInstruction[node.index()][n]);
         }
 
         Operand scratch0(Node node) { return nthScratch(node, 0); }
@@ -807,6 +807,31 @@ namespace jasmine {
         RegSet liveAcross;
     };
 
+    struct Scratches {
+        u8 packed;
+
+        inline Scratches(): packed(0) {}
+
+        inline Scratches(u8 gps, u8 fps):
+            packed(fps << 4 | (gps & 15)) {}
+
+        inline void setGps(u8 gps) {
+            packed = (packed & 240) | (gps & 15);
+        }
+
+        inline void setFps(u8 fps) {
+            packed = (packed & 15) | (fps << 4);
+        }
+
+        inline u8 gpCount() const {
+            return packed & 15;
+        }
+
+        inline u8 fpCount() const {
+            return packed >> 4;
+        }
+    };
+
     struct PassContext {
         TargetSpecificPassInterface* targetSpecificPasses;
         u32 traits;
@@ -832,7 +857,7 @@ namespace jasmine {
         PassBound<Adjacency, IRTrait::INTERFERENCE> interference;
         PassBound<Adjacency, IRTrait::INTERFERENCE> edgeInterference;
         using ClobberList = vec<RegSet>;
-        using ScratchCounts = vec<u8>;
+        using ScratchCounts = vec<Scratches>;
         using CallList = vec<i32>;
         using CallSites = vec<CallSite>;
         PassBound<ClobberList, IRTrait::CLOBBERS> clobberList;
