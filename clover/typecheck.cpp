@@ -2615,18 +2615,22 @@ namespace clover {
         TypeSystem* types = returnType.types;
         u32 rank = 0;
         u32 arity = funcType.parameterCount();
+        u32 value = min<u32>(arity, 2); // This is what we'll use to rank overloads. It's arity + 1 so that if arity == 1, we can distinguish priority levels.
         if (!canUnify(funcType.returnType(), returnType, ast))
             return -1;
         if (expand(funcType.returnType()) == expand(returnType) && !overload->isGeneric)
-            rank += arity; // Prioritize exact matches.
+            rank += value; // Prioritize exact matches.
         else
             rank += 1;
         for (u32 i = 0; i < arity; i ++) {
             auto argType = types->get(argumentTypes[i]);
             auto parameterType = funcType.asFunc().parameterType(i);
+            auto prevRank = rank;
             if (canUnify(argType, parameterType, ast)) {
                 if (expand(argType) == expand(parameterType) && !overload->isGeneric)
-                    rank += arity; // Prioritize exact matches.
+                    rank += value * value; // Prioritize exact matches.
+                else if (!expand(parameterType).isNum() || !expand(parameterType).asNum().isFloat())
+                    rank += value; // Prioritize ints over floats.
                 else
                     rank += 1;
             } else if (i == 0 && ast.kind() == ASTKind::CallMethod && expand(argType).isPtr()) {
@@ -2634,7 +2638,9 @@ namespace clover {
                 if (!canUnify(argType, parameterType, ast))
                     return -1;
                 if (expand(argType) == expand(parameterType) && !overload->isGeneric)
-                    rank += arity; // Prioritize exact matches.
+                    rank += value * value; // Prioritize exact matches.
+                else if (!expand(parameterType).isNum() || !expand(parameterType).asNum().isFloat())
+                    rank += value; // Prioritize ints over floats.
                 else
                     rank += 1;
             } else
@@ -2642,7 +2648,7 @@ namespace clover {
         }
 
         if (!overload->isGeneric)
-            rank *= arity; // Prioritize non-generic functions.
+            rank *= value; // Prioritize non-generic functions.
 
         return rank;
     }

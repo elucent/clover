@@ -2364,17 +2364,35 @@ namespace clover {
         //  - If we are just querying the current bounds, then any involved
         //    variables just act like their lower/upper bounds.
 
+        if ((mode & ModeMask) == Query) {
+            weAreVar = weAreVar || isRange();
+            otherIsVar = otherIsVar || other.isRange();
+            hasAnyVar = weAreVar || otherIsVar;
+        }
+
         if (hasAnyVar) switch (mode & ModeMask) {
             case Query: {
-                Type al = lowerBound(*this), au = upperBound(*this);
-                Type bl = lowerBound(other), bu = upperBound(other);
-                Type l = leastCommonSupertype(al, bl, constraints, mode & ModeMask);
-                if (!l)
-                    return UnifyFailure;
-                Type u = greatestCommonSubtype(au, bu, constraints, mode & ModeMask);
-                if (!u)
-                    return UnifyFailure;
-                return UnifySuccess;
+                if (weAreVar && otherIsVar) {
+                    Type al = lowerBound(*this), au = upperBound(*this);
+                    Type bl = lowerBound(other), bu = upperBound(other);
+                    Type l = leastCommonSupertype(al, bl, constraints, mode & ModeMask);
+                    if (!l)
+                        return UnifyFailure;
+                    Type u = greatestCommonSubtype(au, bu, constraints, mode & ModeMask);
+                    if (!u)
+                        return UnifyFailure;
+                    return l.unifyOnto(u, constraints, mode & ModeMask);
+                } else if (otherIsVar) {
+                    Type l = leastCommonSupertype(*this, lowerBound(other), constraints, mode & ModeMask);
+                    if (!l)
+                        return UnifyFailure;
+                    return l.unifyOnto(upperBound(other), constraints, mode & ModeMask);
+                } else {
+                    Type u = greatestCommonSubtype(upperBound(*this), other, constraints, mode & ModeMask);
+                    if (!u)
+                        return UnifyFailure;
+                    return lowerBound(*this).unifyOnto(u, constraints, mode & ModeMask);
+                }
             }
             case InPlace:
             case Constraining: {
