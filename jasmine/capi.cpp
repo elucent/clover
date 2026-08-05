@@ -565,7 +565,7 @@ JASMINE_EXPORT void jasmine_perform_type_propagation(JasminePassContext context,
 }
 
 JASMINE_EXPORT void jasmine_validate_after_lowering(JasminePassContext context, JasmineFunction function) {
-    validateAfterLowering(PC(context), F(function));
+    PC(context).targetSpecificPasses->validateAfterLowering(PC(context), F(function));
 }
 
 JASMINE_EXPORT void jasmine_ensure_ssa(JasminePassContext context, JasmineFunction function) {

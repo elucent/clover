@@ -164,6 +164,15 @@ namespace jasmine {
             block.addNode(Opcode::STORE, type, block.function->memory(dst.base, dst.offset + dstOffset), scratch);
         }
 
+        template<TypeIndex T, u32 N>
+        inline void moveWithSize(Operand dstOperand, Operand srcOperand, Operand scratch, u32 size, u32 dstOffset, u32 srcOffset) {
+            u32 i = 0;
+            for (; i < size / N; i ++)
+                moveWithOffset(T, dstOperand, srcOperand, scratch, dstOffset + i * N, srcOffset + i * N);
+            if (i != size)
+                moveWithOffset(T, dstOperand, srcOperand, scratch, dstOffset + size - N, srcOffset + size - N);
+        }
+
         inline Block generate(Operand scratch) {
             assert(hasDst && hasSrc);
             assert(scratch.isReg());
@@ -171,18 +180,35 @@ namespace jasmine {
             assert(scratch.reg != srcOperand.base);
             u32 size = repr.size();
             u32 i = 0;
-            u32 align = max(repr.alignment(), min(dstAlign, srcAlign));
-            if (align >= 8) for (; i < size / 8; i ++)
-                moveWithOffset(I64, dstOperand, srcOperand, scratch, dstOffset + i * 8, srcOffset + i * 8);
-            i *= 2;
-            if (align >= 4) for (; i < size / 4; i ++)
-                moveWithOffset(I32, dstOperand, srcOperand, scratch, dstOffset + i * 4, srcOffset + i * 4);
-            i *= 2;
-            if (align >= 2) for (; i < size / 2; i ++)
-                moveWithOffset(I16, dstOperand, srcOperand, scratch, dstOffset + i * 2, srcOffset + i * 2);
-            i *= 2;
-            for (; i < size; i ++)
-                moveWithOffset(I8, dstOperand, srcOperand, scratch, dstOffset + i, srcOffset + i);
+
+            // Assume we don't care about alignment for now.
+            if (size >= 8)
+                moveWithSize<I64, 8>(dstOperand, srcOperand, scratch, size, dstOffset, srcOffset);
+            else if (size >= 4)
+                moveWithSize<I32, 4>(dstOperand, srcOperand, scratch, size, dstOffset, srcOffset);
+            else {
+                if (size >= 2) {
+                    moveWithOffset(I16, dstOperand, srcOperand, scratch, dstOffset, srcOffset);
+                    dstOffset += 2;
+                    srcOffset += 2;
+                    size -= 2;
+                }
+                if (size)
+                    moveWithOffset(I8, dstOperand, srcOperand, scratch, dstOffset, srcOffset);
+            }
+
+            // u32 align = max(repr.alignment(), min(dstAlign, srcAlign));
+            // if (align >= 8) for (; i < size / 8; i ++)
+            //     moveWithOffset(I64, dstOperand, srcOperand, scratch, dstOffset + i * 8, srcOffset + i * 8);
+            // i *= 2;
+            // if (align >= 4) for (; i < size / 4; i ++)
+            //     moveWithOffset(I32, dstOperand, srcOperand, scratch, dstOffset + i * 4, srcOffset + i * 4);
+            // i *= 2;
+            // if (align >= 2) for (; i < size / 2; i ++)
+            //     moveWithOffset(I16, dstOperand, srcOperand, scratch, dstOffset + i * 2, srcOffset + i * 2);
+            // i *= 2;
+            // for (; i < size; i ++)
+            //     moveWithOffset(I8, dstOperand, srcOperand, scratch, dstOffset + i, srcOffset + i);
             return block;
         }
     };
@@ -256,77 +282,105 @@ namespace jasmine {
             case Opcode::MUL:
             case Opcode::DIV:
             case Opcode::REM:
-            case Opcode::AND:
-            case Opcode::OR:
-            case Opcode::XOR:
+                if (isFloat(node.type()))
+                    return { 0, max<u8>(1, 2 - constCount()) };
+                return { max<u8>(1, 2 - constCount()), 0 };
             case Opcode::MIN:
             case Opcode::MAX:
+                return { 0, max<u8>(1, 2 - constCount()) };
             case Opcode::IS_LT:
             case Opcode::IS_LE:
             case Opcode::IS_GT:
             case Opcode::IS_GE:
             case Opcode::IS_EQ:
             case Opcode::IS_NE:
+                if (isFloat(node.type()))
+                    return { 1, u8(2 - constCount()) };
+                return { max<u8>(1, 2 - constCount()), 0 };
+            case Opcode::AND:
+            case Opcode::OR:
+            case Opcode::XOR:
             case Opcode::SHL:
             case Opcode::SHR:
             case Opcode::ROL:
             case Opcode::ROR: // Binary operators.
-                return max<u8>(1, 2 - constCount());
+                return { max<u8>(1, 2 - constCount()), 0 };
             case Opcode::BR_LT:
             case Opcode::BR_LE:
             case Opcode::BR_GT:
             case Opcode::BR_GE:
             case Opcode::BR_EQ:
             case Opcode::BR_NE: // Branches have no output, so they can get away with none.
-                return 2 - constCount();
+                if (isFloat(node.type()))
+                    return { 0, u8(2 - constCount()) };
+                return { u8(2 - constCount()), 0 };
             case Opcode::BR_INB:
             case Opcode::BR_OOB:
-                return 3 - constCount();
-            case Opcode::ABS:
+                if (isFloat(node.type()))
+                    return { 0, u8(3 - constCount()) };
+                return { u8(3 - constCount()), 0 };
             case Opcode::NEG:
-            case Opcode::NOT:
+            case Opcode::MOV:
+                if (isFloat(node.type()))
+                    return { 0, 1 };
+                return { 1, 0 };
+            case Opcode::ABS:
             case Opcode::FLOOR:
             case Opcode::CEIL:
             case Opcode::ROUND:
+                return { 0, 1 };
+            case Opcode::NOT:
             case Opcode::LZCNT:
             case Opcode::TZCNT:
             case Opcode::POPCNT:
-            case Opcode::MOV: // Unary ops.
-            case Opcode::CONVERT:
-            case Opcode::BITCAST:
             case Opcode::ALLOCA:
-                return 1;
             case Opcode::BR_IF:
             case Opcode::BR_IF_NOT:
-                return 1 - constCount();
+                return { 1, 0 };
+            case Opcode::CONVERT:
+            case Opcode::BITCAST:
+                return {
+                    u8(!isFloat(node.type()) || !isFloat(node.operand(1).type) ? 1 : 0),
+                    u8(isFloat(node.type()) || isFloat(node.operand(1).type) ? 1 : 0)
+                };
             case Opcode::ADDR:
             case Opcode::ADDR_FIELD:
             case Opcode::ADDR_INDEX:
             case Opcode::OFFSET_FIELD:
-                return 1;
+                return { 1, 0 };
             case Opcode::OFFSET_INDEX:
-                return 2;
-            case Opcode::GET_FIELD:
-                return isGPType(fn, node.type()) ? 1 : 2; // One to execute the memory/memory move, one to materialize the address in rare cases if we can't clobber the dest.
-            case Opcode::SET_FIELD:
-                return 2; // We can't clobber the dest like in GET_FIELD, so we always need 2.
+                return { 2, 0 };
             case Opcode::GET_INDEX:
             case Opcode::SET_INDEX:
-                return 2; // One for the index/address, one to execute memory/memory moves.
+                if (isFloat(node.type()))
+                    return { 2, 1 };
+                return { 2, 0 }; // One for the index/address, one to execute memory/memory moves.
             case Opcode::LOAD:
             case Opcode::STORE:
-                return 2;
+                if (isFloat(node.type()))
+                    return { 1, 1 };
+                return { 2, 0 };
+            case Opcode::GET_FIELD:
+            case Opcode::SET_FIELD:
             case Opcode::LOAD_FIELD:
-            case Opcode::STORE_FIELD:
-                return 2; // One for the pointer, one for memory/memory moves.
+            case Opcode::STORE_FIELD: {
+                TypeIndex fieldType = fn.typeContext()[node.type()].fields()[fn.intValueOf(node.operand(node.opcode() == Opcode::SET_FIELD || node.opcode() == Opcode::STORE_FIELD ? 1 : 2))];
+                bool isPointer = node.opcode() == Opcode::LOAD_FIELD || node.opcode() == Opcode::STORE_FIELD;
+                bool isMemory = !isFloat(fieldType) && !isGPType(fn, fieldType);
+                if (isFloat(fieldType))
+                    return { isPointer, 1 };
+                return { u8(1 + isPointer), 0 };
+            }
             case Opcode::LOAD_INDEX:
             case Opcode::STORE_INDEX:
-                return 3; // One for the index/pointer, one for memory/memory moves, one for the index arithmetic.
+                if (isFloat(node.type()))
+                    return { 3, 1 };
+                return { 3, 0 };
             case Opcode::CALL:
             case Opcode::CALL_VOID:
-                return 0; // We dynamically select a scratch during lowering based on the arguments.
+                return { 0, 0 }; // We dynamically select a scratch during lowering based on the arguments.
             case Opcode::RET:
-                return 1; // If we need to do a memory/memory return.
+                return { 1, 0 }; // If we need to do a memory/memory return.
             case Opcode::NOP:
             case Opcode::BR:
             case Opcode::PUSH:
@@ -334,7 +388,7 @@ namespace jasmine {
             case Opcode::VAR:
             case Opcode::TRAP:
             case Opcode::COMMENT:
-                return 0;
+                return { 0, 0 };
             default:
                 unreachable("Unspecified clobbers for node with opcode ", OPCODE_NAMES[(u32)node.opcode()]);
         }
@@ -359,6 +413,21 @@ namespace jasmine {
             case Opcode::ROL:
             case Opcode::ROR:
                 clobbers.add(AMD64Assembler::RCX);
+                break;
+            case Opcode::IS_LT:
+            case Opcode::IS_LE:
+            case Opcode::IS_GT:
+            case Opcode::IS_GE:
+            case Opcode::IS_EQ:
+            case Opcode::IS_NE:
+            case Opcode::BR_LT:
+            case Opcode::BR_LE:
+            case Opcode::BR_GT:
+            case Opcode::BR_GE:
+            case Opcode::BR_EQ:
+            case Opcode::BR_NE:
+                if (isFloat(node.type()))
+                    clobbers.add(AMD64Assembler::XMM0);
                 break;
             default:
                 break;

@@ -3,17 +3,26 @@
 #include "util/config.h"
 
 namespace jasmine {
-    void validateAfterLowering(PassContext& ctx, Function& fn) {
+    template<typename Target>
+    void TargetSpecificPasses<Target>::validateAfterLowering(PassContext& ctx, Function& fn) {
         JASMINE_PASS(VALIDATION);
         ctx.require(LOWER);
 
         if UNLIKELY(config::printJasmineAfterOpts && shouldPrintFor(Pass::VALIDATION, fn))
             println("=== IR for function ", fn.name(), " after opts ===\n", ScheduleLogger { fn, *ctx.schedule });
 
+        auto isGp = [&](Operand operand) {
+            return operand.kind == Operand::Reg && Target::is_gp(operand.reg);
+        };
+
+        auto isFp = [&](Operand operand) {
+            return operand.kind == Operand::Reg && Target::is_fp(operand.reg);
+        };
+
         auto gpOrImm = [&](Node node) {
             bool seenImm = false;
             for (auto [i, operand] : enumerate(node.operands())) {
-                assert(operand.kind == Operand::GP || (operand.kind == Operand::IntConst && !seenImm && i));
+                assert(isGp(operand) || (operand.kind == Operand::IntConst && !seenImm && i));
                 seenImm = seenImm || operand.kind == Operand::IntConst;
             }
         };
@@ -21,7 +30,7 @@ namespace jasmine {
         auto fpOrF32 = [&](Node node) {
             bool seenImm = false;
             for (auto [i, operand] : enumerate(node.operands())) {
-                assert(operand.kind == Operand::FP || (operand.kind == Operand::F32Const && !seenImm && i));
+                assert(isFp(operand) || (operand.kind == Operand::F32Const && !seenImm && i));
                 seenImm = seenImm || operand.kind == Operand::F32Const;
             }
         };
@@ -29,19 +38,19 @@ namespace jasmine {
         auto fpOrF64 = [&](Node node) {
             bool seenImm = false;
             for (auto [i, operand] : enumerate(node.operands())) {
-                assert(operand.kind == Operand::FP || (operand.kind == Operand::F64Const && !seenImm && i));
+                assert(isFp(operand) || (operand.kind == Operand::F64Const && !seenImm && i));
                 seenImm = seenImm || operand.kind == Operand::F64Const;
             }
         };
 
         auto gpOnly = [&](Node node) {
             for (auto operand : node.operands())
-                assert(operand.kind == Operand::GP);
+                assert(isGp(operand));
         };
 
         auto fpOnly = [&](Node node) {
             for (auto operand : node.operands())
-                assert(operand.kind == Operand::FP);
+                assert(isFp(operand));
         };
 
         auto fpOrImm = [&](Node node) {
@@ -79,7 +88,7 @@ namespace jasmine {
                 if (i >= 2)
                     assert(operand.kind == Operand::Branch);
                 else {
-                    assert(operand.kind == Operand::GP || (operand.kind == Operand::IntConst && !seenImm));
+                    assert(isGp(operand) || (operand.kind == Operand::IntConst && !seenImm));
                     seenImm = seenImm || operand.kind == Operand::IntConst;
                 }
             }
@@ -91,7 +100,7 @@ namespace jasmine {
                 if (i >= 2)
                     assert(operand.kind == Operand::Branch);
                 else {
-                    assert(operand.kind == Operand::FP || (operand.kind == Operand::F32Const && !seenImm));
+                    assert(isFp(operand) || (operand.kind == Operand::F32Const && !seenImm));
                     seenImm = seenImm || operand.kind == Operand::F32Const;
                 }
             }
@@ -103,7 +112,7 @@ namespace jasmine {
                 if (i >= 2)
                     assert(operand.kind == Operand::Branch);
                 else {
-                    assert(operand.kind == Operand::FP || (operand.kind == Operand::F64Const && !seenImm));
+                    assert(isFp(operand) || (operand.kind == Operand::F64Const && !seenImm));
                     seenImm = seenImm || operand.kind == Operand::F64Const;
                 }
             }
@@ -172,6 +181,9 @@ namespace jasmine {
                 case Opcode::MUL:
                 case Opcode::DIV:
                 case Opcode::REM:
+                    assert(node.operands().size() == 3);
+                    regOrImm(node);
+                    break;
                 case Opcode::IS_LT:
                 case Opcode::IS_LE:
                 case Opcode::IS_GT:
@@ -179,12 +191,14 @@ namespace jasmine {
                 case Opcode::IS_EQ:
                 case Opcode::IS_NE:
                     assert(node.operands().size() == 3);
-                    regOrImm(node);
+                    assert(isGp(node.operand(0)));
+                    assert(node.operand(1).isReg() || node.operand(1).isConst());
+                    assert(node.operand(2).isReg() || node.operand(2).isConst());
                     break;
                 case Opcode::IS_INB:
                 case Opcode::IS_OOB:
                     assert(node.operands().size() == 4);
-                    assert(node.operand(0).kind == Operand::GP);
+                    assert(isGp(node.operand(0)));
                     assert(node.operand(1).isReg() || node.operand(1).isConst());
                     assert(node.operand(2).isReg() || node.operand(2).isConst());
                     assert(node.operand(3).isReg() || node.operand(3).isConst());
@@ -196,7 +210,7 @@ namespace jasmine {
                 case Opcode::BR_IF:
                 case Opcode::BR_IF_NOT:
                     assert(node.operands().size() == 2);
-                    assert(node.operand(0).kind == Operand::GP || node.operand(0).kind == Operand::IntConst);
+                    assert(isGp(node.operand(0)) || node.operand(0).kind == Operand::IntConst);
                     assert(node.operand(1).kind == Operand::Branch);
                     break;
                 case Opcode::BR_LT:
@@ -241,12 +255,12 @@ namespace jasmine {
                     assert(node.operands().size() == 3);
                     assert(node.operand(0).isReg());
                     assert(node.operand(1).kind == Operand::Memory);
-                    assert(node.operand(2).kind == Operand::GP); // Constant index is illegal in the assembler, so it's illegal here too.
+                    assert(isGp(node.operand(2))); // Constant index is illegal in the assembler, so it's illegal here too.
                     break;
                 case Opcode::STORE_INDEX:
                     assert(node.operands().size() == 3);
                     assert(node.operand(0).kind == Operand::Memory);
-                    assert(node.operand(1).kind == Operand::GP); // Constant index is illegal in the assembler, so it's illegal here too.
+                    assert(isGp(node.operand(1))); // Constant index is illegal in the assembler, so it's illegal here too.
                     assert(node.operand(2).isReg() || node.operand(2).isConst());
                     break;
                 case Opcode::RET:
@@ -261,8 +275,8 @@ namespace jasmine {
                 case Opcode::CONVERT:
                     assert(node.operands().size() == 3);
                     assert(node.operand(1).kind == Operand::Type);
-                    assert(node.operand(0).kind == (isInt(node.type()) ? Operand::GP : Operand::FP));
-                    assert(node.operand(2).kind == (isInt(node.operand(1).type) ? Operand::GP : Operand::FP));
+                    assert(isGp(node.operand(0)) == isInt(node.type()));
+                    assert(isGp(node.operand(2)) == isInt(node.operand(1).type));
                     break;
                 case Opcode::GET_FIELD:
                 case Opcode::SET_FIELD:
@@ -287,7 +301,7 @@ namespace jasmine {
                 case Opcode::ALLOCA:
                     assert(node.operands().size() == 2);
                     assert(node.operand(1).isReg() || node.operand(1).isConst());
-                    assert(node.operand(0).kind == Operand::GP);
+                    assert(isGp(node.operand(0)));
                     break;
             }
         }

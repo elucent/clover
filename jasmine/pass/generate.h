@@ -226,7 +226,7 @@ namespace jasmine {
     };
 
     template<typename Target>
-    ASMVal lowerOperand(PassContext& ctx, Function& fn, Assembly& as, const vec<ASMVal, 16>& blockLabels, Operand operand) {
+    ASMVal lowerOperand(PassContext& ctx, Function& fn, Assembly& as, const vec<ASMVal, 16>& blockLabels, Operand operand, i64 calleeSaveSpace) {
         switch (operand.kind) {
             case Operand::IntConst:
                 if (fn.intValueOf(operand) >= -0x80000000ll && fn.intValueOf(operand) <= 0x7fffffffll)
@@ -240,7 +240,7 @@ namespace jasmine {
             case Operand::Reg:
                 return Target::is_gp(operand.reg) ? GP(operand.reg) : FP(operand.reg);
             case Operand::Memory:
-                return Mem(operand.base, operand.offset);
+                return Mem(operand.base, operand.offset + (operand.base == Target::fp && operand.offset < 0 ? -calleeSaveSpace : 0));
             case Operand::Func:
                 return Func(as.symtab[fn.syms()[operand.sym]]);
             case Operand::Data:
@@ -272,7 +272,7 @@ namespace jasmine {
         if UNLIKELY((config::printJasmineDOTAfterOpts || config::printJasmineDOTBeforeOpts || config::printJasmineDOTBeforeEachPass) && shouldPrintFor(Pass::NONPASS, fn))
             finishDOT(ctx, fn);
 
-        #define LOWER(operand) lowerOperand<Target>(ctx, fn, as, blockLabels, operand)
+        #define LOWER(operand) lowerOperand<Target>(ctx, fn, as, blockLabels, operand, calleeSaveSpace)
 
         if (config::printJasmineAssembly)
             println("=== Assembly for function ", fn.name(), " ===");
@@ -286,7 +286,8 @@ namespace jasmine {
             blockLabels.push(LocalLabel(Label::fromSym(blockNames.back())));
         }
 
-        u32 totalStackWithCalleeSaves = allocations.stack + (allocations.stack ? 8 : 0) + allocations.calleeSaves.size() * 8;
+        u32 calleeSaveSpace = allocations.calleeSaves.size() * 8;
+        u32 totalStackWithCalleeSaves = allocations.stack + (allocations.stack ? 8 : 0) + calleeSaveSpace;
 
         if (!!(fn.flags & FunctionFlags::Weak))
             Target::weakglobal(as, Label::fromSym(as.symtab[fn.name()]));
@@ -357,7 +358,7 @@ namespace jasmine {
                 Repr repr = this->repr(n.type());
                 loweredOperands.clear();
                 for (Operand o : n.operands())
-                    loweredOperands.push(lowerOperand<Target>(ctx, fn, as, blockLabels, o));
+                    loweredOperands.push(lowerOperand<Target>(ctx, fn, as, blockLabels, o, calleeSaveSpace));
                 switch (n.opcode()) {
                     case Opcode::ADDR:
                         Target::la(as, loweredOperands[0], loweredOperands[1]);

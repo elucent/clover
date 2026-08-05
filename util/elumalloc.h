@@ -950,6 +950,7 @@ namespace elumalloc {
         i32 bitmapWord = offsetInBlock >> 6;
         i32 bitIndex = offsetInBlock & 0x3f;
         u64 prevWord = block->header.bitmap[bitmapWord];
+
         atomics::set_bit(block->header.bitmap + bitmapWord, bitIndex);
         ALLOC_LOG(3, "    ", binary(prevWord, 64), " -> ", binary(block->header.bitmap[bitmapWord], 64));
 

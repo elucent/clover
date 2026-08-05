@@ -181,7 +181,7 @@ namespace jasmine {
         };
 
         vec<Operand, 16> allocations;
-        vec<Operand, 16> edgeAllocations;
+        vec<pair<Operand, Operand>, 16> edgeAllocations;
         ScratchList sharedFpScratches, sharedGpScratches;
         vec<ScratchList, 8> scratchesByInstruction;
         VariableAllocationMode allocationMode;
@@ -190,19 +190,22 @@ namespace jasmine {
         i32 stack;
         u32 numVars;
 
-        Operand nthScratch(Node node, u32 n) {
+        Operand nthScratch(Node node, TypeIndex type, u32 n) {
             Function& fn = *node.function;
             if (scratchMode == SharedScratchRegisters) {
                 if (isCompare(node.opcode()) && n == 0)
                     return fn.reg(sharedGpScratches[0]); // Override integer result on floating-point compare.
-                return isFloat(node.type()) ? fn.reg(sharedFpScratches[n]) : fn.reg(sharedGpScratches[n]);
+                return isFloat(type) ? fn.reg(sharedFpScratches[n]) : fn.reg(sharedGpScratches[n]);
             } else
-                return isFloat(node.type()) ? fn.reg(scratchesByInstruction[node.index()][n]) : fn.reg(scratchesByInstruction[node.index()][n]);
+                return isFloat(type) ? fn.reg(scratchesByInstruction[node.index()][n]) : fn.reg(scratchesByInstruction[node.index()][n]);
         }
 
-        Operand scratch0(Node node) { return nthScratch(node, 0); }
-        Operand scratch1(Node node) { return nthScratch(node, 1); }
-        Operand scratch2(Node node) { return nthScratch(node, 2); }
+        Operand scratch0(Node node) { return nthScratch(node, node.type(), 0); }
+        Operand scratch1(Node node) { return nthScratch(node, node.type(), 1); }
+        Operand scratch2(Node node) { return nthScratch(node, node.type(), 2); }
+        Operand scratch0(Node node, TypeIndex type) { return nthScratch(node, type, 0); }
+        Operand scratch1(Node node, TypeIndex type) { return nthScratch(node, type, 1); }
+        Operand scratch2(Node node, TypeIndex type) { return nthScratch(node, type, 2); }
 
         inline Operand& allocationForPinned(i32 var) {
             if (allocationMode == AllocateVariables)
@@ -242,6 +245,7 @@ namespace jasmine {
         virtual void lower(PassContext& ctx, Function& fn) = 0;
         virtual void allocateStackOnly(PassContext& ctx, Function& fn) = 0;
         virtual void allocateRegisters(PassContext& ctx, Function& fn, RegisterAllocationMode mode) = 0;
+        virtual void validateAfterLowering(PassContext& ctx, Function& fn) = 0;
         virtual void generateAssembly(PassContext& ctx, Function& fn, Assembly& as) = 0;
         virtual void generateData(Module* module, Assembly& as) = 0;
         virtual PassContext& getContext() = 0;
@@ -265,6 +269,7 @@ namespace jasmine {
         virtual void lower(PassContext& ctx, Function& fn) override;
         virtual void allocateStackOnly(PassContext& ctx, Function& fn) override;
         virtual void allocateRegisters(PassContext& ctx, Function& fn, RegisterAllocationMode mode) override;
+        virtual void validateAfterLowering(PassContext& ctx, Function& fn) override;
         virtual void generateAssembly(PassContext& ctx, Function& fn, Assembly& as) override;
         virtual void generateData(Module* module, Assembly& as) override;
 
@@ -1116,15 +1121,6 @@ namespace jasmine {
      * Computes the containment graph of previously computed live ranges.
      */
     void containment(PassContext& ctx, Function& fn);
-
-    /*
-     * Validates that the IR is sound after it has been lowered by some target-
-     * specific lowering code, like stackalloc() or regalloc(). Ensures that
-     * operations have a valid form - no more than one memory operand, register
-     * operands instead of variables, and other requirements on an opcode-by-
-     * opcode basis.
-     */
-    void validateAfterLowering(PassContext& ctx, Function& fn);
 
     /*
      * Finalizes the control-flow graph after it has been lowered to a specific

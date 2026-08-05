@@ -743,11 +743,11 @@ namespace jasmine {
             if (moves.size() == 1) {
                 auto dest = moves[0].dest;
                 auto src = moves[0].src;
-                makeMove<Target>(passes, fn, b, originalEdgeTypes[edge][0], dest, src, allocations.edgeAllocations[edge], usedScratches);
+                makeMove<Target>(passes, fn, b, originalEdgeTypes[edge][0], dest, src, isFloat(originalEdgeTypes[edge][0]) ? allocations.edgeAllocations[edge].second : allocations.edgeAllocations[edge].first, usedScratches);
                 return;
             }
 
-            parallelMove<Target>(passes, fn, b, allocations.edgeAllocations[edge], fn.reg(Target::fps().next()), originalEdgeTypes[edge], moves, usedScratches);
+            parallelMove<Target>(passes, fn, b, allocations.edgeAllocations[edge].first, allocations.edgeAllocations[edge].second, originalEdgeTypes[edge], moves, usedScratches);
         };
 
         u32 maxStackArguments = 0;
@@ -1234,18 +1234,25 @@ namespace jasmine {
                     case Opcode::BITCAST:
                     case Opcode::CONVERT: {
                         Repr srcRepr = repr(operands[1].type), destRepr = repr(n.type());
-                        Operand gpScratch = allocations.scratch0(n), fpScratch = allocations.scratch1(n);
-                        Operand srcScratch = srcRepr.isFloat() ? fpScratch : gpScratch;
+                        Operand srcScratch, destScratch;
+                        if (allocations.scratchMode == AllocationResult::SharedScratchRegisters) {
+                            srcScratch = allocations.scratch0(n, operands[1].type);
+                            destScratch = allocations.scratch0(n);
+                        } else {
+                            Operand gpScratch = allocations.scratch0(n), fpScratch = allocations.scratch1(n);
+                            srcScratch = srcRepr.isFloat() ? fpScratch : gpScratch;
+                            destScratch = destRepr.isFloat() ? fpScratch : gpScratch;
+                        }
                         if (srcRepr.kind() == destRepr.kind() && srcRepr.kind() != Size::MEMORY) {
                             makeMove<Target>(this, fn, b, n.type(), operands[0], operands[2], allocations.scratch0(n), usedScratches);
                             break;
                         }
                         Operand src = materialize(b, operands[1].type, operands[2], srcScratch);
                         if UNLIKELY(src.isConst()) {
-                            makeMove<Target>(this, fn, b, operands[1].type, src, operands[2], srcScratch, usedScratches);
+                            makeMove<Target>(this, fn, b, operands[1].type, srcScratch, src, srcScratch, usedScratches);
                             src = srcScratch;
                         }
-                        Operand output = operands[0].isReg() ? operands[0] : (destRepr.isFloat() ? fpScratch : gpScratch);
+                        Operand output = operands[0].isReg() ? operands[0] : destScratch;
                         if (!operands[0].isReg())
                             reportUsedScratch(output);
                         b.addNode(n.opcode(), n.type(), output, operands[1], src);
@@ -1280,7 +1287,7 @@ namespace jasmine {
                             makeEdge(fn, b, ifTrue.index());
                             b.addNode(Opcode::BR, VOID, operands[1]);
                             makeEdge(fn, moves, ifFalse.index());
-                            moves.addNode(Opcode::BR, VOID, fn.branch(fn.addEdge(moveBlock, ifFalse.destIndex())));
+                            moves.addNode(Opcode::BR, VOID, fn.branch(fn.addEdge(moves, ifFalse.destIndex())));
                             fn.removeEdge(ifFalse.index());
                         }
                         break;
@@ -1309,7 +1316,7 @@ namespace jasmine {
                             makeEdge(fn, b, ifTrue.index());
                             b.addNode(Opcode::BR, VOID, operands[1]);
                             makeEdge(fn, moves, ifFalse.index());
-                            moves.addNode(Opcode::BR, VOID, fn.branch(fn.addEdge(moveBlock, ifFalse.destIndex())));
+                            moves.addNode(Opcode::BR, VOID, fn.branch(fn.addEdge(moves, ifFalse.destIndex())));
                             fn.removeEdge(ifFalse.index());
                         }
                         break;
@@ -1342,7 +1349,7 @@ namespace jasmine {
                             makeEdge(fn, b, ifTrue.index());
                             b.addNode(Opcode::BR, VOID, operands[2]);
                             makeEdge(fn, moves, ifFalse.index());
-                            moves.addNode(Opcode::BR, VOID, fn.branch(fn.addEdge(moveBlock, ifFalse.destIndex())));
+                            moves.addNode(Opcode::BR, VOID, fn.branch(fn.addEdge(moves, ifFalse.destIndex())));
                             fn.removeEdge(ifFalse.index());
                         }
                         break;
@@ -1362,25 +1369,23 @@ namespace jasmine {
                         if (needsPadding)
                             b.addNode(Opcode::SUB, PTR, fn.reg(Target::sp), fn.reg(Target::sp), fn.intConst(sizeof(void*)));
 
-                        RegSet nonArgumentScratches = Target::caller_saved_gps(), nonArgumentFPScratches = Target::caller_saved_fps();
+                        RegSet nonArgumentScratches = Target::caller_saves();
                         for (Operand param : callSite.parameters) {
                             if (param.kind == Operand::Reg)
                                 nonArgumentScratches.remove(param.reg);
                             else if (param.kind == Operand::RegPair)
-                                nonArgumentScratches.remove(param.ra), nonArgumentScratches.remove(param.rb),
-                                nonArgumentFPScratches.remove(param.ra), nonArgumentFPScratches.remove(param.rb);
+                                nonArgumentScratches.remove(param.ra), nonArgumentScratches.remove(param.rb);
                         }
                         if (n.opcode() == Opcode::CALL) {
                             auto rv = callSite.returnValue;
                             if (rv.kind == Operand::Reg)
                                 nonArgumentScratches.remove(rv.reg);
                             else if (rv.kind == Operand::RegPair)
-                                nonArgumentScratches.remove(rv.ra), nonArgumentScratches.remove(rv.rb),
-                                nonArgumentFPScratches.remove(rv.ra), nonArgumentFPScratches.remove(rv.rb);
+                                nonArgumentScratches.remove(rv.ra), nonArgumentScratches.remove(rv.rb);
                             else if (rv.kind == Operand::Memory)
                                 nonArgumentScratches.remove(rv.base), nonArgumentScratches.remove(rv.offset);
                         }
-                        Operand moveScratch = fn.reg(nonArgumentScratches.next()), fpMoveScratch = fn.reg(nonArgumentFPScratches.next());
+                        Operand moveScratch = fn.reg((nonArgumentScratches & Target::gps()).next()), fpMoveScratch = fn.reg((nonArgumentScratches & Target::fps()).next());
 
                         vec<Move> parallelMoves;
                         vec<TypeIndex> moveTypes;

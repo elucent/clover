@@ -205,8 +205,8 @@ namespace jasmine {
         ctx.did(TYPECHECK);
 
         if (optLevel > 0) {
-            enforceSSA(ctx, fn);
             if (optLevel > 1) {
+                enforceSSA(ctx, fn);
                 if (!config::noConstantFolding)
                     foldConstants(ctx, fn);
                 if (!config::noStrengthReduction)
@@ -224,9 +224,10 @@ namespace jasmine {
                 // enforceSSA(ctx, fn);
                 // foldConstants(ctx, fn);
                 // reduceStrength(ctx, fn);
-            }
-            simplify(ctx, fn);
-            cleanup(ctx, fn);
+            } else
+                computePins(ctx, fn);
+            // simplify(ctx, fn);
+            // cleanup(ctx, fn);
             // if (optLevel > 1)
             //     liveness(ctx, fn);
             findDominators(ctx, fn);
@@ -247,7 +248,7 @@ namespace jasmine {
         finalizeCFG(ctx, fn);
 
         if (validate)
-            validateAfterLowering(ctx, fn);
+            ctx.targetSpecificPasses->validateAfterLowering(ctx, fn);
     }
 
     void computeCallGraph(Function* function, CallGraph& graph) {

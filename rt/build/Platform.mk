@@ -40,6 +40,12 @@ else
 	DEBUG_LINK_FLAGS := -Wl,--gc-sections -z noexecstack
 	RELEASE_CXX_FLAGS := -O3 -g -ffast-math -Ibin/release -DRELEASE
 	RELEASE_LINK_FLAGS := -Wl,--gc-sections -z noexecstack
+
+	ifeq ($(LTO), 1)
+		RELEASE_CXX_FLAGS += -flto
+		RELEASE_LINK_FLAGS += -flto
+	endif
+
 	CXX_EMIT_DEPFILE_DEBUG = $(CXX) $(CXX_FLAGS) $(DEBUG_CXX_FLAGS) -E -o
 	CXX_EMIT_DEPFILE_RELEASE = $(CXX) $(CXX_FLAGS) $(RELEASE_CXX_FLAGS) -E -o
 	EMIT_DEPFILE_TO := -MMD -MF

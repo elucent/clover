@@ -6,6 +6,7 @@
 #include "jasmine/pass/stackalloc.h"
 #include "jasmine/pass/lower.h"
 #include "jasmine/pass/generate.h"
+#include "jasmine/pass/validate.h"
 
 namespace jasmine {
     template<typename Target>
