@@ -241,6 +241,23 @@ fun write(io, i64 number):
         number = -number
     io.write(number as u64)
 
+fun write(io, f64 number):
+    if number < 0:
+        io = io.put('-' as i8)
+        number = -number
+    io = io.write(number as u64)
+    io = io.put('.' as i8)
+    number -= number as u64
+    var ndigits: 0
+    if number == 0:
+        return io.put('0' as i8)
+    while number > 0 and ndigits < 10:
+        number *= 10
+        io.put('0' as i8 + number as i8)
+        number -= number as u64
+        ndigits ++
+    return io
+
 fun write(io, bool b):
     write(io, "true") if b else write(io, "false")
 
