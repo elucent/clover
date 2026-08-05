@@ -2310,16 +2310,18 @@ namespace clover {
                 break;
             case BindingKind::RangeDecreasing:
                 bodyStmts.push(module->addInitial(
-                    ASTKind::PreDecr,
+                    ASTKind::SubEq,
                     origin(binding.firstToken, binding.lastToken),
-                    module->fromOperand(binding.high).reconstituteOrigin(binding.highPos)
+                    module->fromOperand(binding.high).reconstituteOrigin(binding.highPos),
+                    module->add(ASTKind::Unsigned, Constant::UnsignedConst(1))
                 ));
                 break;
             case BindingKind::RangeIncreasing:
                 bodyStmts.push(module->addInitial(
-                    ASTKind::PreIncr,
+                    ASTKind::AddEq,
                     origin(binding.firstToken, binding.lastToken),
-                    module->fromOperand(binding.low).reconstituteOrigin(binding.lowPos)
+                    module->fromOperand(binding.low).reconstituteOrigin(binding.lowPos),
+                    module->add(ASTKind::Unsigned, Constant::UnsignedConst(1))
                 ));
                 break;
         }
