@@ -119,6 +119,10 @@ struct AMD64Assembler {
             case ASMOpcode::FST64:
             case ASMOpcode::FSTI32:
             case ASMOpcode::FSTI64:
+            case ASMOpcode::FCMPCC32:
+            case ASMOpcode::FCMPCC64:
+            case ASMOpcode::FBRCC32:
+            case ASMOpcode::FBRCC64:
                 return RegSet(XMM0);
             default:
                 return RegSet();
@@ -424,6 +428,7 @@ struct AMD64Assembler {
             rhs = emitF32Constant(as, rhs);
         if (rhs.kind == ASMVal::F64)
             rhs = emitF64Constant(as, rhs);
+
         if (lhs.kind == ASMVal::MEM && commutative)
             swap(lhs, rhs);
         assert(lhs.kind != ASMVal::MEM);
@@ -1466,10 +1471,18 @@ struct AMD64Assembler {
     }
 
     static inline void fcmp32(Assembly& as, ASMVal a, ASMVal b) {
+        if (a.kind == ASMVal::F32) {
+            fmov32(as, FP(XMM0), a);
+            a = FP(XMM0);
+        }
         vexbinaryop(as, NoPrefix, false, Opcode::from(0x2f), a, FP(XMM0), b, false, TwoByteOpcode);
     }
 
     static inline void fcmp64(Assembly& as, ASMVal a, ASMVal b) {
+        if (a.kind == ASMVal::F64) {
+            fmov64(as, FP(XMM0), a);
+            a = FP(XMM0);
+        }
         vexbinaryop(as, VexPrefix66, false, Opcode::from(0x2f), a, FP(XMM0), b, false, TwoByteOpcode);
     }
 
@@ -1524,15 +1537,19 @@ struct AMD64Assembler {
     }
 
     static inline void fcmpcc32(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) {
-        fcmp32(as, a, b);
-        unaryop(as, BYTE, Opcode::withExt(0x0f, 0x90 + CCodes[cc], 0x00), dst);
-        zxt8(as, dst, dst);
+        xor64(as, dst, dst, dst);
+        Label end = Label::fromSym(as.anon());
+        fbrcc32(as, invert(cc), LocalLabel(end), a, b);
+        add64(as, dst, dst, Imm(1));
+        local(as, end);
     }
 
     static inline void fcmpcc64(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) {
-        fcmp32(as, a, b);
-        unaryop(as, BYTE, Opcode::withExt(0x0f, 0x90 + CCodes[cc], 0x00), dst);
-        zxt8(as, dst, dst);
+        xor64(as, dst, dst, dst);
+        Label end = Label::fromSym(as.anon());
+        fbrcc64(as, invert(cc), LocalLabel(end), a, b);
+        add64(as, dst, dst, Imm(1));
+        local(as, end);
     }
 
     static void selcc8(Assembly& as, Condition cc, ASMVal dst, ASMVal a, ASMVal b, ASMVal c, ASMVal d) {
@@ -1808,7 +1825,7 @@ struct AMD64Assembler {
     }
 
     static inline void fst32(Assembly& as, ASMVal dst, ASMVal src) {
-        if (src.kind == ASMVal::F64) {
+        if (src.kind == ASMVal::F32) {
             fmov64(as, FP(XMM0), src);
             src = FP(XMM0);
         }
@@ -2150,9 +2167,9 @@ struct AMD64Assembler {
         as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_J_AMD64, dst.label);
     }
 
-    static inline void jcc(Assembly& as, FloatCondition cc, ASMVal dst) {
+    static inline void jcc(Assembly& as, u8 cc, ASMVal dst) {
         as.code.write<u8>(0x0f);
-        as.code.write<u8>(0x80 + CCodes[cc]);
+        as.code.write<u8>(0x80 + cc);
         as.code.writeLE<i32>(0);
         assert(dst.memkind == ASMVal::LOCAL_LABEL || dst.memkind == ASMVal::FUNC_LABEL);
         as.ref(CODE_SECTION, dst.memkind == ASMVal::LOCAL_LABEL ? DEF_LOCAL : DEF_GLOBAL, Reloc::REL32_LE_J_AMD64, dst.label);
@@ -2207,13 +2224,65 @@ struct AMD64Assembler {
     }
 
     static inline void fbrcc32(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) {
-        fcmp32(as, a, b);
-        jcc(as, cc, dst);
+        switch (cc) {
+            case FCOND_GT:
+                fcmp32(as, a, b);
+                jcc(as, COND_ABOVE, dst);
+                break;
+            case FCOND_GE:
+                fcmp32(as, a, b);
+                jcc(as, COND_AE, dst);
+                break;
+            case FCOND_LT:
+                fcmp32(as, b, a);
+                jcc(as, COND_ABOVE, dst);
+                break;
+            case FCOND_LE:
+                fcmp32(as, b, a);
+                jcc(as, COND_AE, dst);
+                break;
+            case FCOND_EQ:
+                fcmp32(as, a, b);
+                jcc(as, COND_EQ, dst);
+                jcc(as, 0x0b, dst); // jnp
+                break;
+            case FCOND_NE:
+                fcmp32(as, b, a);
+                jcc(as, COND_NE, dst);
+                jcc(as, 0x0a, dst); // jp
+                break;
+        }
     }
 
     static inline void fbrcc64(Assembly& as, FloatCondition cc, ASMVal dst, ASMVal a, ASMVal b) {
-        fcmp64(as, a, b);
-        jcc(as, cc, dst);
+        switch (cc) {
+            case FCOND_GT:
+                fcmp64(as, a, b);
+                jcc(as, COND_ABOVE, dst);
+                break;
+            case FCOND_GE:
+                fcmp64(as, a, b);
+                jcc(as, COND_AE, dst);
+                break;
+            case FCOND_LT:
+                fcmp64(as, b, a);
+                jcc(as, COND_ABOVE, dst);
+                break;
+            case FCOND_LE:
+                fcmp64(as, b, a);
+                jcc(as, COND_AE, dst);
+                break;
+            case FCOND_EQ:
+                fcmp64(as, a, b);
+                jcc(as, COND_EQ, dst);
+                jcc(as, 0x0b, dst); // jnp
+                break;
+            case FCOND_NE:
+                fcmp64(as, b, a);
+                jcc(as, COND_NE, dst);
+                jcc(as, 0x0a, dst); // jp
+                break;
+        }
     }
 
     // Functions
