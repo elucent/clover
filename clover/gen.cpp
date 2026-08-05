@@ -3016,13 +3016,43 @@ namespace clover {
             case ASTKind::New: {
                 auto type = typeOf(ast);
                 auto elementType = type.asPtr().elementType();
-                if (!ast.child(0).missing())
-                    value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
+                auto initType = ast.child(0).missing() ? elementType : typeOf(ast, 0);
+
+                if (isAtom(initType)) // Atoms don't need to be allocated.
+                    return genCtx.atomRef(initType);
                 auto size = genCtx.sizeOf(elementType);
                 result = genCtx.temp();
                 jasmine_append_call(builder, genCtx.getMemoryAllocType(), result, genCtx.funcref(cstring("memory.alloc")), &size, 1);
-                if (!ast.child(0).missing())
-                    jasmine_append_store(builder, genCtx.lower(elementType), result, value);
+
+                if (!ast.child(0).missing()) {
+                    bool didSpecialInit = false;
+                    if (ast.child(0).kind() == ASTKind::Construct) {
+                        auto initType = typeOf(ast, 0);
+                        if (initType.isStruct()) {
+                            auto structType = initType.asStruct();
+                            auto loweredStruct = genCtx.lower(structType);
+                            if (structType.isCase())
+                                jasmine_append_store_field(builder, loweredStruct, result, 0, genCtx.imm(structType.typeTag()));
+                            for (u32 i = 0; i < structType.count(); i ++) {
+                                JasmineOperand field = generate(genCtx, builder, ast.child(0).child(i + 1), expand(structType.fieldType(i)));
+                                jasmine_append_store_field(builder, loweredStruct, result, structType.isCase() ? i + 1 : i, field);
+                            }
+                            didSpecialInit = true;
+                        } else if (initType.isNamed()) {
+                            auto namedType = initType.asNamed();
+                            auto loweredNamed = genCtx.lower(namedType);
+                            JasmineOperand field = generate(genCtx, builder, ast.child(0).child(1), namedType.innerType());
+                            if (namedType.isCase())
+                                jasmine_append_store_field(builder, loweredNamed, result, 0, genCtx.imm(namedType.typeTag()));
+                            jasmine_append_store_field(builder, loweredNamed, result, namedType.isCase() ? 1 : 0, field);
+                            didSpecialInit = true;
+                        }
+                    }
+                    if (!didSpecialInit) {
+                        value = generate(genCtx, builder, ast.child(0), typeOf(ast, 0));
+                        jasmine_append_store(builder, genCtx.lower(elementType), result, value);
+                    }
+                }
                 return result;
             }
 
