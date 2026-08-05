@@ -1796,6 +1796,11 @@ namespace clover {
                 return module->addInitial(ASTKind::Break, origin(visitor.read()));
             case KeywordContinue:
                 return module->addInitial(ASTKind::Continue, origin(visitor.read()));
+            case KeywordDel: {
+                visitor.read();
+                auto expr = parseExpression(module, visitor);
+                return module->addInitial(ASTKind::Del, origin(token, expr), expr);
+            }
             case KeywordReturn: {
                 visitor.read();
                 constexpr u64 followSetForEmptyReturn = 0ull

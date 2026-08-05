@@ -578,6 +578,7 @@ namespace clover {
             case ASTKind::PostDecr:
             case ASTKind::New:
             case ASTKind::NewArray:
+            case ASTKind::Del:
             case ASTKind::OwnType:
             case ASTKind::UninitType:
             case ASTKind::Splat:

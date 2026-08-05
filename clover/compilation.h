@@ -429,6 +429,7 @@ namespace clover {
         macro(KeywordRaises, "raises") \
         macro(KeywordOperator, "operator") \
         macro(KeywordNew, "new") \
+        macro(KeywordDel, "del") \
         macro(KeywordOwn, "own") \
         macro(KeywordUninit, "uninit") \
         macro(KeywordThis, "this") \
