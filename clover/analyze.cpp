@@ -1958,7 +1958,7 @@ namespace clover {
                 // When we leave a function, we need to ensure that we haven't
                 // left an externally-visible value in an invalid state.
 
-                state.endScopeEarly(ast.scope(), ast.child(1).missing() ? ChangePosition(ast) : ChangePosition(ast, 1));
+                state.endScopeEarly(ast.scope(), ast.child(0).missing() ? ChangePosition(ast) : ChangePosition(ast, 0));
                 return result;
             }
 
