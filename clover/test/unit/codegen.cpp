@@ -6,7 +6,7 @@ T* lookup(const i8* name, JasmineExecutable exec) {
     return (T*)ptr;
 }
 
-#define FOR_EACH_INT(macro, ...) \
+#define FOR_EACH_SINT(macro, ...) \
     macro(I8, i8, __VA_ARGS__) \
     macro(I16, i16, __VA_ARGS__) \
     macro(I32, i32, __VA_ARGS__) \
@@ -22,9 +22,16 @@ T* lookup(const i8* name, JasmineExecutable exec) {
     macro(F32, f32, __VA_ARGS__) \
     macro(F64, f64, __VA_ARGS__)
 
+#define FOR_EACH_INT(macro, ...) \
+    FOR_EACH_SINT(macro, __VA_ARGS__) \
+    FOR_EACH_UINT(macro, __VA_ARGS__)
+
+#define FOR_EACH_SIGNED(macro, ...) \
+    FOR_EACH_SINT(macro, __VA_ARGS__) \
+    FOR_EACH_FLOAT(macro, __VA_ARGS__)
+
 #define FOR_EACH_NUMBER(macro, ...) \
     FOR_EACH_INT(macro, __VA_ARGS__) \
-    FOR_EACH_UINT(macro, __VA_ARGS__) \
     FOR_EACH_FLOAT(macro, __VA_ARGS__)
 
 struct Substitutions {
@@ -83,7 +90,22 @@ struct Substitutions {
         return source; \
     }())
 
-FOR_EACH_INT(DEFINE_TEST, codegen_arithmetic_simple,
+FOR_EACH_SIGNED(DEFINE_TEST, codegen_unary_arithmetic_simple,
+    auto instance = COMPILE_SUBST(R"(
+$T plus($T a):
+    +a
+$T minus($T a):
+    -a
+)");
+    auto exec = load(instance.artifact);
+    auto plus = lookup<type(type)>("plus", exec);
+    auto minus = lookup<type(type)>("minus", exec);
+
+    ASSERT_EQUAL(plus(42), 42);
+    ASSERT_EQUAL(minus(-42), 42);
+)
+
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_binary_arithmetic_simple,
     auto instance = COMPILE_SUBST(R"(
 $T add($T a, $T b):
     a + b
@@ -91,31 +113,30 @@ $T sub($T a, $T b):
     a - b
 $T mul($T a, $T b):
     a * b
-$T div($T a, $T b):
-    a / b
-$T rem($T a, $T b):
-    a % b
-$T plus($T a):
-    +a
-$T minus($T a):
-    -a
 )");
     auto exec = load(instance.artifact);
     auto add = lookup<type(type, type)>("add", exec);
     auto sub = lookup<type(type, type)>("sub", exec);
     auto mul = lookup<type(type, type)>("mul", exec);
-    auto div = lookup<type(type, type)>("div", exec);
-    auto rem = lookup<type(type, type)>("rem", exec);
-    auto plus = lookup<type(type)>("plus", exec);
-    auto minus = lookup<type(type)>("minus", exec);
 
     ASSERT_EQUAL(add(15, 27), 42);
     ASSERT_EQUAL(sub(60, 18), 42);
     ASSERT_EQUAL(mul(6, 7), 42);
+)
+
+FOR_EACH_INT(DEFINE_TEST, codegen_division_remainder_simple,
+    auto instance = COMPILE_SUBST(R"(
+$T div($T a, $T b):
+    a / b
+$T rem($T a, $T b):
+    a % b
+)");
+    auto exec = load(instance.artifact);
+    auto div = lookup<type(type, type)>("div", exec);
+    auto rem = lookup<type(type, type)>("rem", exec);
+
     ASSERT_EQUAL(div(127, 3), 42);
     ASSERT_EQUAL(rem(102, 60), 42);
-    ASSERT_EQUAL(plus(42), 42);
-    ASSERT_EQUAL(minus(-42), 42);
 )
 
 FOR_EACH_INT(DEFINE_TEST, codegen_bitwise_simple,
@@ -157,7 +178,7 @@ $T ror($T a, $T b):
     ASSERT_EQUAL(ror(-42, 3), ::ror<type>(-42, 3));
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_compare_simple,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_compare_simple,
     auto instance = COMPILE_SUBST(R"(
 bool less($T a, $T b):
     a < b
@@ -194,7 +215,7 @@ bool inequal($T a, $T b):
     ASSERT_EQUAL(inequal(-42, 42), true);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_compare_branch_simple,
+FOR_EACH_SIGNED(DEFINE_TEST, codegen_compare_branch_simple,
     auto instance = COMPILE_SUBST(R"(
 bool less($T a, $T b):
     true if a < b else false
@@ -231,7 +252,7 @@ bool inequal($T a, $T b):
     ASSERT_EQUAL(inequal(-42, 42), true);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_loop_break,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_loop_break,
     auto instance = COMPILE_SUBST(R"(
 $T break_always():
     var i: 0
@@ -288,7 +309,7 @@ $T break_nested_loop():
     ASSERT_EQUAL(break_nested_loop(), 42);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_loop_forwards_backwards,
+FOR_EACH_SIGNED(DEFINE_TEST, codegen_loop_forwards_backwards,
     auto instance = COMPILE_SUBST(R"(
 $T while_forward($T i, $T n):
     $T result: 0
@@ -329,7 +350,7 @@ $T until_backward($T i, $T n):
     ASSERT_EQUAL(until_backward(10, 0), 55);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_get_index,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_get_index,
     auto instance = COMPILE_SUBST(R"(
 $T sum_slice($T[] xs):
     $T sum: 0
@@ -387,7 +408,7 @@ void xorswap($T* x, $T* y):
     ASSERT_EQUAL(y, 43);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_set_index,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_set_index,
     auto instance = COMPILE_SUBST(R"(
 void copy_slice($T[] dst, i32 i, $T[] src, i32 j, i32 n):
     var k: 0
@@ -438,7 +459,7 @@ void transpose($T[4][4]* mat):
     ASSERT_EQUAL(matrix[3][0], 43);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_get_slice,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_get_slice,
     auto instance = COMPILE_SUBST(R"(
 $T[] as_slice($T[8]* xs):
     return xs[:]
@@ -507,7 +528,7 @@ $T[] slice($T[] xs, u32 i, u32 j):
     ASSERT_EQUAL(slice_fn(slice, 2, 7)[4], 6);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_global_scalar,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_global_scalar,
     auto instance = COMPILE_SUBST(R"(
 $T global: 42
 
@@ -540,7 +561,7 @@ $T* addr_global():
     ASSERT_EQUAL(get_global(), 45);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_global_array,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_global_array,
     auto instance = COMPILE_SUBST(R"(
 $T[7] numbers: [1, 2, 3, 4, 5, 6, 7]
 
@@ -567,7 +588,7 @@ $T* addr_number(i32 i):
     ASSERT_EQUAL(sum, 42);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_global_slice,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_global_slice,
     auto instance = COMPILE_SUBST(R"(
 $T[] numbers: [1, 2, 3, 4, 5, 6, 7]
 
@@ -606,7 +627,7 @@ $T[] sub_slice(i32 i, i32 j):
     ASSERT_EQUAL(sum, 42);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_apply_func_to_array,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_apply_func_to_array,
     auto instance = COMPILE_SUBST(R"(
 void map($T($T) f, $T[] input, $T[] out):
     var i: 0
@@ -665,7 +686,7 @@ $T sum($T[] input):
     ASSERT_EQUAL(sum(input[{3, 8}]), 25);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_arith_assignment,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_arith_assignment,
     auto instance = COMPILE_SUBST(R"(
 void add_eq($T* x, $T y):
     *x += y
@@ -702,7 +723,7 @@ void rem_eq($T* x, $T y):
     ASSERT_EQUAL(val, 3);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_compound_assignment_local,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_compound_assignment_local,
     auto instance = COMPILE_SUBST(R"(
 $T add_eq($T x, $T y):
     x += y
@@ -781,7 +802,7 @@ void bitror_eq($T* x, $T y):
     ASSERT_EQUAL(val, 0b01100);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_incr_decr,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_incr_decr,
     auto instance = COMPILE_SUBST(R"(
 $T pre_incr($T* x):
     return ++ *x
@@ -812,7 +833,7 @@ $T post_decr($T* x):
     ASSERT_EQUAL(val, 42);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_incr_decr_local,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_incr_decr_local,
     auto instance = COMPILE_SUBST(R"(
 $T pre_incr($T x):
     return ++ x
@@ -835,7 +856,7 @@ $T post_decr($T x):
     ASSERT_EQUAL(post_decr(43), 43);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_hailstone_two_ways,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_hailstone_two_ways,
     auto instance = COMPILE_SUBST(R"(
 $T hail_iter($T x):
     while x != 1:
@@ -862,7 +883,7 @@ $T hail_rec($T x):
     ASSERT_EQUAL(hail_rec(37), 1);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_if_else_with_result,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_if_else_with_result,
     auto instance = COMPILE_SUBST(R"(
 $T pick($T x, $T y, bool b):
     return x if b else y
@@ -884,7 +905,7 @@ $T pick4($T a, $T b, $T c, $T d, bool cond1, bool cond2):
     ASSERT_EQUAL(pick4(42, 43, 44, 45, false, false), 45);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_get_local_field,
+FOR_EACH_SIGNED(DEFINE_TEST, codegen_get_local_field,
     auto instance = COMPILE_SUBST(R"(
 type Foo:
     $T x, y, z
@@ -926,7 +947,7 @@ $T get_nested_field(i32 i):
     ASSERT_EQUAL(get_nested_field(5), -1);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_static_linked_list,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_static_linked_list,
     auto instance = COMPILE_SUBST(R"(
 type List:
     $T item
@@ -1044,7 +1065,7 @@ void qsort($T[] xs):
     }
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_exp,
+FOR_EACH_SINT(DEFINE_TEST, codegen_exp,
     auto instance = COMPILE_SUBST(R"(
 $T square($T x):
     x ** 2
@@ -1131,7 +1152,7 @@ $T pow_eq($T x, $T p):
     ASSERT_FLOAT_EQUAL(pow_eq(3.0, 3.0), 27.0);
 )
 
-FOR_EACH_INT(DEFINE_TEST, codegen_new,
+FOR_EACH_NUMBER(DEFINE_TEST, codegen_new,
     auto instance = COMPILE_SUBST(R"(
 own $T* makeInt($T x):
     new x
