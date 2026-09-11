@@ -73,8 +73,6 @@ namespace jasmine {
         macro(BR_MUL_O, br_mul_o) \
         \
         /* Aggregate value operations. */ \
-        macro(PACK, pack) \
-        macro(UNPACK, unpack) \
         macro(GET_FIELD, get_field) \
         macro(GET_INDEX, get_index) \
         macro(SET_FIELD, set_field) \
@@ -256,8 +254,6 @@ namespace jasmine {
         switch (opcode) {
             case Opcode::CALL:
             case Opcode::CALL_VOID:
-            case Opcode::PACK:
-            case Opcode::UNPACK:
                 return true;
             default:
                 return false;
@@ -315,7 +311,7 @@ namespace jasmine {
 
     struct NodeHeader {
         Opcode opcode;
-        TypeKind type;
+        i8 type;
         u16 arity;
     };
 
@@ -510,6 +506,7 @@ namespace jasmine {
         inline u32 wordCount() const;
         inline void setOpcode(Opcode);
         inline void setArity(u16);
+        inline void setType(TypeIndex);
 
         inline TypeIndex type() const;
         inline Operand operand(u32 i) const;
@@ -968,7 +965,7 @@ namespace jasmine {
             assert(arity < 65536);
 
             nodeList.push(headidx);
-            if (type >= 0) {
+            if (type >= 127) {
                 nodeWords.push(NodeWord { .header = { opcode, TypeKind::EXT, u16(arity) } });
                 nodeWords.push(NodeWord { .type = type });
             } else
@@ -983,11 +980,11 @@ namespace jasmine {
             addedAnything = true;
             u32 headidx = nodeWords.size();
             i32 arity = computeArity(args...);
-            i32 necessaryStorage = arity + 1 + (type >= 0 ? 1 : 0);
-            i32 currentStorage = node.arity() + 1 + (node.type() >= 0 ? 1 : 0);
+            i32 necessaryStorage = arity + 1 + (type >= 127 ? 1 : 0);
+            i32 currentStorage = node.arity() + 1 + (node.type() >= 127 ? 1 : 0);
             if (necessaryStorage <= currentStorage) {
                 u32 storage = node.headidx;
-                if (type >= 0) {
+                if (type >= 127) {
                     nodeWords[storage ++] = NodeWord { .header = { opcode, TypeKind::EXT, u16(arity) }};
                     nodeWords[storage ++] = NodeWord { .type = type };
                 } else
@@ -998,7 +995,7 @@ namespace jasmine {
                 // The new node exceeds the storage of the previous one, so we'll need to allocate
                 // a new node and redirect the old one to the new storage.
                 nodeList[node.index()] = headidx;
-                if (type >= 0) {
+                if (type >= 127) {
                     nodeWords.push(NodeWord { .header = { opcode, TypeKind::EXT, u16(arity) } });
                     nodeWords.push(NodeWord { .type = type });
                 } else
@@ -1057,7 +1054,7 @@ namespace jasmine {
             return variable(VariableKey::Id(id));
         }
 
-        inline Operand variable() {
+        inline Operand variableWithType(TypeIndex type) {
             Operand operand;
             operand.kind = Operand::Var;
             operand.var = variableList.size();
@@ -1065,11 +1062,15 @@ namespace jasmine {
             Variable variable;
             variable.name = { nullptr, nextTemp ++ };
             variable.parameterIndex = -1;
-            variable.type = TypeKind::UNDEFINED;
+            variable.type = type;
             variable.version = -1;
             variable.original = -1;
             variableList.push(variable);
             return operand;
+        }
+
+        inline Operand variable() {
+            return variableWithType(TypeKind::UNDEFINED);
         }
 
         inline i32 intern(VariableKey key) {
@@ -1526,6 +1527,15 @@ namespace jasmine {
 
     inline u32 Node::arity() const {
         return header().arity;
+    }
+
+    inline void Node::setType(TypeIndex idx) {
+        if (header().type != TypeKind::EXT && idx <= 127)
+            header().type = (i8)idx;
+        else {
+            header().type = TypeKind::EXT;
+            function->nodeWords[headidx + 1].type = idx;
+        }
     }
 
     inline TypeIndex Node::type() const {

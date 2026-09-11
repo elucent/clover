@@ -232,18 +232,30 @@ namespace jasmine {
             //     liveness(ctx, fn);
             findDominators(ctx, fn);
         }
+
+        if (config::useNewLowering) {
+            breakCriticalEdges(ctx, fn);
+        }
     }
 
     void targetSpecificOptimizations(PassContext& ctx, Function& fn, u32 optLevel, bool validate) {
-        ctx.targetSpecificPasses->computeClobbers(ctx, fn);
-        if (optLevel > 4) {
-            containment(ctx, fn);
-            ctx.targetSpecificPasses->allocateRegisters(ctx, fn, RegisterAllocationMode::ADVANCED);
-        } else if (optLevel > 0)
-            ctx.targetSpecificPasses->allocateRegisters(ctx, fn, RegisterAllocationMode::SINGLE_PASS);
-        else
+        if (config::useNewLowering) {
+            ctx.targetSpecificPasses->lowerTypes(fn.mod);
+            ctx.targetSpecificPasses->lowerNew(ctx, fn);
             ctx.targetSpecificPasses->allocateStackOnly(ctx, fn);
-        ctx.targetSpecificPasses->lower(ctx, fn);
+        } else {
+            ctx.targetSpecificPasses->computeClobbers(ctx, fn);
+            if (optLevel > 4) {
+                containment(ctx, fn);
+                ctx.targetSpecificPasses->allocateRegisters(ctx, fn, RegisterAllocationMode::ADVANCED);
+            } else if (optLevel > 0)
+                ctx.targetSpecificPasses->allocateRegisters(ctx, fn, RegisterAllocationMode::SINGLE_PASS);
+            else
+                ctx.targetSpecificPasses->allocateStackOnly(ctx, fn);
+
+            if (!config::useNewLowering)
+                ctx.targetSpecificPasses->lower(ctx, fn);
+        }
 
         finalizeCFG(ctx, fn);
 

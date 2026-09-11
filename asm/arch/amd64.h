@@ -26,6 +26,10 @@ struct AMD64Assembler {
     constexpr static EndianOrder endianness = EndianOrder::LITTLE;
     constexpr static bool shouldCompact = true;
 
+    static constexpr inline Arch arch() {
+        return ARCH_AMD64;
+    }
+
     static constexpr inline RegSet gps() {
         return RegSet(GP_REGS, 14);
     }

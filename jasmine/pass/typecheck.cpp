@@ -32,8 +32,6 @@ namespace jasmine {
                 case Opcode::COMMENT:
                     break;
                 case Opcode::VAR:
-                case Opcode::PACK:
-                case Opcode::UNPACK:
                 case Opcode::MOV:
                 case Opcode::ABS:
                 case Opcode::SQRT:
@@ -284,34 +282,6 @@ namespace jasmine {
                     if (!validateArityAndDest(block, node, 1))
                         break;
                     unify(block, node, node.operand(0), node.type());
-                    break;
-                case Opcode::PACK:
-                    if (!isStruct(fn.typeContext(), node.type()))
-                        ctx.error(block, node, "Expected struct type in pack node, found ", TypeLogger { fn, node.type() }, '.');
-                    else {
-                        auto& structType = fn.typeContext()[node.type()];
-                        if (structType.fieldCount != node.operands().size() - 1) {
-                            ctx.error(block, node, "Incorrect number of inputs in make.struct node: expected ", structType.fieldCount, ", got ", node.operands().size() - 1);
-                            break;
-                        }
-                        for (auto [t, o] : zip(structType.fields(), node.operands().drop(1)))
-                            unify(block, node, o, t);
-                        unify(block, node, node.operand(0), node.type());
-                    }
-                    break;
-                case Opcode::UNPACK:
-                    if (!isStruct(fn.typeContext(), node.type()))
-                        ctx.error(block, node, "Expected struct type in unpack node, found ", TypeLogger { fn, node.type() }, '.');
-                    else {
-                        auto& structType = fn.typeContext()[node.type()];
-                        if (structType.fieldCount != node.operands().size() - 1) {
-                            ctx.error(block, node, "Incorrect number of outputs in unpack node: expected ", structType.fieldCount, ", got ", node.operands().size() - 1);
-                            break;
-                        }
-                        for (auto [t, o] : zip(structType.fields(), node.operands().take(structType.fieldCount)))
-                            unify(block, node, o, t);
-                        unify(block, node, node.operand(structType.fieldCount), node.type());
-                    }
                     break;
                 case Opcode::MOV:
                     if (!validateArityAndDest(block, node, 2))

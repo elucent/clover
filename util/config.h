@@ -66,6 +66,7 @@ enum class PassTimeUnit {
     macro(noConstantFolding, no-constant-folding, bool, false, Jasmine, "Disables constant folding.") \
     macro(noCSE, no-cse, bool, false, Jasmine, "Disables common subexpression elimination.") \
     macro(forceOptLevel, force-opt-level, i32, -1, Jasmine, "Universally override the optimization level of Jasmine compilation.") \
+    macro(useNewLowering, use-new-lowering, bool, false, Jasmine, "Use newer lowering pass order instead of previous one.") \
     \
     /* Basil options. */ \
     macro(printBasilSource, print-basil-source, bool, false, Basil, "Write Basil source to standard output after loading.") \

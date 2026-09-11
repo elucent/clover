@@ -27,6 +27,7 @@ namespace jasmine {
         macro(CONSTANT_FOLDING, constant_folding, false) \
         macro(STRENGTH_REDUCTION, strength_reduction, false) \
         macro(CSE, cse, false) \
+        macro(CRITICAL_EDGE_BREAKING, critical_edge_breaking, false) \
         macro(LIVENESS, liveness, false) \
         macro(INTERFERENCE, interference, false) \
         macro(VALIDATION, validation, false) \
@@ -116,6 +117,7 @@ namespace jasmine {
         PINS,           // We know which variables are and aren't pinned by address-of instructions.
         SSA,            // SSA form enforced for the IR.
         EFFECTS,        // Effect ranges have been computed for all effectful nodes.
+        BREAK_CRIT,     // Critical edges have been eliminated.
         LIVENESS,       // Liveness information has been computed for the function.
         CLOBBERS,       // Clobbers and call information have been computed for the necessary instructions.
         CONTAINMENT,    // The containment graph of the function's live ranges has been computed.
@@ -243,11 +245,15 @@ namespace jasmine {
         virtual void computeClobbers(PassContext& ctx, Function& fn) = 0;
         virtual void lowerTypes(Module* mod) = 0;
         virtual void lower(PassContext& ctx, Function& fn) = 0;
+        virtual void lowerNew(PassContext& ctx, Function& fn) = 0;
         virtual void allocateStackOnly(PassContext& ctx, Function& fn) = 0;
         virtual void allocateRegisters(PassContext& ctx, Function& fn, RegisterAllocationMode mode) = 0;
         virtual void validateAfterLowering(PassContext& ctx, Function& fn) = 0;
         virtual void generateAssembly(PassContext& ctx, Function& fn, Assembly& as) = 0;
         virtual void generateData(Module* module, Assembly& as) = 0;
+        virtual void lower(PassContext& ctx, Function& fn, Block& block, u32 indexInBlock, Node& node) = 0;
+        virtual RegSet* validRegsFor(Node node) = 0;
+        virtual RegSet validRegsFor(Node node, u32 i) = 0;
         virtual PassContext& getContext() = 0;
     };
 
@@ -267,11 +273,15 @@ namespace jasmine {
         virtual void computeClobbers(PassContext& ctx, Function& fn) override;
         virtual void lowerTypes(Module* mod) override;
         virtual void lower(PassContext& ctx, Function& fn) override;
+        virtual void lowerNew(PassContext& ctx, Function& fn) override;
         virtual void allocateStackOnly(PassContext& ctx, Function& fn) override;
         virtual void allocateRegisters(PassContext& ctx, Function& fn, RegisterAllocationMode mode) override;
         virtual void validateAfterLowering(PassContext& ctx, Function& fn) override;
         virtual void generateAssembly(PassContext& ctx, Function& fn, Assembly& as) override;
         virtual void generateData(Module* module, Assembly& as) override;
+        virtual RegSet* validRegsFor(Node node) override;
+        virtual RegSet validRegsFor(Node node, u32 i) override;
+        virtual void lower(PassContext& ctx, Function& fn, Block& block, u32 indexInBlock, Node& node) override;
 
         struct DefInfo {
             Section section;
@@ -1109,6 +1119,12 @@ namespace jasmine {
      * Performs SSA-based, non-effect-aware common subexpression elimination.
      */
     void eliminateCommonSubexpressions(PassContext& ctx, Function& fn);
+
+    /*
+     * Eliminates all critical edges in the control flow graph by introducing
+     * new blocks along their path.
+     */
+    void breakCriticalEdges(PassContext& ctx, Function& fn);
 
     /*
      * Computes liveness information for each variable in the function, which

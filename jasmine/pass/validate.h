@@ -290,9 +290,6 @@ namespace jasmine {
                 case Opcode::OFFSET_FIELD:
                 case Opcode::OFFSET_INDEX:
                     unreachable("Address-offset instructions should have been lowered into other addressing or arithmetic instructions by this point.");
-                case Opcode::PACK:
-                case Opcode::UNPACK:
-                    unreachable("Pack and unpack instructions should have been lowered into individual moves by this point.");
                 case Opcode::PUSH:
                 case Opcode::POP:
                     assert(node.operands().size() == 1);

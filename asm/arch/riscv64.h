@@ -55,6 +55,10 @@ struct RISCV64Assembler {
     constexpr static EndianOrder endianness = EndianOrder::LITTLE;
     constexpr static bool shouldCompact = true;
 
+    static constexpr inline Arch arch() {
+        return ARCH_RISCV64;
+    }
+
     static constexpr inline RegSet gps() {
         return RegSet(GP_REGS, 26);
     }

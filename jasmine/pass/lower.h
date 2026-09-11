@@ -542,6 +542,19 @@ namespace jasmine {
     }
 
     template<typename Target>
+    void TargetSpecificPasses<Target>::lowerNew(PassContext& ctx, Function& fn) {
+        JASMINE_PASS(LOWERING);
+        ctx.did(LOWER);
+
+        for (Block block : fn.blocks()) for (u32 i = 0; i < block.nodeIndices().size(); i ++) {
+            Node n = block.node(i);
+            lower(ctx, fn, block, i, n);
+        }
+
+        fn.executeInsertions();
+    }
+
+    template<typename Target>
     void TargetSpecificPasses<Target>::lower(PassContext& ctx, Function& fn) {
         JASMINE_PASS(LOWERING);
         ctx.require(ALLOCATE);

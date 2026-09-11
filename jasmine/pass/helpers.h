@@ -3,6 +3,7 @@
 
 #include "jasmine/pass.h"
 #include "jasmine/type.h"
+#include "jasmine/pass/target.h"
 
 namespace jasmine {
     template<typename Target>

@@ -31,6 +31,7 @@
 #endif
 
 enum Arch : u8 {
+    UNKNOWN_ARCH,
     ARCH_X86,
     ARCH_AMD64,
     ARCH_ARM64,
@@ -39,10 +40,11 @@ enum Arch : u8 {
 };
 
 constexpr const i8* ARCH_NAMES[] = {
-    "x86", "amd64", "arm64", "riscv64", "wasm"
+    "unknown", "x86", "amd64", "arm64", "riscv64", "wasm"
 };
 
 enum OS : u8 {
+    UNKNOWN_OS,
     OS_WINDOWS,
     OS_OSX,
     OS_LINUX,
@@ -51,7 +53,7 @@ enum OS : u8 {
 };
 
 constexpr const i8* OS_NAMES[] = {
-    "windows", "osx", "linux", "bsd", "wasi"
+    "unknown", "windows", "osx", "linux", "bsd", "wasi"
 };
 
 struct TargetDesc {
@@ -1553,6 +1555,10 @@ struct FakeAssembler {
     constexpr static mreg sp = 31;
     constexpr static EndianOrder endianness = EndianOrder::LITTLE;
 
+    static inline constexpr Arch arch() {
+        return UNKNOWN_ARCH;
+    }
+
     static inline RegSet caller_saved_gps() {
         return RegSet(GPREGS, 16);
     }
@@ -2078,6 +2084,7 @@ struct Compose {
 
     // Other target methods
 
+    static inline constexpr Arch arch() { return B::arch(); }
     static RegSet caller_saved_gps() { return B::caller_saved_gps(); }
     static RegSet caller_saved_fps() { return B::caller_saved_fps(); }
     static RegSet caller_saves() { return B::caller_saves(); }
